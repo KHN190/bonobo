@@ -1,6 +1,6 @@
 """What the maintain rows remember from earlier rounds (reflexes.Maintain's own state): nothing; the body in one block
-with one bag for STUCK_LIMIT (history: unstuck); reach land latched, on land for less than LAND_EXIT_S (active,
-land_since: the hysteresis); a row that ran last round and changed nothing (last_run: stalled — the bag still full);
+with one bag for STUCK_LIMIT (history: unstuck); ashore from the water less than LAND_EXIT_S ago (afloat,
+land_since: the hysteresis, SAFETY's hazard "swimming"); a row that ran last round and changed nothing (last_run: stalled — the bag still full);
 a path failure here a moment ago toward a target (blocked: path blocked)."""
 import time
 
@@ -29,7 +29,7 @@ def prepare(brain, f):
         sig = bag_signature(Inventory())
         m.history = [(now - reflexes.STUCK_LIMIT - 1, feet, sig), (now - 1, feet, sig)]
     elif value == "latched":
-        m.active = frozenset({"reach land"})
+        m.afloat = True
         m.land_since = now - reflexes.LAND_EXIT_S / 2
     elif value == "stalled":
         m.last_run = ("empty the bag", Inventory().used_slots())
@@ -43,7 +43,7 @@ def alpha(a):
         return "blocked"
     if m.last_run is not None:
         return "stalled"
-    if "reach land" in m.active:
+    if m.afloat and m.land_since is not None:
         return "latched"
     return "stuck" if len(m.history) >= 2 else "none"
 
@@ -53,7 +53,7 @@ def gamma(value, f, g):
 
 
 def step(facts, d, ctx):
-    """The rows these memories fire end them: unstuck moves the body, reach land stands it ashore (its exit), path
+    """The rows these memories fire end them: unstuck moves the body, the swimming rescue stands it ashore, path
     blocked bridges the way (blocked cleared)."""
     name = (d.name or "").lower()
-    return {NAME: "none"} if name in ("unstuck", "reach land", "path blocked") else {}
+    return {NAME: "none"} if name in ("unstuck", "rescue swimming", "path blocked") else {}

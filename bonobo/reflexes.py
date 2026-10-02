@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, building, craft, fluids, nav, nether, skillcore, store, survive, tape, world, jobs
+from . import api, building, craft, nav, nether, skillcore, store, survive, tape, world, jobs
 from .api import McError, NotAvailable, log, swallowed
 from .data import BASE_MARKERS, FULL_BAR, MAX_HP, WALK_BLOCKS_PER_S
 from .game import OPEN_SKY
@@ -58,19 +58,24 @@ def pit_due(v):
     return bool(v["in_pit"]) if known else False
 
 def open_night(v):
-    """Pure: night (data.is_night) with no cover here (knowledge.sheltered) — a row that walks or works from here
-    waits (S4)."""
+    """Pure: night with no cover here (S4)."""
     return v["night"] and not v["sheltered"]
 
 
+def sleep_due(v):
+    return v["night"] and v["bed_works"] and (v["bed_carried"] or v["bed_near"])
+
+def cover_due(v):
+    """Pure: sleep or shelter is due; a non-critical meal waits for it (S4)."""
+    return sleep_due(v) or v["shelter_ready"]
+
+
 TABLE = [
-    ("eat", lambda v: eat_due(v["food"], v.get("hp", MAX_HP), EAT_BELOW, MAX_HP, FULL_BAR) and v["meal"] is not None,
-     lambda m, v: survive.eat(raw_ok=v["meal"])),
-    ("reach land", lambda v: v["swimming"], lambda m, v: survive.reach_land(v["ctx"])),
+    ("eat", lambda v: eat_due(v["food"], v.get("hp", MAX_HP), EAT_BELOW, MAX_HP, FULL_BAR) and v["meal"] is not None
+     and not cover_due(v), lambda m, v: survive.eat(raw_ok=v["meal"])),
     ("leave the Nether", lambda v: v["nether_bad"], lambda m, v: nether.use_portal(v["ctx"], "minecraft:overworld")),
     ("dig out", lambda v: not v["night"] and v["enclosed"], lambda m, v: survive.dig_out(v["ctx"])),
-    ("sleep", lambda v: v["overworld"] and v["night"] and v["bed_works"] and (v["bed_carried"] or v["bed_near"]),
-     lambda m, v: survive.sleep(v["ctx"], m.brain.policy(v["snap"], True))),
+    ("sleep", sleep_due, lambda m, v: survive.sleep(v["ctx"], m.brain.policy(v["snap"], True))),
     ("shelter", lambda v: v["shelter_ready"], lambda m, v: m.shelter(v["snap"], v["ctx"], v["night_way"])),
     # after the shelter, and not under the open night sky: a walk back to the drops, a step out of a pit
     ("recover items", lambda v: not open_night(v) and v["died_recently"], lambda m, v: recover_items(v["ctx"])),
@@ -85,14 +90,17 @@ TABLE = [
 ]
 NAMES = tuple(row[0] for row in TABLE)
 
-# hysteresis: a row with an exit keeps firing until the exit holds; out of the water only after LAND_EXIT_S on something not water (shore water flips `swimming`)
-LAND_EXIT_S = 1.0
-EXIT = {"reach land": lambda v: v["on_land_s"] >= LAND_EXIT_S}
+LAND_EXIT_S = 1.0     # on land this long before ashore (shore water flips `swimming`)
+
+
+def afloat(swimming, was_afloat, on_land_s):
+    """Pure: in the water, or out of it less than LAND_EXIT_S."""
+    return bool(swimming) or (bool(was_afloat) and on_land_s < LAND_EXIT_S)
 
 # what a reflex's work should move: firing again with it unchanged is a failure, so a useless reflex cannot hold the body
 PROGRESS = {"empty the bag": lambda v: v["used_slots"], "unstuck": lambda v: v["feet"],
-            "reach land": lambda v: v["feet"], "eat": lambda v: v["food"],
-            "shelter": lambda v: (v["feet"], len(v["night_way"][2]))}     # a part made shortens the way
+            "eat": lambda v: v["food"],
+            "shelter": lambda v: (v["feet"], len(v["night_way"][2]))}
 NO_PROGRESS = "stuck"          # the retry cause a reflex that changed nothing fails with
 
 def progress_of(name, view):
@@ -102,10 +110,6 @@ def progress_of(name, view):
 def stalled(fires_again, before, after):
     """Pure: a reflex that ran and fires again with its progress unchanged made no progress."""
     return bool(fires_again) and before == after
-
-def latched(fired, view):
-    """Pure: the rows still inside their hysteresis after this round — fired, with an exit not yet reached."""
-    return frozenset(n for n in fired if n in EXIT and not EXIT[n](view))
 
 class View(dict):
     """The round's readings, each made on first ask (`providers`: {key: zero-argument reader}), then kept."""
@@ -119,11 +123,10 @@ class View(dict):
         self[key] = value
         return value
 
-def due(view, ready=lambda name: True, active=frozenset()):
-    """[(seq, name)] of reflexes that fire in table order, skipping cooling ones: the trigger holds, or it is active with its exit unmet."""
+def due(view, ready=lambda name: True):
+    """[(seq, name)] of reflexes that fire in table order, skipping cooling ones."""
 
-    return [(i, name) for i, (name, trigger, _act) in enumerate(TABLE)
-            if ready(name) and (trigger(view) or (name in active and name in EXIT and not EXIT[name](view)))]
+    return [(i, name) for i, (name, trigger, _act) in enumerate(TABLE) if ready(name) and trigger(view)]
 
 def nether_retreat(snap):
     """In the Nether, head home through the portal when food, health or bag room run low. Pure."""
@@ -160,7 +163,7 @@ def _once(reads, key, read):
     return get
 
 # a shelter step's token → the skill that makes it
-STEP_RUN: Any = None     # (ctx, step, night) → one plan step run (dispatch.execute): set by every Brain built
+STEP_RUN: Any = None     # dispatch.execute, set by Brain
 SHELTER_RUN = {"dig_in": lambda ctx: survive.dig_in(ctx), "pod": lambda ctx: survive.pod(ctx),
                "hut": lambda ctx: building.build_shelter(ctx), "home": lambda ctx: survive.sleep_at_home(ctx)}
 
@@ -172,8 +175,8 @@ class Maintain:
         self.history = []             # (time, feet, bag signature) for "stuck in place"
         self.escalated = {}
         self.blocked = None           # {"t", "place", "pos"}: the last path failure and where it was going
-        self.active = frozenset()     # rows inside their hysteresis (`latched`)
         self.land_since = None        # when the body last stood on something that is not water
+        self.afloat = False
         self.last_run: tuple[str, Any] | None = None     # (name, progress when it started): judged next round (`stalled`)
 
     def observe(self, snap):
@@ -182,6 +185,7 @@ class Maintain:
         self.history.append((now, snap.feet, bag_signature(snap.inv)))
         on_land = snap.state.get("onGround", False) and not snap.state.get("inWater")
         self.land_since = (self.land_since or now) if on_land else None
+        self.afloat = afloat(_k.swimming(snap.state), self.afloat, now - self.land_since if self.land_since else 0.0)
 
     def failed(self, cause, err, place):
         """A path failure is remembered with where it was going: the "path blocked" rows answer it."""
@@ -191,7 +195,7 @@ class Maintain:
     def proposals(self, snap, ctx, reads=None):
         """[(seq, name, run)] of every reflex that fires; triggers read this round's snapshot only, so asking order does not matter."""
 
-        b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
+        b, s, inv = self.brain, snap.state, snap.inv
         blocked = self.blocked_here(b.place)
         enclosed, soft_ground, dig_site = ground(reads)
 
@@ -207,14 +211,13 @@ class Maintain:
             "died_recently": lambda: worth_recovering(b, snap),
             "meal": lambda: meal(s.get("food", 20), inv, lambda: can_cook(inv, any(
                 "furnace" in st["block"] for st in b.mem.stations(snap.dimension, near=snap.feet, within=STATION_R)))),
-            "swimming": lambda: fluids.swimming(s),
             "nether_bad": lambda: nether_retreat(snap) is not None,
             "enclosed": enclosed,
             "bed_works": lambda: survive.can_sleep(s) is None,
             "bed_near": _once(reads, "bed_near", lambda: home_bed_near(b.mem, snap)
                               or in_sight(snap, BASE_MARKERS["bed"], survive.HOME_BED_R)),
             "night_way": night_way,
-            "shelter_ready": lambda: over and snap.night and not _once(reads, "bed_tonight",
+            "shelter_ready": lambda: snap.night and not _once(reads, "bed_tonight",
                                                                         lambda: b.needs.bed_tonight(snap))()
             and not view["sheltered"] and view["night_way"][0] is not None,
             "sheltered": lambda: self.sheltered(snap, enclosed),
@@ -222,20 +225,18 @@ class Maintain:
             "machine_ready": lambda: self.ready_machine(snap) is not None,
             "stuck": lambda: self.stuck_in_place(snap, enclosed),
             # a hole open to the sky, deeper than a jump (travel's shaft, a dug pit): read only under open sky
-            "in_pit": lambda: s.get("skyLight", 0) >= OPEN_SKY and not fluids.swimming(s)
+            "in_pit": lambda: s.get("skyLight", 0) >= OPEN_SKY and not _k.swimming(s)
             and _once(reads, "in_pit", lambda: self.in_pit(snap.feet))(),
-        }, snap=snap, ctx=ctx, food=s.get("food", 20), hp=s.get("health", MAX_HP), night=snap.night, overworld=over,
+        }, snap=snap, ctx=ctx, food=s.get("food", 20), hp=s.get("health", MAX_HP), night=snap.night,
             bed_carried=inv.count("bed") > 0, used_slots=inv.used_slots(), blocked=blocked is not None,
-            blocked_at=blocked, building=inv.count("building"), feet=snap.feet,
-            on_land_s=time.time() - self.land_since if self.land_since else 0.0)
-        fired = due(view, active=self.active)
+            blocked_at=blocked, building=inv.count("building"), feet=snap.feet)
+        fired = due(view)
         names = [name for _seq, name in fired]
         if self.last_run is not None:
             name, before = self.last_run
             self.last_run = None
             if stalled(name in names, before, progress_of(name, view)):
                 b.retry.failed(name, NO_PROGRESS, "ran and changed nothing", time.time(), b.place)
-        self.active = latched(names, view)
         rows = {name: act for name, _trigger, act in TABLE}
 
         def run(name):
@@ -259,8 +260,7 @@ class Maintain:
 
     # -- night
     def shelter(self, snap, ctx, night_way):
-        """Night, exposed, no bed: the way `overnight` priced cheapest here, its parts first — one step a round, the
-        way re-priced each round from the bag it left — then the shelter."""
+        """The cheapest night way: one part per round, then the shelter."""
 
         b = self.brain
         ctx = b.context(snap.dimension, b.policy(snap, True))
@@ -287,6 +287,10 @@ class Maintain:
                 swallowed("reflexes.walled", e)
                 return False
         return _k.sheltered(snap.get("skyLight", 15), walled, lambda: self.in_site(snap.feet, snap.dimension))
+
+    def nearest_interior(self, feet, dimension):
+        cells = [tuple(c) for s in self.brain.mem.sites(dimension) for c in s.get("interior", [])]
+        return min(cells, key=lambda c: math.dist(c, feet), default=None)
 
     def in_site(self, feet, dimension):
         """The feet stand inside one of our sites' interiors (a hut with its door open is still ours)."""

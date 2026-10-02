@@ -72,6 +72,16 @@ def step_failures(first):
     return out + [at, unreachable] + rest + [Interrupted("check: interrupted")]
 
 
+def look(state):
+    """Perception's look with the kit already read (reset_all clears it; gold worn decides piglins)."""
+    import time
+    from bonobo import perception
+    perception.kit(perception.kit_signature(state, time.time()))
+    w = perception.Watcher()
+    w._look(state)
+    return w
+
+
 def pressed(st):
     """Something reaches us or can shoot us: threat.pressure or threat.burst_damage above zero on the threat state
     (the test threat.options makes before it offers anything but ignoring)."""
@@ -155,8 +165,7 @@ def decide(facts, fail_then_again=True):
             bids.append((state, rows, ids))          # what the threat layer was shown: S1 judges its pressure
             return real_bid(state, rows, price, work_s=work_s, now=now, ids=ids)
         with mock.patch.object(fight_loop, STUBBED[0].partition(".")[2], offer), mock.patch.object(fight_loop, "bid", bid):
-            w = perception.Watcher()
-            w._look(snap.state)
+            w = look(snap.state)
             got = alpha(snap, mem, world, b)       # the state judged, read before anything answers it
             w._answer_threats(snap.state)          # the threat layer's answer: TACTIC preempts the plan (K3)
         # danger as production judges it (S1 = R5's threat): the threat model's own pressure and blast on the state the

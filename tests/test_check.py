@@ -136,7 +136,6 @@ class KnownViolations(unittest.TestCase):
          "V6: an ordinary task crafts in the open at night (no night way's step: data.NIGHT_WORK, arbiter.on_surface)"),
         ("S4", of(night=True, queued="stick", cooled=True), "V6: the queue's craft in the open at night"),
         ("S4", of(night=True, queued="cobblestone", pickaxe=0, cooled=True), "V6: a surface mine at night (17:49 stairwell)"),
-        ("S4", of(night=True), "test_arbiter:295 NightUnderCover: wait for day in the open"),
     ]
 
     def test_reported(self):
@@ -198,6 +197,27 @@ class GammaRoundTrip(unittest.TestCase):
                 with self.subTest(fact=k, value=v):
                     _d, got, _ctx = rnd.decide(f, fail_then_again=False)
                     self.assertEqual(dict(got), dict(f))
+
+    # (situation, facts) found apart: each round-trips
+    FOUND = [("must fail: C14 a piglin by gold armour is no threat row from the first look (the kit read first)",
+            {'dimension': 'minecraft:overworld', 'night': True, 'hp': 'ok', 'place': 'enclosed', 'bed': 'none',
+             'pickaxe': 2, 'building': False, 'food': False, 'tree': False, 'ore': 'none', 'threat': True,
+             'takeover': True, 'queued': 'none', 'cooled': True, 'hunger': 'full', 'station': 'crafting_table',
+             'mob': 'creeper', 'armour': 'gold', 'bag': 'full', 'bystander': 'piglin', 'carried': 'meat_fuel',
+             'chest': 'unopened', 'combat': 'shooting', 'death': 'none', 'range': 'mid', 'dps': 'read', 'dusk':
+             False, 'failure': 'nav', 'fluid': 'lava', 'food_source': 'animals', 'ground': 'open', 'held':
+             'same', 'idle': 'none', 'job': 'growing', 'kit': 'sword_shield', 'lit': False, 'noted': 'none',
+             'pack': 'dying', 'past': 'latched', 'plan_held': 'none', 'portal': 'sites', 'quarry': 'spider',
+             'repeat': 'once', 'retried': 'none', 'stock': 'none', 'task': 'planned', 'tools': 'axe_shovel',
+             'trace': 'no_id', 'upkeep_held': 'none', 'weather': 'thunder'})]
+
+    def test_found(self):
+        from check import round as rnd
+        for name, facts in self.FOUND:
+            with self.subTest(name):
+                f = of(**facts)
+                _d, got, _ctx = rnd.decide(f, fail_then_again=False)
+                self.assertEqual(dict(got), dict(f))
 
 
 class Model(unittest.TestCase):

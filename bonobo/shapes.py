@@ -282,8 +282,8 @@ Cause = Literal["error", "game", "unavailable", "nav", "stuck", "tool", "replan"
 Source = Literal[
     "layer:reflex", "layer:safety", "layer:maintain", "layer:plan", "layer:tactic",
     "hazard:lava", "hazard:burning", "hazard:drowning", "hazard:suffocating", "hazard:critical", "hazard:threat",
-    "hazard:falling",
-    "row:eat", "row:reach land", "row:dig out", "row:sleep", "row:shelter", "row:collect job", "row:collect machine",
+    "hazard:swimming", "hazard:falling",
+    "row:eat", "row:dig out", "row:sleep", "row:shelter", "row:collect job", "row:collect machine",
     "row:path blocked", "row:unstuck", "row:recover items", "row:leave the pit", "row:empty the bag",
     "row:leave the Nether",
     "manual", "player", "game lost", "jar reflex", "death", "dimension change", "night", "user cancel", "stuck",

@@ -96,6 +96,35 @@ class Perceived(unittest.TestCase):
                 self.assertEqual((got.get("sword"), ground.bucket if ground is not None else None), want)
 
 
+class CoverCarried(unittest.TestCase):
+    """W1: the nearest site interior cell reaches threat_state."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import api, fight_loop
+        here = dict(HERE, blockX=0, blockY=64, blockZ=0, dimension="minecraft:overworld")
+        # (situation, the brain's reader) → the cover carried
+        rows = [("must fail: a hut 6 blocks off: its interior cell", lambda feet, dim: (6, 64, 0), (6, 64, 0)),
+                ("no site: none", lambda feet, dim: None, None)]
+        for name, reader, want in rows:
+            with self.subTest(name), mock.patch.object(perception, "COVER", reader), mock.patch.object(api, "log"):
+                fresh()
+                got = perception.perceived(dict(here), 0.0, ground_of=lambda st: None, kit_of=lambda st: {})
+                self.assertEqual((got.get("cover"), fight_loop.threat_state(got, [])["cover"]), (want, want))
+
+    def test_the_brains_reader_is_the_nearest_interior_cell(self):
+        from bonobo import reflexes
+
+        class Mem:
+            def sites(self, dimension):
+                return [{"interior": [[10, 64, 0], [4, 64, 0]]}, {"interior": [[0, 64, 9]]}]
+        m = reflexes.Maintain(type("B", (), {"mem": Mem()})())
+        # (feet) → the nearest cell
+        for feet, want in (((0, 64, 0), (4, 64, 0)), ((0, 64, 8), (0, 64, 9))):
+            with self.subTest(feet=feet):
+                self.assertEqual(m.nearest_interior(feet, "minecraft:overworld"), want)
+
+
 class PriceInputs(unittest.TestCase):
     """perception.price_inputs: the survival price reads every state it has a reading for (M3), not hp and armour
     alone; night is data.is_night's."""
@@ -128,6 +157,9 @@ class PriceInputs(unittest.TestCase):
                 ("open sky, outside: not sheltered", {}, False, "sheltered", False),
                 ("must fail: block light 0 at night: dark", {"timeOfDay": midnight, "blockLight": 0}, False, "dark",
                  True)]
+        with self.subTest("must fail: three nights not slept (Memory.nights_missed)"), \
+                mock.patch.object(perception, "NIGHTS_MISSED", lambda: 3):
+            self.assertEqual(perception.price_inputs(state())["nights_missed"], 3)
         for name, changes, inside, key, want in rows:
             with self.subTest(name), mock.patch.object(perception, "IN_SITE", lambda feet, dim, i=inside: i):
                 self.assertEqual(perception.price_inputs(state(**changes))[key], want)

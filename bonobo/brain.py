@@ -38,7 +38,7 @@ from .world import Inventory, Snapshot
 # wired from the top so lower layers never import the skill library
 hazard.SKILLS.update(find_air=lambda ctx: survive.find_air(ctx), unbury=lambda ctx: survive.unbury(ctx),
                      cover=lambda ctx, s: needs.cover(ctx, s), eat=lambda ctx: survive.eat(ctx),
-                     dig_in=lambda ctx: survive.dig_in(ctx))
+                     dig_in=lambda ctx: survive.dig_in(ctx), reach_land=lambda ctx: survive.reach_land(ctx))
 from . import fight_loop  # noqa: E402
 fight_loop.lend("wall_in", lambda option, state: survive.pod_commands(state) if state.get("region") is not None else [],
                 region=survive._pod_region)
@@ -50,7 +50,7 @@ IDLE_SLICE_TICKS = 20      # the idle wait is cut in 1 s slices: queued work end
 SCAN_EVERY_S = 20  # seconds
 TRACK_FILE = paths.data("track.jsonl")
 # Step kinds a night under cover can carry on with (data.NIGHT_WORK). Everything else (a tree, an animal, a plan's wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
-from .data import NIGHT_WORK  # noqa: E402
+from .data import NIGHT_WORK, TICKS_PER_S  # noqa: E402
 from . import beliefs, estimate  # noqa: E402
 from .data import TOOL_MATERIAL_FOR_TIER, critical_hp, weapon_hit  # noqa: E402
 
@@ -63,7 +63,7 @@ def fight_line_holds(contract, args, state, inv):
     if not kinds:
         return True, None
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
-    mean, hit = estimate.melee_loss(kinds, _k.attack_weapon(inv, beliefs.COMMON_FOE_HP),   # what the attack holds
+    mean, hit = estimate.melee_loss(kinds, _k.attack_weapon(inv, beliefs.COMMON_FOE_HP),
                                     beliefs.protection(state.get("armor", 0), shield))
     hp, floor = float(state.get("health", 0.0)), critical_hp(state)
     if estimate.fight_line_ok(hp, floor, mean, hit):
@@ -78,7 +78,7 @@ def line_raisers(kinds, state, inv, material=LINE_ARMOR):
     from .data import ARMOR_POINTS, ARMOR_SLOTS
     hp, floor = float(state.get("health", 0.0)), critical_hp(state)
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
-    sword, armor = _k.attack_weapon(inv, beliefs.COMMON_FOE_HP), float(state.get("armor", 0))     # held (None: hand)
+    sword, armor = _k.attack_weapon(inv, beliefs.COMMON_FOE_HP), float(state.get("armor", 0))
 
     def inside(item, points):
         mean, hit = estimate.melee_loss(kinds, item, beliefs.protection(points, shield))
@@ -101,6 +101,11 @@ def line_raisers(kinds, state, inv, material=LINE_ARMOR):
         out += [[("tool", "sword", t)] + rows_ for t, item in swords if inside(item, points_)]
     return out
 
+
+def act_commit_s(act):
+    """Pure: the act's planned seconds, None when unpriced."""
+    ticks = sum(int(getattr(st, "est", 0) or 0) for st in getattr(act, "steps", ()))
+    return ticks / TICKS_PER_S if ticks > 0 else None
 
 def act_on_surface(act):
     """Pure: does this act's step walk the surface (arbiter.on_surface)? An act with no step (a chain, a whole
@@ -169,7 +174,9 @@ class Brain:
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
         perception.IN_SITE = self.reflexes.in_site      # nightfall asks the night way's judgement, every Brain built
-        reflexes.STEP_RUN = dispatch.execute             # the shelter row's parts run as the plan's steps do
+        perception.COVER = self.reflexes.nearest_interior
+        perception.NIGHTS_MISSED = lambda: self.mem.nights_missed()
+        reflexes.STEP_RUN = dispatch.execute
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.place = None  # what causes are cooled against
         self.idle_since = None
@@ -471,7 +478,8 @@ class Brain:
         box = {}
         also = (step_key(act.step),) if getattr(act, "step", None) is not None else ()
         ran = self._running(lambda: arbiter.BODY.drive(
-            "plan", lambda: box.update(outcome=self.attempt(act.name, act.run, also)), act.name))
+            "plan", lambda: box.update(outcome=self.attempt(act.name, act.run, also)), act.name,
+            commit_s=act_commit_s(act)))
         outcome = box.get("outcome", "interrupted") if ran else "interrupted"
         tape.event(act.name, outcome, str(self.last_failure.__dict__) if self.last_failure else "")
         tape.end(self, act, snap)
@@ -507,12 +515,13 @@ class Brain:
             out = []
             if arbiter.BODY.holder() is not None or api.mode() == "survival":
                 out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
-            unanswered = threat.THREAT_UNANSWERED       # the threat layer's "no answer": SAFETY's (hazard "threat")
-            k = hazard.rescue_due(snap.state, unanswered=unanswered)
+            unanswered = fight_loop.unanswered_now(time.time())
+            afloat = self.reflexes.afloat
+            k = hazard.rescue_due(snap.state, unanswered=unanswered, afloat=afloat)
             if k is not None and self.ready(f"rescue {k}"):
                 out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
                     ctx, snap.state, self.attempt, self.ready, threatened=bool(threat.threats_seen()[0]),
-                    unanswered=unanswered)),
+                    unanswered=unanswered, afloat=afloat)),
                     key=f"rescue {k}"))
             return out
 
@@ -554,7 +563,7 @@ class Brain:
         if tasks.expire(items):
             tasks.save(items)
         live = [t for t in items if t["state"] in tasks.LIVE]
-        closed = snap.night      # surface work walks out, sheltered here or not (data.is_night)
+        closed = snap.night
         self.just_finished = False
         for seq, task in enumerate(live):
             if not self.ready(f"task {task['id']}"):

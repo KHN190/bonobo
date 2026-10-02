@@ -11,13 +11,12 @@ from .skill import ANCHORS, skill, current as current_call
 from .data import (BED_BOX, BED_REACH, SLEEP_BLOCKERS, SLEEP_BLOCKERS_ANGRY, TORCH_LIGHT, BASE_MARKERS, FULL_BAR, GROUPS, NUTRITION, PLACEABLE_AS, POD_BLOCKS, bare, mid, NIGHT_END,
                    DAY_TICKS, WALK_BLOCKS_PER_S, MAX_HP, critical_hp, is_night)
 from .game import EYE_HEIGHT
-from .knowledge import RAW_MEAT, ALL_FOOD
+from .knowledge import AIR_FULL, RAW_MEAT, ALL_FOOD, swimming
 from .world import Inventory, Region, add, dark_spots, entities, find, is_enclosed, openings
 from .bag import throw_direction
 from .terrain import choose_burrow, choose_exit, air_route, find_open_spot, SOFT_RADIUS, nearest_soft
 from .skillcore import free_spots_here, place, mine_cell, settle, body_state, head_buried, head_underwater
 from .world import feet
-from .fluids import AIR_FULL, swimming
 from .craft import run_split
 from typing import TYPE_CHECKING, cast
 

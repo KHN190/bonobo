@@ -427,8 +427,7 @@ def weapon_for(inv, hp):
     return cheapest_equal(["hand"] + weapons, lambda i: kill_s(i, hp), item_tier)
 
 def attack_weapon(inv, foe_hp):
-    """Pure: the weapon an attack holds (weapon_for at `foe_hp`: beliefs.COMMON_FOE_HP), None: the hand. The one
-    choice — skillcore.arm holds it; the fight line (brain) and the threat's kit (perception) price it."""
+    """Pure: the weapon an attack holds (weapon_for), None for the hand."""
     w = weapon_for(inv, foe_hp)
     return None if w == "hand" else w
 
@@ -464,7 +463,13 @@ def blocks_remainder(want, name_at):
     return {p: b for p, b in want.items() if bare(name_at(p) or "air") != bare(b)}
 
 # -- what is left of a world-effect skill: `remaining` readers over body_state's shape; a reading not taken is not "done"
-AIR_FULL = 300
+AIR_FULL = 300          # the air meter's top, in ticks
+
+def swimming(state):
+    """The one "in the water" test: in water and not standing, or standing with the head under (breath below full)."""
+
+    return bool(state.get("inWater")) and (not state.get("onGround", False)
+                                            or float(state.get("air", AIR_FULL) or 0) < AIR_FULL)
 
 def left(ok, what, n=1):
     """{} when `ok`, else {what: n}."""

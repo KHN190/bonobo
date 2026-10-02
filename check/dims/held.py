@@ -28,7 +28,7 @@ def _reading(state):
     """(the threat model on this reading, its price, its horizon) — as fight_loop.bid prices it."""
     from bonobo import fight_loop, perception, threat
     st = perception.perceived(state, time.time())
-    sstate = threat.price_state(hp=max(1, int(st.get("health", 20))), armor=int(st.get("armor", 0)))
+    sstate = perception.price_inputs(st)
     price = lambda dhp: threat.hp_seconds(sstate, dhp)     # noqa: E731
     tstate = fight_loop.threat_state(st, threat.THREAT_ROWS, None, threat.THREAT_IDS)
     return threat.Field(tstate, price, refused=fight_loop.refused_now), price, threat.horizon_for(tstate), st
@@ -37,10 +37,11 @@ def _reading(state):
 def prepare(brain, f):
     if f[NAME] == "none":
         return
-    from bonobo import api, fight_loop, perception, threat
+    from bonobo import api, fight_loop, threat
     from bonobo.kernel import Choice
+    from check.round import look
     state = api.get("/state")
-    perception.Watcher()._look(state)
+    look(state)
     _model, price, _horizon, st = _reading(state)
     fight_loop.bid(st, threat.THREAT_ROWS, price, ids=threat.THREAT_IDS)     # the layer holds its fresh choice
     keeper = fight_loop.held()

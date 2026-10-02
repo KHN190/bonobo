@@ -11,7 +11,7 @@ from .skillcore import head_buried
 # rescue skills lent by skills.py at import, so readers of a hazard never drag in the skill library
 SKILLS = {}
 
-KINDS = ("lava", "burning", "drowning", "suffocating", "critical", "threat", "falling")
+KINDS = ("lava", "burning", "drowning", "suffocating", "critical", "threat", "swimming", "falling")
 
 TICKS_PER_S = 20.0
 REFLEX_SLACK_S = 2.0      # between tasks: surface while there is still room, rather than at the last moment
@@ -40,9 +40,10 @@ def falling(state, fallen):
         return False
     return fallen >= FALL_BLOCKS
 
-def kind(state, buried=False, fallen=0.0, unanswered=None):
+def kind(state, buried=False, fallen=0.0, unanswered=None, afloat=False):
     """Pure: the hazard on the body now (one of KINDS), or None. `unanswered`: why the threat layer has no answer to
-    what is closing (threat.THREAT_UNANSWERED) — handed here, SAFETY's like the environment's."""
+    what is closing (fight_loop.unanswered_now) — handed here, SAFETY's like the environment's. `afloat`: never passed
+    by perception, so a crossing is not interrupted."""
 
     if state.get("inLava"):
         return "lava"
@@ -56,6 +57,8 @@ def kind(state, buried=False, fallen=0.0, unanswered=None):
         return "critical"           # health at the floor is a danger of its own, threat or not (SAFETY's, S1)
     if unanswered:
         return "threat"
+    if afloat:
+        return "swimming"
     if falling(state, fallen):
         return "falling"
     return None
@@ -139,6 +142,9 @@ def _dig_in(ctx, s):
     """Down out of reach: dig in where we stand (survive.dig_in, lent)."""
     SKILLS["dig_in"](ctx)
 
+def _reach_land(ctx, s):
+    SKILLS["reach_land"](ctx)
+
 # each hazard's recovery, in order (S1): its rescue first, then the next way that answers the same hazard when one
 # is spent (over its budget, or refused); the list spent → the reasons. The suffocation rescue may break a home block
 # at critical hp (survive.unbury): a life before a build. Water poured on lava sets it: the lava's second way.
@@ -146,8 +152,9 @@ RECOVERY = {"lava": [_leave_lava, _extinguish], "drowning": [_surface, _into_cov
             "burning": [_extinguish, _into_cover],
             # critical health: under a threat out of its reach first (a meal under blows is never finished); calm, eat
             "critical": {"threatened": [_into_cover, _meal], "calm": [_meal, _into_cover]},
-            # a threat the threat layer has no answer to (threat.THREAT_UNANSWERED): out of its reach
-            "threat": [_into_cover, _dig_in]}
+            # no threat answer (fight_loop.unanswered_now): out of its reach
+            "threat": [_into_cover, _dig_in],
+            "swimming": [_reach_land]}
 
 
 def ways(k, threatened=False):
@@ -173,7 +180,7 @@ def recover(ctx, k, state, threatened=False):
 STOP_ONLY = ("falling",)
 assert set(RECOVERY) | set(STOP_ONLY) == set(KINDS), "every hazard kind is recovered or declared stop-only"
 
-def rescue_due(state, buried=None, unanswered=None):
+def rescue_due(state, buried=None, unanswered=None, afloat=False):
     """The hazard the brain must answer before anything else this round, or None (`unanswered`: kind's)."""
 
     if state.get("inWater") and drowning_in(state) <= REFLEX_SLACK_S:
@@ -183,13 +190,13 @@ def rescue_due(state, buried=None, unanswered=None):
             buried = head_buried(state)
         except api.McError:
             buried = False
-    k = kind(state, buried=buried, unanswered=unanswered)
+    k = kind(state, buried=buried, unanswered=unanswered, afloat=afloat)
     return k if k in RECOVERY else None
 
-def handle(ctx, state, attempt, ready, threatened=False, unanswered=None):
+def handle(ctx, state, attempt, ready, threatened=False, unanswered=None, afloat=False):
     """Run the rescue for the hazard on the body, if there is one."""
 
-    k = rescue_due(state, unanswered=unanswered)
+    k = rescue_due(state, unanswered=unanswered, afloat=afloat)
     if k is None or not ready(f"rescue {k}"):
         return False
     log(f"L0: {k} → rescue")

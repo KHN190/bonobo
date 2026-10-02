@@ -86,8 +86,9 @@ RESUME_RULES: dict[Rule, tuple[bool, str | None]] = {
 }
 RESUME_OF: dict[str, Rule] = {      # every key a shapes.Source (tests/test_types)
     **{f"layer:{k}": "same" for k in ("reflex", "safety", "maintain", "plan")}, "layer:tactic": "fight",
-    **{f"hazard:{k}": "same" for k in ("lava", "burning", "drowning", "suffocating", "critical", "threat", "falling")},
-    **{f"row:{k}": "same" for k in ("eat", "reach land", "dig out", "sleep", "shelter", "collect job",
+    **{f"hazard:{k}": "same" for k in ("lava", "burning", "drowning", "suffocating", "critical", "threat", "swimming",
+                                       "falling")},
+    **{f"row:{k}": "same" for k in ("eat", "dig out", "sleep", "shelter", "collect job",
                                     "collect machine", "path blocked", "unstuck", "recover items",
                                     "leave the pit")},
     "row:empty the bag": "recheck", "row:leave the Nether": "dimension",
@@ -161,6 +162,14 @@ def arbitrate(intents, now=None, facts=None):
     if not live:
         return None
     return min(live, key=lambda i: (i.scale, plan_rank(i.kind) if i.layer == "plan" else 0, i.seq, -i.at))
+
+def work_left_s(intent, now):
+    """Pure: seconds left of the committed work; None when uncommitted or overrun."""
+    if intent is None or intent.commit_s is None:
+        return None
+    left = intent.commit_s - (now - intent.at)
+    return left if left > 0 else None
+
 
 class Motion:
     """The body's single entry point."""

@@ -105,7 +105,7 @@ class Hazards(unittest.TestCase):
 class HostilesAreNotL0(unittest.TestCase):
     # every danger kind perception can name, and the family that answers it
     FAMILY = {"lava": "L0", "burning": "L0", "drowning": "L0", "suffocating": "L0", "falling": "L0",
-              "critical": "L0", "threat": "L0", "breath": "fight", "enderman": "fight", "hostiles": "fight"}
+              "critical": "L0", "threat": "L0", "swimming": "L0", "breath": "fight", "enderman": "fight", "hostiles": "fight"}
 
     def test_each_danger_has_exactly_one_family(self):
         self.assertEqual(set(hazard.KINDS) | {k for k, f in self.FAMILY.items() if f == "fight"}, set(self.FAMILY),
@@ -259,6 +259,17 @@ class Recovery(unittest.TestCase):
                 self.assertEqual(hazard.ways("critical", threatened)[0].__name__, first)
         self.assertNotEqual(hazard.ways("critical", True)[0].__name__, "_meal",
                             "must fail: eating under blows (never finished)")
+
+    def test_afloat_is_safetys(self):
+        """Afloat is SAFETY's (reach land), never perception's interrupt."""
+        # (situation, state changes, afloat) → the kind due
+        rows = [("must fail: treading water: ashore first", {"inWater": True, "onGround": False}, True, "swimming"),
+                ("treading water, as perception asks: no interrupt", {"inWater": True, "onGround": False}, False, None),
+                ("afloat and on fire, hurting: the fire first", {"onFire": True, "health": 5.0}, True, "burning")]
+        for name, changes, afloat, want in rows:
+            with self.subTest(name):
+                self.assertEqual(hazard.rescue_due(state(**changes), buried=False, afloat=afloat), want)
+        self.assertEqual([w.__name__ for w in hazard.RECOVERY["swimming"]], ["_reach_land"])
 
     def test_every_rescued_kind_has_a_next_way_or_says_why(self):
         # the lists themselves: drowning and burning turn to cover, lava pours water (it sets the lava)

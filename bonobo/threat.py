@@ -750,9 +750,6 @@ THREAT_LIT: set = set()     # ids of creepers whose fuse the last reading shows 
 # seconds until the soonest hit on the body lands, as the JAR predicts it (/entities tti_ticks: every projectile and
 # melee mob stepped as the game ticks them, anaka combat.Impact), or None: no hit coming. Never re-derived here.
 THREAT_HIT_S = None
-# why the threat layer's last bid had no answer while something closing would hurt us (the table spent: unanswered),
-# or None — the fact handed to SAFETY (hazard kind "threat"), which runs its recovery
-THREAT_UNANSWERED = None
 
 
 def unanswered(field_model):
@@ -767,13 +764,12 @@ def unanswered(field_model):
 def _forget_threats():
     """The last life's threats (their ids, their rows, the hit it predicted) are nobody's now."""
     global THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS, THREAT_HIT_S, THREAT_LIT
-    global THREAT_UNANSWERED
     THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS, THREAT_HIT_S = [], [], 0.0, set(), [], None
-    THREAT_LIT, THREAT_UNANSWERED = set(), None
+    THREAT_LIT = set()
 
 
 lifecycle.on_reset(_forget_threats, covers=("THREAT_ROWS", "THREAT_IDS", "THREAT_AT", "THREAT_ALIVE",
-                                            "THREAT_IMPACTS", "THREAT_HIT_S", "THREAT_LIT", "THREAT_UNANSWERED"))
+                                            "THREAT_IMPACTS", "THREAT_HIT_S", "THREAT_LIT"))
 
 def alive_ids(near):
     """Pure: the ids of the entities a reading lists alive (a dying one, health 0, is gone)."""

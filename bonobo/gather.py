@@ -15,7 +15,8 @@ from .world import Inventory, Region, add, connected, entities, find, region_aro
 from .skillcore import ToolMissing, mine_cell, gained
 from .world import feet
 from .explore import surface_first, explore_for, approach_policy
-from .fluids import CAVE_AIR, fluid_faces, seal_plan, swimming
+from .fluids import CAVE_AIR, fluid_faces, seal_plan
+from .knowledge import swimming
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
