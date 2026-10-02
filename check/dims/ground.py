@@ -14,6 +14,12 @@ EDGE_R, EDGE_DROP = 8, 20                 # the ledge's drop: out to the field's
 SPAN = 5          # the read round the feet: shape_at's stand_level looks 4 up and down
 
 
+def valid(value, f):
+    """A ledge stands alone: a home's roof gives a stand within reach (stand_level), and an ore buried under the cut
+    ground would lie open."""
+    return value != "edge" or (f["place"] == "open" and f["ore"] in ("none", "exposed"))
+
+
 def domain():
     return VALUES
 

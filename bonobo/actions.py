@@ -2,7 +2,7 @@
 
 import math
 
-from .data import (DAY_END, DAY_TICKS, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
+from .data import (DAY_TICKS, GROUPS, NIGHT_END, is_night, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
                    mid, seen_class)
 from .knowledge import (working, BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced,
                         under_rock, dawn_s, NIGHT_S, MIN_FIND_P)  # noqa: F401  (NIGHT_S, MIN_FIND_P: re-exported)
@@ -141,8 +141,8 @@ def _is_night(snap):
     night = getattr(snap, "night", None)
     if night is not None:
         return bool(night)
-    t = int((getattr(snap, "state", None) or {}).get("timeOfDay", 0)) % DAY_TICKS
-    return DAY_END <= t <= NIGHT_END
+    state = getattr(snap, "state", None) or {}
+    return is_night(int(state.get("timeOfDay", 0)), state.get("dimension", "minecraft:overworld"))
 
 def _dawn_s(snap):
     """Seconds until the sun is up again, from the snapshot's clock (knowledge.dawn_s)."""
