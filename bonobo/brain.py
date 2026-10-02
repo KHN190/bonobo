@@ -20,7 +20,8 @@ from . import brewing, combat, dragon, end, farming, fluids, gather, loot, store
 from .api import GameUnreachable, McError, NotAvailable, PlayerTookControl, log
 from . import cost as costmod
 from .cost import Cost, Prices
-from .data import EYE_HEIGHT, HAND_MINEABLE_SUFFIX, bare
+from .data import HAND_MINEABLE_SUFFIX, bare
+from .game import EYE_HEIGHT
 from .memory import Memory
 from . import memory as _memory
 from . import knowledge as _k

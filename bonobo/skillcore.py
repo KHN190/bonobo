@@ -6,7 +6,8 @@ import time
 from . import api, beliefs, knowledge as _know, lifecycle, tape
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
-from .data import BAN_MAX_S, EYE_HEIGHT, REACH, bare
+from .data import BAN_MAX_S, REACH, bare
+from .game import EYE_HEIGHT
 from .world import BAG_SLOTS, Inventory, Region, add, bag, box, screen_slot
 from typing import TYPE_CHECKING, cast
 

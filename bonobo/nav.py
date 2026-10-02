@@ -8,7 +8,8 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
-from .data import STAIR_CELLS, is_falling, GROUPS, FOOD, EYE_HEIGHT, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .data import STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .game import EYE_HEIGHT
 from .world import NEIGHBOURS6, Inventory, Region, add, bag, box, feet, route_key, to_segment
 from .knowledge import dig_ticks
 from .beliefs import TICKS_PER_S

@@ -8,7 +8,8 @@ from . import world
 from . import knowledge as _k
 from . import api, blueprints, nav, skillcore
 from .api import McError, NotAvailable, log
-from .data import EYE_HEIGHT, GROUPS, bare
+from .data import GROUPS, bare
+from .game import EYE_HEIGHT
 from .skill import skill
 from .skillcore import body_state, gained
 from .world import feet

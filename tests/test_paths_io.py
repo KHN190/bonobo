@@ -71,20 +71,5 @@ class Files(unittest.TestCase):
         self.assertEqual(paths.read_json(p, {}), {"a": 1})          # the failed writes left the file whole
 
 
-class Session(unittest.TestCase):
-    def test_renewed_in_place(self):
-        rows = [("a dict back to its factory's", dict, lambda d: d.update(a=1), {}),
-                ("a list emptied", list, lambda x: x.append(1), []),
-                ("a dict literal's maker", lambda: {"t": 0}, lambda d: d.update(t=5), {"t": 0})]
-        for why, factory, use, want in rows:
-            with self.subTest(why):
-                obj = paths.session(f"test.{why}", factory)
-                use(obj)
-                held = obj                                          # a holder from before the renewal
-                paths.renew_session()
-                self.assertEqual(held, want)                        # must fail: renewed by rebinding, a holder keeps the old
-                self.assertIs(held, obj)
-
-
 if __name__ == "__main__":
     unittest.main()

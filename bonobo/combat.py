@@ -6,7 +6,7 @@ import time
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, nav, skillcore
 from . import combat_model
-from .data import EYE_HEIGHT
+from .game import EYE_HEIGHT
 from .api import McError, NotAvailable
 from .skill import budget_end, skill
 from .world import Inventory, add, entities

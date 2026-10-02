@@ -15,7 +15,8 @@ from typing import NoReturn
 from . import api, paths
 from .knowledge import left
 from .skill import skill
-from .data import EYE_HEIGHT, home_box_of
+from .data import home_box_of
+from .game import EYE_HEIGHT
 from .world import Region, to_segment
 
 FILE = paths.data("mechanisms.json")

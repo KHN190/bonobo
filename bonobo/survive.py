@@ -9,13 +9,12 @@ from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import ANCHORS, skill, current as current_call
 from .data import (BED_BOX, BED_REACH, SLEEP_BLOCKERS, SLEEP_BLOCKERS_ANGRY, TORCH_LIGHT, BASE_MARKERS, FULL_BAR, GROUPS, NUTRITION, PLACEABLE_AS, POD_BLOCKS, bare, mid, DAY_END, NIGHT_END,
-                   DAY_TICKS, EYE_HEIGHT, WALK_BLOCKS_PER_S, MAX_HP, critical_hp)
-from .game import DAYLIT_SKY, SPAWN_BLOCK_LIGHT
+                   DAY_TICKS, WALK_BLOCKS_PER_S, MAX_HP, critical_hp)
+from .game import DAYLIT_SKY, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
 from .knowledge import RAW_MEAT, ALL_FOOD
-from .world import Inventory, Region, add, dark_spots, entities, find
+from .world import Inventory, Region, add, dark_spots, entities, find, is_enclosed, openings
 from .bag import throw_direction
-from .terrain import (choose_burrow, choose_exit, air_route, is_enclosed, openings, find_open_spot, SOFT_RADIUS,
-                      nearest_soft)
+from .terrain import choose_burrow, choose_exit, air_route, find_open_spot, SOFT_RADIUS, nearest_soft
 from .skillcore import free_spots_here, place, mine_cell, settle, body_state, head_buried, head_underwater
 from .world import feet
 from .fluids import AIR_FULL, swimming

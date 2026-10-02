@@ -7,6 +7,7 @@ from ..core import SetupInvalid
 from .checks import BASE, _skill
 from .scene import _row
 from ...api import swallowed
+from ...mechanisms import CROSS_RANGE     # through the door = within the crossing's own end range (one success)
 
 # every door the bench builds: cells relative to the door's foot `at` (one copy each). `door`: the door's own blocks
 # per cell (an iron door), None for a piston door (its cells built air, pushed in by the pistons); `blocks` in build
@@ -42,7 +43,6 @@ DOORS = {
         "presses": [((2, 1, 3), "oak_button[face=floor,facing=north]"), ((2, -1, 3), "oak_button[face=ceiling,facing=north]")],
         "points": {"outside": (1, 1, -2), "inside": (2, -2, 2)}},
 }
-ARRIVE_RANGE = 0.5               # the walker's arrival range at a door point
 DOOR_S = 25
 
 
@@ -89,13 +89,13 @@ def door_row(name, shape, door, presses, close, taught, start, goal, back):
     to, home = p["points"][goal], p["points"][start]
     end_state = "shut" if close or not taught else "open"
     keep = p["cells"] if p["moves"] else []
-    check = ([("arrived", home if back else to, ARRIVE_RANGE), ("door_state", p["cells"], end_state),
+    check = ([("arrived", home if back else to, CROSS_RANGE), ("door_state", p["cells"], end_state),
               ("unchanged", *p["box"], keep), ("door_seen",)] if taught else
-             [("not", ("!arrived", to, ARRIVE_RANGE)), ("door_state", p["cells"], "shut"), ("unchanged", *p["box"], keep)])
+             [("not", ("!arrived", to, CROSS_RANGE)), ("door_state", p["cells"], "shut"), ("unchanged", *p["box"], keep)])
     doc = (f"A shut {door} {shape} door, {presses} button(s) {'taught' + (' (close)' if close else '') if taught else 'NOT taught (must fail to pass)'}"
            f" → {start} to {goal}{' and back' if back else ''}; door {end_state} at the end, nothing dug")
     return _row(name, doc, "skills", door_scene(shape, door, presses, start),
-                ("walk", to, ARRIVE_RANGE, home if back else None), check, budget=DOOR_S,
+                ("walk", to, CROSS_RANGE, home if back else None), check, budget=DOOR_S,
                 before=[("teach", [c for c, _b in p["presses"]] if taught else [], p["cells"], close)],
                 skills=["press_mechanism"] if taught else [], stochastic=False, tier_fixed="common",
                 tags={"base": "door"}, expect=[(p["bulb"], p["bulb"], "waxed_copper_bulb", 1, 1)])
@@ -177,5 +177,5 @@ def door_seen():
 TEMPLATES = {"door": door_row}
 NAMES = {"door": lambda name, *p: name}
 
-__all__ = ['DOORS', 'DOOR_S', 'DOOR_SEEN', 'DOOR_WATCH_S', 'ARRIVE_RANGE', 'door_parts', 'door_row', 'door_scene',
+__all__ = ['DOORS', 'DOOR_S', 'DOOR_SEEN', 'DOOR_WATCH_S', 'door_parts', 'door_row', 'door_scene',
            'door_seen', 'door_state', 'teach', 'unchanged', 'walk']

@@ -10,7 +10,8 @@ from . import knowledge as K
 from . import api, jobs, nav, skillcore
 from . import world
 from .api import McError, NotAvailable, log, swallowed
-from .data import BAN_MAX_S, EYE_HEIGHT, bare
+from .data import BAN_MAX_S, bare
+from .game import EYE_HEIGHT
 from .skill import skill
 from .skillcore import body_state, gained
 from .knowledge import BREED_FOOD

@@ -347,7 +347,6 @@ NIGHT_END = 23400
 REACH = 4.5            # the jar's block interaction range (survival: getBlockInteractionRange)
 HOLD_MARGIN = 0.5      # the jar's MineTask.holds works within the reach less this
 WORK_REACH = REACH - HOLD_MARGIN     # how far a block is worked from a stand (holds; fluids' fill spot)
-EYE_HEIGHT = 1.62      # the jar's WorldUtil.EYE_HEIGHT: eyes above the feet
 FALLING = {"sand", "red_sand", "gravel", "suspicious_sand", "suspicious_gravel"}   # fall when the cell below opens
 FALLING_SUFFIX = "_concrete_powder"
 def is_falling(name):

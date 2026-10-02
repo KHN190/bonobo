@@ -247,7 +247,7 @@ def use_line(pos, block, props, result, feet, look, between, near):
 def use_readout(task, result):
     """After a station's use: use_line from one read each of the block, the body and the entities (never raised)."""
     from .world import Region, entities, to_segment
-    from .data import EYE_HEIGHT
+    from .game import EYE_HEIGHT
     try:
         pos = (task["x"], task["y"], task["z"])
         s = api.get("/state")

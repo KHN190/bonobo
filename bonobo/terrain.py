@@ -5,7 +5,7 @@ import math
 
 from . import nav
 from .bag import throw_direction
-from .world import add, is_enclosed, openings  # noqa: F401  (the walls: world's, re-exported)
+from .world import add
 from .data import HAND_MINEABLE_SUFFIX, bare
 from typing import TYPE_CHECKING
 

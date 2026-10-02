@@ -233,8 +233,8 @@ class DoorwayIsNotInside(unittest.TestCase):
                 p = dw.door_parts(shape, kind, 1)
                 inside, door = pos(p["points"]["inside"]), pos(p["cells"][0])
                 # must fail: standing in the doorway counted arrived (025641: x 4.3, arrived by 1.5 + slack)
-                self.assertFalse(nav.there(at(door), inside, dw.ARRIVE_RANGE))
-                self.assertTrue(nav.there(at(inside), inside, dw.ARRIVE_RANGE))
+                self.assertFalse(nav.there(at(door), inside, mech.CROSS_RANGE))
+                self.assertTrue(nav.there(at(inside), inside, mech.CROSS_RANGE))
 
 
 HATCH_Y = 63                                           # a 2×2 hatch in the ground layer
