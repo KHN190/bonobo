@@ -1066,6 +1066,30 @@ class Nightfall(unittest.TestCase):
                     self.assertIsNone(api.STATE.at_boundary)            # taken once
 
 
+class NightIsTheOverworlds(unittest.TestCase):
+    """data.is_night, the one night predicate (M7): the Nether and the End report the Overworld's clock but have no
+    night; Snapshot.night and the planner's state vector (actions._is_night) read it."""
+
+    def test_rows(self):
+        from bonobo import actions
+        from bonobo.data import is_night
+        from bonobo.world import Snapshot
+        from tests.world import inventory
+        ow, nether, end = "minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"
+        # (situation, dimension, timeOfDay) → night?
+        rows = [("the Overworld at midnight", ow, 18000, True),
+                ("the Overworld at noon", ow, 6000, False),
+                ("day 5's midnight (the clock runs on)", ow, 5 * 24000 + 18000, True),
+                ("must fail: the Nether at the Overworld's midnight is not night", nether, 18000, False),
+                ("must fail: the End at the Overworld's midnight is not night", end, 18000, False)]
+        for name, dim, t, want in rows:
+            with self.subTest(name):
+                state = {"dimension": dim, "timeOfDay": t}
+                self.assertIs(is_night(t, dim), want)
+                self.assertIs(Snapshot.from_readings(state, inventory()).night, want)
+                self.assertIs(actions._is_night(mock.Mock(spec=["state"], state=state)), want)
+
+
 class InterruptSources(unittest.TestCase):
     """Every source that can take a search's body has a declared resume rule (arbiter.RESUME_OF), the list built
     from the code's own tables: a new reflex row, hazard kind or layer without a rule fails here."""

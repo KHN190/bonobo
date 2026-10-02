@@ -352,6 +352,12 @@ def home_may_hold(item):
 
 DAY_END = 12500               # beds usable, hostiles spawn
 NIGHT_END = 23400
+
+def is_night(time_of_day, dimension="minecraft:overworld"):
+    """Pure: night — the Overworld's only: the Nether and the End have no day and night, though the clock the game
+    reports there is still the Overworld's (it runs on). The one night predicate (Snapshot.night reads it)."""
+    return dimension == "minecraft:overworld" and DAY_END <= time_of_day % DAY_TICKS <= NIGHT_END
+
 REACH = 4.5            # the jar's block interaction range (survival: getBlockInteractionRange)
 HOLD_MARGIN = 0.5      # the jar's MineTask.holds works within the reach less this
 WORK_REACH = REACH - HOLD_MARGIN     # how far a block is worked from a stand (holds; fluids' fill spot)

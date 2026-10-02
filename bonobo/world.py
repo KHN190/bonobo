@@ -8,7 +8,7 @@ import time
 from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from . import api, lifecycle
-from .data import (DAY_END, DAY_TICKS, DOOR_SUFFIX, GROUPS, HAZARD, NIGHT_END, OPEN_PROP, PARTIAL_SUFFIX, PASSABLE,
+from .data import (DAY_END, DAY_TICKS, is_night, DOOR_SUFFIX, GROUPS, HAZARD, NIGHT_END, OPEN_PROP, PARTIAL_SUFFIX, PASSABLE,
                    PASSABLE_SUFFIX, is_door,
                    PLAYER_MADE_SUFFIX, TIER_OF_MATERIAL, UNBREAKABLE, bare, living, mid)
 
@@ -174,7 +174,7 @@ class Snapshot:
 
     @property
     def night(self):
-        return DAY_END <= self.time <= NIGHT_END
+        return is_night(self.time, self.state.get("dimension", "minecraft:overworld"))
 
     @property
     def ticks_until_dusk(self):

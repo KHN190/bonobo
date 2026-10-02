@@ -1,6 +1,6 @@
 # check.run known violations over the fuzzer's corpus (check/corpus, 1400 states; --all adds the enumeration): "INVARIANT COUNT"; counts only fall (gate.sh)
 D6 185
-D7 2
+D7 0
 R2 16
 R3 31
 S1 31
