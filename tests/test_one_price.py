@@ -2,6 +2,8 @@
 import unittest
 
 from bonobo import actions
+from bonobo.data import NIGHT_END
+from bonobo.knowledge import NIGHT_S
 from bonobo.solve import Action
 from tests.world import cost, places, snapshot, state
 
@@ -50,10 +52,10 @@ class OnePrice(unittest.TestCase):
         """The wait for day is the night left on the clock."""
         half = cost(snapshot(state(timeOfDay=18000)))
         wait = next(a for a in body_and_night(half) if a.name == "wait:day")
-        self.assertAlmostEqual(wait.cost_s, (actions.NIGHT_END - 18000) / 20.0, delta=0.1)
+        self.assertAlmostEqual(wait.cost_s, (NIGHT_END - 18000) / 20.0, delta=0.1)
         blind = places(None)
         wait = next(a for a in body_and_night(blind) if a.name == "wait:day")
-        self.assertEqual(wait.cost_s, actions.NIGHT_S)
+        self.assertEqual(wait.cost_s, NIGHT_S)
 
 
 if __name__ == "__main__":

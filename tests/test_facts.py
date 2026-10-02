@@ -40,8 +40,10 @@ class Snap:
         self.feet = feet
         self.inv = bag(inventory())
 
+    state = {"skyLight": 15, "health": 20, "food": 20}
+
     def get(self, key, default=None):
-        return {"skyLight": 15, "health": 20, "food": 20}.get(key, default)
+        return self.state.get(key, default)
 
 
 # ------------------------------------------------------------------------------------------- being there at all

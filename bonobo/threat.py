@@ -49,21 +49,19 @@ def context_of(state, kit):
            and int(state.get("timeOfDay", 6000)) % 24000 < 12000)
     return {"day": day, "gold_worn": bool((kit or {}).get("gold_worn"))}
 
-def awareness(e, here=None, context=None):
+def awareness(e, here, context=None):
     """0..1: how much of this mob's damage is coming at us (a neutral not after us is 0)."""
 
     if not aggro(e, context):
         return 0.0
     # being in the hazard table is the hostility test (reading `hostile` too dropped the dragon's parts)
-    if here is None:
-        return 1.0
     d = math.dist(here, (e["x"], e["y"], e["z"]))
     notice = float(ENGAGE["notice_r"])
     if d <= notice:
         return 1.0
     return max(0.0, 1.0 - (d - notice) / notice)
 
-def threat_rows(near, memory, now, kinds, here=None, context=None, reaches=None):
+def threat_rows(near, memory, now, kinds, here, context=None, reaches=None):
     """(centre, reach, velocity, kind, aware, dps) for every entity whose type is in `kinds` ({type: reach}).
     `reaches(pos, reach)` → False when no way leads from there to us: a mob that cannot come, nor is at us already
     (in reach, shooting, charging, provoked), is no threat — behind rock it is only noise."""
@@ -103,7 +101,7 @@ def at_us(e):
     """Pure: the mob is at us already (perception.read_combat's fields): in reach, shooting or charging, provoked."""
     return bool(e.get("reach_now") or e.get("busy") or e.get("provoked"))
 
-def hostile_rows(near, memory, now, here=None, context=None, reaches=None):
+def hostile_rows(near, memory, now, here, context=None, reaches=None):
     """Rows for the mobs the table knows."""
 
     kinds = {k: float(m["reach"]) for k, m in MOBS.items()}
@@ -265,8 +263,6 @@ ROOF_BLOCKS = 9     # one block over the head is not enough: a tall mob hits fro
 
 def _sealed_off(ground, h, here=None):
     """Pure: the ground shuts this mob out for good (a sealed passage on its side: its slowdown is infinite)."""
-    if ground is None:
-        return False
     side = ground.side_of(here, h[0]) if here is not None and hasattr(ground, "side_of") else None
     return ground.slowdown(bool(MOBS[h[3]].get("squeezes")), side) == float("inf")
 
@@ -586,9 +582,7 @@ def owed(option, work_s):
 def saves(option, opts, price, work_s):
     """Pure: seconds this answer saves against carrying on."""
 
-    doing_nothing = next((o for o in opts if o.kind == "ignore"), None)
-    if doing_nothing is None:
-        return 0.0
+    doing_nothing = next(o for o in opts if o.kind == "ignore")
     return estimate.saved_s(price, owed(doing_nothing, work_s), owed(option, work_s),
                             action_cost(option, price, work_s))
 

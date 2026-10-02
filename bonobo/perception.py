@@ -162,13 +162,13 @@ def threat_readout(state):
     return "; ".join(out) or "no rows"
 
 
-def note_threats(near, now=None, here=None, context=None):
+def note_threats(near, now=None, *, here, context=None):
     """Record the threat rows and their entity ids (`context`: threat.context_of — who is after us)."""
 
     import time as _t
     now = now if now is not None else _t.time()
     near = read_combat(near)
-    reaches = reaches_us(here, now) if here is not None else None
+    reaches = reaches_us(here, now)
     threat.THREAT_ROWS = threat.hostile_rows(near or [], STATE.seen, now, here=here, context=context, reaches=reaches)
     threat.THREAT_IMPACTS = threat.impacts_of(near)
     threat.THREAT_LIT = {e.get("id") for e in near if e.get("type") == "minecraft:creeper" and threat.fuse_lit(e)}

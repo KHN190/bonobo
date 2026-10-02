@@ -70,7 +70,7 @@ class Rows(unittest.TestCase):
             with self.subTest(name):
                 mem = {} if prev is None else {7: prev}
                 e = dict({"id": 7, "y": 64.0, "z": 0.0}, **reading)
-                got = threat.threat_rows([e], mem, 101.0 if prev else 100.0, kinds)
+                got = threat.threat_rows([e], mem, 101.0 if prev else 100.0, kinds, HERE)
                 self.assertEqual([(r[0], tuple(r[2])) for r in got], want)
 
 

@@ -223,7 +223,7 @@ class Needs:
                       "path blocked with nothing to bridge with")
         food_goal = goals.have(("food", 8))
         # food cooking counts toward stock and stomach (else a hunt ran with beef in the furnace)
-        pending = b.mem.pending_outputs(snap.dimension) if getattr(b, "mem", None) is not None else {}
+        pending = b.mem.pending_outputs(snap.dimension)
         meals, points = food_on_its_way(pending)
         if food_count(inv) + meals < 8:
             secs, known = self.plan(food_goal, snap)
