@@ -14,6 +14,8 @@ FAMILIES = [
          ('chop', 'lava_edge'), 
          
          ('mine_iron', 'tool_one_use'),
+         ('chop', 'valuables_full'), ('nav', None, 'nav_sealed_in'), ('craft', None, 'craft_short_of_planks'),
+         ('smelt', None, 'smelt_without_fuel'),
          
          
          
