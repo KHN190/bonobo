@@ -1,6 +1,7 @@
 #!/bin/bash
-# Starts (or restarts) autoplay detached, shows its concise events live, and exits — waking whoever launched it —
-# on what matters: a death, a task stuck, a slow round, an error or refusal loop, idle, a crash, or the check-in.
+# Starts (or restarts) autoplay detached, shows its concise events live, and says a WAKE — a death, a task stuck, a
+# slow round, an error or refusal loop, idle, a frozen brain, the check-in — while the bot keeps running; it ends
+# only when autoplay ends (a crash, the user's stop).
 # Tests are the dev loop, not this one. Usage: [MIN_VERSION=x.y.z] [DRY=1] supervise.sh [hours=10] [checkin_s=600]
 cd "$(dirname "$0")" || exit 1
 export MC_INSTANCE="${MC_INSTANCE:-$HOME/Library/Application Support/ModrinthApp/profiles/Fabric API}"
@@ -81,7 +82,7 @@ tail -n 0 -F "$EVENTS" 2>/dev/null &
 TAIL=$!
 trap 'kill $TAIL 2>/dev/null' EXIT
 
-T0=$(date +%s); REASON=""
+T0=$(date +%s); REASON=""; SEEN=""; STARTED=$T0
 while :; do
   sleep 2
   NOW=$(date +%s)
@@ -89,10 +90,13 @@ while :; do
     kill -0 "$(cat "$PIDFILE")" 2>/dev/null || { REASON="autoplay process exited"; break; }
     tail -n +"$START" "$LOG" | grep -q "Traceback" && { REASON="crash (Traceback in $LOG)"; break; }
   fi
-  WAKE=$(python3 -m bonobo.tools.wake "$OFFSET" "$IDLE_S") && { echo "$WAKE"; exit 0; }
+  if WAKE=$(python3 -m bonobo.tools.wake "$OFFSET" "$IDLE_S" "$SEEN" "$STARTED"); then
+    echo "$WAKE"            # said, never an end: the bot keeps running
+    OFFSET=$(python3 -m bonobo.tools.wake offset); SEEN=$(python3 -m bonobo.tools.wake mtime); T0=$NOW
+  fi
   # player holds control: no check-in until hand-back
   python3 -c "from bonobo import api; exit(0 if api.get('/state')['control'].get('paused') else 1)" 2>/dev/null && T0=$NOW
-  [ $((NOW - T0)) -ge "$CHECKIN" ] && { REASON="check-in (every $((CHECKIN / 60)) min)"; break; }
+  [ $((NOW - T0)) -ge "$CHECKIN" ] && { echo "WAKE: check-in (every $((CHECKIN / 60)) min)"; T0=$NOW; }
   [ -n "$DRY" ] && [ $((NOW - T0)) -ge "${DRY_S:-6}" ] && { REASON="dry run over"; break; }
 done
 echo "WAKE: $REASON"

@@ -260,6 +260,10 @@ def log(*parts):
 
 DETAIL_FILE = paths.data("detail.log")
 DETAIL_MAX_BYTES = 2 << 20        # roll at 2 MB; the previous roll is kept as detail.log.1
+# detail.log silent this long while the agent drives: the brain is stuck (supervise wakes "frozen", every thread's
+# stack is written); a task running longer says so every half of it (await_task), so only a stuck brain is silent
+FROZEN_S = 60.0
+LAST_DETAIL = [time.time()]       # when detail.log was last written: the process's liveness, never one life's
 
 def roll(path, max_bytes):
     """Keep one previous file and start a new one once `path` passes `max_bytes`."""
@@ -276,6 +280,7 @@ def detail(*parts):
     """The working-out: plans, refusals, every task result, look-ahead."""
 
     line = time.strftime("%H:%M:%S") + " " + " ".join(str(p) for p in parts) + "\n"
+    LAST_DETAIL[0] = time.time()
     try:
         os.makedirs(os.path.dirname(DETAIL_FILE), exist_ok=True)
         roll(DETAIL_FILE, DETAIL_MAX_BYTES)
@@ -516,12 +521,15 @@ def await_task(task_id, wait, exempt=("wait",)):
     """Wait for a task, cancelling it on no visible progress or past `wait` seconds."""
     began = time.time()
     deadline = began + wait
-    last, since, seen = None, began, []
+    last, since, seen, said = None, began, [], began
     while True:
         r = get(f"/task?id={task_id}&wait=2")
         check_interrupt(began, STATE.soft)
         if r["status"] != "running":
             return r
+        if time.time() - said >= FROZEN_S / 2:
+            said = time.time()
+            detail(f"   task {task_id} running {said - began:.0f}s: {r.get('doing')}")
         if time.time() > deadline:
             post("/stop")
             raise TaskStuck(f"{r['type']} exceeded its {wait}s budget: {r['doing']}")

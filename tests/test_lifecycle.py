@@ -29,6 +29,7 @@ ALLOW = {
     ("bonobo.intent", "_last_sent"): "publish dedupe: a resend is harmless (output bookkeeping)",
     ("bonobo.events", "STATE"): "the session's event log bookkeeping (dedupe, milestones seen): outlives a life",
     ("bonobo.tape", "_calls"): "the tape recorder's session: spans a recording, not a life",
+    ("bonobo.api", "LAST_DETAIL"): "the process's liveness (the watchdog's freeze clock): per process, not per life",
     # containers mutated in place
     ("bonobo.lifecycle", "_RESETS"): "the registry itself",
     ("bonobo.decompose", "SOLVERS"): "import-time registry",

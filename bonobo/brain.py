@@ -795,8 +795,34 @@ def say_registrations(brain):
     events.emit("start", line)
 
 
+def stack_dump():
+    """Every thread's stack as detail lines: where a stuck brain stands (sys._current_frames)."""
+    import sys
+    import threading
+    names = {t.ident: t.name for t in threading.enumerate()}
+    for ident, frame in sys._current_frames().items():
+        api.detail(f"   stack of {names.get(ident, ident)}:\n" + "".join(traceback.format_stack(frame)).rstrip())
+
+
+def watchdog(stop, limit_s=api.FROZEN_S):
+    """A thread: detail.log silent past `limit_s` while the agent drives (control not paused) → every thread's stack
+    written once per silence (stack_dump)."""
+    while not stop.wait(limit_s / 4):
+        silent = time.time() - api.LAST_DETAIL[0]
+        if silent < limit_s:
+            continue
+        try:
+            if api.status().get("paused"):
+                continue
+        except McError:
+            continue                    # no game to ask: not the brain's freeze
+        api.detail(f"!! frozen: detail.log silent {silent:.0f}s (over {limit_s:.0f}s); every thread's stack:")
+        stack_dump()
+
+
 def autoplay(hours):
     import fcntl
+    import threading
     lock_file = paths.data("autoplay.lock")
     os.makedirs(os.path.dirname(lock_file), exist_ok=True)
     lock_fd = open(lock_file, "w")
@@ -814,6 +840,7 @@ def autoplay(hours):
     perception.start()  # ~5 Hz
     brain = Brain()
     say_registrations(brain)
+    threading.Thread(target=watchdog, args=(threading.Event(),), daemon=True, name="watchdog").start()
     deadline = time.time() + hours * 3600
     while time.time() < deadline:
         try:
