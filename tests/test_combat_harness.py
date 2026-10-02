@@ -174,28 +174,6 @@ class RunWordsResume(unittest.TestCase):
                     self.assertTrue(waited, "it waited for the body to be handed back")
 
 
-class GhastCage(unittest.TestCase):
-    """The ghast kept within vanilla's targeting band: a barrier shell whose ceiling stops its feet at the band's top."""
-
-    def test_rows(self):
-        from bonobo.bench import vocab
-        from bonobo.bench.core import BOX
-        lo, hi = vocab.ghast_cage()
-        band = vocab.GHAST_TARGET_DY
-        feet_top = hi[1] - vocab.GHAST_HEIGHT          # the highest its feet stand under the ceiling
-        spot = (vocab.GHAST_OFF, band - 1.0, 0)
-        # (situation, got, want)
-        rows = [("its feet never over the band's top", feet_top <= band, True),
-                ("its feet never under the band's bottom", lo[1] + 1 >= -band, True),
-                ("summoned inside", all(lo[i] < spot[i] < hi[i] for i in range(3)), True),
-                ("inside the row's box (the next row's setup clears it)",
-                 all(BOX[0][i] <= lo[i] and hi[i] <= BOX[1][i] for i in range(3)), True),
-                ("must fail: a ceiling one higher lets its feet out of the band", feet_top + 1 <= band, False)]
-        for name, got, want in rows:
-            with self.subTest(name):
-                self.assertEqual(got, want)
-
-
 class GhastReadout(unittest.TestCase):
     def test_rows(self):
         from bonobo.bench import vocab
@@ -216,12 +194,11 @@ class GhastReadout(unittest.TestCase):
     def test_one_read(self):
         from bonobo.bench import vocab
         body = {"y": 200.0}
-        up = vocab.GHAST_TARGET_DY - 1.0
-        # (situation, the ghast's read_combat view, t) → the read
-        rows = [("in its target band, charging", {"y": body["y"] + up, "distance": vocab.GHAST_OFF, "busy": True}, 1.0,
-                 {"t": 1.0, "dy": up, "dist": vocab.GHAST_OFF, "shooting": True}),
-                ("drifted over the band, idle", {"y": body["y"] + vocab.GHAST_TARGET_DY + 1, "distance": 20.0}, 2.0,
-                 {"t": 2.0, "dy": vocab.GHAST_TARGET_DY + 1, "dist": 20.0, "shooting": False}),
+        # (situation, the ghast's read_combat view, t) → the read (its height and distance as they come)
+        rows = [("above us, charging", {"y": body["y"] + 3.0, "distance": 16.0, "busy": True}, 1.0,
+                 {"t": 1.0, "dy": 3.0, "dist": 16.0, "shooting": True}),
+                ("higher, idle", {"y": body["y"] + 5.0, "distance": 20.0}, 2.0,
+                 {"t": 2.0, "dy": 5.0, "dist": 20.0, "shooting": False}),
                 ("must fail: no ghast, no read", None, 3.0, None)]
         for name, ghast, t, want in rows:
             with self.subTest(name):
@@ -297,22 +274,6 @@ class Endermen(unittest.TestCase):
                 self.assertEqual(fight.covered_in_time(trace, cells, 5.0), want)
 
 
-class GhastSpawn(unittest.TestCase):
-    """The ghast is summoned where vanilla lets it target us: its height off ours within GHAST_TARGET_DY."""
-
-    def test_within_targeting(self):
-        from unittest import mock
-        from bonobo.bench import vocab
-        said = []
-        with mock.patch.object(vocab, "_chat", said.append):
-            vocab._summon_ghast(None)
-        summon = next(c for c in said if "summon ghast " in c)     # after its cage
-        x, y, z = (float(v) for v in summon.split("summon ghast ")[1].split()[:3])
-        dy = y - vocab.at(0, 0, 0)[1]
-        self.assertLessEqual(abs(dy), vocab.GHAST_TARGET_DY)
-        self.assertLess(abs(x - vocab.at(0, 0, 0)[0]), vocab.GHAST_FIRE_R)
-
-
 class DerivedScenes(unittest.TestCase):
     """Scene spots come from rules, never hand-placed to fit one path."""
 
@@ -336,22 +297,6 @@ class DerivedScenes(unittest.TestCase):
                 cells = fight.alcove_cover(4, depth)
                 self.assertEqual(len(cells), sum(1 for k in range(depth) if not reached_from((k + 1, 0))))
                 self.assertEqual(bool(cells), depth > 1)
-
-
-class UnarmedCellsGetNoSword(unittest.TestCase):
-    """The trapped row is unarmed: the kit rule hands it no sword and its scene gives none."""
-
-    def test_rows(self):
-        import json
-        from bonobo.bench import core, table
-        with open("tests/fixtures/bench_rows.json") as f:
-            setup = json.load(f)["combat__trapped_unarmed"]["setup"]
-        row = next(r for t in table.TIERS for n, r in table.rows(t).items() if n == "combat__trapped_unarmed")
-        rows = [("not on the kit rule's sword list", "sword" in core.kit_jobs(row), False),
-                ("must fail: a sword given by the setup", any("sword" in c for c in setup), False)]
-        for name, got, want in rows:
-            with self.subTest(name):
-                self.assertEqual(got, want)
 
 
 class TheWindowOpensBeforeTheHooks(unittest.TestCase):

@@ -47,41 +47,8 @@ from .bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   
 from .words import brain, checks, door, fight, runs, ways, scene as _scene_words
 
 _BEFORE = set(globals())
-# real structures in the test world (seed 1234): no box; /locate gives the truth
-LEG_START = (10400, 200, 10400)
 
-STRONGHOLD_LEG = 200        # nether.locate_stronghold's sideways leg between the two throws
 
-LEG_PAD = 12     # the eye's reading is a few degrees off /locate's: the plane is wider than the line
-
-def _leg_box(start, stronghold):
-    """Pure: (x0, z0, x1, z1) around the leg the skill walks, perpendicular to the line to the stronghold, padded."""
-    x, z = start
-    d = math.dist(stronghold, start) or 1.0
-    ex, ez = round(x - (stronghold[1] - z) / d * STRONGHOLD_LEG), round(z + (stronghold[0] - x) / d * STRONGHOLD_LEG)
-    return (min(x, ex) - LEG_PAD, min(z, ez) - LEG_PAD, max(x, ex) + LEG_PAD, max(z, ez) + LEG_PAD)
-
-def _stronghold_leg(ctx):
-    """The walk between throws on a flat stone plane at sky height (real hills were most of a 60 s row)."""
-    real = locate_reply(LAST_FEEDBACK)
-    if not real:
-        raise SetupInvalid("no /locate answer for the stronghold")
-    x, y, z = LEG_START
-    box = _leg_box((x, z), real)
-    _load_area(*box)
-    _overworld(_flat(*box, y, "stone") + [f"tp @p {x} {y + 1} {z}", "effect give @p speed 60 3 true"])
-    time.sleep(1)
-
-def _load_area(x0, z0, x1, z1):
-    """Force-load a footprint and wait until its corners answer ("That position is not loaded" otherwise)."""
-    _command(f"execute in minecraft:overworld run forceload add {x0} {z0} {x1} {z1}", [])
-    probes = [(px, pz) for px in (x0, x1) for pz in (z0, z1)]
-    for _ in range(60):
-        if not any("not loaded" in l for px, pz in probes for l in
-                   _command(f"execute in minecraft:overworld run fill {px} 300 {pz} {px} 300 {pz} air", [])):
-            return
-        time.sleep(0.5)
-    raise SetupInvalid(f"area {x0},{z0}..{x1},{z1} never loaded")
 
 def _overworld(cmds):
     """Commands run in the Overworld from a hook; a refused one is a setup that did not happen."""
@@ -95,43 +62,10 @@ def _flat(x0, z0, x1, z1, y, block):
     step = max(1, 32768 // (z1 - z0 + 1))
     return [f"fill {a} {y} {z0} {min(a + step - 1, x1)} {y} {z1} {block}" for a in range(x0, x1 + 1, step)]
 
-STRONGHOLD_AT = (20000, 150, 20000)     # a built stronghold piece, in a sealed stone block in the sky
 
-ROOM_OFF = 64          # the ring's centre along +x: past the skill's 48-block scan, so the bricks are followed first
-
-def _stronghold_piece(x, y, z):
-    """Commands for a sealed stone-brick corridor ending in a portal room with 12 empty frames, without a /place structure."""
-    f = lambda a, b, block: f"fill {a[0]} {a[1]} {a[2]} {b[0]} {b[1]} {b[2]} {block}"   # noqa: E731
-    cx = x + ROOM_OFF
-    return [f((x - 3, y - 2, z - 6), (cx + 6, y + 5, z + 6), "stone"),
-            f((x - 1, y - 1, z - 2), (x + 58, y + 3, z + 2), "stone_bricks"),
-            f((x, y, z - 1), (x + 58, y + 2, z + 1), "air"),
-            f((cx - 5, y - 1, z - 5), (cx + 5, y + 4, z + 5), "stone_bricks"),
-            f((cx - 4, y, z - 4), (cx + 4, y + 3, z + 4), "air"),
-            f((x + 58, y, z - 1), (cx - 4, y + 2, z + 1), "air"),
-            f((cx - 1, y, z - 2), (cx + 1, y, z - 2), "end_portal_frame[facing=south]"),
-            f((cx - 1, y, z + 2), (cx + 1, y, z + 2), "end_portal_frame[facing=north]"),
-            f((cx - 2, y, z - 1), (cx - 2, y, z + 1), "end_portal_frame[facing=east]"),
-            f((cx + 2, y, z - 1), (cx + 2, y, z + 1), "end_portal_frame[facing=west]"),
-            f"tp @p {x + 1} {y} {z}"]
-
-def _built_stronghold(ctx):
-    """The piece built fresh every run (a run digs it up), the estimate at the corridor's start where we stand."""
-    x, y, z = STRONGHOLD_AT
-    _load_area(x - 8, z - 8, x + ROOM_OFF + 8, z + 8)
-    _overworld(_stronghold_piece(x, y, z))
-    ctx.mem.add_site("stronghold", (x + 1, y, z), "minecraft:overworld", name="stronghold")
-    time.sleep(1)
 
 PORTAL_ROOM_OK = []
 
-def _portal_room_run(ctx):
-    """Run the search and note whether the skill itself succeeded (a frame in range is not success)."""
-    from ..end import find_portal_room
-    PORTAL_ROOM_OK.clear()
-    find_portal_room(ctx)
-    PORTAL_ROOM_OK.append(True)
-    return True
 
 def _portal_room_found():
     from ..end import ROOM_REACH
@@ -150,46 +84,14 @@ def _wait_landed(ctx, seconds=10):
                timeout=seconds, stable_s=1.0, soft=True)
     return bool(s.get("onGround") or s.get("inWater") or s.get("dead"))
 
-def _snap_survival(ctx, seconds=20):
-    """Brain rounds until the body is back in the Overworld (leaving the Nether is an upkeep row)."""
-    from .. import api
-    t0 = time.time()
-    home = lambda: api.get("/state")["dimension"] == "minecraft:overworld"  # noqa: E731
-    core.BRAIN.wake = home               # an idle round ends the moment the body is home
-    try:
-        while time.time() - t0 < seconds and not home():
-            core.BRAIN.round()
-    finally:
-        core.BRAIN.wake = None
-    return home()
 
 # the bucket sits in the main bag, not the hotbar: the clutch must select it; the water is scooped back after
 _FALL_FLOOR = [f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} stone", f"tp @p {_c(at(0, 0, 0))}", "clear @p",
                "give @p dirt 576"]
 
 GHAST_MAX_HP = fight.GHAST_HP
-GHAST_TARGET_DY = 4.0   # vanilla GhastEntity targets a player only within this height (|dy| ≤ 4.0, its target predicate)
-GHAST_FIRE_R = 64.0     # vanilla ShootFireballGoal: fires within 64 blocks (4096 squared)
-GHAST_OFF = GHAST_FIRE_R / 4    # out: well past melee, well inside its fire range
-
-GHAST_HEIGHT = 4.0       # vanilla EntityType GHAST: 4 × 4
 
 
-def ghast_cage():
-    """Pure: the barrier shell (lo, hi offsets) that keeps a ghast's feet within GHAST_TARGET_DY of ours: its ceiling a
-    ghast's height over the band's top, its floor under the band's bottom; across the row's box (the next row's setup
-    clears it). The ghast drifted up and out of the band (231849: dy 3.4 → 17, never shooting)."""
-    band = int(GHAST_TARGET_DY)
-    return (BOX[0][0], -band - 1, BOX[0][2]), (BOX[1][0], band + int(GHAST_HEIGHT), BOX[1][2])
-
-
-def _summon_ghast(ctx):
-    """`before` hook: a ghast inside vanilla's targeting rule — its height off ours under GHAST_TARGET_DY — and a
-    barrier shell that keeps it there (ghast_cage; `outline`: the hall inside is kept)."""
-    lo, hi = ghast_cage()
-    _chat(f"execute in minecraft:the_nether run fill {_c(at(*lo))} {_c(at(*hi))} barrier outline")
-    x, y, z = at(GHAST_OFF, GHAST_TARGET_DY - 1.0, 0)
-    _chat(f"execute in minecraft:the_nether run summon ghast {x} {y} {z} {{PersistenceRequired:1b}}")
 GHAST = {}              # the ghast row's watch: its fireballs, the player's start and worst health, the ghast's last read
 
 def ghast_health(lines):
@@ -204,7 +106,7 @@ def ghast_readout(watch):
 
 def ghast_read(ghast, body, t):
     """Pure: one read of the ghast (a read_combat view) against the body's /state: its height off ours (vanilla
-    targets within GHAST_TARGET_DY), its distance, and whether it is shooting (busy); None when no ghast."""
+    targets within 4 blocks of height), its distance, and whether it is shooting (busy); None when no ghast."""
     if ghast is None:
         return None
     return {"t": round(t, 1), "dy": round(ghast["y"] - body["y"], 2), "dist": round(ghast["distance"], 1),
@@ -262,21 +164,6 @@ def _ghast_answered():
 
 FORTRESS_RUN = {}
 
-def _far_from_fortress(ctx):
-    """Stand ~20 blocks from the real fortress, below the roof (spreadplayers 'under 90' picks a floor there)."""
-    real = locate_reply(LAST_FEEDBACK)
-    if not real:
-        raise SetupInvalid("no /locate answer for the fortress")
-    _chat(f"execute in minecraft:the_nether run spreadplayers {real[0] + 20} {real[1]} 0 6 under 90 false @p")
-    time.sleep(3)
-    # the memory held a fortress from an earlier row, which passed this one without a step
-    from .. import api
-    from ..memory import Memory
-    s = api.get("/state")
-    FORTRESS_RUN.clear()
-    FORTRESS_RUN["start"] = (s["x"], s["y"], s["z"])
-    FORTRESS_RUN["before"] = {tuple(round(c) for c in site["pos"])
-                              for site in Memory(NOTES).sites("minecraft:the_nether", kinds=["fortress"])}
 
 def _found_fortress_now():
     """The run passed only if it wrote a fortress site this time, and one the player actually walked to."""
@@ -314,12 +201,6 @@ def _trek(dx, dz, dimension="minecraft:overworld"):
 
 TREK = {}
 
-def _trek_detail(inv):
-    if not TREK.get("end"):
-        return ""
-    dist = math.hypot(TREK["target"][0] - TREK["start"][0], TREK["target"][2] - TREK["start"][2])
-    left = math.hypot(TREK["end"][0] - TREK["target"][0], TREK["end"][2] - TREK["target"][2])
-    return f"{dist:.0f} blocks, {TREK['seconds'] / dist * 100:.1f} s/100 (wall), ended {left:.0f} from target"
 
 def _trek_check(api):
     from .. import nav
@@ -347,14 +228,6 @@ _lifecycle.in_place(__name__, "PORTAL_ROOM_OK", "FORTRESS_RUN", "TREK", "ROAD_TI
 
 ROAD_LEG = 10      # three legs of 10 blocks: the reuse is what is judged, not the distance
 
-def _broken_hut(ctx):
-    """The hut in the arena as a remembered site whose snapshot is the whole wall (taken before it was broken)."""
-    lo, hi = at(2, 0, -2), at(6, 2, 2)
-    blocks = {f"{x},{y},{z}": "cobblestone" for x in range(lo[0], hi[0] + 1) for y in range(lo[1], hi[1] + 1)
-              for z in range(lo[2], hi[2] + 1) if x in (lo[0], hi[0]) or y in (lo[1], hi[1]) or z in (lo[2], hi[2])}
-    site = ctx.mem.add_site("shelter", at(4, 0, 0), "minecraft:overworld", name="bench-hut",
-                            snapshot={"lo": list(lo), "hi": list(hi), "blocks": blocks})
-    return site
 
 # searching needs real terrain: raw rows, judged by what they found
 def _found_near(blocks, r=6):
@@ -419,38 +292,7 @@ def _villager(pos, buy, n_buy, sell, n_sell, profession="farmer"):
             f'type:"minecraft:plains"}},Offers:{{Recipes:[{{buy:{{id:"minecraft:{buy}",count:{n_buy}}},'
             f'sell:{{id:"minecraft:{sell}",count:{n_sell}}},maxUses:12}}]}}}}')
 
-FARM_KIT = ["give @p diamond_hoe", "give @p wheat_seeds 8", "give @p water_bucket",
-            "give @p diamond_shovel"]      # the centre's dig at once (dirt and grass: a shovel's)
 
-FARM_TICK_SPEED = 4096      # random ticks per section per tick: every block ticked ~once a tick — a sown crop ripe in ~2-4 s (1000 left the 8 cells unripe 16 s after sowing: bread_from_a_farm 10:43 TIMEOUT); the bench keeps 0
-
-RIPE_PLOT = [f"fill {_c(at(4, -1, -1))} {_c(at(6, -1, 1))} farmland", f"fill {_c(at(4, 0, -1))} {_c(at(6, 0, 1))} wheat[age=7]"]
-
-def _growing(run):
-    """The run with fast crop ticks once the plot is watered — the plot is built at the normal tick speed (sped-up
-    ticks turned the dug centre's dirt to grass and the break lagged the server by seconds) — reset to 0 however it
-    ends: the plan's own plot ripens within the row."""
-    def go(ctx):
-        from ..world import find
-        stop = _threading.Event()
-
-        def watered():
-            while not stop.is_set():
-                try:
-                    if find(["water"], radius=10, limit=1):
-                        _checked(f"execute in minecraft:overworld run gamerule random_tick_speed {FARM_TICK_SPEED}", [])
-                        return
-                except (McError, SetupInvalid) as e:
-                    swallowed("vocab.watered", e)
-                stop.wait(0.25)
-        _threading.Thread(target=watered, daemon=True).start()
-        try:
-            return run(ctx)
-        finally:
-            stop.set()
-            _checked("execute in minecraft:overworld run gamerule random_tick_speed "
-                     + core.BENCH_WORLD["gamerule random_tick_speed"], [])
-    return go
 
 # == tiers: core runs on every change, common when a related module changed, exception before a merge, acceptance alone
 TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
@@ -458,8 +300,6 @@ TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
 # fighting is its own tier
 COMBAT_PREFIXES = ("fight_", "combat_arena", "siege__", "escape__", "fight_before_upkeep", "combat__")
 
-# fights whose names say otherwise; resume_after_combat left out on purpose
-COMBAT_ROWS = ("collect_blaze_rods", "ghast_fireball", "hunt_hurt_spider")
 
 # the chain's first slice is common, not core: core is what every change can afford
 CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
@@ -475,7 +315,7 @@ ACCEPTANCE = (ACCEPTANCE_D,)
 
 def tier_of(name, row):
     """Pure: the tier a row belongs to (a row that states its own tier keeps it)."""
-    if name.startswith(COMBAT_PREFIXES) or name in COMBAT_ROWS or row.get("module") == "fight_loop":
+    if name.startswith(COMBAT_PREFIXES) or row.get("module") == "fight_loop":
         return "combat"
     if row.get("tier_fixed") in ("core", "common", "brain", "combat", "exception"):
         return row["tier_fixed"]

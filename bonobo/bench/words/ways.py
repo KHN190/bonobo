@@ -20,17 +20,6 @@ def _box(lo, hi, block):
 
 # every way row's world, as data: fills (lo, hi, block) in order, then single cells; feet at (0, 0, 0)
 SPECS = {
-    # R1: iron 6 below, two sand on the third step's column: dug top-down, the sand never lands in a cleared cell
-    "stairs_under_sand": {"fills": [((-3, -10, -3), (10, -1, 3), "stone")],
-                          "cells": {(3, -2, 0): "sand", (3, -1, 0): "sand", (6, -6, 0): "iron_ore"},
-                          "target": (6, -6, 0)},
-    # R2: a buried iron 3 off, an exposed one 6 off on the floor: the exposed one is the cheaper way
-    "exposed_over_buried": {"fills": [((-8, -4, -3), (8, -1, 3), "stone")],
-                            "cells": {(3, -2, 0): "iron_ore", (-6, 0, 0): "iron_ore"},
-                            "target": (-6, 0, 0), "buried": (3, -2, 0)},
-    # R3: the iron behind a home wall across the whole arena, too high to walk over: no way, nothing tried
-    "vein_behind_home": {"fills": [((-8, -3, -8), (12, -1, 8), "stone"), ((2, 0, -8), (4, 4, 8), "stone")],
-                         "cells": {(8, 0, 0): "iron_ore"}, "target": (8, 0, 0), "home": ((2, 0, -8), (4, 4, 8))},
     # R4 / R4': a dirt patch, the shovel's parts carried
     "dirt_patch": {"fills": [((-8, -3, -8), (8, -1, 8), "dirt")], "cells": {}},
     # R6: a home room with a bed in it, the body inside at night

@@ -41,8 +41,7 @@ class Floors(unittest.TestCase):
         self.assertEqual(KEPT_HP, CRITICAL_HP + 1)
         sheet = table.SCENARIOS
         # must fail: a floor typed per row (16, 14, 10, 8, 18)
-        for name in ("water_clutch", "buried_by_sand", "drowning_in_a_pit", "bed_in_nether", "lava_under_ore",
-                     "falling_gravel"):
+        for name in ("water_clutch", "buried_by_sand", "drowning_in_a_pit", "bed_in_nether"):
             with self.subTest(name):
                 words = json.dumps(getattr(sheet[name]["check"], "__table__", None) or
                                    [getattr(p, "__table__", None) for p in getattr(sheet[name]["check"], "parts", ())])

@@ -682,7 +682,7 @@ def _waits(*chosen):
 def _refused_without_flag():
     with mock.patch.object(runner, "FLAG", os.path.join(tempfile.mkdtemp(prefix="noflag"), "test-world")):
         try:
-            runner.run_named("gather_logs", None)
+            runner.run_named("withdraw_from_chest", None)
         except RuntimeError:
             return True
     return False
@@ -755,7 +755,7 @@ class Bench(unittest.TestCase):
             ("any other silent failure is the skill's", lambda: type(runner.silent_failure(
                 ["  mine_many failed    5 of 6 steps failed"], None)).__name__, "McError"),
             ("the lava variants keep the far platform inside the box",
-             lambda: [n for n in ("cross_lava_3", "cross_lava_8", "cross_lava_lake")
+             lambda: [n for n in ("cross_lava_8",)
                       if SC.SCENARIOS[n]["expect"][2][1][0] > core.at(*core.BOX[1])[0]], []),
         ])
 
