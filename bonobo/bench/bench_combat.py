@@ -121,7 +121,7 @@ ROWS = [
                 ('cmd', 'item replace entity @p armor.head with golden_helmet'), ('give', 'cooked_beef', 16)],
          run=('ghast_watch', 20),
          before=[('&summon_ghast',)],
-         check=[('ghast_answered',)], budget=25,
+         check=[('ghast_answered',)],
          dimension='minecraft:the_nether', combat=True,
          expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'netherrack', 169, 169)]),
     dict(name='fight_zombie_1_full_bag', module='fight_loop', kit=['sword'],
@@ -132,7 +132,7 @@ ROWS = [
             ('cmd', 'scoreboard players set @p bk_zombie 0')],      # the kill statistic (fight.kill_stat_scene)
          run=('fight_until', ['minecraft:zombie'], 23),
          before=[('hooks', ('!start', 'fight_zombie_1'), ('&record_bids',)), ('fill_bag', 0)],
-         check=[('alive', 12), ('gone', ['minecraft:zombie']), ('killed', ['minecraft:zombie'], 1)], budget=25, combat=True,
+         check=[('alive', 12), ('gone', ['minecraft:zombie']), ('killed', ['minecraft:zombie'], 1)], combat=True,
          point='B', tier_fixed='exception',
          tags={'base': 'fight', 'enemy': 'zombie', 'count': 1, 'inventory': 'full_bag'},
          expect_entities=[('minecraft:zombie', 1)]),
@@ -149,7 +149,7 @@ ROWS = [
          before=[('start', 'combat__low_hp_eat'), ('drain_to', 6, 20, (4, 8)), ('loose', 'zombie'), ('&record_bids',)],
          check=[('state', 'health', '>', 6), ('alive',), ('count', 'minecraft:cooked_beef', '<', 16),
                 ('away_or_walled', ['minecraft:zombie'])],
-         budget=25, point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'zombie', 'blood': 'low'},
+point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'zombie', 'blood': 'low'},
          expect_entities=[('minecraft:zombie', 1, 1)],
          expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),
                  (('@', -9, 0, -9), ('@', 9, 3, 9), 'glass', 288, 288)],      # the _ARENA: floor, roof, walls
@@ -163,7 +163,7 @@ ROWS = [
          run=('fight_until', ['minecraft:zombie'], 14, False),
          before=[('start', TRAPPED_ROW), ('loose', 'zombie'), ('&record_bids',)],
          check=[('kept_health',)],
-         budget=25, point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'zombie'},
+point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'zombie'},
          expect_entities=[('minecraft:zombie', 1, 1)],
          # the room as built: its dirt floor's top layer, every cell
          expect=[(('@', -TRAP_HALF, -1, -TRAP_HALF), ('@', TRAP_HALF, -1, TRAP_HALF), 'dirt',
@@ -190,7 +190,7 @@ ROWS = [
                  ('&record_bids',)],
          run=('fight_until', ['minecraft:enderman'], 14, False),
          check=[('took_cover_alcove', *ALCOVE, 5.0), ('alive',)],
-         budget=25, point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'enderman'},
+point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'enderman'},
          expect_entities=[('minecraft:enderman', 1, 1)],
          expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),
                  (('@', -9, 0, -9), ('@', 9, 3, 9), 'glass', 288, 288)]),
@@ -198,7 +198,7 @@ ROWS = [
          doc='Iron sword, a creeper 4 blocks off → the creeper gone (dead or blown up in the air), health ≥ 16',
          scene=[('sheet', '_ARENA'), ('summon', 'creeper', ('@', 4, 0, 0), '{PersistenceRequired:1b}')],
          run=('fight_until', ['minecraft:creeper'], 25), before=[('start', 'fight_creeper_sword'), ('&record_bids',)],
-         check=[('gone', ['minecraft:creeper']), ('alive', 16)], budget=25, point='B', combat=True, stochastic=True,
+         check=[('gone', ['minecraft:creeper']), ('alive', 16)], point='B', combat=True, stochastic=True,
          tags={'base': 'fight', 'enemy': 'creeper', 'ground': 'open'}, expect_entities=[('minecraft:creeper', 1)]),
     dict(name='fight_creeper_by_home', module='fight_loop', kit=['sword'],
          doc=('Iron sword, a creeper 4 blocks off, a bed and a furnace of ours within 3 of it → the creeper gone (dead '
@@ -212,7 +212,7 @@ ROWS = [
          check=[('gone', ['minecraft:creeper']), ('alive', 16),
                 ('blocks', ('@', 4, 0, 2), ('@', 5, 0, 2), ('red_bed',), 2),
                 ('blocks', ('@', 4, 0, -2), ('@', 4, 0, -2), ('furnace',), 1)],
-         budget=25, point='B', combat=True, stochastic=True,
+point='B', combat=True, stochastic=True,
          tags={'base': 'fight', 'enemy': 'creeper', 'ground': 'home'}, expect_entities=[('minecraft:creeper', 1)]),
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------

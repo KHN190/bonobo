@@ -242,7 +242,7 @@ def fall_row(name, taken):
     doc = (f"A {DROP_HEIGHT}-block fall, a water bucket carried, "
            + ("the player holding the body → no clutch, no swap: hurt, cobblestone still in hand" if taken
               else "the agent driving → the clutch lands it unhurt"))
-    return _row(name, doc, "skills", scene, ("fall", taken), check, budget=25, skills=[], tier_fixed="exception", variant=(taken,),
+    return _row(name, doc, "skills", scene, ("fall", taken), check, skills=[], tier_fixed="exception", variant=(taken,),
                 tags={"base": "takeover"})
 
 
