@@ -172,6 +172,8 @@ def decision_code():
         runner), not by the round. A keyword `key` (sorted, min, max) is called right there."""
         if code[i].arg is not None and code[i].arg & 1:
             return False                                   # loaded to be called (the NULL/self slot)
+        if i + 1 < len(code) and code[i + 1].opname == "PUSH_NULL":
+            return False                                   # the callee itself (module.fn(...): its NULL follows)
         for ins in code[i + 1:]:
             if ins.opname in ("STORE_ATTR", "STORE_GLOBAL"):
                 return True

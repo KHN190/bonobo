@@ -23,7 +23,7 @@ def valid(value, facts):
 
 def _iron_pickaxe(inputs=None):
     from bonobo.decompose import Step
-    return Step("craft", "minecraft:iron_pickaxe", 1, {"inputs": dict(inputs or {})})
+    return Step("craft", "minecraft:iron_pickaxe", 1, {"times": 1, "inputs": dict(inputs or {})})
 
 
 def task_id():
@@ -38,11 +38,13 @@ def craft_chain():
     """planks ← logs, sticks ← planks, a stone pickaxe ← cobblestone + sticks (at a table; no cobblestone carried:
     the run stops there), then a furnace (a table again: the one placed is kept)."""
     from bonobo.decompose import Step
-    return [Step("craft", "minecraft:oak_planks", 4, {"inputs": {"minecraft:oak_log": 1}}),
-            Step("craft", "minecraft:stick", 4, {"inputs": {"minecraft:oak_planks": 2}}),
-            Step("craft", "minecraft:stone_pickaxe", 1, {"inputs": {"minecraft:cobblestone": 3, "minecraft:stick": 2}}),
+    # each craft step as the planner makes it (planner._craft: `times` crafts of the recipe, the inputs for them)
+    return [Step("craft", "minecraft:oak_planks", 4, {"times": 1, "inputs": {"minecraft:oak_log": 1}}),
+            Step("craft", "minecraft:stick", 4, {"times": 1, "inputs": {"minecraft:oak_planks": 2}}),
+            Step("craft", "minecraft:stone_pickaxe", 1,
+                 {"times": 1, "inputs": {"minecraft:cobblestone": 3, "minecraft:stick": 2}}),
             Step("mine", "minecraft:cobblestone", 8, {"blocks": ["minecraft:stone"], "tier": 0}),
-            Step("craft", "minecraft:furnace", 1, {"inputs": {"minecraft:cobblestone": 8}})]
+            Step("craft", "minecraft:furnace", 1, {"times": 1, "inputs": {"minecraft:cobblestone": 8}})]
 
 
 def held_for(value, goal, snap, mem):
