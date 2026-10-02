@@ -42,7 +42,7 @@ DOORS = {
         "presses": [((2, 1, 3), "oak_button[face=floor,facing=north]"), ((2, -1, 3), "oak_button[face=ceiling,facing=north]")],
         "points": {"outside": (1, 1, -2), "inside": (2, -2, 2)}},
 }
-REACH = 0.5               # the walker's arrival range at a door point
+ARRIVE_RANGE = 0.5               # the walker's arrival range at a door point
 DOOR_S = 25
 
 
@@ -89,13 +89,13 @@ def door_row(name, shape, door, presses, close, taught, start, goal, back):
     to, home = p["points"][goal], p["points"][start]
     end_state = "shut" if close or not taught else "open"
     keep = p["cells"] if p["moves"] else []
-    check = ([("arrived", home if back else to, REACH), ("door_state", p["cells"], end_state),
+    check = ([("arrived", home if back else to, ARRIVE_RANGE), ("door_state", p["cells"], end_state),
               ("unchanged", *p["box"], keep), ("door_seen",)] if taught else
-             [("not", ("!arrived", to, REACH)), ("door_state", p["cells"], "shut"), ("unchanged", *p["box"], keep)])
+             [("not", ("!arrived", to, ARRIVE_RANGE)), ("door_state", p["cells"], "shut"), ("unchanged", *p["box"], keep)])
     doc = (f"A shut {door} {shape} door, {presses} button(s) {'taught' + (' (close)' if close else '') if taught else 'NOT taught (must fail to pass)'}"
            f" → {start} to {goal}{' and back' if back else ''}; door {end_state} at the end, nothing dug")
     return _row(name, doc, "skills", door_scene(shape, door, presses, start),
-                ("walk", to, REACH, home if back else None), check, budget=DOOR_S,
+                ("walk", to, ARRIVE_RANGE, home if back else None), check, budget=DOOR_S,
                 before=[("teach", [c for c, _b in p["presses"]] if taught else [], p["cells"], close)],
                 skills=["press_mechanism"] if taught else [], stochastic=False, tier_fixed="common",
                 tags={"base": "door"}, expect=[(p["bulb"], p["bulb"], "waxed_copper_bulb", 1, 1)])
@@ -118,7 +118,7 @@ def teach(presses, cells, close):
             r = Region(press, press, props=True)
             if "powered" not in r.props.get(tuple(press), {}):
                 raise SetupInvalid(f"taught press {tuple(press)} is {r.name(tuple(press))}: nothing to press")
-            mech.add("minecraft:overworld", press, cells, close=close)
+            mech.learn("minecraft:overworld", press, cells, close=close)
         DOOR_SEEN[name] = False
         end = time.time() + DOOR_WATCH_S
 
@@ -177,5 +177,5 @@ def door_seen():
 TEMPLATES = {"door": door_row}
 NAMES = {"door": lambda name, *p: name}
 
-__all__ = ['DOORS', 'DOOR_S', 'DOOR_SEEN', 'DOOR_WATCH_S', 'REACH', 'door_parts', 'door_row', 'door_scene',
+__all__ = ['DOORS', 'DOOR_S', 'DOOR_SEEN', 'DOOR_WATCH_S', 'ARRIVE_RANGE', 'door_parts', 'door_row', 'door_scene',
            'door_seen', 'door_state', 'teach', 'unchanged', 'walk']

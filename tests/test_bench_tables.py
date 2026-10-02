@@ -922,13 +922,13 @@ class FreshRow(unittest.TestCase):
                 else:
                     os.makedirs(paths.data(name))
             lesson = paths.data("mechanisms.json")
-            mech.add("minecraft:overworld", (1, 2, 3), [(4, 5, 6)], path=lesson)
+            mech.learn("minecraft:overworld", (1, 2, 3), [(4, 5, 6)], path=lesson)
             with open(notes, "w") as f:
                 json.dump({"sites": [{"name": "home", "kind": "home", "pos": [0, 0, 0],
                                       "dimension": "minecraft:overworld"}]}, f)
-            self.assertTrue(mech.load(lesson))          # must fail without the drop: the last row's lesson
+            self.assertTrue(mech.read_lessons(lesson))          # must fail without the drop: the last row's lesson
             core.fresh_row(object())
-            self.assertEqual(mech.load(lesson), [])
+            self.assertEqual(mech.read_lessons(lesson), [])
             self.assertEqual([n for n in fresh.WORLD_SCOPED + (os.path.basename(notes),)
                               if os.path.exists(paths.data(n))], [])
             self.assertEqual(reset.call_args[0][1].sites(), [])      # the brain's notes: no home site left

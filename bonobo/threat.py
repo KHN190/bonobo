@@ -6,10 +6,8 @@ from typing import Any
 from . import beliefs, estimate, kernel, lifecycle
 from .game import ARROWS
 
-CONFIG = beliefs.CONFIG
 MOBS = beliefs.MOBS
-PLAYER = beliefs.PLAYER
-ENGAGE = CONFIG["engage"]
+ENGAGE = beliefs.CONFIG["engage"]
 # the account's length is `estimate.horizon_s`, only one (two horizons measured over 4 s and charged over 20)
 
 class Decision:
@@ -133,7 +131,7 @@ def bait_option(here, hazards, ids, creepers, lit, clear, prot):
     h = hazards[first]
     is_lit = ids[first] in lit
     spot = bait_spot(here, h[0], is_lit, clear)
-    walk_s = math.dist(here, spot) / float(PLAYER["speed"])
+    walk_s = math.dist(here, spot) / float(beliefs.PLAYER["speed"])
     return Option("bait", spot, bait_blast(BAIT_R, MOBS[h[3]]["attack"], prot), round(walk_s + float(ENGAGE["fuse_s"]), 2),
                   "bait it: " + ("step out, it blows" if is_lit else "out to 7.5, let it come")
                   + f" (creeper {ids[first]} at {tuple(round(c, 1) for c in h[0])}, {math.dist(here, h[0]):.1f} off)")
@@ -159,7 +157,7 @@ def impacts_of(near):
 def dodge_spot(here, impacts, candidates, speed=None):
     """Pure: the nearest candidate out of every predicted impact that we reach before the impact it leaves lands,
     or None. An impact we already stand outside of needs no race."""
-    speed = float(PLAYER["speed"]) if speed is None else speed
+    speed = float(beliefs.PLAYER["speed"]) if speed is None else speed
     best = None
     for spot in candidates:
         walk_s = math.dist(here, spot) / speed
@@ -179,9 +177,7 @@ row = estimate.row
 arrival = estimate.arrival_s
 pressure = estimate.pressure_hp_s
 burst_damage = estimate.burst_hp
-keepoff_cost = estimate.keepoff_cost
 time_to_die = estimate.time_to_die_s
-fight_cost = estimate.fight_cost
 hide_ratio = estimate.reaches_share
 
 # -- the model
@@ -210,7 +206,7 @@ def escape_spot(here, hazards, blocks=None, cover=None, footing=None, impacts=No
         options = [s for s in (footing(o) for o in options) if s is not None]
     if cover is not None:
         options.append(tuple(cover))
-    speed = float(PLAYER["speed"])
+    speed = float(beliefs.PLAYER["speed"])
     if impacts:
         # what the jar predicts lands where and when: a step out of its path in time, the nearest that clears it
         ring = [(here[0] + (max(r for _p, _t, r in impacts) + 1.0) * math.cos(k * math.pi / 4), here[1],
@@ -236,7 +232,7 @@ def escape_spot(here, hazards, blocks=None, cover=None, footing=None, impacts=No
 
 def evade_cost(here, spot, hazards, prot, ground=None):
     """hp lost walking from here to `spot`: the pressure here (over the ground we stand in), over the walk."""
-    walk_s = math.dist(here, spot) / float(PLAYER["speed"])
+    walk_s = math.dist(here, spot) / float(beliefs.PLAYER["speed"])
     return estimate.leaving_hp(estimate.pressure_hp_s(here, hazards, prot, ground=ground), walk_s)
 
 class Option:
@@ -365,7 +361,7 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
 def eat_options(state, hp, press, blast_here):
     """Pure: eating in a fight."""
 
-    max_hp = float(PLAYER.get("max_hp", 20))
+    max_hp = float(beliefs.PLAYER.get("max_hp", 20))
     if hp >= max_hp:
         return []
     eat_s = float(ENGAGE["eat_s"])
@@ -387,7 +383,7 @@ def horizon_for(state):
 
 def _evade_option(here, spot, hazards, prot, press, out, ground=None):
     """Pure: the evade column to `spot`, priced against the options already in `out` (a fight on offer)."""
-    walk_s = round(math.dist(here, spot) / float(PLAYER["speed"]), 2)
+    walk_s = round(math.dist(here, spot) / float(beliefs.PLAYER["speed"]), 2)
     # leaving costs the walk out and back; what follows is the next round's account — unless every threat still reaches us there and a fight is on offer (then leaving only postpones it)
     # a melee follower walks after us: leaving only postpones it, fight or not (combat__dig_in evaded instead of digging)
     melee = all(not MOBS[h[3]].get("ranged") and not MOBS[h[3]].get("burst") for h in hazards)
@@ -428,9 +424,9 @@ def options(state):
     if creepers and sword >= 1 and all(MOBS[h[3]].get("burst") is None or i in creepers
                                        for i, h in enumerate(hazards)):
         first = min(creepers, key=lambda i: math.dist(here, hazards[i][0]))
-        t_c, lost_c = keepoff_cost(here, hazards[first], sword, prot)
+        t_c, lost_c = estimate.keepoff_cost(here, hazards[first], sword, prot)
         rest = [h for i, h in enumerate(hazards) if i != first]
-        t_r, lost_r = fight_cost(hazards[first][0], rest, sword, prot) if rest else (0.0, 0.0)
+        t_r, lost_r = estimate.fight_cost(hazards[first][0], rest, sword, prot) if rest else (0.0, 0.0)
         out.append(Option("fight", ids[first], round(lost_c + lost_r, 2), round(t_c + t_r, 2),
                           f"kill the creeper hit-and-back in ~{t_c}s"
                           + (f", then {len(rest)} more" if rest else "")))
@@ -442,7 +438,7 @@ def options(state):
     reach = [i for i, h in enumerate(hazards) if estimate.melee_reachable(here, h, ground=grid)]
     above = [hazards[i] for i in range(len(hazards)) if i not in reach]
     if reach and not any(MOBS[h[3]].get("burst") for h in hazards):
-        t_fight, lost = fight_cost(here, [hazards[i] for i in reach], sword, prot)
+        t_fight, lost = estimate.fight_cost(here, [hazards[i] for i in reach], sword, prot)
         nearest = min(reach, key=lambda i: math.dist(here, hazards[i][0]))
         out.append(Option("fight", ids[nearest], lost + blast_here, t_fight,
                           f"kill {len(reach)} in ~{t_fight}s for ~{lost} hp",
@@ -470,7 +466,7 @@ def options(state):
     tall = [h for h in hazards if MOBS[h[3]].get("tall")]
     if tall and cover is not None:
         # a 2-high space near: under it a tall mob can't reach (fight_enderman_provoked)
-        walk_s = round(math.dist(here, cover) / float(PLAYER["speed"]), 2)
+        walk_s = round(math.dist(here, cover) / float(beliefs.PLAYER["speed"]), 2)
         rest = [h for h in hazards if not MOBS[h[3]].get("tall")]
         out.append(Option("cover", tuple(cover), round(press * walk_s, 2), walk_s, f"under a 2-high roof, {walk_s}s off",
                           leaves=pressure(here, rest, prot, ground=grid) if rest else 0.0))
@@ -486,14 +482,14 @@ def options(state):
                                          ground=grid)
         out.append(Option("wall_in", None, round(press * wall_s + blast_here, 2), wall_s,
                           f"wall in, ~{wall_s}s exposed", leaves=round(through, 3)))
-    return survivors(out, hp)
+    return passing_columns(out, hp)
 
 def survivable(option, hp):
     """Pure: what this answer expects to lose over its own seconds stays under the health we have, less a margin."""
 
     return float(option.hp) < hp - float(ENGAGE["survive_margin_hp"])
 
-def survivors(out, hp):
+def passing_columns(out, hp):
     """Pure: the one veto every column passes (`survivable`) — only the fight had it, and a 1.2 s pillar at 3.1 hp
     beside three zombies was offered, taken, and died on (fight_zombie_3). It removes an answer only while a survivable
     one remains: when none does, the one expected to lose least is kept (leaving, usually), or low health would have
@@ -542,7 +538,7 @@ def fallback(opts, state):
              and not MOBS[h[3]].get("burst")]
     if not melee or pressure(here, melee, float(state.get("protection", 0.0)), ground=grid) <= 0.0:
         return None
-    slower = all(float(MOBS[h[3]].get("speed", 2.5)) < float(PLAYER["speed"]) for h in melee)
+    slower = all(float(MOBS[h[3]].get("speed", 2.5)) < float(beliefs.PLAYER["speed"]) for h in melee)
     for kinds in FALLBACK:
         if kinds == ("evade",) and not slower:
             continue

@@ -158,15 +158,15 @@ def stand_on_a_block(ctx):
     place(block, (x, y - 1, z))
     return bool(api.get("/state").get("onGround"))
 
-BRIDGE_REACH = 12      # cells one bridge call lays toward its target
+BRIDGE_CELLS = 12      # cells one bridge call lays toward its target
 
 BRIDGE_CLIMB = 4       # blocks one call pillars up toward a target above the feet
 
 def bridge_region(feet_, target):
     """The box `bridge_commands` reads: the lane toward the target, its floor and the climb above it."""
     x, y, z = feet_
-    tx = x + max(-BRIDGE_REACH, min(BRIDGE_REACH, target[0] - x))
-    tz = z + max(-BRIDGE_REACH, min(BRIDGE_REACH, target[2] - z))
+    tx = x + max(-BRIDGE_CELLS, min(BRIDGE_CELLS, target[0] - x))
+    tz = z + max(-BRIDGE_CELLS, min(BRIDGE_CELLS, target[2] - z))
     return Region((min(x, tx) - 1, y - 2, min(z, tz) - 1), (max(x, tx) + 1, y + BRIDGE_CLIMB + 2, max(z, tz) + 1))
 
 def bridge_commands(state, args) -> "list[Task]":
@@ -181,7 +181,7 @@ def bridge_commands(state, args) -> "list[Task]":
     for _ in range(max(0, min(BRIDGE_CLIMB, int(target[1]) - y))):
         tasks.append({"type": "pillar", "item": block})
         y += 1
-    for _ in range(BRIDGE_REACH):
+    for _ in range(BRIDGE_CELLS):
         dx, dz = int(target[0]) - x, int(target[2]) - z
         if dx == 0 and dz == 0:
             break
@@ -203,7 +203,7 @@ def _bridged_nearer(c):
     target = c.args[1]
     return math.dist(feet(), target) < math.dist(c.base, target) - 1
 
-@skill(gives=["state:bridged"], remaining=_k.near(lambda c: c.args[1], lambda c: BRIDGE_REACH), needs={"building": 1}, start=lambda c: feet(), verify=_bridged_nearer, commands=bridge_commands, budget=120, stall=45)
+@skill(gives=["state:bridged"], remaining=_k.near(lambda c: c.args[1], lambda c: BRIDGE_CELLS), needs={"building": 1}, start=lambda c: feet(), verify=_bridged_nearer, commands=bridge_commands, budget=120, stall=45)
 def bridge_toward(ctx, target):
     """Path blocked: make the way toward `target` by hand instead of asking the walker again."""
 
@@ -362,7 +362,7 @@ def breathed(samples):
         out_since = t
     return t_end - out_since >= BREATH_HOLD_S
 
-def _breathing():
+def _breathed():
     """Watch the body up to BREATH_WAIT_S: True once `breathed`, False the moment the head goes back under."""
     samples, end = [], time.time() + BREATH_WAIT_S
     while True:
@@ -380,7 +380,7 @@ def _breathing_now():
     s = api.get("/state")
     return not head_underwater(s) and s.get("air", AIR_FULL) >= AIR_FULL
 
-@skill(gives=["state:air"], remaining=_k.breathing, needs={}, done=lambda c: _breathing_now(), verify=lambda c: _breathing(), budget=45, stall=12,
+@skill(gives=["state:air"], remaining=_k.breathing, needs={}, done=lambda c: _breathing_now(), verify=lambda c: _breathed(), budget=45, stall=12,
        provides={"reach:air": lambda ctx, s: ()})
 def find_air(ctx):
     """Out of breath underwater: swim to the nearest dry cell (surfacing in place sank back), else a block at the surface, else dig the cap."""

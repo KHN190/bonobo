@@ -155,7 +155,7 @@ def needs_water_bucket(snap, plans, known_y=lambda step: None):
         return False
     return any(falls(s, known_y(s)) for steps in plans for s in steps)
 
-def wear(inv):
+def durability_left(inv):
     """{tool kind: least durability left on a carried one} for TOOL_KINDS. Pure over the bag."""
     out = {}
     for kind in TOOL_KINDS:
@@ -181,7 +181,7 @@ class Needs:
         self.needs_now = []           # [(kind, goal, why)] this round proposes getting (need)
 
     def observe(self, snap):
-        tiers, now_wear = working_tiers(snap.inv), wear(snap.inv)
+        tiers, now_wear = working_tiers(snap.inv), durability_left(snap.inv)
         self.broken |= broke(self.wear, tiers)
         self.broken -= set(tiers)
         self.working, self.wear = tiers, now_wear

@@ -846,7 +846,7 @@ class EveryColumnMustBeSurvivable(unittest.TestCase):
                 ("a lethal fight alone is not the way out", [opt("ignore", 0), opt("fight", 30)], 4, ["ignore"])]
         for name, opts, hp, want in rows:
             with self.subTest(name):
-                self.assertEqual([o.kind for o in t.survivors(opts, hp)], want)
+                self.assertEqual([o.kind for o in t.passing_columns(opts, hp)], want)
 
 
 class ASealedPassageLeavesNothing(unittest.TestCase):

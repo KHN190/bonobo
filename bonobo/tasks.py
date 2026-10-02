@@ -76,7 +76,7 @@ def cancel(task_id=None, path=None, reason="cancelled"):
             t["state"], t["reason"], t["plan"] = "cancelled", reason, None
     save(items, path)
 
-def clear(path=None):
+def drop_done(path=None):
     """Drop everything that is no longer live."""
     save([t for t in load(path) if t["state"] in LIVE], path)
 

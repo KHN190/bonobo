@@ -24,34 +24,34 @@ PRESS_S = 1.0             # the use itself, once in reach
 
 
 # -- the store
-def load(path=None):
+def read_lessons(path=None):
     return paths.read_json(path or FILE, [])
 
 
-def save(mechs, path=None):
+def write_lessons(mechs, path=None):
     paths.save_json(path or FILE, mechs)
 
 
-def add(dimension, press, opens, close=False, path=None):
+def learn(dimension, press, opens, close=False, path=None):
     """Teach one: a press cell and the cells it opens (the old lesson for the same press replaced); `close`: taught,
     shut it behind after crossing."""
-    mechs = [m for m in load(path) if not (m["dimension"] == dimension and tuple(m["press"]) == tuple(press))]
+    mechs = [m for m in read_lessons(path) if not (m["dimension"] == dimension and tuple(m["press"]) == tuple(press))]
     mechs.append({"dimension": dimension, "press": list(press), "opens": [list(c) for c in opens],
                   "close": bool(close)})
-    save(mechs, path)
+    write_lessons(mechs, path)
     return mechs[-1]
 
 
 def remove(dimension, press, path=None):
-    mechs = load(path)
+    mechs = read_lessons(path)
     kept = [m for m in mechs if not (m["dimension"] == dimension and tuple(m["press"]) == tuple(press))]
-    save(kept, path)
+    write_lessons(kept, path)
     return len(mechs) - len(kept)
 
 
 
 def in_dimension(dimension, path=None):
-    return [m for m in load(path) if m["dimension"] == dimension]
+    return [m for m in read_lessons(path) if m["dimension"] == dimension]
 
 
 # -- pure
@@ -135,7 +135,7 @@ def door_route_s(mechs, here, there, walk_s):
 def route_s(here, there, walk_s, dimension=None):
     """cost's and nav's wire: door_route_s over this save's taught mechanisms — a file read; the dimension read off
     the game only when something is taught and the caller did not say it (cost says it: an estimate reads nothing)."""
-    mechs = load()
+    mechs = read_lessons()
     if not mechs:
         return None
     dimension = dimension or api.get("/state")["dimension"]
@@ -325,14 +325,14 @@ def home_exit(here, there, policy):
         next((h for h in homes if home_box_of(h, there) is not None), None)
     if home is None:
         _no_way(f"no way to {tuple(there)} that digs no home")
-    home_leg([m for m in load() if m["dimension"] == api.get("/state")["dimension"]], home, here, there, policy)
+    home_leg([m for m in read_lessons() if m["dimension"] == api.get("/state")["dimension"]], home, here, there, policy)
 
 
 def doors_on_way(here, there, policy=None, dimension=None):
     """nav's wire: a taught door on the way here → there. Open (read off the world) → walked through, nothing
     pressed. Shut → crossed in legs from our side's press (cross), shut behind when taught `close`; no press on our
     side leaves it to the walk. Returns every taught opens cell, which the rest of the walk may cross, never dig."""
-    mechs = load()
+    mechs = read_lessons()
     if not mechs:
         return []              # nothing taught: no read at all
     dimension = dimension or api.get("/state")["dimension"]

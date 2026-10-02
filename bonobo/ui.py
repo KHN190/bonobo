@@ -114,7 +114,7 @@ def trade(ctx, want):
     log(f"traded for {want.split(':')[1]}")
     return index
 
-def _worn(item):
+def _most_worn(item):
     """Damage on the most worn one of `item` carried (0 when none)."""
     return max((s.get("damage", 0) for s in Inventory().slots if s["id"] == item), default=0)
 
@@ -129,7 +129,7 @@ def _anvil_args(ctx, step):
     material = next((m for m in members(token) if inv.count(m)), None) if token else None
     return (item, material) if material else None
 
-@skill(gives=["state:repaired"], remaining=_k.worn(lambda c: c.args[1]), needs={}, start=lambda c: _worn(c.args[1]), verify=lambda c: _worn(c.args[1]) < c.base,
+@skill(gives=["state:repaired"], remaining=_k.worn(lambda c: c.args[1]), needs={}, start=lambda c: _most_worn(c.args[1]), verify=lambda c: _most_worn(c.args[1]) < c.base,
        budget=180, stall=60, prefer=-1, provides={"repair": _anvil_args})
 def anvil_repair(ctx, item, material):
     """At an anvil: item + repair material (e.g. diamond pickaxe + diamonds), take the result when the level cost is affordable."""

@@ -14,7 +14,7 @@ NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
 # (loaded before the home was added) never carries them, so it can never lose one
 HOMES_NAME = "homes.json"
 
-def _now():
+def _tick_now():
     return time.strftime("%Y-%m-%d %H:%M")
 
 # -- the section grid explore searches (Minecraft's 16³ sections): looked over when, holding what, and the frontier; pure
@@ -313,7 +313,7 @@ class Memory:
     def add_site(self, kind, pos, dimension, snapshot=None, name=None):
         name = name or f"{kind}-{len(self.data['sites']) + 1}"
         site = {"name": name, "kind": kind, "pos": list(pos), "dimension": dimension, "snapshot": snapshot,
-                "dirty": False, "created": _now()}
+                "dirty": False, "created": _tick_now()}
         self.data["sites"] = [s for s in self.data["sites"] if s["name"] != name] + [site]
         self.save()
         return site
@@ -351,7 +351,7 @@ class Memory:
         lo = [min(bx[0][i] for bx in boxes) for i in range(3)]
         hi = [max(bx[1][i] for bx in boxes) for i in range(3)]
         site = {"name": name, "kind": "home", "pos": [(lo[i] + hi[i]) // 2 for i in range(3)], "dimension": dimension,
-                "dirty": False, "created": _now(), "boxes": [[list(l), list(h)] for l, h in boxes],
+                "dirty": False, "created": _tick_now(), "boxes": [[list(l), list(h)] for l, h in boxes],
                 "snapshot": {"lo": lo, "hi": hi, "blocks": {f"{x},{y},{z}": n for (x, y, z), n in inside.items()}},
                 "parts": parts}
         self._write_homes([h for h in self.home_sites() if h["name"] != name] + [site])
@@ -410,7 +410,7 @@ class Memory:
     def add_machine(self, blueprint, origin, turns, dimension, tags):
         name = f"{blueprint}-{len(self.data['machines']) + 1}"
         self.data["machines"].append({"name": name, "blueprint": blueprint, "origin": list(origin), "turns": turns,
-                                      "dimension": dimension, "tags": list(tags), "pending": [], "created": _now()})
+                                      "dimension": dimension, "tags": list(tags), "pending": [], "created": _tick_now()})
         self.save()
         return name
 
@@ -734,7 +734,7 @@ class Memory:
     def log_death(self, pos, dimension, carried=()):
         """Record a death and what was carried."""
 
-        self.data["deaths"].append({"pos": list(pos), "dimension": dimension, "at": _now(), "t": time.time(),
+        self.data["deaths"].append({"pos": list(pos), "dimension": dimension, "at": _tick_now(), "t": time.time(),
                                     "carried": [[str(i), int(n)] for i, n in carried]})
         self.save()
 

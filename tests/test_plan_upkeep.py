@@ -1832,7 +1832,7 @@ QUEUE = [
      [("t1", "cancelled"), ("t2", "pending")], "t2"),
     ("not yet expired", [op_add(G1, expires_s=60), op_expire(30)], [("t1", "pending")], "t1"),
     ("cancel all", [op_add(G1), op_add(G2), op(tasks.cancel)], [("t1", "cancelled"), ("t2", "cancelled")], None),
-    ("clear drops what is not live", [op_add(G1), op_add(G2), op(tasks.mark, "t1", "done"), op(tasks.clear)],
+    ("clear drops what is not live", [op_add(G1), op_add(G2), op(tasks.mark, "t1", "done"), op(tasks.drop_done)],
      [("t2", "pending")], "t2"),
     ("a finished goal can be queued again", [op_add(G3), op(tasks.mark, "t1", "done"), op_add(G3)],
      [("t1", "done"), ("t2", "pending")], "t2"),
@@ -2282,7 +2282,7 @@ class WhatBroke(unittest.TestCase):
     def test_broke_over_the_table(self):
         for name, before, after, want in self.ROWS:
             with self.subTest(name):
-                was = needs.wear(bag(inventory(*before)))
+                was = needs.durability_left(bag(inventory(*before)))
                 self.assertEqual(needs.broke(was, needs.working_tiers(bag(inventory(*after)))), want)
 
 

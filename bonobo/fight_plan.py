@@ -5,13 +5,13 @@ import os
 import tomllib
 from typing import Any
 from . import combat_model, kernel
+from .data import MAX_HP           # a full bar: the health a window's risk is measured against
 
 # -- configuration: one file; a number copied into code drifts
 
 CONFIG_PATH = os.environ.get("MC_FIGHT_CONFIG", os.path.join(os.path.dirname(__file__), "fight.toml"))
 
 NOW_S = 1e-6      # "now" as a horizon: only what already reaches us is inside it
-PLAYER_HP = 20.0  # a full bar, the health a window's risk is measured against
 
 def load_config(path=None):
     with open(path or CONFIG_PATH, "rb") as f:
@@ -242,13 +242,13 @@ class Fight:
     def dragon_dps(self, in_cover: bool) -> float:
         """Health per second the dragon takes off while a window is open."""
 
-        rate = float(self.cfg["combat"]["death_risk_per_exposed_s"]) * float(PLAYER_HP)
+        rate = float(self.cfg["combat"]["death_risk_per_exposed_s"]) * float(MAX_HP)
         return rate * float(self.cfg["combat"]["cover_lets_through"]) if in_cover else rate
 
     def death_risk(self, exposure_s: float, in_cover: bool, hp: "float | None" = None) -> float:
         """p(death) over one window: the damage those seconds imply at this rate, through the one curve."""
 
-        spare = float(PLAYER_HP if hp is None else hp)
+        spare = float(MAX_HP if hp is None else hp)
         damage = estimate.damage_over(self.dragon_dps(in_cover), exposure_s)
         return estimate.fatal_chance(spare, damage, cap=0.9)
 

@@ -1339,7 +1339,7 @@ COMMANDS = {
          lambda t, b: t.assertEqual(b, [])),
         ("never further than its reach", body(world(*[((x, 63, 0), "air") for x in range(1, 60)]),
                                               inv=inventory(cobblestone=64), _args=((60, 64, 0),)),
-         lambda t, b: t.assertLessEqual(len(cells(b, "goto")), survive.BRIDGE_REACH)),
+         lambda t, b: t.assertLessEqual(len(cells(b, "goto")), survive.BRIDGE_CELLS)),
     ],
 }
 

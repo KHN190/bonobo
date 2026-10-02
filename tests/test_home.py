@@ -291,7 +291,7 @@ class TheStartSaysIt(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             mem = a_home(tmp)
             lessons = os.path.join(tmp, "mechanisms.json")
-            mechanisms.add(DIM, (1, 65, 0), [(2, 64, 0), (2, 65, 0)], path=lessons)
+            mechanisms.learn(DIM, (1, 65, 0), [(2, 64, 0), (2, 65, 0)], path=lessons)
             said = []
             with mock.patch.object(api, "get", return_value={"dimension": DIM}), \
                     mock.patch.object(mechanisms, "FILE", lessons), \
