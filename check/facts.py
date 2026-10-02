@@ -6,7 +6,7 @@ from bonobo import knowledge
 from bonobo.actions import STATION_R
 from bonobo.data import FULL_BAR, POD_BLOCKS, critical_hp, home_box_of
 from bonobo.reflexes import EAT_BELOW, STARVE
-from bonobo.threat import aggro
+from bonobo.threat import aggro, context_of
 from bonobo.world import Region, is_enclosed
 
 # fact → its finite domain (the order is the band order)
@@ -59,11 +59,18 @@ def _region(world, feet):
     return Region.of(lo, hi, dict(world._cells(lo, hi)))
 
 
+def gold_worn(inv):
+    """A golden armour piece on (perception.kit's gold_worn: a piglin leaves the gold-clad alone)."""
+    return any(str((inv.equipment.get(k) or {}).get("id", "")).startswith("minecraft:golden_")
+               for k in ("head", "chest", "legs", "feet"))
+
+
 def threat_entities(snap, world):
     """The mobs after us, nearest first: /entities rows threat.aggro holds hostile, within their notice radius."""
     from bonobo.beliefs import MOBS
+    ctx = context_of(snap.state, {"gold_worn": gold_worn(snap.inv)})
     ents = world._entities({"radius": "48"})["entities"]
-    return sorted((e for e in ents if aggro(e, {"day": not snap.night}) and e["type"] in MOBS
+    return sorted((e for e in ents if aggro(e, ctx) and e["type"] in MOBS
                    and e["distance"] <= float(MOBS[e["type"]].get("notice_r", 16))), key=lambda e: e["distance"])
 
 

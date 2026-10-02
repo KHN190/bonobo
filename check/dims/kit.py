@@ -20,8 +20,8 @@ def alpha(a):
         return "bow"
     if inv.offhand() == "minecraft:shield":
         return "shield"
-    if any(str((inv.equipment.get(k) or {}).get("id", "")).startswith("minecraft:golden_")
-           for k in ("head", "chest", "legs", "feet")):
+    from check.facts import gold_worn
+    if gold_worn(inv):
         return "gold"
     if float(a.snap.state.get("armor", 0) or 0) > 0:
         return "armor"
