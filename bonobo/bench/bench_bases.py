@@ -221,7 +221,7 @@ SURPRISES = {
                              replace_setup=True,
                              scene=[('floor', 'grass_block'), ('summon', 'spider', ('@', 4, 0, 0), '{PersistenceRequired:1b,NoAI:1b}'),
                                     ('stand',), ('give', 'iron_sword'),
-                                    ('cmd', f"damage @p {MAX_HP - fight_line_hp('minecraft:spider', 2) + 1:.0f} minecraft:magic")],
+                                    ('cmd', f"damage @p {MAX_HP - fight_line_hp('minecraft:spider', 'minecraft:iron_sword') + 1:.0f} minecraft:magic")],
                              run=('skill', 'hunt', 'minecraft:spider_eye', 1, ['minecraft:spider'], False),
                              fails='fight line',
                              check=('all', ('!same_bag',), ('!mobs_near', 'minecraft:spider', 1))),
