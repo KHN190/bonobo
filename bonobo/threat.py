@@ -4,6 +4,7 @@ import math
 from typing import Any
 
 from . import beliefs, estimate, kernel, lifecycle
+from .game import ARROWS
 
 CONFIG = beliefs.CONFIG
 MOBS = beliefs.MOBS
@@ -141,7 +142,6 @@ def fuse_lit(e):
     """Pure: this creeper's fuse is lit (perception.read_combat)."""
     return bool(e.get("lit"))
 
-ARROWS = {"minecraft:arrow": 1.0, "minecraft:spectral_arrow": 1.0, "minecraft:trident": 1.0}   # radius
 
 def dodgeable(kind):
     """Pure: a hit worth side-stepping — a projectile or a blast; a melee lunge follows us (dodging it only postpones:

@@ -1,6 +1,7 @@
 """Where things come from: the requirement graph the planner resolves (recipes, smelting, mining, hunting)."""
 import math
 
+from .game import COVERED_SKY
 from .data import (ANIMAL_HP, BASE_MARKERS, COLORS, DAY_END, DAY_TICKS, EYE_HEIGHT, SOIL_DEPTH, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS,
                    HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, ATTACKS_PER_S, BREAK_DIVISOR,
                    DEEPSLATE_ORE_HARDNESS, HAND_ATTACKS_PER_S, HAND_DAMAGE, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS,
@@ -732,7 +733,6 @@ def head_clear(st, c):
     return left(not region.buries(eye), "state:head_clear")
 
 
-COVERED_SKY = 4         # sky light at most this: rock overhead
 
 
 def under_rock(sky_light):

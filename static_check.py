@@ -3,7 +3,7 @@ tests/test_static_check.py runs ROWS (each rule's holding and must-fail rows) an
 R1 one module-level function name, one module (a `main` beside an `if __name__ == "__main__"` is an entry point);
 R2 no two function bodies alike (local names apart); R3 no re-export (an alias, a used noqa re-import, a star
 import); R4 one number, one definition (one name in two modules, or equal numbers under one suffix);
-R5 game data only in data.py (ticks<->seconds by the tick rate, a light level, a numeric table keyed by registry ids);
+R5 game data only in data.py and game.py (ticks<->seconds by the tick rate, a light level, a numeric table keyed by registry ids);
 R6 no dead code (a module-level def or constant production never names); R7 no swallowed exception (a handler that
 only passes, continues or returns a value); R8 no module-level container changed in a function unless its module
 registers its reset (lifecycle.in_place / on_reset covers); R9 a "Pure" function reaches no api call, HTTP or
@@ -18,7 +18,7 @@ from bonobo.data import TICKS_PER_S, TIER_OF_MATERIAL
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "bonobo")
-DATA = "data.py"
+DATA = ("data.py", "game.py")     # the homes of game data: the tables, and the import-free constants leaf
 MIN_STMTS = 3                       # R2: a body this long is code, shorter is a one-liner idiom
 LIGHT_READINGS = ("skyLight", "blockLight")
 
@@ -170,7 +170,7 @@ def r5(trees):
     light reading; a constant table of numbers keyed by registry ids (a game table)."""
     out = []
     for path, (tree, _src) in trees.items():
-        if path == DATA:
+        if path in DATA:
             continue
         for n in ast.walk(tree):
             if isinstance(n, ast.BinOp) and isinstance(n.op, (ast.Mult, ast.Div, ast.FloorDiv)) \

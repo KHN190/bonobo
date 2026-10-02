@@ -13,7 +13,7 @@ MAX_BYTES = 2 * 1024 * 1024        # one file, 2 MB: the newest rounds are kept,
 MIN_GAP_S = 20          # a quiet round with the same act as the last is recorded at most every 20 s
 
 _calls = None
-_last = {"t": 0, "pick": None}
+_last = paths.session("tape._last", lambda: {"t": 0, "pick": None})
 REPLAY = None
 
 class ReplayMiss(Exception):
@@ -73,8 +73,8 @@ def _extras():
             out[f"{name}_error"] = traceback.format_exc(limit=3)
     return out
 
-_events = []
-_readings = []
+_events = paths.session("tape._events", list)
+_readings = paths.session("tape._readings", list)
 SKILL = None           # the skill running now (skill.py sets it): whose readings these are
 
 def event(name, outcome, detail=""):

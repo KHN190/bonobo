@@ -22,7 +22,7 @@ MILESTONES = ("minecraft:iron_ingot", "minecraft:diamond", "minecraft:obsidian",
               "minecraft:iron_sword", "minecraft:diamond_sword", "minecraft:shield")
 
 _LOCK = threading.Lock()
-STATE: dict = {}                 # last decision, last goal, the pending repeat, anomaly counts, milestones seen
+STATE: dict = paths.session("events.STATE", dict)     # last decision, last goal, the pending repeat, anomaly counts, milestones seen
 GOAL_KEYS = ("goal", "goal_t", "goal_bag")     # the open goal and the bag it started from: one life's
 
 
@@ -192,6 +192,3 @@ def round_time(seconds, ran_s=0.0, t=None, sink=None):
         anomaly("slow round", f"{deciding:.1f}s deciding" + (f" (+{ran_s:.1f}s running)" if ran_s else ""), t, sink)
 
 
-def reset_state():
-    """Test helper: forget every remembered change."""
-    STATE.clear()

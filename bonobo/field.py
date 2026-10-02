@@ -2,6 +2,8 @@
 
 import math
 
+from .game import COVERED_SKY
+
 BUCKETS = ("open", "underground", "enclosed")
 PRIOR = 1.6
 MEMORY = 0.2
@@ -88,7 +90,7 @@ class Field:
 def bucket_of(state):
     if state.get("enclosed"):
         return "enclosed"
-    if state.get("skyLight", 15) <= 4 or state.get("y", 64) < 50:
+    if state.get("skyLight", 15) <= COVERED_SKY or state.get("y", 64) < 50:
         return "underground"
     return "open"
 

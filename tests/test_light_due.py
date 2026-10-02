@@ -7,7 +7,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import survive  # noqa: E402
 from bonobo.data import DAY_END  # noqa: E402
-from bonobo.knowledge import COVERED_SKY  # noqa: E402
+from bonobo.game import COVERED_SKY  # noqa: E402
 
 
 def st(sky, block=0, time_of_day=DAY_END + 1):

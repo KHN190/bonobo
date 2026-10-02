@@ -57,6 +57,7 @@ CLOSURE = {
     "fight_plan": 7,         # + data via estimate (READ_EVERY_S)
     "fluids": 18,
     "fresh": 2,
+    "game": 0,               # a constant leaf (constant_leaf): counted by no closure, its own included
     "gather": 20,
     "goals": 3,
     "hazard": 13,
@@ -114,6 +115,23 @@ def modules():
     return sorted(p.stem for p in PKG.glob("*.py") if p.stem != "__init__")
 
 
+def constant_leaf(source):
+    """Pure: a module of constants only — no import, no function, no class (a docstring and assignments of literals):
+    it cannot close a cycle nor couple behaviour, so a closure does not count it."""
+    import ast
+    tree = ast.parse(source)
+    body = tree.body[1:] if tree.body and isinstance(tree.body[0], ast.Expr) else tree.body
+    return all(isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None
+               and all(isinstance(x, (ast.Constant, ast.Dict, ast.List, ast.Tuple, ast.Set, ast.Name, ast.Store,
+                                      ast.Load, ast.UnaryOp, ast.USub, ast.BinOp, ast.operator))
+                       for x in ast.walk(n.value)) for n in body)
+
+
+def closure(m, pkg=PKG):
+    """The modules m's re-run key reaches that couple behaviour (runner.module_deps, constant leaves apart)."""
+    return [x for x in runner.module_deps(m, str(pkg)) if not constant_leaf((pathlib.Path(pkg) / f"{x}.py").read_text())]
+
+
 class Direction(unittest.TestCase):
     """Asked of the bench's own key (`runner.module_deps`), which is what an upward edge damages."""
 
@@ -151,7 +169,7 @@ class Direction(unittest.TestCase):
     def test_facts_import_only_facts(self):
         for m in sorted(FACTS):
             with self.subTest(m):
-                self.assertEqual(sorted(set(runner.module_deps(m)) - FACTS), [], f"{m} is a fact module")
+                self.assertEqual(sorted(set(closure(m)) - FACTS), [], f"{m} is a fact module")
 
 
 class ReRunKey(unittest.TestCase):
@@ -160,8 +178,18 @@ class ReRunKey(unittest.TestCase):
     def test_no_closure_has_grown(self):
         for m in modules():
             self.assertIn(m, CLOSURE, f"new module {m}: add it to CLOSURE with its size")
-            self.assertLessEqual(len(runner.module_deps(m)), CLOSURE[m],
+            self.assertLessEqual(len(closure(m)), CLOSURE[m],
                                  f"{m} now drags in more of the package; the bench will re-run more than it must")
+
+    def test_a_constant_leaf_is_not_counted(self):
+        rows = [("constants only", '"""doc"""\nX = 1\nT = {"a": 1.0, "b": -2}\nN = X * 2\n', True),
+                ("must fail: an import couples", "import os\nX = 1\n", False),
+                ("must fail: a relative import", "from .data import Y\nX = Y\n", False),
+                ("must fail: a function is behaviour", "X = 1\ndef f():\n    return X\n", False),
+                ("must fail: a call is behaviour", "X = dict(a=1)\n", False)]
+        for why, src, want in rows:
+            with self.subTest(why):
+                self.assertIs(constant_leaf(src), want)
 
     def test_a_skill_does_not_depend_on_the_whole_package(self):
         """The failure this file exists for: every closure equal to the package means no scenario is ever skipped."""

@@ -7,7 +7,8 @@ from typing import Any
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, building, craft, fluids, nav, nether, skillcore, store, survive, tape, world, jobs
 from .api import McError, NotAvailable, log, swallowed
-from .data import BASE_MARKERS, FULL_BAR, MAX_HP, OPEN_SKY, WALK_BLOCKS_PER_S
+from .data import BASE_MARKERS, FULL_BAR, MAX_HP, WALK_BLOCKS_PER_S
+from .game import OPEN_SKY
 from .estimate import eat_due
 from .knowledge import RAW_MEAT, food_count
 from .skill import skill
