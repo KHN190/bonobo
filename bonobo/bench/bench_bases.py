@@ -175,7 +175,7 @@ SURPRISES = {
                                      "unstandable: '1 positions explored')"),
                                 scene=[('setblock', ('@', 0, 0, 0), 'oak_fence'), ('stand', 0, 1.5)]),
     # design A rows: a planned way (I4) with the tool held (I2); the hand never wears a tool; a stand off part blocks
-    'ore_buried': dict(base='mine_iron', doc='the ore two blocks into the stone (stone between), dirt carried → a way '
+    'ore_buried': dict(base='mine_iron', kit=[], doc='the ore two blocks into the stone (stone between), dirt carried → a way '
                                             'dug to it along one line, every break with the pickaxe held',
                        scene=[('fill', ('@', 2, 0, -1), ('@', 5, 2, 1), 'stone'), ('setblock', ('@', 4, 0, 0), 'iron_ore'),
                               ('give', 'dirt', 16)],
