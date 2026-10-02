@@ -128,21 +128,24 @@ class OneRestorePoint(unittest.TestCase):
         self.assertEqual((got["place"], got["queued"]), ("open", "none"))          # must fail: the home leaked
 
 class KnownViolations(unittest.TestCase):
-    """The baseline's known breaches (docs/refactor.md V list, scratchpad audits), each one on the production round:
-    the checker must report it. A row that stops firing is a blind checker or a fixed production — never edited to
-    pass."""
-    ROWS = [   # (invariant, facts, what the baseline does there)
-        ("S4", of(night=True, queued="stick", cooled=True, pickaxe=1),
+    """The baseline's known breaches (docs/refactor.md V list), each built as the decision itself and asked of the
+    oracle: the checker must report it whatever production now chooses there."""
+    # (invariant, facts, the breaching decision, the round's readings, what the baseline did there)
+    ROWS = [
+        ("S4", of(night=True, place="open", queued="stick", pickaxe=1),
+         dec(kind="queue", name="task t1", token="minecraft:stick"), {"step_kind": "craft"},
          "V6: an ordinary task crafts in the open at night (no night way's step: data.NIGHT_WORK, arbiter.on_surface)"),
-        ("S4", of(night=True, queued="stick", cooled=True), "V6: the queue's craft in the open at night"),
-        ("S4", of(night=True, queued="cobblestone", pickaxe=0, cooled=True), "V6: a surface mine at night (17:49 stairwell)"),
+        ("S4", of(night=True, place="open", queued="stick"),
+         dec(kind="queue", name="task t1", token="minecraft:stick"), {"step_kind": "craft"},
+         "V6: the queue's craft in the open at night"),
+        ("S4", of(night=True, place="open", queued="cobblestone", pickaxe=0),
+         dec(kind="queue", name="task t1", token="minecraft:cobblestone"), {"step_kind": "mine"},
+         "V6: a surface mine at night (17:49 stairwell)"),
     ]
 
     def test_reported(self):
-        from check import round as rnd
-        for inv, facts, why in self.ROWS:
+        for inv, facts, d, ctx, why in self.ROWS:
             with self.subTest(inv=inv, why=why):
-                d, _got, ctx = rnd.decide(facts)
                 self.assertIn(inv, [k for k, _m in oracle.violations(facts, d, facts, ctx)], d.name)
 
 
