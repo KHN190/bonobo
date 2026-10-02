@@ -96,6 +96,36 @@ class Perceived(unittest.TestCase):
                 self.assertEqual((got.get("sword"), ground.bucket if ground is not None else None), want)
 
 
+class CoverCarried(unittest.TestCase):
+    """W1: the nearest cell of a site's interior (perception.COVER, the brain's) rides the perceived state into the
+    threat state, where escape_spot weighs it as an escape."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import api, fight_loop
+        here = dict(HERE, blockX=0, blockY=64, blockZ=0, dimension="minecraft:overworld")
+        # (situation, the brain's reader) → the cover carried
+        rows = [("must fail: a hut 6 blocks off: its interior cell", lambda feet, dim: (6, 64, 0), (6, 64, 0)),
+                ("no site: none", lambda feet, dim: None, None)]
+        for name, reader, want in rows:
+            with self.subTest(name), mock.patch.object(perception, "COVER", reader), mock.patch.object(api, "log"):
+                fresh()
+                got = perception.perceived(dict(here), 0.0, ground_of=lambda st: None, kit_of=lambda st: {})
+                self.assertEqual((got.get("cover"), fight_loop.threat_state(got, [])["cover"]), (want, want))
+
+    def test_the_brains_reader_is_the_nearest_interior_cell(self):
+        from bonobo import reflexes
+
+        class Mem:
+            def sites(self, dimension):
+                return [{"interior": [[10, 64, 0], [4, 64, 0]]}, {"interior": [[0, 64, 9]]}]
+        m = reflexes.Maintain(type("B", (), {"mem": Mem()})())
+        # (feet) → the nearest cell
+        for feet, want in (((0, 64, 0), (4, 64, 0)), ((0, 64, 8), (0, 64, 9))):
+            with self.subTest(feet=feet):
+                self.assertEqual(m.nearest_interior(feet, "minecraft:overworld"), want)
+
+
 class PriceInputs(unittest.TestCase):
     """perception.price_inputs: the survival price reads every state it has a reading for (M3), not hp and armour
     alone; night is data.is_night's."""

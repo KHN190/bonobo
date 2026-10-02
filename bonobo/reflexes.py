@@ -292,6 +292,11 @@ class Maintain:
                 return False
         return _k.sheltered(snap.get("skyLight", 15), walled, lambda: self.in_site(snap.feet, snap.dimension))
 
+    def nearest_interior(self, feet, dimension):
+        """The cell of our sites' interiors nearest the feet, or None (no site here)."""
+        cells = [tuple(c) for s in self.brain.mem.sites(dimension) for c in s.get("interior", [])]
+        return min(cells, key=lambda c: math.dist(c, feet), default=None)
+
     def in_site(self, feet, dimension):
         """The feet stand inside one of our sites' interiors (a hut with its door open is still ours)."""
         return any(list(feet) in s.get("interior", []) for s in self.brain.mem.sites(dimension))

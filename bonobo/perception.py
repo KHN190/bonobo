@@ -191,6 +191,7 @@ NIGHTFALL = "night"
 
 
 IN_SITE = None      # (feet, dimension) → inside a site's interior: set by every Brain built (Brain.__init__)
+COVER = None        # (feet, dimension) → the nearest cell of a site's interior, or None: set by every Brain built
 
 
 def nightfall(state, enclosed, in_site=lambda: False):
@@ -201,6 +202,11 @@ def nightfall(state, enclosed, in_site=lambda: False):
             or sheltered(state.get("skyLight", 15), enclosed, in_site):
         return None
     return NIGHTFALL
+
+
+def cover_near(s):
+    """The nearest cell of one of our sites' interiors (COVER, set by the brain): an escape the threat weighs."""
+    return None if COVER is None else COVER((s["blockX"], s["blockY"], s["blockZ"]), s.get("dimension"))
 
 
 def in_site_here(s):
@@ -533,6 +539,7 @@ def perceived(state, now, ground_of=None, kit_of=None):
     for name, read in (("kit", lambda: out.update(kit_of(state))),
                        ("ground", lambda: out.update(field=ground_of(state))),
                        ("footing", lambda: out.update(footing=footing(state))),
+                       ("cover", lambda: out.update(cover=cover_near(state))),
                        ("dig", lambda: out.update(dig_ok=dig_ok(out.get("field"), out.get("pick_tier"))))):
         try:
             read()

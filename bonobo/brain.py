@@ -50,7 +50,7 @@ IDLE_SLICE_TICKS = 20      # the idle wait is cut in 1 s slices: queued work end
 SCAN_EVERY_S = 20  # seconds
 TRACK_FILE = paths.data("track.jsonl")
 # Step kinds a night under cover can carry on with (data.NIGHT_WORK). Everything else (a tree, an animal, a plan's wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
-from .data import NIGHT_WORK  # noqa: E402
+from .data import NIGHT_WORK, TICKS_PER_S  # noqa: E402
 from . import beliefs, estimate  # noqa: E402
 from .data import TOOL_MATERIAL_FOR_TIER, critical_hp, weapon_hit  # noqa: E402
 
@@ -104,6 +104,12 @@ def line_raisers(kinds, state, inv, material=LINE_ARMOR):
         out += [[("tool", "sword", t)] + rows_ for t, item in swords if inside(item, points_)]
     return out
 
+
+def act_commit_s(act):
+    """Pure: the act's planned seconds (its steps' est, ticks), None when none is priced: the body's commitment
+    (arbiter.work_left_s, the threat's horizon)."""
+    ticks = sum(int(getattr(st, "est", 0) or 0) for st in getattr(act, "steps", ()))
+    return ticks / TICKS_PER_S if ticks > 0 else None
 
 def act_on_surface(act):
     """Pure: does this act's step walk the surface (arbiter.on_surface)? An act with no step (a chain, a whole
@@ -172,6 +178,7 @@ class Brain:
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
         perception.IN_SITE = self.reflexes.in_site      # nightfall asks the night way's judgement, every Brain built
+        perception.COVER = self.reflexes.nearest_interior    # the threat's cover candidate (perceived)
         reflexes.STEP_RUN = dispatch.execute             # the shelter row's parts run as the plan's steps do
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.place = None  # what causes are cooled against
@@ -474,7 +481,8 @@ class Brain:
         box = {}
         also = (step_key(act.step),) if getattr(act, "step", None) is not None else ()
         ran = self._running(lambda: arbiter.BODY.drive(
-            "plan", lambda: box.update(outcome=self.attempt(act.name, act.run, also)), act.name))
+            "plan", lambda: box.update(outcome=self.attempt(act.name, act.run, also)), act.name,
+            commit_s=act_commit_s(act)))
         outcome = box.get("outcome", "interrupted") if ran else "interrupted"
         tape.event(act.name, outcome, str(self.last_failure.__dict__) if self.last_failure else "")
         tape.end(self, act, snap)

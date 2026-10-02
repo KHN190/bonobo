@@ -197,6 +197,33 @@ class TheFastLane(unittest.TestCase):
                 self.assertGreater(worth, 0.0)
                 self.assertEqual((got[0].kind, got[1]), (want, worth))
 
+    def test_the_horizon_is_the_work_left(self):
+        """W2: the account's length is what is left of the work the body is committed to (arbiter.work_left_s over
+        BODY.driving, its commit_s from brain.act_commit_s), the default horizon only when nothing is committed."""
+        from unittest import mock
+        from bonobo import arbiter, brain, estimate, planner
+        steps = [planner.Step("mine", "minecraft:coal", 1, est=60), planner.Step("craft", "minecraft:torch", 4, est=20)]
+        commit = brain.act_commit_s(brain.Act("task", "t", None, step=steps[0], steps=steps))
+        seen = []
+        real = self.fight_loop.threat_state
+        # (situation, the intent driving, seconds since it was taken) → the horizon the bid reads
+        rows = [("must fail: a 4 s step taken 1 s ago: 3 s left", commit, 1.0, commit - 1.0),
+                ("nothing committed: the default", None, 0.0, estimate.horizon_s()),
+                ("the estimate spent: the default", commit, commit + 1.0, estimate.horizon_s())]
+        for name, commit_s, ago, want in rows:
+            with self.subTest(name):
+                self.fight_loop.STATE.held = None
+                seen.clear()
+                intent = arbiter.Intent("plan", lambda: None, "t", key="t", commit_s=commit_s, at=100.0)
+                with mock.patch.object(arbiter.BODY, "driving", intent), \
+                        mock.patch.object(self.fight_loop, "threat_state",
+                                          lambda *a, **k: seen.append(real(*a, **k)) or seen[-1]):
+                    ss = self.sv.price_state(hp=20, sword=None, armor=0)
+                    self.fight_loop.bid({"x": 0, "y": 64, "z": 0, "health": 20, "blocks": 64},
+                                        [row("minecraft:zombie", 5, 0)], lambda d: self.sv.hp_seconds(ss, d),
+                                        now=100.0 + ago)
+                self.assertAlmostEqual(threat.horizon_for(seen[0]), want)
+
     def test_the_bid_is_what_its_own_answer_saves(self):
         """Closed against the state the bid itself built, not against one reassembled here: a test that rebuilds
         the state vector is a second copy of `fight_loop.threat_state`, and the two drifted the moment the live
