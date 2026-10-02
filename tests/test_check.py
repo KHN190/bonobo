@@ -78,6 +78,29 @@ class Oracle(unittest.TestCase):
         self.assertNotIn("S4", got)                                         # must fail: a judged one said unchecked
 
 
+class RoundReselection(unittest.TestCase):
+    """D5 on the production round: a failed act whose own key cools is not offered again, even under an intent key that
+    stays ready (the fight line's kit, M1b: brain.need_act asks self.ready(name))."""
+
+    def test_rows(self):
+        import contextlib
+        import io
+        from check import round as rnd
+        rows = [("the fight line's kit fails: its key cools, the task's stays", of(quarry="enderman", kit="sword"), False)]
+        for name, f, want in rows:
+            with self.subTest(name), contextlib.redirect_stdout(io.StringIO()):
+                d, _got, ctx = rnd.decide(f)
+                self.assertTrue((d.name or "").startswith("fight line"), d.name)
+                self.assertEqual(ctx["reselected"], want)            # must fail when only the intent key is asked
+
+
+class NightIsTheOverworlds(unittest.TestCase):
+    def test_no_night_fact_off_the_overworld(self):
+        """The Nether and the End have no night (data.is_night): a state asking one reads as day (must fail: 277
+        round-trip mismatches when night was free of the dimension)."""
+        self.assertFalse(of(dimension="minecraft:the_nether", night=True)["night"])
+        self.assertTrue(of(night=True)["night"])
+
 class KnownViolations(unittest.TestCase):
     """The baseline's known breaches (docs/refactor.md V list, scratchpad audits), each one on the production round:
     the checker must report it. A row that stops firing is a blind checker or a fixed production — never edited to
