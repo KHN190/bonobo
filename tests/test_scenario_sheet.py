@@ -1318,6 +1318,8 @@ class KitRule(unittest.TestCase):
                 ("a queue's needs, sorted", {"queue": [have(("minecraft:cobblestone", 2)), have(("log", 2))]},
                  ("axe", "pickaxe")),
                 ("nothing that uses a tool", {"skills": ["travel_to"]}, ()),
+                # must fail: a smelt places its furnace and takes it back with a pickaxe (furnace_on_slab 082853)
+                ("a smelt: the pickaxe that takes the furnace back", {"skills": ["smelt"]}, ("pickaxe",)),
                 ("a fight states its sword", {"kit": ["sword"]}, ("sword",)),
                 ("must fail: the tool under test given anyway", {"skills": ["mine"], "kit": []}, ())]
         for name, row, want in rows:
@@ -1338,6 +1340,7 @@ class KitRule(unittest.TestCase):
     def test_rows_carry_their_tools(self):
         from bonobo.bench import core
         rows = [("chop__base", core.BEST_TOOLS["axe"]), ("mine_stone__base", core.BEST_TOOLS["pickaxe"]),
+                ("furnace_on_slab", core.BEST_TOOLS["pickaxe"]),
                 ("fight_blaze_3", "give @p diamond_sword"), ("fight_zombie_3", "give @p iron_sword")]
         for name, give in rows:
             with self.subTest(name):

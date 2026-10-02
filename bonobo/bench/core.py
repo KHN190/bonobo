@@ -54,7 +54,7 @@ BEST_TOOLS = {"axe": "give @p diamond_axe", "pickaxe": "give @p diamond_pickaxe"
 SKILL_JOBS = {"item:log": ("axe",), "chop": ("axe",), "mine": ("pickaxe",), "bridge_toward": ("pickaxe",),
               "burrow": ("pickaxe",), "cast_portal": ("pickaxe",), "dig_out": ("pickaxe",), "find_air": ("pickaxe",),
               "strip_mine_step": ("pickaxe",), "unbury": ("shovel",), "shelter:dig in": ("pickaxe", "shovel"),
-              "hunt": ("sword",)}
+              "hunt": ("sword",), "smelt": ("pickaxe",)}
 NEED_JOBS = {"log": "axe", "minecraft:cobblestone": "pickaxe", "minecraft:raw_iron": "pickaxe",
              "minecraft:diamond": "pickaxe"}
 
