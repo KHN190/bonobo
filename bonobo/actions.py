@@ -4,7 +4,7 @@ import math
 
 from .data import GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare, mid, seen_class
 from .knowledge import working, BREED_FOOD, HUNT, MINE, PLOT_CELLS, RECIPES, STATIONS, produced, under_rock, dawn_s
-from . import estimate, threat
+from . import estimate, lifecycle, threat
 from .solve import Action
 from .planner import Step
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE, TOOL_USES
@@ -55,6 +55,8 @@ def groups_of(token):
             group for group, members in GROUPS.items()
             if group != token and (token in members or short in members or full in members))
     return got
+
+lifecycle.in_place(__name__, "_GROUPS_OF")
 
 def produce(token, n):
     """{dimension: amount} for making `n` of `token`: the item itself and every group it belongs to."""
