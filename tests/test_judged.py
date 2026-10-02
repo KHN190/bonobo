@@ -88,8 +88,8 @@ class PassReadsTheWorld(unittest.TestCase):
                 self.assertEqual(got, (proxy, unknown))
 
     def test_a_row_passing_on_a_proxy_is_caught(self):
-        # must fail: fight_zombie_1 as it was — kills and stalls from the fight's own log in the pass
-        row = dict(all_rows()["fight_zombie_1"], check=[("alive", 12), ("gone", ["minecraft:zombie"]),
+        # must fail: a fight row as fight_zombie_1 was — kills and stalls from the fight's own log in the pass
+        row = dict(all_rows()["fight_zombie_3"], check=[("alive", 12), ("gone", ["minecraft:zombie"]),
                                                        ("kills_by_the_fight", 1), ("no_stall",)])
         self.assertEqual(verdict_of_words(row_pass_words(row))[0], ["kills_by_the_fight", "no_stall"])
 
@@ -128,11 +128,11 @@ class Idle(unittest.TestCase):
                 self.assertEqual(runner.idle_verdict(reached, died), want)
 
     def test_a_hold_is_judged_at_the_end(self):
-        from bonobo.bench import bench_combat, table as sc
-        trapped = runner.row_holds(sc.SCENARIOS[bench_combat.TRAPPED_ROW]["check"])
-        self.assertTrue(trapped, "kept_health holds over the window")
+        from bonobo.bench import table as sc
+        trapped = runner.row_holds(sc.SCENARIOS["fight_enderman_provoked"]["check"])
+        self.assertTrue(trapped, "a hold holds over the window")
         # (situation, reached, died, over, hold) -> the window ends now
-        rows = [("must fail: trapped_unarmed passing at t 0 ends the window", True, False, False, trapped, False),
+        rows = [("must fail: a held check passing at t 0 ends the window", True, False, False, trapped, False),
                 ("a hold that fails ends it (idle fails: valid)", False, False, False, True, True),
                 ("a hold still true at the budget: judged there", True, False, True, True, True),
                 ("a death ends it", True, True, False, True, True),
