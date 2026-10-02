@@ -77,10 +77,17 @@ def R2(b, d, a, ctx):
     if plan is None or price is None or mem is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
     from bonobo.planner import Step
+    taken = {}                       # what the plan itself withdraws, by container and item: no longer there to take
+    for st in plan:
+        if st.kind == "withdraw":
+            key = (tuple(st.detail.get("pos") or ()), st.token)
+            taken[key] = taken.get(key, 0) + int(st.count)
     for st in plan:
         if st.kind not in MATERIAL:
             continue
-        stored = mem.stored(st.token, ctx["dimension"])
+        stored = [(pos, item, have - taken.get((tuple(pos), item), 0) - taken.get((tuple(pos), item.removeprefix("minecraft:")), 0))
+                  for pos, item, have in mem.stored(st.token, ctx["dimension"])]
+        stored = [r for r in stored if r[2] > 0]
         if not stored:
             continue
         pos, item, have = min(stored, key=lambda r: math.dist(r[0], ctx["feet"]))

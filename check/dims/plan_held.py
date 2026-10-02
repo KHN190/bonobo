@@ -48,7 +48,17 @@ def craft_chain():
 
 
 def held_for(value, goal, snap, mem):
-    """The held plan of `value` for `goal` (brain.held's shape: steps, sig, event, dim, want)."""
+    """The held plan of `value` for `goal` (brain.held's shape: steps, sig, event, dim, want), each step priced by the
+    production cost model as the planner prices its own (Step.est: D6 reads it)."""
+    from bonobo.cost import Cost
+    out = _held_for(value, goal, snap, mem)
+    cost = Cost(snap, mem)
+    for st in out["steps"]:
+        st.est = cost.estimate(st)
+    return out
+
+
+def _held_for(value, goal, snap, mem):
     from bonobo import goals
     from bonobo.decompose import Step
     rest = goals.remainder(goal, snap, mem)

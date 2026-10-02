@@ -29,6 +29,8 @@ SECOND = "check-second"      # second: the tool task queued behind a finished on
 NO_SOLVER = "check-none"     # a task naming a solver nobody registered (decompose.solve_needs: then every solver)
 DEPENDS = (lambda f: f["queued"] == "none", {"queued": "none"})
 STATES = ("expired", "planned", "cooling")
+# the values whose goal is done when its one step has run (goals.RUN_ONCE: skill, effect; a road is two steps)
+RUN_ONCE = ("skill", "effect", "effect_hunt", "effect_mine", "effect_take", "effect_craft", "effect_bare")
 KEY = "task t1"      # the brain's key for the first task (brain.plan_proposals: f"task {id}")
 
 
@@ -113,12 +115,21 @@ def gamma(value, facts, g):
 
 
 def step(facts, d, ctx):
-    """The task's declared effect: a held tool ends it, a seek finds what it seeks."""
+    """The task's declared effect: a held tool ends it, a round that proposes nothing ended it, a run-once goal's step
+    ends it, a seek finds what it seeks."""
     from check.facts import DOMAINS
     if facts["task"] in ("tool", "solver", "second") + STATES and facts["pickaxe"] >= TOOL_TIER:
         return {"task": "none"}         # a `have` is done when the bag says so (goals): the queue moves on
+    if facts["task"] not in ("none", "cooling") and d.name is None:
+        return {"task": "none"}         # nothing proposed with a live task: it ended this round (brain.finish, done
+        #                                 or failed; plan_proposals then proposes nothing — brain.py:537)
     if facts["task"] == "none" or not (d.name or "").startswith("task"):
         return {}
+    if facts["task"] in RUN_ONCE:
+        return {"task": "none"}         # a run-once goal: done when its plan has run (goals.RUN_ONCE)
+    if facts["task"] == "road" and ctx.get("step_kind") == "goto":
+        # a road is two legs (decompose: goto a, goto b): the first walked leaves one (plan_held walking), the second ends it
+        return {"task": "none"} if facts["plan_held"] == "walking" else {"plan_held": "walking"}
     if ctx.get("step_kind") == "goto" and facts["task"] == "goto":
         return {"task": "none"}         # arrived: done is standing there (goals)
     if ctx.get("step_kind") == "seek" and d.token in DOMAINS["station"]:
