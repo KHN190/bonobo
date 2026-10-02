@@ -7,10 +7,13 @@ FAR = [40, 64, 0]    # a place to go: off the γ floor's cells, a walk away
 # value → (the goal, how it is queued): a template each (milestone: iron tools, which no bag here holds; end: the end
 # portal milestone, its THEN steps), a blueprint, and three task states over the tool goal
 VALUES = ("none", "milestone", "tool", "build", "portal", "goto", "road", "skill", "effect", "end", "expired",
-          "planned", "cooling", "solver", "food", "bed", "torches", "blocks")
+          "planned", "cooling", "solver", "food", "bed", "torches", "blocks", "blaze", "pearls", "second")
 # the column solver's milestones with their own branches: a meal (planner._food, cooked_from_carried), a bed (wool: a
 # hunt or a shear), torches (coal or charcoal: a smelt), building blocks (a mine at a tier)
-MILESTONES = {"food": "food", "bed": "bed", "torches": "torches", "blocks": "building blocks"}
+# blaze rods: a hunt in FALL_RISK (needs.needs_water_bucket); pearls: a hunt of a fighter (actions._hunt's FIGHTERS)
+MILESTONES = {"food": "food", "bed": "bed", "torches": "torches", "blocks": "building blocks", "blaze": "blaze rods",
+              "pearls": "ender pearls"}
+SECOND = "check-second"      # second: the tool task queued behind a finished one (plan_proposals walks past it)
 NO_SOLVER = "check-none"     # a task naming a solver nobody registered (decompose.solve_needs: then every solver)
 DEPENDS = (lambda f: f["queued"] == "none", {"queued": "none"})
 STATES = ("expired", "planned", "cooling")
@@ -24,7 +27,7 @@ def goal(value):
             "end": lambda: goals.make("milestone", name="end portal"),
             "tool": lambda: goals.have(tool),
             "expired": lambda: goals.have(tool), "planned": lambda: goals.have(tool), "cooling": lambda: goals.have(tool),
-            "solver": lambda: goals.have(tool),
+            "solver": lambda: goals.have(tool), "second": lambda: goals.have(tool),
             **{v: (lambda n=n: goals.make("milestone", name=n)) for v, n in MILESTONES.items()},
             "build": lambda: goals.make("build", bp="shelter"),
             "portal": lambda: goals.make("build", bp="nether_portal"),
@@ -49,6 +52,8 @@ def _of(t):
             return "expired"
         if t.get("solver"):
             return "solver"
+        if t.get("source") == SECOND:
+            return "second"
         return "planned" if t.get("plan") else "tool"
     if g == "milestone":
         named = {n: v for v, n in MILESTONES.items()}
@@ -76,8 +81,12 @@ def prepare(brain, facts):
 def gamma(value, facts, g):
     if value == "none":
         return
-    from bonobo import decompose, tasks
-    t = tasks.add(goal(value), expires_s=-1 if value == "expired" else None)
+    from bonobo import decompose, goals, tasks
+    if value == "second":
+        done = tasks.add(goals.make("goto", pos=FAR, range=2))
+        tasks.update(done["id"], state="done")
+    t = tasks.add(goal(value), expires_s=-1 if value == "expired" else None,
+                  source=SECOND if value == "second" else "cerebrum")
     if value == "solver":
         tasks.update(t["id"], solver=NO_SOLVER)
     if value == "planned":
@@ -89,7 +98,7 @@ def gamma(value, facts, g):
 def step(facts, d, ctx):
     """The task's declared effect: a held tool ends it, a seek finds what it seeks."""
     from check.facts import DOMAINS
-    if facts["task"] in ("tool", "solver") + STATES and facts["pickaxe"] >= TOOL_TIER:
+    if facts["task"] in ("tool", "solver", "second") + STATES and facts["pickaxe"] >= TOOL_TIER:
         return {"task": "none"}         # a `have` is done when the bag says so (goals): the queue moves on
     if facts["task"] == "none" or not (d.name or "").startswith("task"):
         return {}
