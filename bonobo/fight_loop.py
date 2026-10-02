@@ -113,11 +113,14 @@ def carrying():
 def offer(option, worth, key, now, release, held, seen_at):
     """Answer a threat now."""
 
+    # never BODY.holder() under STATE.lock: its release check bids, and bid takes STATE.lock (hello2 11:56 deadlock)
     with STATE.lock:
         running = engaged()
-        if running is not None and arbiter.BODY.holder() is running:
-            STATE.want = option
-            return (running.layer, running.reason), None, STATE.failure
+    if running is not None and arbiter.BODY.holder() is running:
+        with STATE.lock:
+            if STATE.intent is running:
+                STATE.want = option
+                return (running.layer, running.reason), None, STATE.failure
     failure = {}
 
     def run():
