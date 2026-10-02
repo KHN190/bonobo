@@ -33,12 +33,15 @@ TARGET = (12, 64, 12)       # a failure about a target (a vein, a station): its 
 def step_failures(first):
     """The failures D5 tries in turn: `first` (this state's), each other cause that cools (check/dims/failure), one
     about a target (`pos`: cooled at the target, banned there), an interruption (resumed, never counted)."""
-    from bonobo.api import Interrupted, NotAvailable
+    from bonobo.api import Interrupted, McError, NotAvailable
+    from bonobo.data import UNREACHABLE
     from .dims.failure import FAILING
     out = [first] + [cls("check: the step failed here") for cls in FAILING.values() if type(first) is not cls]
     at = NotAvailable("check: the target was not there")
     at.pos = TARGET
-    return out + [at, Interrupted("check: interrupted")]
+    # a bare mod failure whose text says the target is out of reach (retry.cause_of: counted as nav by its text)
+    unreachable = McError(f"check: {UNREACHABLE[0]} {TARGET[0]}, {TARGET[1]}, {TARGET[2]}")
+    return out + [at, unreachable, Interrupted("check: interrupted")]
 
 
 def decide(facts, fail_then_again=True):

@@ -21,6 +21,10 @@ ROOTS = ("brain.Brain.decide", "brain.Brain.policy", "brain.Brain.context", "bra
          "brain.fight_line_holds", "needs.Needs.overnight", "perception.Watcher._look",
          "perception.Watcher._answer_threats")
 TOOL = sys.monitoring.COVERAGE_ID
+# execution entries: a call into one runs the world (the body handed over, a rescue run), never the round's decision;
+# what is reached only through them is execution (their own arms and the callbacks handed to them). check/round.py's
+# STUBBED (the threat answer's handover) and the hazard rescues (hazard.recover: the shelter it runs, needs.cover)
+EXECUTION = ("fight_loop.offer", "hazard.recover", "needs.cover")
 VIA = {}        # a decision code → the code it was first reached from (why it is in the denominator)
 
 
@@ -139,6 +143,8 @@ def decision_code():
             why[c] = "a thread's body (threading.Thread): it runs beside the round"
         elif top in stubbed:
             why[c] = "the round stands in for it (check/round.py STUBBED): the body's handover"
+        elif f"{mod.__name__.rpartition('.')[2]}.{top.co_qualname}" in EXECUTION:
+            why[c] = "an execution entry (coverage.EXECUTION): a rescue it runs"
         elif sends:
             why[c] = f"sends to the jar ({', '.join(sends)})"
 
@@ -176,15 +182,34 @@ def decision_code():
                 return False
         return False
 
+    def handed_to_execution(code, g):
+        """The functions defined inline (a lambda) and handed as an argument to an execution entry (EXECUTION): they
+        run inside it, so only through it — the code between the entry's load and its call (a keyword call:
+        `offer(..., release=lambda: ...)`)."""
+        out = set()
+        for i, ins in enumerate(code):
+            entry = ins.opname == "LOAD_ATTR" and i and code[i - 1].opname == "LOAD_GLOBAL" \
+                and isinstance(g.get(code[i - 1].argval), types.ModuleType) \
+                and f"{g[code[i - 1].argval].__name__.rpartition('.')[2]}.{ins.argval}" in EXECUTION
+            if not entry:
+                continue
+            for later in code[i + 1:]:
+                if later.opname == "CALL_KW":
+                    break
+                if later.opname == "LOAD_CONST" and isinstance(later.argval, types.CodeType):
+                    out.add(later.argval)
+        return out
+
     def edges(c):
         """What `c` calls: a global resolved in its module (a module's attribute through it), a method by its name
         on an object, a name asked for by its text (getattr), and the functions defined inside it."""
         g = vars(module_of[c.co_filename])
-        out = [k for k in c.co_consts if isinstance(k, types.CodeType)]
+        code = list(dis.get_instructions(c))
+        handed = handed_to_execution(code, g)
+        out = [k for k in c.co_consts if isinstance(k, types.CodeType) and k not in handed]
         out += [m for k in c.co_consts if isinstance(k, str) and k.isidentifier() and not k.startswith("__")
                 for m in methods.get(k, ())]
         base = None
-        code = list(dis.get_instructions(c))
         for i, ins in enumerate(code):
             if ins.opname == "LOAD_GLOBAL":
                 obj = g.get(ins.argval)

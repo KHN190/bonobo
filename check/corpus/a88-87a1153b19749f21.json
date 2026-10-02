@@ -1,0 +1,9 @@
+{
+ "food": true,
+ "kit": "sword",
+ "night": true,
+ "pickaxe": 2,
+ "place": "home",
+ "stock": "kit",
+ "tools": "axe_shovel"
+}
