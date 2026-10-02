@@ -2632,6 +2632,11 @@ class FoodFromTheBag(unittest.TestCase):
                  [("beef", 2), ("coal", 4)], 8, {"pig": 30},
                  [("smelt", "minecraft:cooked_beef", 2), ("hunt", "minecraft:porkchop", 6),
                   ("smelt", "minecraft:cooked_porkchop", 6)]),
+                ("must fail: 2 raw beef, want 8, cows 30 away: the carried beef smelted before the hunt, not merged "
+                 "into one smelt the hunt must feed (night_first__low 055858)",
+                 [("beef", 2), ("coal", 4)], 8, {"cow": 30},
+                 [("smelt", "minecraft:cooked_beef", 2), ("hunt", "minecraft:beef", 6),
+                  ("smelt", "minecraft:cooked_beef", 6)]),
                 ("nothing raw, pigs 30 away: hunt", [("coal", 4)], 2, {"pig": 30},
                  [("hunt", "minecraft:porkchop", 2), ("smelt", "minecraft:cooked_porkchop", 2)]),
                 ("must fail: 8 cooked carried: nothing", [("cooked_beef", 8)], 8, {}, [])]

@@ -389,7 +389,7 @@ class Planner:
             k = s.key()
             mergeable = s.kind in ("mine", "gather", "hunt", "smelt") or (
                 s.kind == "craft" and s.token in self.MERGEABLE_CRAFTS)
-            if k in index and mergeable:
+            if k in index and mergeable and not self.made_between(out[index[k] + 1:], s):
                 first = out[index[k]]
                 first.count += s.count
                 for key in ("breaks", "kills", "times"):
@@ -402,6 +402,12 @@ class Planner:
                 index[k] = len(out)
                 out.append(s)
         return out
+
+    @staticmethod
+    def made_between(between, step):
+        """Pure: a step in `between` makes one of `step`'s inputs (merged forward, it would run before its input)."""
+        wanted = {mid(m) for tok in step.detail.get("inputs", {}) for m in [tok, *members(tok)]}
+        return any(mid(t.token) in wanted for t in between)
 
 def hunts_a_fighter(types):
     """Does this hunt target something that fights back (beliefs.fights_back)? Animals do not."""
