@@ -27,7 +27,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api, arbiter, craft, decompose, goals, nav, needs, planner, reflexes, retry, skillcore, survive, tasks  # noqa: E402
-from bonobo.data import DAY_END  # noqa: E402
+from bonobo.data import DAY_END, TOOL_USES  # noqa: E402
+from bonobo.knowledge import TOOL_WORKING  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402  (imports every skill module: `handles` needs the registry)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.data import bare  # noqa: E402
@@ -1852,7 +1853,8 @@ SHORT = [
     ("must fail: nothing asked", inventory(), [], ""),
     ("held", inventory(("oak_log", 4)), [("log", 4)], ""),
     ("short of logs", inventory(("oak_log", 1)), [("log", 4)], "log 1/4"),
-    ("a worn tool is not a tool", inventory(slot("stone_pickaxe", 1, 125)), [("tool", "pickaxe", 1)], "pickaxe tier 1"),
+    ("a worn tool is not a tool", inventory(slot("stone_pickaxe", 1, TOOL_USES["stone"] - (TOOL_WORKING - 1))),
+     [("tool", "pickaxe", 1)], "pickaxe tier 1"),
     ("a better tool does", inventory(("iron_pickaxe", 1)), [("tool", "pickaxe", 1)], ""),
     ("food counts cooked meals only", inventory(("beef", 8), ("cooked_beef", 2)), [("food", 8)], "food 2/8"),
     ("two short, both said", inventory(), [("log", 2), ("minecraft:torch", 3)], "log 0/2, torch 0/3"),

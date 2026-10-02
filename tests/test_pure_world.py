@@ -680,8 +680,10 @@ class Planner(unittest.TestCase):
         for why, inv, kind, tier, min_left, want in rows:
             with self.subTest(why):
                 self.assertEqual(knowledge.tool_ok(inv, kind, tier, min_left), want)
-        with self.subTest("default min_left is 10"):
-            self.assertEqual(knowledge.tool_ok(_Bag({"pickaxe": [(2, 9, None)]}), "pickaxe", 2), False)
+        with self.subTest("default min_left is knowledge.TOOL_WORKING"):
+            w = knowledge.TOOL_WORKING
+            self.assertEqual((knowledge.tool_ok(_Bag({"pickaxe": [(2, w, None)]}), "pickaxe", 2),
+                              knowledge.tool_ok(_Bag({"pickaxe": [(2, w - 1, None)]}), "pickaxe", 2)), (True, False))
 
     def test_virtual_inventory_counts(self):
         rows = [  # (why, counts, ops, token, expected available)

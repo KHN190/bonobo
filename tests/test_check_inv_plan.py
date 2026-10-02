@@ -75,6 +75,14 @@ class Plan(unittest.TestCase):
                 "task_goal": None}, True),
         ("R1", {"plan": [step("craft", "minecraft:iron_pickaxe", 60)], "inv": Bag([("pickaxe", 2, 200)]),
                 "task_goal": {"goal": "have", "args": {"needs": [["tool", "pickaxe", 2]]}}}, False),   # asked for
+        # 64 breaks, 59 uses left: the second pickaxe is worn through, not a detour (task=blocks)
+        ("R1", {"plan": [step("craft", "minecraft:wooden_pickaxe", 60),
+                         step("mine", "minecraft:cobbled_deepslate", 300, 64, blocks=["deepslate"], tier=0, breaks=64)],
+                "inv": Bag([("pickaxe", 0, 59)]), "task_goal": None}, False),
+        # must fail: 10 breaks, 59 uses left: the carried one does them
+        ("R1", {"plan": [step("craft", "minecraft:wooden_pickaxe", 60),
+                         step("mine", "minecraft:cobbled_deepslate", 60, 10, blocks=["deepslate"], tier=0, breaks=10)],
+                "inv": Bag([("pickaxe", 0, 59)]), "task_goal": None}, True),
         ("R2", {"plan": [step("gather", "minecraft:oak_log", 80, 4)], "price": price, "mem": Mem(),
                 "dimension": "minecraft:overworld", "feet": (0, 64, 0)}, False),
         # must fail: logs gathered while a chest holds them, taking cheaper

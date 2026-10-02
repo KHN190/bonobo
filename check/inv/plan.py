@@ -68,8 +68,18 @@ def R1(b, d, a, ctx):
         tier = TIER_OF_MATERIAL.get(material)
         if tier is None or held.get(kind, -1) < tier or tier in _tool_wanted(ctx.get("task_goal"), kind, inv):
             continue
+        left = sum(d for t, d, _ in inv.tools(kind) if t >= tier)
+        if _breaks(plan, kind) > left:
+            continue
         return f"crafts {name} while a {kind} of tier {held[kind]} is carried and works"
     return None
+
+
+def _breaks(plan, kind):
+    """Uses of a `kind` tool the plan's work spends (mine steps' breaks, as the solver's uses row counts them)."""
+    from bonobo.knowledge import tool_kind
+    return sum(int(st.detail.get("breaks", st.count)) for st in plan
+               if st.kind == "mine" and tool_kind((st.detail.get("blocks") or [""])[0]) == kind)
 
 
 def R2(b, d, a, ctx):
