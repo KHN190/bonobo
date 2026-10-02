@@ -38,7 +38,7 @@ def _solve(inv, needs, cost, pending=None, jobs=None):
         found = solve(act.table(cost, vector), vector, target)
     except Unsolvable as e:
         raise Unplannable(str(e))
-    return [act.to_step(a, n) for a, n in found.steps()]
+    return [act.to_step(a, n, cost) for a, n in found.steps()]
 
 register("solve", _solve)
 

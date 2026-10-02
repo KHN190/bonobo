@@ -5,7 +5,7 @@ import math
 from .data import (DAY_END, DAY_TICKS, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
                    mid, seen_class)
 from .knowledge import (working, BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced,
-                        under_rock)
+                        under_rock, dawn_s, NIGHT_S, MIN_FIND_P)  # noqa: F401  (NIGHT_S, MIN_FIND_P: re-exported)
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
 from . import estimate, threat
 from .solve import Action
@@ -78,7 +78,6 @@ def consume(token, n):
 
 # `day` while the sun is up: surface work needs it, so a dusk plan mines first and gets the tree after the night
 DAY_DIM = "day"
-NIGHT_S = 420.0               # a night, when the clock cannot say how much of it is left
 DROWNING_TICKS = 100  # ~5 s of air: below this a breath comes first
 
 def body_dims(state):
@@ -146,12 +145,8 @@ def _is_night(snap):
     return DAY_END <= t <= NIGHT_END
 
 def _dawn_s(snap):
-    """Seconds until the sun is up again, from the snapshot's clock; a whole night when it cannot say."""
-    state = getattr(snap, "state", None) or {}
-    if "timeOfDay" not in state:
-        return NIGHT_S
-    t = int(state["timeOfDay"]) % DAY_TICKS
-    return max(1.0, ((NIGHT_END - t) % DAY_TICKS) / 20.0)
+    """Seconds until the sun is up again, from the snapshot's clock (knowledge.dawn_s)."""
+    return dawn_s(getattr(snap, "state", None) or {})
 
 # Close enough to work on it without walking: the skills' own reach.
 ARRIVED_R = 5.0
@@ -190,9 +185,6 @@ def _sheltered(snap, mem):
 
 # -- the columns
 
-def work_s(cost, kind, token, count=1):
-    """Seconds this piece of work takes: what this kind costs per unit, times how many."""
-    return float(cost.work_s(kind, token)) * float(count)
 
 class Table(list):
     """The round's columns, carrying their own identity."""
@@ -230,15 +222,9 @@ def _seek(cost):
 
     out = []
     for what, kinds in _findable():
-        go_s = cost.seek_s(kinds)
-        chance = max(MIN_FIND_P, cost.find_p(kinds))
-        out.append(Action(f"seek:{what}", {at(what): 1}, round(go_s / chance, 1), limit=1,
-                          requires={DAY_DIM: 1} if what in _SURFACE else {},
-                          tag=("seek", what, kinds, cost.where(kinds))))
+        out.append(priced(cost, f"seek:{what}", {at(what): 1}, ("seek", what, kinds, cost.where(kinds)), limit=1,
+                          requires={DAY_DIM: 1} if what in _SURFACE else {}))
     return out
-
-# a floor keeps a rare find a price, not a wall
-MIN_FIND_P = 0.02
 
 def _surface():
     """Surface finds, where the dark is dangerous: trees, animals, villages."""
@@ -265,8 +251,8 @@ def _findable():
     return sorted(seen.items())
 
 def _gather(cost):
-    return [Action("gather:log", produce("log", 1), work_s(cost, "gather", "log"),
-                   requires={at("tree"): 1, "bag_free": 1, "hands_free": 1, DAY_DIM: 1}, tag=("gather", "log"))]
+    return [priced(cost, "gather:log", produce("log", 1), ("gather", "log"),
+                   requires={at("tree"): 1, "bag_free": 1, "hands_free": 1, DAY_DIM: 1})]
 
 def _mine(cost):
     out = []
@@ -281,8 +267,7 @@ def _mine(cost):
         if token == "minecraft:cobblestone":
             effect["stone"] = effect.get("stone", 0) + per     # what recipes and shelters ask for
         requires.update({"hands_free": 1, "footing": 1})
-        out.append(Action(f"mine:{token}", effect, work_s(cost, "mine", token), requires=requires,
-                          tag=("mine", token, blocks, tier)))
+        out.append(priced(cost, f"mine:{token}", effect, ("mine", token, blocks, tier), requires=requires))
     return out
 
 def _take(cost):
@@ -301,21 +286,18 @@ def _take(cost):
             requires[tool_dim(kind, tier)] = 1
             effect[uses_dim(kind)] = effect.get(uses_dim(kind), 0) - 1
         requires.update({"hands_free": 1, "footing": 1})
-        out.append(Action(f"take:{token}", effect, float(row["break_s"]), requires=requires,
-                          tag=("take", token, list(row["blocks"]))))
+        out.append(priced(cost, f"take:{token}", effect, ("take", token, list(row["blocks"])), requires=requires))
     return out
 
-GROW_S = {"crop": 15 * 60, "animal": 20 * 60}     # a wheat plot to ripe; a bred animal to grown (jobs.DURATION)
 
 def _farm(cost):
     """Food that is grown rather than found: the other half of "hunt or farm"."""
 
     if not produced("farm"):
         return []
-    out = [Action("farm:wheat", dict(produce("minecraft:wheat", PLOT_CELLS), **{"minecraft:water_bucket": -1}),
-                  work_s(cost, "farm", "wheat") + GROW_S["crop"],
-                  requires={tool_dim("hoe", 0): 1, "minecraft:wheat_seeds": PLOT_CELLS, "footing": 1,
-                            "hands_free": 1, DAY_DIM: 1}, limit=1, tag=("farm", "wheat"))]
+    out = [priced(cost, "farm:wheat", dict(produce("minecraft:wheat", PLOT_CELLS), **{"minecraft:water_bucket": -1}),
+                  ("farm", "wheat"), requires={tool_dim("hoe", 0): 1, "minecraft:wheat_seeds": PLOT_CELLS, "footing": 1,
+                                               "hands_free": 1, DAY_DIM: 1}, limit=1)]
     for meat, types in HUNT.items():
         kind = types[0]
         food = BREED_FOOD.get(kind)
@@ -323,23 +305,21 @@ def _farm(cost):
                                         "minecraft:chicken"):
             continue
         per = HUNT_YIELD.get(meat, 1)
-        out.append(Action(f"breed:{kind}", dict(produce(meat, per), **{food: -2}),
-                          work_s(cost, "breed", kind) + GROW_S["animal"] + work_s(cost, "hunt", meat),
-                          requires={at(kind): 1, "hands_free": 1, DAY_DIM: 1, "bag_free": 1}, limit=2,
-                          tag=("breed", kind)))
+        out.append(priced(cost, f"breed:{kind}", dict(produce(meat, per), **{food: -2}), ("breed", kind),
+                          requires={at(kind): 1, "hands_free": 1, DAY_DIM: 1, "bag_free": 1}, limit=2))
     return out
 
 def _fill(cost):
     """A container filled at a source (fluids.fill_water_bucket): the empty one in, the full one out, at water."""
-    return [Action(f"fill:{token}", {token: 1, container: -1}, work_s(cost, "fill", token),
-                   requires={at("water"): 1, "hands_free": 1}, tag=("fill", token, container))
+    return [priced(cost, f"fill:{token}", {token: 1, container: -1}, ("fill", token, container),
+                   requires={at("water"): 1, "hands_free": 1})
             for token, container in produced("fill")]
 
 def _trade(cost):
     """Sold to someone who buys: the trader names the price; the one requirement is standing at one."""
 
-    return [Action(f"trade:{token}", {token: 1}, work_s(cost, "trade", token),
-                   requires={at(types[0]): 1, "bag_free": 1, "hands_free": 1, DAY_DIM: 1}, tag=("trade", token, types))
+    return [priced(cost, f"trade:{token}", {token: 1}, ("trade", token, types),
+                   requires={at(types[0]): 1, "bag_free": 1, "hands_free": 1, DAY_DIM: 1})
             for token, types in produced("trade")]
 
 def _hunt(cost):
@@ -351,8 +331,7 @@ def _hunt(cost):
             # It fights back, so it needs a weapon — the same fact the threat layer uses to refuse the fight.
             requires[tool_dim("sword", 1)] = 1
         requires.update({"hands_free": 1, DAY_DIM: 1})     # a fight can happen in water; not in the dark
-        out.append(Action(f"hunt:{token}", produce(token, per), work_s(cost, "hunt", token), requires=requires,
-                          tag=("hunt", token, types)))
+        out.append(priced(cost, f"hunt:{token}", produce(token, per), ("hunt", token, types), requires=requires))
     return out
 
 # a craft's effect never changes, only its cost: shapes built once (rebuilding cost 36 s of a 129 s replay)
@@ -394,8 +373,8 @@ def _craft_specs():
     return specs
 
 def _craft(cost):
-    return [Action(name, dict(effect), work_s(cost, "craft", token), requires=dict(requires), tag=tag)
-            for name, token, effect, requires, tag in _craft_specs()]
+    return [priced(cost, name, dict(effect), tag, requires=dict(requires))
+            for name, _token, effect, requires, tag in _craft_specs()]
 
 def _smelt_specs():
     """[(token, effect, tag)] for every smelt, computed once."""
@@ -414,8 +393,8 @@ def _smelt_specs():
     return specs
 
 def _smelt(cost):
-    return [Action(f"smelt:{token}", dict(effect), work_s(cost, "smelt", token),
-                   requires={"minecraft:furnace": 1, "hands_free": 1, "footing": 1}, tag=tag)
+    return [priced(cost, f"smelt:{token}", dict(effect), tag,
+                   requires={"minecraft:furnace": 1, "hands_free": 1, "footing": 1})
             for token, effect, tag in _smelt_specs()]
 
 def _body(cost, state):
@@ -424,39 +403,34 @@ def _body(cost, state):
     out = []
     if not state.get("hands_free"):
         # up: the one answer to being out of air
-        out.append(Action("reach:air", {"hands_free": 1}, work_s(cost, "reach", "air"), limit=1,
-                          tag=("reach", "air")))
+        out.append(priced(cost, "reach:air", {"hands_free": 1}, ("reach", "air"), limit=1))
     if not state.get("footing"):
-        out.append(Action("reach:land", {"footing": 1}, work_s(cost, "reach", "land"), limit=1,
-                          tag=("reach", "land")))
+        out.append(priced(cost, "reach:land", {"footing": 1}, ("reach", "land"), limit=1))
         # a block underfoot is footing for one block and a second; the solver weighs it against the swim
-        out.append(Action("place:footing", {"footing": 1, "building": -1},
-                          work_s(cost, "place", "footing"), limit=1, tag=("reach", "footing")))
+        out.append(priced(cost, "place:footing", {"footing": 1, "building": -1}, ("reach", "footing"), limit=1))
     return out
 
 def _room(cost, state):
     """Ways to free bag space; without them a full bag is unplannable."""
     return [
-        Action("room:tidy", {"bag_free": 8}, work_s(cost, "room", "tidy"), limit=1, tag=("room", "tidy")),
-        Action("room:deposit", {"bag_free": 16}, work_s(cost, "room", "deposit"), limit=1, tag=("room", "deposit")),
+        priced(cost, "room:tidy", {"bag_free": 8}, ("room", "tidy"), limit=1),
+        priced(cost, "room:deposit", {"bag_free": 16}, ("room", "deposit"), limit=1),
     ]
 
 def _shelter(cost, state):
     """Ways to survive a night, each priced; the solver chooses."""
     out = [
-        Action("shelter:dig in", {"sheltered": 1}, work_s(cost, "shelter", "dig in"),
-               requires={tool_dim("pickaxe", 0): 1}, limit=1, tag=("shelter", "dig_in")),
-        Action("shelter:wall in", {"sheltered": 1, "building": -9}, work_s(cost, "shelter", "wall in"),
-               limit=1, tag=("shelter", "pod")),
-        Action("shelter:hut", {"sheltered": 1, "stone": -14, "door": -1, "minecraft:torch": -1},
-               work_s(cost, "shelter", "hut"), limit=1, tag=("shelter", "hut")),
+        priced(cost, "shelter:dig in", {"sheltered": 1}, ("shelter", "dig_in"), requires={tool_dim("pickaxe", 0): 1},
+               limit=1),
+        priced(cost, "shelter:wall in", {"sheltered": 1, "building": -9}, ("shelter", "pod"), limit=1),
+        priced(cost, "shelter:hut", {"sheltered": 1, "stone": -14, "door": -1, "minecraft:torch": -1}, ("shelter", "hut"),
+               limit=1),
     ]
-    out.append(Action("sleep", {"slept": 1, at("bed"): 0, DAY_DIM: 1}, work_s(cost, "sleep", "bed"),
-                      requires={"bed": 1, "sheltered": 1}, limit=1, tag=("sleep",)))
+    out.append(priced(cost, "sleep", {"slept": 1, at("bed"): 0, DAY_DIM: 1}, ("sleep",),
+                      requires={"bed": 1, "sheltered": 1}, limit=1))
     if not state.get(DAY_DIM):
         # the other way to morning: priced by what is left of the night
-        out.append(Action("wait:day", {DAY_DIM: 1}, float(state.get("clock:dawn_s", NIGHT_S)),
-                          requires={"sheltered": 1}, limit=1, tag=("wait", "day")))
+        out.append(priced(cost, "wait:day", {DAY_DIM: 1}, ("wait", "day"), requires={"sheltered": 1}, limit=1))
     return out
 
 
@@ -475,11 +449,20 @@ def target_of(needs):
 
 # -- execution
 
-def to_step(action, times):
-    """A solver column as an executor Step, carrying the seconds it was priced at."""
+def priced(cost, name, effect, tag, requires=None, limit=None):
+    """A column priced by the one cost model (D6, K6: one price per step): a unit of it is its step (_shape) as
+    `Cost.work_ticks` prices that step's work — the walks to where it happens are the seek columns'."""
+    from types import SimpleNamespace
+    # a tick at least: nothing the game does takes less, and a free column makes every plan infinite (solve.Action)
+    seconds = max(1, cost.work_ticks(_shape(SimpleNamespace(tag=tag, name=name), 1))) / TICKS_PER_S
+    return Action(name, effect, seconds, requires=requires, limit=limit, tag=tag)
+
+def to_step(action, times, cost=None):
+    """A solver column as an executor Step, priced by the cost model as every planned step is (`Cost.estimate`: its
+    work and the walk to it); without a cost model, the column's own seconds."""
 
     step = _shape(action, times)
-    step.est = int(round(action.cost_s * times * TICKS_PER_S))
+    step.est = int(cost.estimate(step)) if cost is not None else int(round(action.cost_s * times * TICKS_PER_S))
     return step
 
 def _shape(action, times):
