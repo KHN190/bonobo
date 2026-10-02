@@ -679,8 +679,10 @@ class Brain:
             return None
         self.committed = task["id"]
         # never consume our own work: what held plans pass through is kept from tidying and storing
-        bag.RESERVED = set().union(*(bag.reserved_ids(h["steps"]) for h in self.held.values())) \
+        reserved = set().union(*(bag.reserved_ids(h["steps"]) for h in self.held.values())) \
             | bag.reserved_ids([], goals.needs(goal, snap.inv))
+        bag.RESERVED.clear()
+        bag.RESERVED.update(reserved)
         return craft_act("task", f"task {task['id']}", ctx, held["steps"], step, snap.night, task=task,
                          inv=snap.inv)
 

@@ -1453,6 +1453,8 @@ class FightsAPlayerWins(unittest.TestCase):
                 ("a creeper", [row("minecraft:creeper", 4, 0)], 0),
                 ("a creeper and a zombie", [row("minecraft:creeper", 4, 0), row("minecraft:zombie", -3, 0)], 0),
                 ("two zombies", [row("minecraft:zombie", 4, 0), row("minecraft:zombie", -4, 0)], 0),
+                ("three zombies, iron armour", [row("minecraft:zombie", 4, 0), row("minecraft:zombie", 5.5, -1.5),
+                                                row("minecraft:zombie", 7, -3)], 15),
                 ("an enderman, iron armour", [row("minecraft:enderman", 4, 0)], 15),
                 ("a blaze, iron armour", [row("minecraft:blaze", 6, 0)], 15)]
         for name, hazards, armor in rows:

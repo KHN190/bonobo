@@ -97,6 +97,13 @@ def decide(facts, fail_then_again=True):
     """(Decision, alpha of the γ world, ctx): the production round's choice on the concrete world of `facts`. ctx:
     the step's kind, whether its target lies in the home, the night's cheapest way (needs.overnight), and the
     decision of a second round after the first one's step failed (D5)."""
+    try:
+        return _decide(facts, fail_then_again)
+    finally:
+        fresh_round()        # the round's life leaves nothing behind for the next caller in this process
+
+
+def _decide(facts, fail_then_again):
     from bonobo import api, arbiter, brain, fight_loop, perception, tape
     from bonobo.api import NotAvailable
     from bonobo import dispatch
