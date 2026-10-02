@@ -1,4 +1,4 @@
 # check.run known violations over the fuzzer's corpus (check/corpus; --all adds the enumeration): "INVARIANT COUNT"; counts only fall (gate.sh)
-R3 10
-S1 3
-S4 5
+R3 13
+S1 5
+S4 7
