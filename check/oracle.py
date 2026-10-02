@@ -44,8 +44,16 @@ def S4(b, d, a, ctx):
     if not (b["night"] and b["place"] == "open" and b["dimension"] == "minecraft:overworld") or b["takeover"]:
         return None
     # the body's own layers answer before the night (S1 first): a layer, never a row's name; the night's ways are
-    # what the night asks for
-    if d.layer in DANGER_LAYERS or "sleep" in _name(d) or any(w in _name(d) for w in SHELTER_WAYS):
+    # what the night asks for — the shelter row running the chosen way whole, its prep included (a prep step there is
+    # one of the way's own steps); the same prep offered by any other layer (the plan's night prep) is open-air work
+    if d.layer in DANGER_LAYERS or "sleep" in _name(d):
+        return None
+    if d.layer == "maintain" and _name(d) == "shelter":
+        prep = ctx.get("step_kind") not in (None, "shelter")
+        if not prep or (ctx.get("step_kind"), d.token) in ctx.get("night_steps", ()):
+            return None
+        return f"open-air at night: the shelter row runs {ctx.get('step_kind')} {d.token}, not a step of its way"
+    if any(w in _name(d) for w in SHELTER_WAYS if w != "shelter") or ctx.get("step_kind") == "shelter":
         return None
     if d.kind is None:
         return "idle in the open at night (nothing proposed)"
