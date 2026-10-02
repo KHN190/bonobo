@@ -236,8 +236,7 @@ class Needs:
     def bed_tonight(self, snap):
         """Night in the Overworld, no bed carried, and a bed whose plan needs no sun is the cheapest way through."""
 
-        if not (snap.dimension == "minecraft:overworld" and snap.night and snap.inv.count("bed") == 0
-                and survive.can_sleep(snap.state) is None):
+        if not (snap.night and snap.inv.count("bed") == 0 and survive.can_sleep(snap.state) is None):
             return False
         way, _secs, steps = self.overnight(snap)
         return way == "bed" and all(st.kind in NIGHT_WORK for st in steps)

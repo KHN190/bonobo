@@ -33,7 +33,7 @@ def _solve(inv, needs, cost, pending=None, jobs=None):
         return []
     if getattr(cost, "snap", None) is None or getattr(cost, "mem", None) is None:
         raise Unplannable("the column solver needs a snapshot and a memory")
-    vector = act.state_of(cost.snap, cost.mem)
+    vector = act.state_of(cost.snap, cost.mem, reachable=cost.reachable)
     try:
         found = solve(act.table(cost, vector), vector, target)
     except Unsolvable as e:

@@ -270,6 +270,17 @@ class Cost:
         return sum(s.est for s in steps) / TICKS_PER_S
 
     # -- what the column solver asks (actions.table), in seconds
+    def _route(self, where):
+        """(found, seconds) of the game's walk to `where` when asked this round (nav's route cache), else (None, None)."""
+        return ROUTES.get(route_key(where, 2.0, NAV_NODES), (None, None))
+
+    def reachable(self, kinds):
+        """False only when the game's route to the nearest known one was asked and not found."""
+        where = self.where(kinds)
+        if where is None:
+            return True
+        return self._route(where)[0] is not False
+
     def where(self, kinds):
         """The position of the nearest known one, or None: what "on the way" is judged by."""
         hit = self._nearest(kinds)
@@ -296,7 +307,7 @@ class Cost:
         through = self.door_s(where)
         if through is not None:
             return through
-        found, seconds = ROUTES.get(route_key(where, 2.0, NAV_NODES), (None, None))
+        found, seconds = self._route(where)
         return seconds if found else None
 
     def find_p(self, kinds):
