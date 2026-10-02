@@ -203,7 +203,7 @@ def fight_cost(here, hazards, sword, prot, speed=None, shapes=(), shield=False):
         mob = beliefs.MOBS[hazard[3]]
         gap = max(0.0, math.dist(pos, hazard[0]) - float(beliefs.PLAYER["melee_reach"]))
         retreat = game.BOW_RETREAT.get(hazard[3])     # an archer backs off as we close: the chase is the difference
-        walk = gap / (game.PLAYER_SPRINT - retreat) if retreat else gap / speed
+        walk = gap / (speed - retreat) if retreat else gap / speed
         hits = max(1, math.ceil(left[id(hazard)] / per_hit))
         kill = hits / rate
         # The row's own rate (what THIS one hits for, `threat.row`), as pressure reads it — not the table's.

@@ -54,9 +54,9 @@ def mob(kind, x):
 
 class AFightExactly(unittest.TestCase):
     """`fight_cost` on hand-placed rows, to the hundredth. From the game's weapon data (data.weapon_hit): a fist hits 1
-    at 4/s, a stone sword 5 at 1.6/s — whole hits; a zombie has 20 hp and does 3 dps (3 per 20 ticks), a skeleton 20 hp at 4 per 60 ticks and shoots; melee reach 3, speed 4.3.
-    per kill: see = api.READ_EVERY_S (0.1, the loop's poll); walk = (distance − 3) / 4.3; kill = ceil(20 / hit) / rate;
-    pickup = (3 − pickup_r 1) / 4.3 onto the drops; lost = (see + walk) × ranged still alive + kill × all still alive
+    at 4/s, a stone sword 5 at 1.6/s — whole hits; a zombie has 20 hp and does 3 dps (3 per 20 ticks), a skeleton 20 hp at 4 per 60 ticks and shoots; melee reach 3, speed 5.612 (sprint).
+    per kill: see = api.READ_EVERY_S (0.1, the loop's poll); walk = (distance − 3) / 5.612; kill = ceil(20 / hit) / rate;
+    pickup = (3 − pickup_r 1) / 5.612 onto the drops; lost = (see + walk) × ranged still alive + kill × all still alive
     + pickup × ranged left alive, all incoming capped at 6 hp/s (a 3-hp hit every 0.5 s of hurt immunity). Every
     term is non-zero in every row with a mob: the totals fail when any one of them is dropped (D6, hidden work)."""
 
@@ -65,28 +65,28 @@ class AFightExactly(unittest.TestCase):
         from bonobo.api import READ_EVERY_S
         from bonobo.data import weapon_hit
         self.assertEqual((weapon_hit(None), weapon_hit(STONE), PLAYER["melee_reach"], PLAYER["speed"],
-                          PLAYER["pickup_r"], READ_EVERY_S), ((1.0, 4.0), (5.0, 1.6), 3.0, 4.3, 1.0, 0.1))
+                          PLAYER["pickup_r"], READ_EVERY_S), ((1.0, 4.0), (5.0, 1.6), 3.0, 5.612, 1.0, 0.1))
         rows = [MOBS[f"minecraft:{k}"] for k in ("zombie", "skeleton")]
         self.assertEqual([(m["hp"], m["dps"]) for m in rows], [(20, 3.0), (20, 4.0 / 3)])
 
     # (situation, rows, sword held, protection) → (seconds, hp lost)
     ROWS = [("must fail: nothing to fight", [], STONE, 0.0, (0.0, 0.0)),
             # k = 1 − 0.22/(1 + 0.22) = 0.8195 (each zombie blow waits 0.88/4 s after our push)
-            # 0.1 + 20/2 + 0.47 = 10.57 (2 hits/s: the target's hurt immunity); 10 s × 3k = 24.58
-            ("a zombie in reach, bare hands", [mob("zombie", 2)], None, 0.0, (10.57, 24.58)),
-            # must fail without the see (2.97), without the pickup walk (2.6), or the kill alone (2.5)
-            ("a zombie in reach, stone sword: see + 4 hits / 1.6 s + pickup", [mob("zombie", 2)], STONE, 0.0, (3.07, 6.15)),
-            # must fail without the walk in (3.07); 0.1 + 7/4.3 + 4/1.6 + 2/4.3 = 4.69; 2.5 × 3k = 6.15
-            ("a zombie 10 away: the walk is free of a melee mob", [mob("zombie", 10)], STONE, 0.0, (4.69, 6.15)),
+            # 0.1 + 20/2 + 2/5.612 = 10.46 (2 hits/s: the target's hurt immunity); 10 s × 3k = 24.58
+            ("a zombie in reach, bare hands", [mob("zombie", 2)], None, 0.0, (10.46, 24.58)),
+            # must fail without the see (2.86), without the pickup walk (2.6), or the kill alone (2.5)
+            ("a zombie in reach, stone sword: see + 4 hits / 1.6 s + pickup", [mob("zombie", 2)], STONE, 0.0, (2.96, 6.15)),
+            # must fail without the walk in (2.96); 0.1 + 7/5.612 + 4/1.6 + 2/5.612 = 4.2; 2.5 × 3k = 6.15
+            ("a zombie 10 away: the walk is free of a melee mob", [mob("zombie", 10)], STONE, 0.0, (4.2, 6.15)),
             # 2.5 × 3k + 3 × (2.6 − 0.25 arrival) + its 4 hits after 3 sweeps (17 hp) 2.5 × 3k = 19.34
             ("two zombies: the second from its arrival, swept", [mob("zombie", 2), mob("zombie", 4)], STONE,
-             0.0, (6.13, 19.34)),
+             0.0, (5.91, 19.34)),
             # chased at 5.612 − 1.349 (its retreat): (0.1 + 7/4.263) × 4/3 + 2.5 × 4/3 = 5.66
-            ("a skeleton 10 away: shot at while seen and on the walk", [mob("skeleton", 10)], STONE, 0.0, (4.71, 5.66)),
+            ("a skeleton 10 away: shot at while seen and on the walk", [mob("skeleton", 10)], STONE, 0.0, (4.6, 5.66)),
             # must fail when the pickup is charged the skeleton's arrows after it is dead, or not at all
-            # (0.1×4/3 + 2.5×3k + 0.6×4/3 (arrives at 2.0) + 0.47×4/3 + (0.1 + 5/4.263)×4/3 + 2.5×4/3) × 0.5 = 6.37
+            # (0.1×4/3 + 2.5×3k + 0.6×4/3 (arrives at 2.0) + 0.36×4/3 + (0.1 + 5/4.263)×4/3 + 2.5×4/3) × 0.5 = 6.29
             ("zombie then skeleton, half armoured off; shot at on the zombie's pickup", [mob("zombie", 2),
-             mob("skeleton", 10)], STONE, 0.5, (7.3, 6.37))]
+             mob("skeleton", 10)], STONE, 0.5, (7.09, 6.29))]
 
     def test_fight_cost_over_the_table(self):
         for name, rows, sword, prot, want in self.ROWS:
