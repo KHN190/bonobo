@@ -56,7 +56,7 @@ def R1(b, d, a, ctx):
     if plan is None or inv is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
     from bonobo.data import TIER_OF_MATERIAL, TOOL_KINDS, bare
-    from bonobo.knowledge import held_tiers
+    from bonobo.knowledge import held_tiers, spare_uses
     held = held_tiers(inv)
     for st in plan:
         if st.kind != "craft":
@@ -68,7 +68,7 @@ def R1(b, d, a, ctx):
         tier = TIER_OF_MATERIAL.get(material)
         if tier is None or held.get(kind, -1) < tier or tier in _tool_wanted(ctx.get("task_goal"), kind, inv):
             continue
-        left = sum(d for t, d, _ in inv.tools(kind) if t >= tier)
+        left = sum(spare_uses(d) for t, d, _ in inv.tools(kind) if t >= tier)
         if _breaks(plan, kind) > left:
             continue
         return f"crafts {name} while a {kind} of tier {held[kind]} is carried and works"
