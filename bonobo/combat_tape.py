@@ -75,10 +75,9 @@ def load(path):
 
 def latest(name=None):
     """The newest saved tape (optionally of one scenario), or None."""
-    try:
-        names = sorted(n for n in os.listdir(DIR) if n.endswith(".json") and (not name or n.startswith(name + "-")))
-    except OSError:
+    if not os.path.isdir(DIR):
         return None
+    names = sorted(n for n in os.listdir(DIR) if n.endswith(".json") and (not name or n.startswith(name + "-")))
     return os.path.join(DIR, names[-1]) if names else None
 
 def events(since=0, timeout_ms=1000):

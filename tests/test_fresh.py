@@ -93,7 +93,9 @@ class Check(unittest.TestCase):
         broken = os.path.join(tmp, "broken.dat")
         with open(broken, "wb") as f:
             f.write(b"not gzip")
-        self.assertIsNone(fresh.level_seed(broken))
+        with self.assertRaises(OSError):            # a damaged save is said, never read as "no seed" (gzip: BadGzipFile)
+            fresh.level_seed(broken)
+        self.assertIsNone(fresh.level_seed(os.path.join(tmp, "none.dat")))
 
     def test_no_save_drops_nothing(self):
         tmp = tempfile.mkdtemp()

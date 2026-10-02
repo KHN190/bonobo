@@ -53,10 +53,8 @@ def meal(food, inv, cookable):
 
 def pit_due(v):
     """The body stands in a hole open to the sky it cannot jump out of (a view without the reading: no)."""
-    try:
-        return bool(v["in_pit"])
-    except KeyError:
-        return False
+    known = "in_pit" in v or "in_pit" in getattr(v, "providers", ())
+    return bool(v["in_pit"]) if known else False
 
 TABLE = [
     ("recover items", lambda v: v["died_recently"], lambda m, v: recover_items(v["ctx"])),

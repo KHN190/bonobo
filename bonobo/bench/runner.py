@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 
+from .. import paths
 from ..api import McError, READ_EVERY_S, swallowed
 from .core import bag_now
 from .core import (BENCH, BENCH_WORLD, BOX, WORLD_NORMAL, body_reset, FLAG, PKG, SCENARIOS, TABLE, UNCOUNTED, SetupInvalid, _batch, _c, _checked,
@@ -125,10 +126,9 @@ def _imports_of(module, pkg_dir):
     """What one module imports from the package."""
 
     path = os.path.join(pkg_dir, module + ".py")
-    try:
-        stamp = os.path.getmtime(path)
-    except OSError:
+    if not os.path.exists(path):
         return ()
+    stamp = os.path.getmtime(path)
     key = (path, stamp)
     hit = _IMPORTS.get(key)
     if hit is not None:
@@ -325,11 +325,7 @@ def verdict(table, name, code):
 # -- readiness table
 
 def load_table(path=None):
-    try:
-        with open(path or TABLE) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
+    return paths.read_json(path or TABLE, {})
 
 def record(table, scenario, code, ok, seconds, note="", cls="skill"):
     """Pure: append one result (last 10 kept per scenario and code version)."""
@@ -390,10 +386,7 @@ def migrate(table, current, key_then):
     return sorted(moved)
 
 def save_table(table, path=None):
-    path = path or TABLE
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(table, f, indent=1)
+    paths.save_json(path or TABLE, table)
 
 # -- live bench
 

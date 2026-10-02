@@ -551,14 +551,13 @@ def skill_spans(registry, root):
     import inspect
     out = {}
     for name, c in registry.items():
-        try:
-            lines, first = inspect.getsourcelines(c.fn)
-            src = inspect.getsourcefile(c.fn)
-            if src is None:
-                continue
-            path = os.path.relpath(src, root)
-        except (OSError, TypeError):
+        if not inspect.isfunction(c.fn):           # a builtin or a partial: no source of its own
             continue
+        lines, first = inspect.getsourcelines(c.fn)
+        src = inspect.getsourcefile(c.fn)
+        if src is None:
+            continue
+        path = os.path.relpath(src, root)
         out[name] = (path, first, first + len(lines) - 1)
     return out
 

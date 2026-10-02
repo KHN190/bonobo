@@ -12,7 +12,7 @@ import os
 import sys
 import time
 
-from .. import api, events
+from .. import api, events, paths
 
 REPEATED = events.ANOMALY_AT[1]  # an error or refusal said this often is a loop
 LAST_N = 10              # events shown with a wake
@@ -20,20 +20,7 @@ LAST_N = 10              # events shown with a wake
 
 def read(path, offset):
     """The records written since `offset` (bytes) and the offset after them."""
-    try:
-        with open(path) as f:
-            f.seek(offset)
-            text = f.read()
-            end = f.tell()
-    except OSError:
-        return [], offset
-    out = []
-    for line in text.splitlines():
-        try:
-            out.append(json.loads(line))
-        except ValueError:
-            pass            # a line half written: read next time
-    return out, end
+    return paths.read_jsonl(path, offset=offset)
 
 
 def wake_reason(records, now, idle_s):

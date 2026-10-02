@@ -46,10 +46,7 @@ def estimators(pkg=PKG):
     """[(module, name, line, unit, concept)] — every function whose name declares a quantity."""
     out = []
     for module, path in _modules(pkg):
-        try:
-            tree = ast.parse(open(path).read())
-        except SyntaxError:
-            continue
+        tree = ast.parse(open(path).read())     # a module that does not parse is an error here, not skipped
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -75,11 +72,8 @@ def clamps(pkg=PKG):
 
     out = []
     for module, path in _modules(pkg):
-        try:
-            source = open(path).read()
-            tree = ast.parse(source)
-        except SyntaxError:
-            continue
+        source = open(path).read()
+        tree = ast.parse(source)
         lines = source.splitlines()
         for node in ast.walk(tree):
             if not isinstance(node, ast.Return) or node.value is None:

@@ -25,18 +25,11 @@ PRESS_S = 1.0             # the use itself, once in reach
 
 # -- the store
 def load(path=None):
-    try:
-        with open(path or FILE) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return []
+    return paths.read_json(path or FILE, [])
 
 
 def save(mechs, path=None):
-    path = path or FILE
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(mechs, f, indent=1)
+    paths.save_json(path or FILE, mechs)
 
 
 def add(dimension, press, opens, close=False, path=None):

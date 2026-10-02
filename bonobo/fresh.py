@@ -38,14 +38,13 @@ _NBT_SIZE = {1: 1, 2: 2, 3: 4, 4: 8, 5: 4, 6: 8}          # fixed-size tags: byt
 
 def level_seed(path):
     """The world seed in a level.dat (gzipped NBT: Data.WorldGenSettings.seed, older saves Data.RandomSeed), or None
-    when unreadable."""
+    when there is none; a damaged file raises."""
     import gzip
     import struct
-    try:
-        with open(path, "rb") as f:
-            raw = gzip.decompress(f.read())
-    except (OSError, EOFError):
+    if not os.path.exists(path):
         return None
+    with open(path, "rb") as f:
+        raw = gzip.decompress(f.read())       # the game writes level.dat whole (a new file renamed over it)
     found = {}
 
     def payload(tag, i, name):
@@ -72,30 +71,21 @@ def level_seed(path):
             return i + 1
         raise ValueError(f"NBT tag {tag}")
 
-    try:
-        k = struct.unpack(">H", raw[1:3])[0]
-        payload(raw[0], 3 + k, None)
-    except (ValueError, IndexError, struct.error):
-        return None
+    k = struct.unpack(">H", raw[1:3])[0]
+    payload(raw[0], 3 + k, None)
     return found.get("seed", found.get("RandomSeed"))
 
 ID_KIND = "seed"          # what the id after the folder is; a record without it holds the old `folder:created`
 
 
 def record():
-    try:
-        with open(FILE) as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
-        return {}
+    return paths.read_json(FILE, {})
 
 def known():
     return record().get("world")
 
 def remember(world):
-    paths.ensure(FILE)
-    with open(FILE, "w") as fh:
-        json.dump({"world": world, "id": ID_KIND, "at": time.time()}, fh)
+    paths.save_json(FILE, {"world": world, "id": ID_KIND, "at": time.time()})
 
 def drop(names=WORLD_SCOPED):
     """Delete what belonged to the last world."""
@@ -103,15 +93,14 @@ def drop(names=WORLD_SCOPED):
     gone = []
     for name in names:
         path = paths.data(name)
-        try:
-            if os.path.isdir(path):
-                import shutil
-                shutil.rmtree(path)
-            else:
-                os.remove(path)
-            gone.append(name)
-        except OSError:
-            pass
+        if not os.path.exists(path):
+            continue
+        if os.path.isdir(path):
+            import shutil
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+        gone.append(name)
     return gone
 
 def check(instance=None):

@@ -49,12 +49,7 @@ def publish():
     if out == _last_sent:
         return
     _last_sent = out
-    try:
-        os.makedirs(os.path.dirname(FILE), exist_ok=True)
-        with open(FILE, "w") as f:
-            json.dump({"lines": full(), "hud": out}, f)
-    except OSError:
-        pass
+    paths.save_json(FILE, {"lines": full(), "hud": out}, log="intent")
     try:
         api.post("/hud", {"lines": out})
         return

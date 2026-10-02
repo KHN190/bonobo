@@ -1,11 +1,13 @@
 """Rounds: where the brain's time goes, from the `round …` lines brain._round writes to detail.log.
 mc.py rounds [SINCE]    median and max ms per phase since HH:MM:SS (default: the whole file), and the 3 longest gaps
 (a task ended → the next task posted: the body idle between them)."""
-
+import re
 import statistics
 import sys
 
 from .. import api
+
+NUMBER = re.compile(r"-?\d+(?:\.\d*)?")     # a field's value in a round line
 
 def parse(line):
     """Pure: (time, {field: ms or None}) of a `round` line, or None for any other line."""
@@ -15,10 +17,9 @@ def parse(line):
     fields = {}
     for p in parts[2:]:
         k, _, v = p.partition("=")
-        try:
-            fields[k] = None if v == "-" else float(v)
-        except ValueError:
+        if v != "-" and not NUMBER.fullmatch(v):
             return None
+        fields[k] = None if v == "-" else float(v)
     return parts[0], fields
 
 def summarize(lines, since=None):

@@ -87,22 +87,14 @@ TICK_READ_S = 1.0       # a tick read outside a round serves this long (a burst 
 TICK_READER = None      # fn() → the game's tick now (skillcore wires /state gameTime): a look outside a round reads it
 
 def read_notes(path: str) -> "dict[str, Any]":
-    """The notes file's top level; {} when missing or unreadable."""
-    try:
-        with open(path) as f:
-            got = json.load(f)
-    except (OSError, ValueError):
-        return {}
+    """The notes file's top level; {} when missing (paths.read_json: a damaged one raises)."""
+    got = paths.read_json(path, {})
     return got if isinstance(got, dict) else {}
 
 
 def write_notes(path: str, data: "dict[str, Any]") -> None:
-    """Write the notes atomically (a tmp file, then a rename)."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(data, f, indent=1)
-    os.replace(tmp, path)
+    """Write the notes atomically (paths.save_json)."""
+    paths.save_json(path, data)
 
 
 

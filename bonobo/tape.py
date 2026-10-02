@@ -106,11 +106,10 @@ def row_for(brain, act, snap, now=None):
 def trim(path, keep_bytes):
     """Keep the newest rounds that fit, drop the rest."""
 
-    try:
-        with open(path) as f:
-            lines = f.readlines()
-    except OSError:
+    if not os.path.exists(path):
         return 0
+    with open(path) as f:
+        lines = f.readlines()
     kept, size = [], 0
     for line in reversed(lines):
         size += len(line.encode())
@@ -118,13 +117,7 @@ def trim(path, keep_bytes):
             break
         kept.append(line)
     kept.reverse()
-    tmp = path + ".tmp"
-    try:
-        with open(tmp, "w") as f:
-            f.writelines(kept)
-        os.replace(tmp, path)
-    except OSError:
-        return 0
+    paths.rewrite(path, "".join(kept), log="tape.trim")
     return len(kept)
 
 def end(brain, act, snap, path=None, always=False):
@@ -144,12 +137,8 @@ def end(brain, act, snap, path=None, always=False):
     _readings.clear()
     _last.update(t=now, pick=name)
     path = path or FILE
-    try:
-        line = json.dumps(row, default=str) + "\n"
-        if os.path.exists(path) and os.path.getsize(path) + len(line) > MAX_BYTES:
-            trim(path, MAX_BYTES // 2)
-        with open(path, "a") as f:
-            f.write(line)
-    except OSError:
-        pass
+    line = json.dumps(row, default=str) + "\n"
+    if os.path.exists(path) and os.path.getsize(path) + len(line) > MAX_BYTES:
+        trim(path, MAX_BYTES // 2)
+    paths.append(path, line, "tape")
     return row

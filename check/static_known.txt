@@ -1,11 +1,11 @@
 # static_check.py known hits on integrate/inv + this branch: "RULE COUNT"; counts only fall (gate.sh)
 R1 37
-R2 1
+R2 0
 R3 9
 R4 15
 R5 53
 R6 21
-R7 41
+R7 10
 R8 34
 R9 3
 R10 75

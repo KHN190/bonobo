@@ -4,6 +4,7 @@ import ast
 import hashlib
 import os
 import re
+import types
 
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -89,6 +90,8 @@ def reached(roots, index):
                 todo.extend(_names_in(src.split(".", 1)[1]))
     return sorted(out)
 
+_EMPTY_CELL = types.CellType()
+
 def _callable_sources(obj, depth=0, seen=None):
     """The source of a row's callable and of what its closure holds (functions, tuples of them, values)."""
     import inspect
@@ -102,10 +105,8 @@ def _callable_sources(obj, depth=0, seen=None):
         except (OSError, TypeError):
             out = [obj.__qualname__]
         for cell in obj.__closure__ or ():
-            try:
+            if cell != _EMPTY_CELL:             # a cell not yet bound (a name assigned later in the outer function)
                 out += _callable_sources(cell.cell_contents, depth + 1, seen)
-            except ValueError:
-                pass
         return out
     if isinstance(obj, (list, tuple, set, frozenset)):
         return [x for o in obj for x in _callable_sources(o, depth + 1, seen)]

@@ -2,6 +2,7 @@
 
 import collections
 import datetime
+import os
 import re
 
 from . import paths, tasks
@@ -99,11 +100,10 @@ def repeated(entries, at_least=5):
 
 def packet(minutes=5, state=None, inventory=None, memory=None, lines=None, readiness=None):
     if lines is None:
-        try:
+        lines = []
+        if os.path.exists(LOG):
             with open(LOG) as f:
                 lines = f.readlines()[-6000:]
-        except OSError:
-            lines = []
     entries = recent_lines(lines, minutes)
     s = summarize(entries)
     out = [f"# Review — last {minutes} min ({len(entries)} log lines)"]
@@ -112,27 +112,20 @@ def packet(minutes=5, state=None, inventory=None, memory=None, lines=None, readi
                    f"hp {state['health']}, food {state['food']}, air {state['air']}, sky {state.get('skyLight')}")
     if inventory is not None:
         out.append(f"- bag: {inventory.used_slots()} slots; pickaxes {inventory.tools('pickaxe')}")
+    if paths.Faults.n:
+        out.append(f"- log writes failed: {paths.Faults.n} (first: {paths.Faults.first})")
     if readiness is not None:   # the caller's (mc.py): the review itself does not import the bench
         out.append("- bench readiness (current code):")
         out += readiness
-    try:
-        import json
-        import time
-        with open(TRACK) as f:
-            track = [json.loads(line) for line in f.readlines()[-240:]]
+    import time
+    track = paths.read_jsonl(TRACK)[0][-240:]
+    if track:
         out.append("## Macro progress\n" + macro(track, max(minutes, 30), time.time()))
-    except (OSError, ValueError):
-        pass
     out.append("## Repeated patterns (same line ≥ 5×)\n" + repeated(entries))
-    try:
-        import json
-        import time
-        from . import tape
-        with open(tape.FILE) as f:
-            rows = [json.loads(line) for line in f.readlines()[-2000:]]
+    from . import tape
+    rows = paths.read_jsonl(tape.FILE)[0][-2000:]
+    if rows:
         out.append("## Plans (last 30 min)\n" + plans(rows, 30, time.time()))
-    except (OSError, ValueError):
-        pass
     out.append("## Goals chosen\n" + ("\n".join(f"- {n}× {g}" for g, n in s["goals"].most_common(8)) or "- none"))
     out.append("## Failures (!!)\n" + ("\n".join(f"- {n}× {g}" for g, n in s["failures"].most_common(8)) or "- none"))
     out.append("## Not available (~~)\n" + ("\n".join(f"- {n}× {g}" for g, n in s["unavailable"].most_common(8))

@@ -27,11 +27,10 @@ def main():
     verdict = None
     while proc.poll() is None:
         time.sleep(3)
-        try:
-            with open(log) as f:
-                found = VERDICT.search(f.read())
-        except OSError:
+        if not os.path.exists(log):
             continue
+        with open(log) as f:
+            found = VERDICT.search(f.read())
         if found:
             verdict = found.group(0)
             proc.terminate()          # one attempt only: no retry loop

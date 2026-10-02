@@ -12,10 +12,9 @@ PHASE_NAMES = {0: "holding pattern", 1: "strafing", 2: "landing approach", 3: "l
                8: "charging player", 9: "dying", 10: "hovering", None: "absent"}
 
 def tapes(prefix=None):
-    try:
-        names = sorted(n for n in os.listdir(ct.DIR) if n.endswith(".json") and (not prefix or n.startswith(prefix)))
-    except OSError:
+    if not os.path.isdir(ct.DIR):
         return []
+    names = sorted(n for n in os.listdir(ct.DIR) if n.endswith(".json") and (not prefix or n.startswith(prefix)))
     return [os.path.join(ct.DIR, n) for n in names]
 
 def fit(paths):

@@ -13,19 +13,10 @@ STATES = ("pending", "running", "done", "failed", "cancelled")
 LIVE = ("pending", "running")
 
 def load(path=None):
-    try:
-        with open(path or FILE) as f:
-            return json.load(f).get("tasks", [])
-    except (OSError, ValueError):
-        return []
+    return paths.read_json(path or FILE, {}).get("tasks", [])
 
 def save(items, path=None):
-    path = path or FILE
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump({"tasks": items}, f, indent=1)
-    os.replace(tmp, path)
+    paths.save_json(path or FILE, {"tasks": items})
 
 def add(goal, expires_s=None, front=False, source="cerebrum", path=None, now=None):
     """Queue a goal (goals.make / goals.have). Returns the task. An identical live goal is not queued twice."""

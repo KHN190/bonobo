@@ -150,10 +150,9 @@ def _placed(cmd):
     if not w or w[0] not in ("fill", "setblock") or any(t.startswith(("~", "^", "@")) for t in w[1:7]):
         return None
     n = 6 if w[0] == "fill" else 3
-    try:
-        c = [int(v) for v in w[1:1 + n]]
-    except ValueError:
+    if len(w) < 2 + n or not all(re.fullmatch(r"-?\d+", v) for v in w[1:1 + n]):
         return None
+    c = [int(v) for v in w[1:1 + n]]
     block = bare(re.split(r"[\[{]", w[1 + n])[0])
     rest = w[2 + n:]
     lo, hi = (c[:3], c[3:]) if n == 6 else (c, c)

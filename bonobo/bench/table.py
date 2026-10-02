@@ -148,10 +148,8 @@ def make(item):
     if item[0] in words_scene.WORDS:
         return words_scene.WORDS[item[0]](*[dec(a) for a in item[1:]])     # the old sheet's own callable, as it made it
     f = _make(item)
-    try:
+    if hasattr(f, "__dict__"):                  # a function carries its data; a builtin cannot
         f.__table__ = tuple(item)
-    except AttributeError:
-        pass
     return f
 
 def _make(item):

@@ -38,14 +38,8 @@ def _write(rec, sink=None):
     if sink is not None:
         sink.append(rec)
         return
-    try:
-        os.makedirs(os.path.dirname(EVENTS_FILE), exist_ok=True)
-        with open(EVENTS_FILE, "a") as f:
-            f.write(json.dumps(rec, default=str) + "\n")
-        with open(EVENTS_LOG, "a") as f:
-            f.write(time.strftime("%H:%M:%S", time.localtime(rec["t"])) + " " + rec["line"] + "\n")
-    except OSError:
-        pass        # the log must never stop the agent
+    paths.append(EVENTS_FILE, json.dumps(rec, default=str) + "\n", "events")
+    paths.append(EVENTS_LOG, time.strftime("%H:%M:%S", time.localtime(rec["t"])) + " " + rec["line"] + "\n", "events")
 
 
 def emit(kind, line, t=None, sink=None, **fields):
@@ -133,17 +127,7 @@ def last_hurt_by(path=None, tail=1 << 16):
     """What last hurt us: this process's last hurt event, else the last one on file (a run that starts dead)."""
     if STATE.get("hurt_by"):
         return STATE["hurt_by"]
-    try:
-        with open(path or EVENTS_FILE, "rb") as f:
-            f.seek(max(0, os.fstat(f.fileno()).st_size - tail))
-            lines = f.read().decode("utf-8", "replace").splitlines()
-    except OSError:
-        return None
-    for line in reversed(lines):
-        try:
-            rec = json.loads(line)
-        except ValueError:
-            continue
+    for rec in reversed(paths.read_jsonl(path or EVENTS_FILE, tail=tail)[0]):
         if rec.get("kind") in ("death", "respawn"):
             return None               # the last life's harm is not this death's
         if rec.get("kind") == "hurt" and rec.get("source"):
@@ -175,11 +159,7 @@ def ate(item, t=None, sink=None):
 
 
 def _seen_milestones(path):
-    try:
-        with open(path) as f:
-            return set(json.load(f))
-    except (OSError, ValueError):
-        return set()
+    return set(paths.read_json(path, []))
 
 
 def milestones(counts, t=None, sink=None, path=None):
@@ -193,12 +173,7 @@ def milestones(counts, t=None, sink=None, path=None):
         seen.add(item)
         emit("milestone", f"first {item.split(':')[-1]}", t, sink, item=item)
     if new:
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w") as f:
-                json.dump(sorted(seen), f)
-        except OSError:
-            pass        # the log must never stop the agent
+        paths.save_json(path, sorted(seen), log="events.milestones")
 
 
 def anomaly(what, detail="", t=None, sink=None):
