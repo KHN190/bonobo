@@ -342,10 +342,22 @@ def _note_look(t, st, field_model, price, horizon, keeper, option, worth, why):
         held_because=getattr(keeper, "because", None), engaged=engaged() is not None)
 
 
+def unanswered_now(now):
+    """Why the threats seen now have no answer under the held choice (threat.unanswered), or None: SAFETY's."""
+    rows, ids = threat.threats_seen(now=now)
+    last, keeper = STATE.last_bid, STATE.held
+    if not rows or "state" not in last:
+        return None
+    option = keeper.choice.action.option if keeper and keeper.choice and keeper.choice.action else None
+    if option is not None and option.kind != "ignore":
+        return None
+    return threat.unanswered(threat.Field(threat_state(last["state"], rows, None, ids), last["price"],
+                                          refused=refused_now))
+
+
 def bid(state, rows, price, work_s=None, now=None, ids=()):
     """(the answer, seconds it saves) the held decision stands behind now, or None when nothing pays."""
     if not rows:
-        threat.THREAT_UNANSWERED = None
         return None
     STATE.last_bid.update(state=state, price=price)
     if work_s is None:
@@ -361,8 +373,6 @@ def bid(state, rows, price, work_s=None, now=None, ids=()):
                          holds=lambda c, _s: still_worth(c, field_model, price, horizon_now))
     option = choice.action.option if choice.action is not None else None
     t = now if now is not None else time.time()
-    # nothing to do and it still hurts: the fact goes to SAFETY (hazard "threat"), never left to the plan
-    threat.THREAT_UNANSWERED = threat.unanswered(field_model) if option is None or option.kind == "ignore" else None
     if option is None or option.kind == "ignore":
         _note_look(t, st, field_model, price, horizon_now, keeper, option, None,
                    "no action" if option is None else "ignore is the best")

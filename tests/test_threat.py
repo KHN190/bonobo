@@ -1483,6 +1483,25 @@ class NoAnswerGoesToSafety(unittest.TestCase):
             self.assertEqual([w.__name__ for w in hazard.ways("threat")], ["_into_cover", "_dig_in"])
 
 
+    def test_read_on_this_rounds_rows(self):
+        """RV8: fight_loop.unanswered_now asks the rows seen now; an earlier bid's verdict does not carry."""
+        from unittest import mock
+        from bonobo import fight_loop
+        ss = sv.price_state(hp=20)
+        player = {"x": HERE[0], "y": HERE[1], "z": HERE[2], "health": 20, "blocks": 0, "footing": lambda spot: None}
+        zombie = [row("minecraft:zombie", 3, 0)]
+        # (situation, rows seen how long ago) → handed to SAFETY
+        rows = [("must fail: closing now, nowhere to go: handed over", 0.0, True),
+                ("the same rows long gone (no fresh look): nothing carried over", 10.0, False)]
+        for name, ago, handed in rows:
+            with self.subTest(name), mock.patch.object(threat, "THREAT_ROWS", zombie), \
+                    mock.patch.object(threat, "THREAT_IDS", [None]), mock.patch.object(threat, "THREAT_AT", 100.0), \
+                    mock.patch.object(fight_loop.STATE, "held", None), \
+                    mock.patch.object(fight_loop.STATE, "last_bid",
+                                      {"state": player, "price": lambda d: sv.hp_seconds(ss, d)}):
+                self.assertEqual(fight_loop.unanswered_now(100.0 + ago) is not None, handed)
+
+
 class FallbackTableSpent(unittest.TestCase):
     """threat.fallback: a melee follower closing and nothing that saves — never ignore while an answer exists: once
     the table (shape, flight from the slower, fight) is spent, flight even from a follower as fast as us."""

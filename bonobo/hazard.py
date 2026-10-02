@@ -42,7 +42,7 @@ def falling(state, fallen):
 
 def kind(state, buried=False, fallen=0.0, unanswered=None, afloat=False):
     """Pure: the hazard on the body now (one of KINDS), or None. `unanswered`: why the threat layer has no answer to
-    what is closing (threat.THREAT_UNANSWERED) — handed here, SAFETY's like the environment's. `afloat`: never passed
+    what is closing (fight_loop.unanswered_now) — handed here, SAFETY's like the environment's. `afloat`: never passed
     by perception, so a crossing is not interrupted."""
 
     if state.get("inLava"):
@@ -152,7 +152,7 @@ RECOVERY = {"lava": [_leave_lava, _extinguish], "drowning": [_surface, _into_cov
             "burning": [_extinguish, _into_cover],
             # critical health: under a threat out of its reach first (a meal under blows is never finished); calm, eat
             "critical": {"threatened": [_into_cover, _meal], "calm": [_meal, _into_cover]},
-            # a threat the threat layer has no answer to (threat.THREAT_UNANSWERED): out of its reach
+            # no threat answer (fight_loop.unanswered_now): out of its reach
             "threat": [_into_cover, _dig_in],
             "swimming": [_reach_land]}
 

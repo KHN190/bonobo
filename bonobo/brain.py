@@ -517,7 +517,7 @@ class Brain:
             out = []
             if arbiter.BODY.holder() is not None or api.mode() == "survival":
                 out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
-            unanswered = threat.THREAT_UNANSWERED       # the threat layer's "no answer": SAFETY's (hazard "threat")
+            unanswered = fight_loop.unanswered_now(time.time())
             afloat = self.reflexes.afloat
             k = hazard.rescue_due(snap.state, unanswered=unanswered, afloat=afloat)
             if k is not None and self.ready(f"rescue {k}"):
