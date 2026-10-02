@@ -108,6 +108,27 @@ class NightIsTheOverworlds(unittest.TestCase):
         self.assertFalse(of(dimension="minecraft:the_nether", night=True)["night"])
         self.assertTrue(of(night=True)["night"])
 
+class OneRestorePoint(unittest.TestCase):
+    """C12: a round starts from nothing wherever production resolved its files — a test run that imported bonobo
+    before check/ set MC_DATA keeps memory and the queue in its own dir, and a home or a task left there by an earlier
+    round leaked into every later one (GammaRoundTrip after test_sources: place open → home, 187 mismatches)."""
+
+    def test_an_earlier_rounds_home_does_not_leak(self):
+        import contextlib
+        import io
+        import os
+        import tempfile
+        from unittest import mock
+        from bonobo import memory, tasks
+        from check import round as rnd
+        elsewhere = tempfile.mkdtemp(prefix="imported-first-")
+        with mock.patch.object(memory, "NOTES_FILE", os.path.join(elsewhere, "world-notes.json")), \
+                mock.patch.object(tasks, "FILE", os.path.join(elsewhere, "tasks.json")), \
+                contextlib.redirect_stdout(io.StringIO()):
+            rnd.decide(of(place="home", queued="stick"), fail_then_again=False)     # leaves a home and a task there
+            _d, got, _ctx = rnd.decide(of(), fail_then_again=False)
+        self.assertEqual((got["place"], got["queued"]), ("open", "none"))          # must fail: the home leaked
+
 class KnownViolations(unittest.TestCase):
     """The baseline's known breaches (docs/refactor.md V list, scratchpad audits), each one on the production round:
     the checker must report it. A row that stops firing is a blind checker or a fixed production — never edited to

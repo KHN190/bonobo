@@ -11,10 +11,24 @@ Decision = namedtuple("Decision", "layer kind token target writes reason name al
 STUBBED = ("fight_loop.offer",)     # stood in for while the round runs: the threat answer's handover of the body
 
 
-def _fresh_dir():
-    for name in os.listdir(_DIR):
-        p = os.path.join(_DIR, name)
-        shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
+def data_dirs():
+    """Where the round's runtime data is: the checker's own dir, and the dirs production resolved its files under at
+    import (memory, tasks) — the same unless a bonobo module was imported before check/ set MC_DATA (a test run that
+    loads another module first: the round's memory and queue then lived in the tests' dir and outlived the round)."""
+    from bonobo import memory, tasks
+    return sorted({_DIR, os.path.dirname(memory.NOTES_FILE), os.path.dirname(tasks.FILE)})
+
+
+def fresh_round():
+    """The round's one restore point: every runtime data dir emptied, every life's state (lifecycle.reset_all) and the
+    session's (paths.renew_session) back to their start."""
+    from bonobo import lifecycle, paths
+    for d in data_dirs():
+        for name in os.listdir(d) if os.path.isdir(d) else ():
+            p = os.path.join(d, name)
+            shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
+    lifecycle.reset_all()
+    paths.renew_session()
 
 
 def _decision(act, chosen, intents, world):
@@ -73,7 +87,7 @@ def decide(facts, fail_then_again=True):
     """(Decision, alpha of the γ world, ctx): the production round's choice on the concrete world of `facts`. ctx:
     the step's kind, whether its target lies in the home, the night's cheapest way (needs.overnight), and the
     decision of a second round after the first one's step failed (D5)."""
-    from bonobo import api, arbiter, brain, fight_loop, lifecycle, perception, tape
+    from bonobo import api, arbiter, brain, fight_loop, perception, tape
     from bonobo.api import NotAvailable
     from bonobo import dispatch
     from bonobo.data import home_box_of
@@ -81,8 +95,7 @@ def decide(facts, fail_then_again=True):
     from bonobo.world import Inventory, Snapshot
     from .facts import alpha
     from .gamma import gamma
-    _fresh_dir()
-    lifecycle.reset_all()
+    fresh_round()
     seen = {}
     real_arbitrate = arbiter.arbitrate
 
