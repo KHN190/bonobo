@@ -346,6 +346,30 @@ REACH = 4.5            # the jar's block interaction range (survival: getBlockIn
 HOLD_MARGIN = 0.5      # the jar's MineTask.holds works within the reach less this
 WORK_REACH = REACH - HOLD_MARGIN     # how far a block is worked from a stand (holds; fluids' fill spot)
 EYE_HEIGHT = 1.62      # the jar's WorldUtil.EYE_HEIGHT: eyes above the feet
+FALLING = {"sand", "red_sand", "gravel", "suspicious_sand", "suspicious_gravel"}   # fall when the cell below opens
+FALLING_SUFFIX = "_concrete_powder"
+def is_falling(name):
+    """Pure: a block that falls into the cell under it once that cell opens."""
+    n = bare(name or "")
+    return n in FALLING or n.endswith(FALLING_SUFFIX)
+
+ANIMAL_HP = {"minecraft:cow": 10, "minecraft:pig": 10, "minecraft:sheep": 8, "minecraft:chicken": 4,
+             "minecraft:rabbit": 3}      # Minecraft Wiki: each animal's health (a hunt's work)
+# a bed refuses sleep while one of these is within BED_BOX of it, through walls (1.21.11 ServerPlayerEntity.trySleep:
+# every HostileEntity subclass, isAngryAt true; ZombifiedPiglinEntity only when angry — SLEEP_BLOCKERS_ANGRY)
+SLEEP_BLOCKERS = {f"minecraft:{n}" for n in (
+    "piglin", "piglin_brute", "skeleton", "bogged", "blaze", "breeze", "cave_spider", "creaking", "creeper", "drowned",
+    "elder_guardian", "enderman", "endermite", "evoker", "giant", "guardian", "husk", "illusioner", "parched",
+    "pillager", "ravager", "silverfish", "spider", "stray", "vex", "vindicator", "warden", "witch", "wither",
+    "wither_skeleton", "zoglin", "zombie", "zombie_villager")}
+SLEEP_BLOCKERS_ANGRY = {"minecraft:zombified_piglin"}
+BED_BOX = (8.0, 5.0, 8.0)        # trySleep's monster box: the bed's bottom centre ± these
+BED_REACH = (3.0, 2.0, 3.0)      # trySleep's isBedWithinRange: the player within these of the bed's bottom centre
+TORCH_LIGHT = 15                 # a torch's block light; one less per block away
+DEEPSLATE_TOP = 0        # below this y the overworld's rock is deepslate
+SOIL_DEPTH = 4          # overworld soil over the rock, in blocks: a staircase's first steps cut soil, the rest rock
+STAIR_BELOW = 2         # a target deeper than this below the feet is reached by a staircase, not a walk
+STAIR_CELLS = 3          # cells one staircase step clears: feet, head and the head room the walk down passes
 BAN_MAX_S = 600          # the longest any cell stays banned, however often it failed
 TASK_WAIT_S = 900
 NAV_NODES = 6000
@@ -386,7 +410,7 @@ VILLAGE_ONLY = ([f"{c}_bed" for c in COLORS] + [f"{c}_wool" for c in COLORS] + [
 FIND_P = {**{k: w / max(PASSIVE_WEIGHT.values()) for k, w in PASSIVE_WEIGHT.items()},
           **{k: VILLAGE_P for k in VILLAGE_ONLY}}
 
-CRITICAL_HP = 4            # health at or below which danger overrides everything (perception's critical_health)
+CRITICAL_HP = 4            # health at or below which danger overrides everything (hazard's "critical")
 CRITICAL_HP_END = 12       # in the End: a breath or head butt takes 10+
 
 

@@ -693,7 +693,7 @@ def _mod_hashes():
 def _waits(*chosen):
     picks = collections.Counter()
     for k in chosen:
-        arbiter.note_pick(picks, arbiter.Intent("plan", lambda: None, k, at=0.0, kind=k) if k else None)
+        arbiter.note_pick(picks, arbiter.Intent("plan", lambda: None, k, at=0.0, kind=k, key=k) if k else None)
     return SC.slice_report([], [], None, 0, picks)["waits"]
 
 

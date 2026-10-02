@@ -7,7 +7,8 @@ from ..survive import DIG_IN_DEPTH
 FAMILIES = [
     ('lava_strip', [('cross_lava_8', 8, 25, 'B')]),
     ('base', [('nav', 'canopy'), ('loot', 'canopy'), ('mine_stone', 'cave'), ('chop', 'night'),
-         ('mine_stone', 'interrupt_mid_work'), ('mine_stone', 'full_bag')]),
+         ('mine_stone', 'interrupt_mid_work'), ('mine_stone', 'full_bag'), ('mine_iron', None, 'ore_buried'),
+         ('chop', None, 'hand_spare_slot'), ('smelt', None, 'furnace_on_slab')]),
     ('one', [('dig_in_night', ['shelter:dig in'], 'night on stone, a pickaxe → three down, sealed',
           [('floor', 'stone', 8, 4), ('stand',), ('give', 'stone_pickaxe'), ('give', 'cobblestone', 8),
            ('time', 18000)],

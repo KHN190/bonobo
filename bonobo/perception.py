@@ -8,7 +8,7 @@ from dataclasses import dataclass, field as _dc_field
 from typing import Any
 
 from . import api, arbiter, events, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat, world
-from .data import EYE_HEIGHT, memo_ttl, DAY_END, NIGHT_END, DAY_TICKS, critical_hp
+from .data import EYE_HEIGHT, memo_ttl, DAY_END, NIGHT_END, DAY_TICKS
 from .beliefs import CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
 from .threat import ENGAGE as _ENGAGE, seen_at, threats_seen
@@ -185,7 +185,7 @@ def interrupt_within_s():
     return max(INTERRUPT_TTD_S, api.last_segment_s())
 REPEAT_S = 10         # the same danger interrupts at most once per 10 s (let the rescue work)
 
-HOSTILE = ("critical_health", "breath", "enderman", "hostiles")
+HOSTILE = ("breath", "enderman", "hostiles")
 DANGERS = hazard.KINDS + HOSTILE
 
 NIGHTFALL = "night"
@@ -223,10 +223,7 @@ def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=No
     env = hazard.kind(state, buried=buried, fallen=fallen)
     if env is not None:
         return env
-    hp = state.get("health", 20)
-    # a breath or head butt in the End takes 10+ hp, so the End's floor is higher (data.critical_hp)
-    if hp <= critical_hp(state):
-        return "critical_health"
+    hp = state.get("health", 20)       # at the floor (data.critical_hp) it is hazard.kind's "critical": SAFETY's
     # dragon breath burns ~10 hp a second: an emergency at any health
     if breath_within is not None and state.get("dimension") == "minecraft:the_end" and breath_within(8):
         return "breath"
@@ -348,7 +345,7 @@ class Watcher(threading.Thread):
         observe(now, "answered" if taken else "refused", kind=option.kind, worth_s=round(worth, 1),
                 rows=len(rows), seen_at=seen_at(), taken=bool(taken), refused=refused, look=detail, **failure)
         if taken:
-            api.detail(f"!! threat: {option.kind} ({option.why}) worth {worth:.0f}s — {threat_readout(state)}")
+            api.detail(f"!! threat: {option.kind} ({option.why}) worth {worth:.0f}s, feet {api.where((state.get('x'), state.get('y'), state.get('z')))} — {threat_readout(state)}")
             events.decision("fight", option.kind, worth, option.why)       # said once per change, not per bid
         elif refused:
             events.anomaly("answer refused", f"{option.kind}: {refused}")

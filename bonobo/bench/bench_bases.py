@@ -1,6 +1,7 @@
 """The bases, their conditions and surprises: one small job each, changed one way at a time (vocab.base_row
 makes a row of (base, condition | surprise)). Plain data in `vocab`'s words; the tiers' tables name the pairs."""
-from .core import KEPT_HP
+from ..data import MAX_HP
+from .core import KEPT_HP, fight_line_hp
 from .core import TREE_HEIGHT
 
 BASES = {
@@ -130,6 +131,23 @@ CONDITIONS = {
                      scene=[('cmd', 'clear @p'), ('give', 'wooden_pickaxe')], fails='tier-1 pickaxe|tier 1|pickaxe',
                      fails_check={'mine_iron': ('all', ('!same_bag',),
                                                 ('!blocks', ('@', 2, 0, 0), ('@', 2, 0, 0), ('iron_ore',), 1))}),
+    # design-bc §13 R5 / R5': a carried bed's night — the room dug, the box lit only where it can spawn, the bed back
+    'dark_open': dict(axis='terrain', doc=('dark open ground, logs two high all round (no room for the bed as it '
+                                          'stands), torches carried → a room dug, the box lit, slept, the bed back'),
+                    bases=['sleep'],
+                    scene=[('fill', ('@', -3, 0, -3), ('@', 3, 1, 3), 'oak_log'), ('fill', ('@', 0, 0, 0), ('@', 0, 1, 0), 'air'),
+                           ('give', 'torch', 16)],
+                    check_for={'sleep': ('all', ('!is_day',), ('!count', 'bed', '>=', 1),
+                                         ('!blocks', ('@', -8, 0, -8), ('@', 8, 3, 8), ('torch',), 1))},
+                    est='dark_open'),
+    'sealed_pod': dict(axis='terrain', doc=('sealed in stone, a pickaxe and torches carried → a room dug in the stone, '
+                                           'slept, the bed back, no torch spent (nothing in the box can spawn)'),
+                     bases=['sleep'],
+                     scene=[('fill', ('@', -4, -3, -4), ('@', 4, 3, 4), 'stone'), ('fill', ('@', 0, 0, 0), ('@', 0, 1, 0), 'air'),
+                            ('give', 'stone_pickaxe'), ('give', 'torch', 16)],
+                     check_for={'sleep': ('all', ('!is_day',), ('!count', 'bed', '>=', 1),
+                                          ('!count', 'minecraft:torch', '==', 16))},
+                     est='sealed_pod'),
     'goal_met': dict(axis='inventory', doc='the bag already holds the goal: plan nothing, do nothing',
                    bases=['chop', 'craft', 'hunt', 'mine_iron', 'mine_stone', 'smelt'], goal_met=True),
 }
@@ -145,13 +163,6 @@ SURPRISES = {
                       scene=[('floor',), ('chest', ('@', 5, 0, 1)), ('stand', -1)],
                       fails='empty|nothing|worth|no unlooted',
                       check=('all', ('!same_bag',), ('!blocks', ('@', 5, 0, 1), ('@', 5, 0, 1), ('chest',), 1, 1))),
-    'bed_obstructed': dict(base='sleep', doc='a bed carried, the body boxed in a 1×1 cell', replace_setup=True,
-                         scene=[('floor',), ('fill', ('@', -1, 0, -1), ('@', 1, 2, 1), 'stone'),
-                                ('fill', ('@', 0, 0, 0), ('@', 0, 1, 0), 'air'), ('stand',), ('give', 'white_bed'),
-                                ('time', 18000)],
-                         fails='no flat 2-block spot|no room|obstruct',
-                         check=('all', ('!same_bag',), ('!_not', ('!is_day',)),
-                                ('!no_block_suffix', ('@', -3, -1, -3), ('@', 3, 3, 3), '_bed'))),
     'bed_in_nether': dict(base='sleep', doc='night in the Nether, a bed carried: must refuse (it explodes)',
                         dimension='minecraft:the_nether', replace_setup=True,
                         scene=[('floor', 'netherrack'), ('stand',), ('give', 'white_bed'), ('time', 18000)],
@@ -184,6 +195,36 @@ SURPRISES = {
                                 doc=('the walk starts standing on a fence post (the mod judged such a start cell '
                                      "unstandable: '1 positions explored')"),
                                 scene=[('setblock', ('@', 0, 0, 0), 'oak_fence'), ('stand', 0, 1.5)]),
+    # design A rows: a planned way (I4) with the tool held (I2); the hand never wears a tool; a stand off part blocks
+    'ore_buried': dict(base='mine_iron', doc='the ore two blocks into the stone (stone between), dirt carried → a way '
+                                            'dug to it along one line, every break with the pickaxe held',
+                       scene=[('fill', ('@', 2, 0, -1), ('@', 5, 2, 1), 'stone'), ('setblock', ('@', 4, 0, 0), 'iron_ore'),
+                              ('give', 'dirt', 16)],
+                       check=('all', ('!gain', 'minecraft:raw_iron', 1),
+                              ('!dug_with', 'minecraft:stone_pickaxe', ('@', 2, 0, -1), ('@', 5, 2, 1), ('@', 2, 0, 0),
+                               ('@', 4, 1, 0)))),
+    'hand_spare_slot': dict(base='chop', doc='only a diamond pickaxe carried, held, empty slots: logs want no pickaxe '
+                                             '("hand") → chopped, the pickaxe unworn',
+                            scene=[('cmd', 'clear @p'), ('give', 'diamond_pickaxe')], kit=[],
+                            check=('all', ('!gain', 'log', 2), ('!worn', 'minecraft:diamond_pickaxe', 0, 0))),
+    'furnace_on_slab': dict(base='smelt', doc='the floor all bottom slabs (every stand a part block, 17:39) → smelted '
+                                              'and the furnace taken back',
+                            scene=[('fill', ('@', -4, -1, -4), ('@', 4, -1, 4), 'smooth_stone_slab[type=bottom]'),
+                                   ('stand',)],
+                            check=('all', ('!gain', 'minecraft:iron_ingot', 1, 1), ('!gain', 'minecraft:furnace', 0, 0))),
+    'sealed_target': dict(base='nav', doc='the target cell sealed in stone, a pickaxe carried: no walk reaches it → a '
+                                          'way dug to it, judged at the asked cell',
+                          scene=[('fill', ('@', 6, 0, -2), ('@', 10, 3, 2), 'stone'),
+                                 ('fill', ('@', 8, 0, 0), ('@', 8, 1, 0), 'air'), ('give', 'stone_pickaxe')]),
+    # S5: an optional fight under the line is refused, the mob left alone (the line from the production estimate)
+    'hunt_hurt_spider': dict(base='hunt', doc='a spider, an iron sword, health one under the fight line → refused',
+                             replace_setup=True,
+                             scene=[('floor', 'grass_block'), ('summon', 'spider', ('@', 4, 0, 0), '{PersistenceRequired:1b,NoAI:1b}'),
+                                    ('stand',), ('give', 'iron_sword'),
+                                    ('cmd', f"damage @p {MAX_HP - fight_line_hp('minecraft:spider', 2) + 1:.0f} minecraft:magic")],
+                             run=('skill', 'hunt', 'minecraft:spider_eye', 1, ['minecraft:spider'], False),
+                             fails='fight line',
+                             check=('all', ('!same_bag',), ('!mobs_near', 'minecraft:spider', 1))),
     'start_cell_in_a_nook': dict(base='nav', doc='the walk starts in a one-block nook under a slab',
                                scene=[('fill', ('@', -1, 0, -1), ('@', 1, 1, 1), 'stone'),
                                       ('fill', ('@', 0, 0, 0), ('@', 1, 1, 0), 'air'),

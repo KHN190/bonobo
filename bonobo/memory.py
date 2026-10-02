@@ -142,6 +142,25 @@ class Protected(set):
         return Protected(self, self.boxes, self.mine, self.homes)
 
 
+def container_items(slots):
+    """Pure: {item id: count} a container's /container rows hold (the player's own skipped)."""
+    items = {}
+    for s in slots:
+        if s.get("owner") != "player" and s.get("id") not in (None, "minecraft:air"):
+            items[s["id"]] = items.get(s["id"], 0) + int(s.get("count", 1))
+    return items
+
+def merge_double(cells):
+    """Pure: containers from chest cells — two side by side are one double chest, kept by its lower cell."""
+    left, out = sorted(set(map(tuple, cells))), []
+    while left:
+        c = left.pop(0)
+        twin = next((o for o in left if o[1] == c[1] and abs(o[0] - c[0]) + abs(o[2] - c[2]) == 1), None)
+        if twin is not None:
+            left.remove(twin)
+        out.append(c)
+    return out
+
 def home_parts(blocks):
     """Pure: {beds: [cells], chests: [cells], stations: [(block, cell)]} of a home's blocks ({cell: name})."""
     out = {"beds": [], "chests": [], "stations": []}
@@ -681,14 +700,34 @@ class Memory:
     # -- what containers held when last open: decompose's "take it from a chest"
     def note_container(self, pos, dimension, slots):
         """Record what a container held when it was last open (`slots`: /container rows; the player's own skipped)."""
-        items = {}
-        for s in slots:
-            if s.get("owner") != "player" and s.get("id") not in (None, "minecraft:air"):
-                items[s["id"]] = items.get(s["id"], 0) + int(s.get("count", 1))
+        items = container_items(slots)
         key = ",".join(str(int(c)) for c in pos)
         self.data.setdefault("containers", {})[key] = {"pos": [int(c) for c in pos], "dimension": dimension,
-                                                      "items": items, "t": self.tick()}
+                                                      "items": items, "t": self.tick(), "at": time.time()}
         self.save()
+
+    def saw_container(self, pos, slots):
+        """A container just opened, before anything is moved: when its record disagrees, someone else changed it — one
+        change over the record's age, the rate `container_p` discounts every record by."""
+        rec = self.data.get("containers", {}).get(",".join(str(int(c)) for c in pos))
+        if rec is None or "at" not in rec:
+            return
+        stats = self.data.setdefault("container_changes", {"n": 0, "age_s": 0.0})
+        stats["n"] += int(container_items(slots) != rec["items"])
+        stats["age_s"] += max(0.0, time.time() - rec["at"])
+
+    def container_change_rate(self):
+        """Changes by others per second of record age (0 until a change was ever seen)."""
+        stats = self.data.get("container_changes") or {}
+        return stats["n"] / stats["age_s"] if stats.get("n") and stats.get("age_s") else 0.0
+
+    def home_containers(self, dimension):
+        """Every container of the homes here, a double chest once (merge_double)."""
+        cells = [tuple(c) for h in self.homes(dimension) for c in (h.get("parts") or {}).get("chests", [])]
+        return merge_double(cells)
+
+    def container_record(self, pos):
+        return self.data.get("containers", {}).get(",".join(str(int(c)) for c in pos))
 
     def forget_container(self, pos):
         if self.data.setdefault("containers", {}).pop(",".join(str(int(c)) for c in pos), None) is not None:

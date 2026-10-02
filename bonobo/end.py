@@ -36,7 +36,7 @@ def outside_spot(frame, centre):
         return frame[0] + (1 if dx > 0 else -1), frame[1], frame[2]
     return frame[0], frame[1], frame[2] + (1 if dz > 0 else -1)
 
-@skill(gives=["state:end_portal_open"], remaining=_k.blocks_there("end_portal"), needs={"minecraft:ender_eye": 1}, speed={}, done=lambda c: not frames_missing_eye(_frame_region()) if find(["end_portal_frame"], 32, 1) else False,
+@skill(gives=["state:end_portal_open"], remaining=_k.blocks_there("end_portal"), needs={"minecraft:ender_eye": 1}, done=lambda c: not frames_missing_eye(_frame_region()) if find(["end_portal_frame"], 32, 1) else False,
        budget=600, stall=180, provides={"activate:end_portal": lambda ctx, s: ()})
 def activate_end_portal(ctx):
     """Fill every missing eye from a block over the middle's lava, in one chain; the portal opens under the feet."""
@@ -99,7 +99,7 @@ def next_brick(bricks, visited, radius=12):
 
 ROOM_REACH = 12   # one number for "we are at the portal room": the contract, the walk and the bench check share it
 
-@skill(gives=["state:portal_room_found"], remaining=_k.blocks_there("end_portal_frame"), needs={"tool:pickaxe:0": 1}, speed={}, done=lambda c: bool(find(["end_portal_frame"], ROOM_REACH, 1)), budget=900, stall=240,
+@skill(gives=["state:portal_room_found"], remaining=_k.blocks_there("end_portal_frame"), needs={"tool:pickaxe:0": 1}, done=lambda c: bool(find(["end_portal_frame"], ROOM_REACH, 1)), budget=900, stall=240,
        provides={"seek:portal_room": lambda ctx, s: ()})
 def find_portal_room(ctx):
     """Dig to stronghold depth near the estimate, follow bricks, else search rings, until an end portal frame is within 32 blocks."""
@@ -124,7 +124,7 @@ def find_portal_room(ctx):
                 nav.arrived(pos, ctx.policy, range_=ROOM_REACH - 4, attempts=1)
                 yield skillcore.feet()
             if math.dist(skillcore.feet(), pos) > ROOM_REACH:
-                raise api.NavFailed(f"portal room at {pos} spotted but not reached")
+                raise api.NavFailed(f"portal room at {pos} spotted but not reached", pos=pos)
             return True
         bricks = [(b["x"], b["y"], b["z"], b["distance"]) for b in find(BRICKS, SCAN, 40)]
         b = next_brick(bricks, visited)
@@ -149,7 +149,7 @@ def _frame_region():
 
 PORTAL_ARRIVE_S = 10.0     # standing in the portal this long without a dimension change: it did not take us
 
-@skill(gives=["state:in_the_end"], remaining=_k.in_dimension(lambda c: "minecraft:the_end"), needs={}, speed={}, done=lambda c: api.get("/state")["dimension"] == "minecraft:the_end", budget=120, stall=60)
+@skill(gives=["state:in_the_end"], remaining=_k.in_dimension(lambda c: "minecraft:the_end"), needs={}, done=lambda c: api.get("/state")["dimension"] == "minecraft:the_end", budget=120, stall=60)
 def enter_end(ctx):
     """Jump into the activated end portal (the centre of the frame ring)."""
     centre = portal_centre([(h["x"], h["y"], h["z"]) for h in find(["end_portal_frame"], radius=32, limit=12)])

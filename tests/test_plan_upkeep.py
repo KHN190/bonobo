@@ -414,6 +414,7 @@ class EffectGoals(unittest.TestCase):
         effects = sorted({e for c in skillkit.REGISTRY.values() for e in c.provides})
         self.assertTrue(effects)
         detail = {"goto": {"pos": [5, 64, 0]}, "withdraw": {"pos": [3, 64, 0]},       # effects that name a place
+                  "look": {"pos": [3, 64, 0]},
                   "explore:blocks": {"blocks": ["oak_log"]}, "explore:mobs": {"types": ["minecraft:cow"]},
                   "hunt": {"types": ["minecraft:cow"]}, "mine": {"blocks": ["stone"], "tier": 0},
                   "seek": {"kinds": ["stone"]}, "take": {"blocks": ["red_bed"]}}
@@ -470,7 +471,7 @@ class CanStart(unittest.TestCase):
         from bonobo import dispatch
         for name, pre, inv, want in STARTS:
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY, clear=True), tempfile.TemporaryDirectory() as tmp:
-                skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, name="zz_skill", pre=pre, provides={"craft": lambda ctx, s: (s.token,)})(
+                skillkit.skill(needs={}, gives={}, remaining=NOTHING_LEFT, name="zz_skill", pre=pre, provides={"craft": lambda ctx, s: (s.token,)})(
                     lambda ctx, *a: None)
                 step = planner.Step("craft", "minecraft:stick", 4, {"inputs": {"planks": 2}})
                 bag_ = inventory(("oak_planks", 2)) if inv is not None else inventory()
@@ -522,7 +523,7 @@ class CanStart(unittest.TestCase):
         for name, fakes, step, want in rows:
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY, clear=True):
                 for sname, (effect, args, pre) in fakes.items():
-                    skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, name=sname, pre=pre, provides={effect: lambda ctx, s, _a=args: _a})(
+                    skillkit.skill(needs={}, gives={}, remaining=NOTHING_LEFT, name=sname, pre=pre, provides={effect: lambda ctx, s, _a=args: _a})(
                         lambda ctx, *a: None)
                 self.assertIs(dispatch.can_start(None, step), want)
 
@@ -596,8 +597,8 @@ class CostModel(unittest.TestCase):
     # (situation, carried, chest blocks away, tree blocks away, the step planned first): 4 logs, 4 in a remembered chest
     CHEST_OR_TREE = [
         ("bare hands, chest by the body", (), 1, 2.5, "withdraw"),
-        ("an axe held, chest by the body: the axe's saving leaves chopping dearer", (("diamond_axe", 1),), 1, 2.5,
-         "withdraw"),
+        ("a diamond axe held: 4 logs chopped in 8 ticks each (break_ticks), cheaper than the chest by the body",
+         (("diamond_axe", 1),), 1, 2.5, "gather"),
         ("a wooden axe held", (("wooden_axe", 1),), 1, 2.5, "withdraw"),
         ("must fail: the chest 40 away, the tree by the body", (("diamond_axe", 1),), 40, 2.5, "gather"),
     ]
@@ -651,9 +652,8 @@ class CostModel(unittest.TestCase):
     def test_seek_from_memory(self):
         """Where memory says one is: the game's route estimate when this round already asked, else the walk; a banned
         spot is not somewhere to go; a log is found as a remembered "tree"."""
-        from bonobo import nav
-        pol = nav.Policy()
-        key = lambda p: (p, bool(pol.allow_dig), bool(pol.allow_build), 2.0, 6000)  # noqa: E731
+        from bonobo import nav, world
+        key = lambda p: world.route_key(p, 2.0, 6000)  # noqa: E731
         prior = float(costmod._PLAY["plan"]["seek_prior_s"])
         rows = [("a route the game priced this round", ("iron_ore", (10, 64, 0)), ["iron_ore"], {key((10, 64, 0)): (True, 7.3)},
                  {}, 7.3),
@@ -673,20 +673,21 @@ class CostModel(unittest.TestCase):
                 c = costmod.Cost(snapshot(), mem=m, blacklist=banned)
                 self.assertAlmostEqual(c.seek_s(kinds), want, places=1)
 
-    def test_the_route_cache_is_read_with_the_rounds_policy(self):
-        """The game's route estimate counts only for the movement rules it was asked under."""
-        from bonobo import nav
+    def test_a_route_price_is_the_walks(self):
+        """V5 (E3, D6): a route is priced as the walk that runs it — nothing dug or built — whatever the round's
+        policy allows; a price asked with digging (the old key) is never read."""
+        from bonobo import nav, world
         walk = round(WT(10) / 20 + 2.0, 1)
         dig, walk_only = nav.Policy(allow_dig=True), nav.Policy(allow_dig=False)
-        key = lambda p: ((10, 64, 0), bool(p.allow_dig), bool(p.allow_build), 2.0, 6000)  # noqa: E731
-        rows = [("asked with digging, planning with digging", dig, dig, 7.3),
-                ("asked walking only, planning walking only", walk_only, walk_only, 7.3),
-                ("must fail: asked with digging, planning walking only: not the same route", dig, walk_only, walk),
-                ("asked walking only, planning with digging", walk_only, dig, walk),
-                ("no policy given: the default's", nav.Policy(), None, 7.3)]
-        for name, asked, planning, want in rows:
+        walked = world.route_key((10, 64, 0), 2.0, 6000)
+        dug = ((10, 64, 0), True, True, 2.0, 6000)
+        rows = [("the walk's price, planning with digging allowed", walked, dig, 7.3),
+                ("the walk's price, planning walking only", walked, walk_only, 7.3),
+                ("must fail: a price asked with digging is read (the walk never digs)", dug, dig, walk),
+                ("no policy given: the walk's price", walked, None, 7.3)]
+        for name, key, planning, want in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp, \
-                    mock.patch.dict(nav._ROUTES, {key(asked): (True, 7.3)}):
+                    mock.patch.dict(nav._ROUTES, {key: (True, 7.3)}):
                 m = Memory(os.path.join(tmp, "notes.json"))
                 m.note_seen("iron_ore", (10, 64, 0), OVER)
                 self.assertAlmostEqual(costmod.Cost(snapshot(), mem=m, policy=planning).seek_s(["iron_ore"]), want,
@@ -695,16 +696,16 @@ class CostModel(unittest.TestCase):
     def test_route_s_directly(self):
         """cost.route_s: the game's own route seconds when this round already asked it, under this policy; None
         whenever that is not so."""
-        from bonobo import nav
+        from bonobo import nav, world
         pol = nav.Policy()
-        key = ((10, 64, 0), bool(pol.allow_dig), bool(pol.allow_build), 2.0, 6000)
+        key = world.route_key((10, 64, 0), 2.0, 6000)
         rows = [("asked, found: its seconds", True, {key: (True, 7.3)}, {}, pol, 7.3),
                 ("must fail: asked, no route found", True, {key: (False, None)}, {}, pol, None),
                 ("not asked this round", True, {}, {}, pol, None),
                 ("nothing remembered to route to", False, {key: (True, 7.3)}, {}, pol, None),
                 ("the spot is banned", True, {key: (True, 7.3)}, {(10, 64, 0): time.time() + 600}, pol, None),
-                ("asked under another policy", True, {key: (True, 7.3)}, {},
-                 nav.Policy(allow_dig=not pol.allow_dig), None)]
+                ("another policy: the same walk's price", True, {key: (True, 7.3)}, {},
+                 nav.Policy(allow_dig=not pol.allow_dig), 7.3)]
         for name, noted, routes, banned, policy, want in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp, mock.patch.dict(nav._ROUTES, routes):
                 m = Memory(os.path.join(tmp, "notes.json"))
@@ -1330,7 +1331,7 @@ def run_upkeep(row, tmp):
     plan_s["overnight:known"] = all(c.known_source(st) for st in plan_s["overnight"][2])
     # the row's readings only: no world read, no task file
     reads = {"enclosed": row.enclosed, "bed_near": row.bed_seen, "soft_ground": False}
-    picked = arbiter.arbitrate([arbiter.Intent("maintain", (name, run), seq=seq)
+    picked = arbiter.arbitrate([arbiter.Intent("maintain", (name, run), seq=seq, key=name)
                                 for seq, name, run in rx.proposals(snap, None, dict(reads))])
     got = picked.action if picked else None
     table.propose(snap, None, reads=dict(reads))
@@ -1608,12 +1609,13 @@ B, P = api.BodyContested("another commander"), api.PlayerTookControl()
 NAV = api.NavFailed("no path found", pos=(9, 64, 0))
 GONE = api.NotAvailable("no sheep in range")
 TOOL = skillcore.ToolMissing("pickaxe", 1)
+STUCK = api.TaskStuck("no progress for 10s in mine")
 HERE, THERE = PLACE, retry.place_signature((400, 64, 0), False)
 
 # (situation, [(task, exception, place)], expected {(task, cause): n}, escalated tasks, {task: ready now?})
 RETRY = [
-    ("three nav failures escalate on the third", [("task t1", NAV, HERE)] * 3, {("task t1", "nav"): 3}, {"task t1"},
-     {"task t1": False}),
+    ("three nav failures escalate on the third; the target cools, not the place: the task may try another target",
+     [("task t1", NAV, HERE)] * 3, {("task t1", "nav"): 3}, {"task t1"}, {"task t1": True}),
     ("interruptions of every kind count nothing", [("task t1", e, HERE) for e in (I, C, B, P, I)], {}, set(),
      {"task t1": True}),
     ("must fail: interleaved: interruptions do not reset or add", [("task t1", NAV, HERE), ("task t1", I, HERE),
@@ -1622,9 +1624,12 @@ RETRY = [
      {("task t1", "nav"): 3}, {"task t1"}, {}),
     ("two causes are counted apart", [("task t1", NAV, HERE), ("task t1", GONE, HERE), ("task t1", NAV, HERE)],
      {("task t1", "nav"): 2, ("task t1", "unavailable"): 1}, set(), {}),
-    ("the cause cools at the place: another task stopped by it waits here, not elsewhere",
+    ("must fail: a missing tool is about the bag, not the place: another task stopped by it waits everywhere",
      [("task t1", TOOL, HERE)], {("task t1", "tool"): 1}, set(),
-     {"task t1": False, ("task t2", "tool", HERE): False, ("task t2", "tool", THERE): True}),
+     {"task t1": False, ("task t2", "tool", HERE): False, ("task t2", "tool", THERE): False}),
+    ("a place cause (stuck here) cools here, not elsewhere",
+     [("task t1", STUCK, HERE)], {("task t1", "stuck"): 1}, set(),
+     {"task t1": False, ("task t2", "stuck", HERE): False, ("task t2", "stuck", THERE): True}),
     ("a success clears the count", [("task t1", NAV, HERE), ("task t1", NAV, HERE), ("task t1", "ok", HERE),
                                     ("task t1", NAV, HERE)], {("task t1", "nav"): 1}, set(), {}),
 ]
@@ -1987,14 +1992,14 @@ class OneArbiter(unittest.TestCase):
     @staticmethod
     def intent(layer, kind=None, seq=0, deadline_s=None, at=None):
         from bonobo import arbiter
-        return arbiter.Intent(layer, kind or layer, kind=kind, seq=seq, deadline_s=deadline_s, at=at)
+        return arbiter.Intent(layer, kind or layer, kind=kind, seq=seq, deadline_s=deadline_s, at=at, key=kind or layer)
 
     def test_decisions_over_the_table(self):
         from bonobo import arbiter, reflexes
         P = lambda kind, seq=0: self.intent("plan", kind, seq)   # noqa: E731
 
         def M(name):                                            # a maintenance reflex, in its table's place
-            return arbiter.Intent("maintain", name, seq=reflexes.NAMES.index(name))
+            return arbiter.Intent("maintain", name, seq=reflexes.NAMES.index(name), key=name)
         rows = [("afloat at dusk, the night's shelter due: land first", [M("shelter"), M("reach land")], "reach land"),
                 ("hungry, bread carried, a task queued: eat (a reflex before any plan)", [P("queue"), M("eat")], "eat"),
                 ("night, a bed carried: sleep before the shelter", [M("shelter"), M("sleep")], "sleep"),
@@ -2159,7 +2164,7 @@ class Overnight(unittest.TestCase):
                 got, _secs, steps = needs.overnight(snap.inv, cost(snap), needs.night_facts(False, cooled),
                                                     bed_too=False)
                 self.assertEqual(got, free if want is None else (None if want == "none" else want))
-        ways = [s["name"] for s in decompose.SOURCES["overnight"]]
+        ways = [s["name"] for k in ("overnight bed", "overnight") for s in decompose.SOURCES[k]]
         cooled = [("one way cooling", lambda key: key != needs.way_key("dig in"), ["dig in"]),
                   ("two ways cooling, in the sources' order",
                    lambda key: key not in {needs.way_key("dig in"), needs.way_key("wall in")},
@@ -2206,6 +2211,27 @@ class Overnight(unittest.TestCase):
             self.assertIn(got, ("dig in", "wall in"))
             without = needs.night_facts(False, (), False)
             self.assertEqual(without.get("no_dig_site"), True)
+
+    def test_a_bed_that_exists_comes_first(self):
+        """C6 (A): a carried bed, or the home's bed a walk reaches, ends the night before any shelter is priced;
+        a shelter is only for a night no bed can end, and no sleep is paired with it."""
+        pick = [("stone_pickaxe", 1)]
+        # (situation, bag, night facts, bed_too) → the way and its steps' kinds
+        rows = [("17:30: a bed carried and a pickaxe — the bed (its room is the sleep's: test_night_plan BedRoom)",
+                 pick + [("white_bed", 1)], {"soft_ground": False}, True, ("bed", [])),
+                ("17:49: a home bed 12 s away — the home's bed, not dig in",
+                 pick, needs.night_facts(False, (), True, 12.0), True, ("home", ["shelter"])),
+                ("must fail: the home bed 900 s of open night walk away — a safe dig-in, not the exposed walk",
+                 pick, needs.night_facts(False, (), True, 900.0), True, ("dig in", ["shelter"])),
+                ("no bed carried, the home bed with no way to it (no home_bed fact): dig in",
+                 pick, {"soft_ground": False}, True, ("dig in", ["shelter"])),
+                ("the shelter row (bed_too off) with a bed carried that was refused: a shelter to wait in",
+                 pick + [("white_bed", 1)], {"soft_ground": False}, False, ("dig in", ["shelter"]))]
+        for name, carried, facts, bed_too, want in rows:
+            with self.subTest(name):
+                snap = snapshot(state(timeOfDay=NIGHT), inventory(*carried))
+                got, _secs, steps = needs.overnight(snap.inv, cost(snap), facts, bed_too=bed_too)
+                self.assertEqual((got, [st.kind for st in steps]), want)
 
     def test_stone_ground_dirt_near_walls_in(self):
         """On stone, an empty bag, dirt 4 away: nine dirt dug by hand, then walled in (SOURCES["building"])."""
@@ -2326,13 +2352,13 @@ class WaterBucketBeforeAFall(unittest.TestCase):
 
 
 class ModFeatures(unittest.TestCase):
-    """nav.mod_features: what the running jar can do, by its version; "approach_dig" (0.1.40) means a mine the
-    walker cannot reach is dug to by the jar itself, so gather.mine does not tunnel for it a second time."""
+    """nav.mod_features: what the running jar can do, by its version (its approach never digs: no such feature)."""
 
     ROWS = [("must fail: 0.1.14: nothing", "0.1.14+mc1.21.11", set()), ("0.1.15: pillar", "0.1.15", {"pillar"}),
             ("0.1.39: travel", "0.1.39+mc1.21.11", {"pillar", "travel"}),
-            ("0.1.40: the approach digs", "0.1.40+mc1.21.11", {"pillar", "travel", "approach_dig"}),
-            ("0.1.46: eats on the way", "0.1.46+mc1.21.11", {"pillar", "travel", "approach_dig", "autoeat"}),
+            ("must fail: 0.1.40: no approach that digs (E1: Python names every way)", "0.1.40+mc1.21.11",
+             {"pillar", "travel"}),
+            ("0.1.46: eats on the way", "0.1.46+mc1.21.11", {"pillar", "travel", "autoeat"}),
             ("no version read: nothing assumed", "unknown", set())]
 
     def test_version_to_features(self):
@@ -2930,8 +2956,8 @@ class AnOreNotedIsEveryFormOfIt(unittest.TestCase):
 
 
 class ToolsThatPayForThemselves(unittest.TestCase):
-    """planner.speed_up: an optional tool (the skill's `speed`) is made when making it costs less than it saves,
-    and never from the work it would speed up."""
+    """planner.speed_up: the next tier of a tool the work uses is made when making it costs less than it saves on
+    that work (knowledge.work_s over break_ticks / kill_s), and never from the work it would speed up."""
 
     def test_over_the_table(self):
         from bonobo.planner import NullCost, Planner
@@ -2940,8 +2966,10 @@ class ToolsThatPayForThemselves(unittest.TestCase):
                 ("must fail: 2 logs: saves less than the axe costs, none", kit, [], [("log", 2)], None),
                 ("12 logs, an empty bag: the axe would need the logs, none", {}, [], [("log", 12)], None),
                 ("12 logs, an axe held: none made", kit, [("axe", 0, 50)], [("log", 12)], None),
-                ("8 beef (4 kills), planks and sticks: a sword first", kit, [], [("minecraft:beef", 8)],
-                 "minecraft:wooden_sword")]
+                ("must fail: 8 beef (4 kills): a sword saves 4 × (2.5 − 1.875) s, less than making it",
+                 kit, [], [("minecraft:beef", 8)], None),
+                ("40 beef (20 kills): a sword saves 12.5 s, more than making it: first", kit, [],
+                 [("minecraft:beef", 40)], "minecraft:wooden_sword")]
         for name, counts, tools, needs_, want in rows:
             with self.subTest(name):
                 steps = Planner(dict(counts), list(tools), NullCost()).plan(needs_)

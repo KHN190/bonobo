@@ -118,7 +118,7 @@ def _use(item, aim, on_block):
             f"(aimed at {tuple(round(v, 2) for v in aim)})")
     return res
 
-@skill(gives=K.GIVES_FILL, needs={"minecraft:bucket": 1}, speed={}, done=lambda c: Inventory().count("minecraft:water_bucket") > 0,
+@skill(gives=K.GIVES_FILL, needs={"minecraft:bucket": 1}, done=lambda c: Inventory().count("minecraft:water_bucket") > 0,
        budget=300, stall=120, provides={"fill": lambda ctx, s: ()})
 def fill_water_bucket(ctx):
     """Fill an empty bucket at the nearest reachable still water."""
@@ -135,7 +135,7 @@ def fill_water_bucket(ctx):
         stand, source = spot
         if not nav.arrived(stand, ctx.policy, range_=0.6, attempts=1):
             ctx.ban(c)
-            raise api.NavFailed(f"stand spot {stand} for water at {source} not reachable")
+            raise api.NavFailed(f"stand spot {stand} for water at {source} not reachable", pos=source)
         _use("minecraft:bucket", surface_aim(source), False)     # the same point fill_spot checked
         yield Inventory().count("minecraft:water_bucket")
         if gained(lambda: Inventory().count("minecraft:water_bucket"), 0):
@@ -280,7 +280,7 @@ def contain_lava_commands(state, args=()) -> "list[Task]":
     open_lava = _open_lava(state["region"], state["feet"]) if state["region"] is not None else []
     return fill_with_blocks(open_lava, state["inv"], "lava exposed and no blocks to cover it", partial=True)
 
-@skill(gives=["state:lava_covered"], remaining=_k.blocks_gone("lava"), needs={"building": 1}, speed={}, start=lambda c: _open_lava_now(c.args[0], c.args[1] if len(c.args) > 1 else 4),
+@skill(gives=["state:lava_covered"], remaining=_k.blocks_gone("lava"), needs={"building": 1}, start=lambda c: _open_lava_now(c.args[0], c.args[1] if len(c.args) > 1 else 4),
        verify=lambda c: c.base == 0 or _open_lava_now(c.args[0], c.args[1] if len(c.args) > 1 else 4) < c.base,
        commands=contain_lava_commands, budget=120, stall=30)
 def contain_lava(ctx, radius=4):

@@ -11,7 +11,7 @@ import time
 import traceback
 
 from . import (api, arbiter, bag, decompose, dispatch, explore, goals, hazard, intent, nav, nether, paths, retry,
-               needs, reflexes, tape, tasks, world, perception)
+               needs, reflexes, tape, tasks, threat, world, perception)
 from . import skill as skillkit
 from . import craft, events, lifecycle, mechanisms, skillcore, survive
 api.ANOMALY = events.anomaly      # a swallowed or unexpected error is an event (counted, said at 1st/10th/100th)
@@ -35,7 +35,8 @@ from .needs import bag_signature
 from .world import Inventory, Snapshot
 
 # wired from the top so lower layers never import the skill library
-hazard.SKILLS.update(find_air=lambda ctx: survive.find_air(ctx), unbury=lambda ctx: survive.unbury(ctx))
+hazard.SKILLS.update(find_air=lambda ctx: survive.find_air(ctx), unbury=lambda ctx: survive.unbury(ctx),
+                     cover=lambda ctx, s: needs.cover(ctx, s), eat=lambda ctx: survive.eat(ctx))
 from . import fight_loop  # noqa: E402
 fight_loop.lend("wall_in", lambda option, state: survive.pod_commands(state) if state.get("region") is not None else [],
                 region=survive._pod_region)
@@ -48,6 +49,24 @@ SCAN_EVERY_S = 20  # seconds
 TRACK_FILE = paths.data("track.jsonl")
 # Step kinds a night under cover can carry on with (data.NIGHT_WORK). Everything else (a tree, an animal, a plan's wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
 from .data import NIGHT_WORK  # noqa: E402
+from . import beliefs, estimate  # noqa: E402
+from .data import critical_hp  # noqa: E402
+
+
+def fight_line_holds(contract, args, state, inv):
+    """Pure (S5): (ok, why) — a skill that makes an optional fight (`contract.fights(call)`: its mob kinds) is offered
+    only with the health above critical covering its loss's quantile (estimate.fight_line_ok) at this sword and
+    armour; a threat fight never comes through here."""
+    kinds = list(contract.fights(skillkit.Call(args, {})) or ()) if getattr(contract, "fights", None) else []
+    if not kinds:
+        return True, None
+    shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
+    mean, hit = estimate.fight_loss(kinds, _k.held_tiers(inv).get("sword", 0),
+                                    beliefs.protection(state.get("armor", 0), shield))
+    hp, floor = float(state.get("health", 0.0)), critical_hp(state)
+    if estimate.fight_line_ok(hp, floor, mean, hit):
+        return True, None
+    return False, f"health {hp:.0f} under the fight line for {kinds} ({floor:.0f} + {estimate.loss_q(mean, hit):.0f})"
 
 def surface_closed(night, dimension):
     """Pure: surface work waits for morning at night in the Overworld, sheltered or not (caught in the open, it walked out to chop)."""
@@ -253,13 +272,21 @@ class Brain:
         self.mem.record_outcome(name, False)
         cause = retry.cause_of(err)
         self.reflexes.failed(cause, err, self.place)
-        here = self.place_now()
-        verdict = self.retry.failed(name, cause, str(err), time.time(), self.place,
+        target = getattr(err, "pos", None)
+        if target is not None:
+            # about a target (prey, a vein, a station, a container): that target is not there for anyone (the reach
+            # verdict, process memory) and the cause cools at it, never at where the body stood
+            if not skillcore.banned(self.blacklist, target):       # the skill may have banned it already, for its own while
+                self.context(api.STATE.dim_seen).ban(target)
+            here, place = None, ("target", tuple(int(v) for v in target))
+        else:
+            here, place = self.place_now(), self.place
+        verdict = self.retry.failed(name, cause, str(err), time.time(), place,
                                     also_at=(here,) if here is not None else ())
         if verdict is not None and verdict.worth_logging and not quiet:
             log(f"{'~~' if isinstance(err, NotAvailable) else '!!'} {name}: {err} "
                 f"({cause}, ×{verdict.n}; {cause} cools here for {verdict.wait}s; at {api.feet_seen()}, "
-                f"cooled at {self.place} and {here})")
+                f"cooled at {place} and {here})")
         return verdict
 
     def place_now(self):
@@ -374,7 +401,9 @@ class Brain:
         self.place = retry.place_signature(snap.feet, snap.night)
         self.policy_cache = self.policy(snap, snap.night)
         policy = self.policy_cache
-        api.DRESS = lambda task: nav.dress(task, policy)     # no approach digs through our own builds, nor a home
+        api.GATE = lambda tasks: nav.gate(tasks, policy)    # each mine/place/use from a stand the jar's check holds
+        prices = self.price_table(snap)
+        api.HOLD = lambda tasks: skillcore.hold(tasks, prices.get)     # the main hand set by Python (I2)
         ctx = self.context(snap.dimension)
         self._mark("policy")
         self.needs.observe(snap)
@@ -443,11 +472,12 @@ class Brain:
         def fast():
             out = []
             if arbiter.BODY.holder() is not None or api.mode() == "survival":
-                out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5))))
+                out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
             k = hazard.due(snap.state)
             if k is not None and self.ready(f"rescue {k}"):
                 out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
-                    ctx, snap.state, self.attempt, self.ready))))
+                    ctx, snap.state, self.attempt, self.ready, threatened=bool(threat.threats_seen()[0]))),
+                    key=f"rescue {k}"))
             return out
 
         def upkeep():
@@ -508,11 +538,11 @@ class Brain:
             act = self.prepare(snap, ctx)
             return [arbiter.Intent("plan", act, kind="idle", key=act.name, surface=True)] if act else []
         out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: survive.wait_for_day(ctx)),
-                              kind="wait for day")]
+                              kind="wait for day", key="wait for day")]
         if "pickaxe" in self.needs.working:
             act = self.night_stock(snap, ctx)
             if act is not None:
-                out.append(arbiter.Intent("plan", act, kind="night stock"))
+                out.append(arbiter.Intent("plan", act, kind="night stock", key=act.name))
         return out
 
     def need_act(self, kind, goal, snap, ctx):
@@ -594,7 +624,14 @@ class Brain:
 
     def valid(self, step, snap, ctx=None):
         """The cheap per-round check: inputs held, and the skill's own preconditions pass."""
-        return runnable(step, snap.inv) and self.ready(step_key(step)) and (ctx is None or dispatch.can_start(ctx, step))
+        if not (runnable(step, snap.inv) and self.ready(step_key(step))):
+            return False
+        if ctx is None:
+            return True
+        found = dispatch.runner_for(ctx, step)
+        if found is not None and not fight_line_holds(found[0].contract, (ctx,) + tuple(found[1]), snap.state, snap.inv)[0]:
+            return False
+        return dispatch.can_start(ctx, step)
 
     def repair(self, task, goal, snap, held, cost):
         """Bring the held plan up to date: run-once goals keep what is left (a road walks on); item goals are re-solved from the bag."""

@@ -43,8 +43,13 @@ def place_signature(feet, night, bin_size=16):
     """Where we are, coarsely, and whether it is dark. What a cause is cooled against."""
     return tuple(int(c) // bin_size for c in feet), bool(night)
 
+# causes whose failure is about where the body is (and, with the place's night bit, when): cooled at that place.
+# The rest are not about the place — the game connection (game), the bag (tool), a bug or a mod task (error) —
+# and cool wherever the body goes. A failure about a target is cooled at the target (brain.failed: `pos`).
+BY_PLACE = ("stuck", "nav", "unavailable")
+
 def cause_key(cause, place):
-    return f"{cause}@{place}"
+    return f"{cause}@{place if cause in BY_PLACE else '*'}"
 
 class Verdict:
     """What a failure means: its count for (task, cause), how long the cause cools here, and whether to report upward."""

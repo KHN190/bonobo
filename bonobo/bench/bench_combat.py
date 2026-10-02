@@ -4,7 +4,10 @@ CODE_ROWS: the one-off rows no word earns its place for, written in code with vo
 
 from typing import TYPE_CHECKING
 
-from .core import BEST_TOOLS
+from ..data import MAX_HP
+
+IRON_CHEST, IRON_HELMET = 6, 2           # armour points the game gives them (/state "armor")
+from .core import BEST_TOOLS, fight_line_hp
 
 if TYPE_CHECKING:   # CODE_ROWS pulls vocab's words in at run time; pyright reads them here
     from .vocab import (BASE, EDGE_Y, FIRST, _ARENA, _alive, _all, _brain_rounds, _c, _fight_until,
@@ -79,11 +82,17 @@ FAMILIES = [
     ('behaviour', [('block_gap',), ('pillar',), ('shield_arrows',), ('fight_without_shield',), ('fight_and_block',),
          ('wall_in',), ('surrounded_low',)]),
     ('deflect', [('deflect__volley',)]),
+    ('line', [('no_shield_behind_rock', 5)]),
+    ('base', [('hunt', None, 'hunt_hurt_spider')]),
     ('fight_cell', [('fight_zombie_1', 'zombie', 1, 'common', 25, 12, True),
          ('fight_zombie_3', 'zombie', 3, 'exception', 25, 6, True),
          ('fight_skeleton_1', 'skeleton', 1, 'common', 25, 10, True),
-         ('fight_creeper_1', 'creeper', 1, 'common', 25, 16, True),
-         ('fight_blaze_3', 'blaze', 3, 'exception', 25, 6, True)]),
+         ('fight_creeper_1', 'creeper', 1, 'common', 25, MAX_HP, True),
+         ('fight_creeper_from_pickaxe', 'creeper', 1, 'common', 25, MAX_HP, True, 'stone_pickaxe'),
+         ('fight_blaze_3', 'blaze', 3, 'exception', 25, 6, True),
+         # design-bc §13 R7: two kinds at once, judged on the world (the answer switches: a readout); its time the
+         # fight's own estimate × the slack
+         ('fight_zombie_skeleton', 'zombie+skeleton', 1, 'exception', None, 6, True)]),
 ]
 ROWS = [
     dict(name='collect_blaze_rods', module='combat',
@@ -99,7 +108,10 @@ ROWS = [
                 ('summon', 'blaze', ('@', -3, 1, 2), '{PersistenceRequired:1b,Health:4f}'),
                 ('summon', 'blaze', ('@', 0, 1, -3), '{PersistenceRequired:1b,Health:4f}')],
          run=('do', 'bonobo.combat.collect_blaze_rods', ['$ctx', 1], {}),
-         check=[('count', 'minecraft:blaze_rod', '>=', 1), ('state', 'health', '>', 0)], budget=25,
+         # S5: an optional fight: the line held (diamond sword, iron chest + helmet, a shield)
+         check=[('count', 'minecraft:blaze_rod', '>=', 1),
+                ('state', 'health', '>=', fight_line_hp('minecraft:blaze', 3, IRON_CHEST + IRON_HELMET, True))],
+         budget=25,
          dimension='minecraft:the_nether', combat=True,
          expect=[(('@', -8, -1, -8), ('@', 8, -1, 8), 'nether_bricks', 289, 289)],
          expect_entities=[('minecraft:blaze', 3)], skills=['collect_blaze_rods']),

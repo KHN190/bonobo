@@ -265,12 +265,10 @@ def mineable(cells, feet, region=None, drop=None):
     open_ = [c for c in ok if not buried(region, c)]
     return open_ or ok
 
-def refused(cells, refused_before, jar_digs):
+def refused(cells, refused_before):
     """Pure: of the cells a mine_many broke none of, (asked again after making a way, dropped)."""
 
     cells = {tuple(c) for c in cells}
-    if jar_digs:
-        return set(), cells
     drop = cells & set(refused_before)
     return cells - drop, drop
 

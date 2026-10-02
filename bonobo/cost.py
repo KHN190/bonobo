@@ -4,10 +4,10 @@ import math
 
 from .api import McError
 from .beliefs import CONFIG as _PLAY
-from .data import FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
-from .knowledge import DIG_HAND_S, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
+from .data import DEEPSLATE_TOP, SOIL_DEPTH, STAIR_BELOW, STAIR_CELLS, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
+from .knowledge import dig_ticks, held_tiers, own_work, work_s, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
-from .world import ROUTES, entities, job_ready, nearest, sight_y
+from .world import ROUTES, entities, job_ready, nearest, route_key, sight_y
 from .skill import MIN_SAMPLES
 from .planner import Planner, Unplannable
 
@@ -25,6 +25,30 @@ STAT_KEYS = {"mine": lambda s: (f"mine:{s.token}", s.count), "gather": lambda s:
 def walk_ticks(distance):
     """Ticks to walk `distance` straight-line blocks, detours included: the one walk-time estimate."""
     return int(float(distance) * WALK_TICKS_PER_BLOCK)
+
+def dig_blocks(feet_y, y, ore):
+    """Pure: the blocks dug to reach y from the feet, expected — a buried surface kind straight down through the soil
+    over it; an ore deeper than STAIR_BELOW by a staircase (STAIR_CELLS a step), its first SOIL_DEPTH steps soil, the
+    rest rock (deepslate below DEEPSLATE_TOP)."""
+    if not ore:
+        return ["dirt"] * max(0, feet_y - 1 - y)
+    if y >= feet_y - STAIR_BELOW:
+        return []
+    out = []
+    for k in range(1, feet_y - y):
+        level = feet_y - k
+        rock = "deepslate" if level < DEEPSLATE_TOP else "stone"
+        out += ["dirt" if k <= SOIL_DEPTH else rock] * STAIR_CELLS
+    return out
+
+class _Gone:
+    """Cells an estimate never goes to: banned now, or protected (None: none asked)."""
+
+    def __init__(self, protected, blacklist):
+        self.protected, self.blacklist = protected, blacklist
+
+    def __contains__(self, p):
+        return banned(self.blacklist, tuple(p)) or (self.protected is not None and tuple(p) in self.protected)
 
 class Cost:
     """The cost model a planner is given."""
@@ -51,6 +75,10 @@ class Cost:
                                        if self.mem is not None and self.snap is not None else None)
         return self.cache["protected"]
 
+    def not_there(self, sources=False):
+        """The cells no estimate goes to: banned (no way there), and with `sources` the protected ones."""
+        return _Gone(self.protected() if sources else None, self.blacklist)
+
     def _nearest(self, kinds, sources=False):
         """(position, distance) of the nearest remembered one of these (memory.seen, "tree" for any log), or None;
         `sources`: a protected cell is not there."""
@@ -59,9 +87,8 @@ class Cost:
             return None
         kinds = list(kinds) + (["tree"] if any(bare(k).endswith("log") for k in kinds) else [])
         here, dim = self.snap.feet, self.snap.dimension
-        skip = self.protected() if sources else None
-        spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if not banned(self.blacklist, r["pos"])
-                 and not (skip is not None and tuple(r["pos"]) in skip)]
+        skip = self.not_there(sources)
+        spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if tuple(r["pos"]) not in skip]
         best = min(spots, key=lambda p: math.dist(p, here), default=None)
         return (best, math.dist(best, here)) if best is not None else None
 
@@ -106,7 +133,7 @@ class Cost:
             seen = None
             if self.snap is not None:
                 seen = nearest(list(blocks), self.snap.feet, self.snap.dimension, radius, union=SOURCE_BLOCKS,
-                               skip=self.protected() if sources else None)
+                               skip=self.not_there(sources))
             self.cache[key] = seen if seen is not None else self._known(blocks, sources)
         return self.cache[key]
 
@@ -159,14 +186,23 @@ class Cost:
         return work + self._walk(step)
 
     def _sped_up(self, step):
-        """Ticks the carried tools save on this step's prior: each held tool's declared speed times the step's units."""
-
+        """Ticks the carried tools save on this step's prior work (work_of; the prior is the hand's)."""
         inv = getattr(self.snap, "inv", None)
         if inv is None:
             return 0
-        _needs, speed = step_call(step)
-        units = step.detail.get("breaks") or step.detail.get("kills") or step.count
-        return int(sum(s for tool, s in speed.items() if tool_ok(inv, tool, 0)) * max(1, units) * TICKS_PER_S)
+        breaks, kills = own_work(step)          # the digging to it is priced with its tools already (_overburden_ticks)
+        return round((work_s(breaks, kills, {}, TICKS_PER_S) - work_s(breaks, kills, held_tiers(inv), TICKS_PER_S))
+                     * TICKS_PER_S)
+
+    def work_of(self, step, reach=True):
+        """(breaks, kills) a step is expected to make: its own work (knowledge.own_work) and (`reach`) the digging
+        to the nearest in sight (dig_blocks)."""
+        breaks, kills = own_work(step)
+        if reach and step.kind == "mine" and self.snap is not None:
+            y = sight_y(step.detail.get("blocks") or (), self.not_there(True))
+            if y is not None:
+                breaks = breaks + dig_blocks(int(self.snap.feet[1]), int(y), FIND_AT.get(step.token) is not None)
+        return breaks, kills
 
     def _prior_work(self, step):
         return prior_ticks(step)
@@ -198,20 +234,21 @@ class Cost:
         if k == "fill":
             d = self._known(["water"])
             return walk_ticks(d) if d is not None else 1200
-        if k in ("goto", "withdraw"):
+        if k in ("goto", "withdraw", "look"):
             through = self.door_s(tuple(step.detail["pos"]))
             return round(through * TICKS_PER_S) if through is not None else \
                 walk_ticks(math.dist(self.snap.feet, tuple(step.detail["pos"])))
         return 0
 
     def _overburden_ticks(self, step):
-        """A buried surface kind (no ore band: stone, sand…) is dug to straight down: the blocks over the nearest one
-        in sight, from the feet's floor down, each dug. An ore's depth is its staircase's, priced as work."""
-        if FIND_AT.get(step.token) is not None or self.snap is None:
+        """The digging to the nearest one in sight (dig_blocks), each break by the tool the bag holds for it."""
+        if self.snap is None:
             return 0
-        y = sight_y(step.detail.get("blocks", ()), self.protected())
-        over = 0 if y is None else max(0, int(self.snap.feet[1]) - 1 - int(y))
-        return round(over * DIG_HAND_S * TICKS_PER_S)
+        y = sight_y(step.detail.get("blocks", ()), self.not_there(True))
+        if y is None:
+            return 0
+        blocks = dig_blocks(int(self.snap.feet[1]), int(y), FIND_AT.get(step.token) is not None)
+        return dig_ticks(blocks, getattr(self.snap, "inv", None))
 
     def door_s(self, where):
         """Seconds to `where` through a taught door on the way (mechanisms, wired as DOOR_ROUTE), else None: the
@@ -261,9 +298,7 @@ class Cost:
         through = self.door_s(where)
         if through is not None:
             return through
-        dig, build = (bool(self.policy.allow_dig), bool(self.policy.allow_build)) if self.policy else (True, True)
-        key = (tuple(int(v) for v in where), dig, build, 2.0, NAV_NODES)
-        found, seconds = ROUTES.get(key, (None, None))
+        found, seconds = ROUTES.get(route_key(where, 2.0, NAV_NODES), (None, None))
         return seconds if found else None
 
     def find_p(self, kinds):

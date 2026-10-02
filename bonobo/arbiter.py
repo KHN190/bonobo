@@ -31,16 +31,19 @@ def fresh_enough(seen_at, now=None, within=1.0):
 class Intent:
     """What a layer would like the body to do; the arbiter decides."""
 
-    def __init__(self, layer, action, reason="", deadline_s=None, at=None, commit_s=None,
-                 cost_rate=0.0, cost_s=None, resumable=True, redo_s=0.0, kind=None, seq=0, key=None, surface=False):
+    def __init__(self, layer, action, reason="", *, key, deadline_s=None, at=None, commit_s=None,
+                 cost_rate=0.0, cost_s=None, resumable=True, redo_s=0.0, kind=None, seq=0, surface=False):
         if layer not in SCALES:
             raise ValueError(f"unknown layer {layer!r}: expected one of {sorted(SCALES)}")
+        if not isinstance(key, str) or not key:
+            # D5: what fails is cooled by this name; an intent without one could fail and be offered for ever
+            raise ValueError(f"an intent needs a key (its retry name): {layer} {reason!r}")
         self.layer = layer
         self.action = action
         # within PLAN: the proposal's kind (PLAN_ORDER) and its place among several of one kind
         self.kind, self.seq = kind, seq
         # What the round's facts know this proposal by (a need's or a task's retry name): `viable` reads it.
-        self.key = key if key is not None else (reason or None)
+        self.key = key
         # walks the surface (on_surface): not offered while the surface is closed (night in the Overworld)
         self.surface = bool(surface)
         self.reason = reason
@@ -83,7 +86,7 @@ RESUME_RULES: dict[Rule, tuple[bool, str | None]] = {
 }
 RESUME_OF: dict[str, Rule] = {      # every key a shapes.Source (tests/test_types)
     **{f"layer:{k}": "same" for k in ("reflex", "safety", "maintain", "plan")}, "layer:tactic": "fight",
-    **{f"hazard:{k}": "same" for k in ("lava", "burning", "drowning", "suffocating", "falling")},
+    **{f"hazard:{k}": "same" for k in ("lava", "burning", "drowning", "suffocating", "critical", "falling")},
     **{f"row:{k}": "same" for k in ("eat", "reach land", "dig out", "sleep", "shelter", "collect job",
                                     "collect machine", "path blocked", "unstuck", "recover items",
                                     "leave the pit")},
@@ -116,8 +119,7 @@ def viable(intent, facts):
 
     if facts.get("surface_closed") and intent.surface:
         return False
-    key = intent.key
-    return key is None or key not in facts.get("cooling", ())
+    return intent.key not in facts.get("cooling", ())
 
 def gate(intents, facts=None):
     """Pure: only the useful proposals — the viable ones, and a waiting kind only when nothing else is left."""
@@ -273,7 +275,7 @@ class Motion:
                 held=None, seen_at=None, fresh_within=FRESH_WITHIN_S):
         """A fast layer speaks: run now, on this thread, and mark every slower intent stale."""
 
-        intent = Intent(layer, action, reason)
+        intent = Intent(layer, action, reason, key=reason or layer)
 
         def refuse(why, note=""):
             if note:
@@ -324,7 +326,8 @@ class Motion:
         if not self.allows(layer):
             self._log(f"   motion: {layer} '{reason}' stands down: the body is Claude's")
             return False
-        self._run(Intent(layer, action, reason, commit_s=commit_s, resumable=resumable, redo_s=redo_s))
+        self._run(Intent(layer, action, reason, key=reason or layer, commit_s=commit_s, resumable=resumable,
+                         redo_s=redo_s))
         return True
 
 BODY = Motion()      # the one player this process drives

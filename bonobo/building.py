@@ -446,7 +446,7 @@ def _shelter_commands_for(state, args):
     origin, turns = state["spot"]
     return blueprint_commands(state, (blueprints.SHELTER, origin, turns))
 
-@skill(gives=["state:built"], remaining=_k.built(lambda c: c.args[1]), needs={}, speed={}, pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None and _machine_built(c.args[0], c.result),
+@skill(gives=["state:built"], remaining=_k.built(lambda c: c.args[1]), needs={}, pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None and _machine_built(c.args[0], c.result),
        commands=_blueprint_commands_for, budget=900, stall=120, provides={"build": lambda ctx, s: _build_args(ctx, s)})
 def build_blueprint(ctx, name, near):
     """Build a machine from blueprints.REGISTRY near `near`: clear spot, bottom-up, oriented, verified, remembered."""
@@ -477,7 +477,7 @@ def build_blueprint(ctx, name, near):
     log(f"built {machine}")
     return machine
 
-@skill(gives=["state:sheltered"], needs=blueprints.materials(blueprints.SHELTER), speed={}, pre=[_mod_at_least("0.1.14")], remaining=_shelter_left,
+@skill(gives=["state:sheltered"], needs=blueprints.materials(blueprints.SHELTER), pre=[_mod_at_least("0.1.14")], remaining=_shelter_left,
        verify=lambda c: c.result is not None and _shelter_built(c.args[0], c.result),
        commands=_shelter_commands_for, budget=360, stall=90,
        provides={"build:shelter": lambda ctx, s: (), "state:sheltered": lambda ctx, s: (),
@@ -505,7 +505,7 @@ lifecycle.in_place(__name__, "_CAST")      # a frame cast in the last life (anot
 def _portal_cast(c):
     return _CAST.get("origin") is not None and fluids.portal_lit(_CAST["origin"])
 
-@skill(gives=["state:portal_frame"], remaining=_k.blocks_there("obsidian", least=10), speed={}, needs={"minecraft:water_bucket": 1, "minecraft:bucket": 1, "minecraft:flint_and_steel": 1, "building": 16},
+@skill(gives=["state:portal_frame"], remaining=_k.blocks_there("obsidian", least=10), needs={"minecraft:water_bucket": 1, "minecraft:bucket": 1, "minecraft:flint_and_steel": 1, "building": 16},
        verify=_portal_cast, budget=900, stall=240, provides={"cast:nether_portal": lambda ctx, s: ()})
 def cast_portal(ctx):
     """Cast a Nether portal frame in place (no obsidian, no diamond pickaxe): mould each cell, lava in, water on, then light it."""

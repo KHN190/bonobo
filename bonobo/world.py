@@ -17,6 +17,11 @@ if TYPE_CHECKING:
 # the round's route answers ({key: (found, seconds)}), kept here so the cost model prices a route without importing movement
 ROUTES = {}
 
+
+def route_key(cell, range_, nodes):
+    """Pure: the one key of a route price — the walk's /plan, nothing dug or built (E3, D6) — for nav and the cost."""
+    return (tuple(int(v) for v in cell), float(range_), int(nodes))
+
 NEIGHBOURS6 = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
 
 def to_segment(p, a, b):
@@ -82,6 +87,7 @@ class Inventory:
         got: Mapping[str, Any] = data or api.get("/inventory")
         self.slots = got["slots"]
         self.equipment = got["equipment"]
+        self.selected = int(got.get("selectedSlot", 0))      # the hotbar slot in the main hand
 
     def _stacks(self, include_worn):
         yield from self.slots
@@ -294,8 +300,18 @@ class Region:
                 if len(entry) > 4:
                     self.props[(x, y, z)] = entry[4]   # block state properties (mod >= 0.1.14 with props=1)
 
+    @classmethod
+    def of(cls, lo, hi, blocks):
+        """A Region from known blocks ({cell: name}), no read: a scene's spec priced offline (bench estimates)."""
+        r = cls.__new__(cls)
+        r.lo, r.hi, r.blocks, r.props = tuple(lo), tuple(hi), dict(blocks), {}
+        return r
+
     def prop(self, p, key):
         return self.props.get(p, {}).get(key)
+
+    def covers(self, lo, hi):
+        return all(self.lo[i] <= lo[i] and hi[i] <= self.hi[i] for i in range(3))
 
     def inside(self, p):
         return all(self.lo[i] <= p[i] <= self.hi[i] for i in range(3))
@@ -323,6 +339,33 @@ class Region:
 
     def player_made(self, p):
         return self.name(p).endswith(PLAYER_MADE_SUFFIX)
+
+
+# the last bag and box reads with the POST count then (R-a, R-b): one read serves ARM, the stand gate, HOLD and R4
+# while nothing has been sent since — a send may change both
+READS: dict = {}
+lifecycle.in_place(__name__, "READS")
+
+
+def bag():
+    """The bag, read once while nothing was sent since (ARM's read serves HOLD)."""
+    got = READS.get("bag")
+    if got is not None and got[0] == api.STATE.posts:
+        return got[1]
+    inv = Inventory()
+    READS["bag"] = (api.STATE.posts, inv)
+    return inv
+
+
+def box(lo, hi):
+    """Blocks with their states over [lo, hi]: the last box read when it covers this one and nothing was sent since
+    (one read per segment: ARM's names, the stand gate, R4's before; R4's after is the next segment's before)."""
+    got = READS.get("box")
+    if got is not None and got[0] == api.STATE.posts and got[1].covers(lo, hi):
+        return got[1]
+    region = Region(lo, hi, props=True)
+    READS["box"] = (api.STATE.posts, region)
+    return region
 
 def region_around(points, pad=3, max_volume=32768):
     lo = [min(p[i] for p in points) - pad for i in range(3)]

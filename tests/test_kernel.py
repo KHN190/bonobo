@@ -83,8 +83,8 @@ class Commitment(unittest.TestCase):
 
 
 class HoldingADecision(unittest.TestCase):
-    """A decision may only change when there is a reason: its commitment ran out, an assumption failed, or a
-    challenger beat it by the margin. Random sequences with a few percent of jitter per tick — the shape of a
+    """A decision may only change when there is a reason: an assumption failed, or a challenger's gain over it pays
+    the work the switch throws away (kernel.switches). Random sequences with a few percent of jitter per tick — the shape of a
     threat walking one step nearer — so anything that dithers shows up without a scenario being written for it.
     """
 
@@ -122,10 +122,10 @@ class HoldingADecision(unittest.TestCase):
             out.append({"price": 100.0, "noise": dict(noise)})
         return out
 
-    def sweep(self, holds=None, margin=kernel.MARGIN):
+    def sweep(self, holds=None):
         switches = reasons = 0
         for seed in self.SEEDS:
-            held, last = kernel.Held(margin=margin), None
+            held, last = kernel.Held(), None
             for tick, state in enumerate(self.states(seed)):
                 choice = held.decide(self.model(), state, now=tick * 0.2, holds=holds)
                 reasons += held.because is not None
@@ -133,19 +133,28 @@ class HoldingADecision(unittest.TestCase):
                 last = choice.name
         return switches, reasons
 
-    # margin → (switches, re-decisions with a reason) over the seeded sweep (200 runs: 200 switches = never changed
-    # after the first choice). Every switch has a reason on record; a wider margin holds longer.
-    MARGINS = [(1.0, (506, 1166)), (kernel.MARGIN, (379, 1163)), (1.5, (212, 1004)),  # must fail: no margin switches the most
-               (3.0, (200, 1000))]      # boundary: nothing ever beats the held choice by 3×
+    # the seeded sweep (200 runs × 60 ticks of jitter; 200 = never changed after the first choice): every switch
+    # one whose gain over the held action's remainder paid the work thrown away ("better"), each with its reason
+    SWEEP = (335, 135)
+    OLD_MARGIN = 379        # the same sweep under the old keeper (MARGIN 1.05 after the commitment ran out)
 
     def test_it_changes_no_more_often_than_it_has_reason_to(self):
-        for margin, want in self.MARGINS:
-            with self.subTest(margin=margin):
-                self.assertEqual(self.sweep(margin=margin), want)
+        switches, reasons = self.sweep()
+        self.assertEqual((switches, reasons), self.SWEEP)
+        self.assertLessEqual(switches, self.OLD_MARGIN)      # must fail: gain without the estimates' noise (541)
+
+    def test_a_clearly_better_answer_still_wins(self):
+        """Steady readings, then one action becomes far better: the switch comes at once (noise ~0, gain large)."""
+        held = kernel.Held()
+        calm = {"price": 100.0, "noise": {"fight": 1.0, "evade": 1.0, "reshape": 1.0, "carry on": 1.0}}
+        for tick in range(5):
+            first = held.decide(self.model(), calm, now=tick * 0.2)
+        better = dict(calm, noise=dict(calm["noise"], evade=3.0))
+        self.assertEqual(first.name, "fight")
+        self.assertEqual(held.decide(self.model(), better, now=1.2).name, "evade")
 
     def test_re_deciding_every_tick_would_dither(self):
-        """The control: without holding, this fixture really does flip about — otherwise the test above is empty.
-        Seeded, so the counts are exact: 1239 flips re-deciding every tick, 379 holding at the kernel's margin."""
+        """The control: without holding, this fixture really does flip about — otherwise the test above is empty."""
         flips = 0
         for seed in self.SEEDS:
             last = None
@@ -154,10 +163,9 @@ class HoldingADecision(unittest.TestCase):
                 flips += name != last
                 last = name
         self.assertEqual(flips, 1239)
-        self.assertEqual(self.sweep()[0], 379)
 
     # (does the held choice's assumption still stand, seconds later) → why it was re-decided (None: it was kept)
-    RELEASE = [(True, 0.01, None), (False, 0.01, "assumption"), (True, 60.0, "commitment"),  # must fail: an assumption standing, early: kept, no re-decision
+    RELEASE = [(True, 0.01, None), (False, 0.01, "assumption"),  # must fail: an assumption standing, early: kept
                (False, 60.0, "assumption"), (None, 0.01, None)]
 
     def test_what_releases_a_held_decision(self):
@@ -172,6 +180,40 @@ class HoldingADecision(unittest.TestCase):
                 if because is None:
                     self.assertIs(again, first)
 
+
+class SwitchRule(unittest.TestCase):
+    """kernel.switches / lost_s: a new choice replaces the held one only when its gain over the held one re-priced
+    now pays for the work an abandon throws away (live 17:23:31-36: evade 80 s against the fight's 132 s, kept)."""
+
+    def test_rows(self):
+        # (fresh score, held re-priced, lost) → switches
+        rows = [("must fail: evade 80 against the fight's 132 (17:23:32)", 80.0, 132.0, 0.0, False),
+                ("a fight 132 against an evade 82 that walked 1 s: the gain pays", 132.0, 82.0, 1.0, True),
+                ("must fail: a tie keeps", 50.0, 50.0, 0.0, False),
+                ("gain 2 s, 3 s of work thrown away: kept", 52.0, 50.0, 3.0, False),
+                ("gain 4 s, 3 s thrown away: switched", 54.0, 50.0, 3.0, True)]
+        for name, fresh, staying, lost, want in rows:
+            with self.subTest(name):
+                self.assertEqual(kernel.switches(fresh, staying, lost), want)
+        # the estimates' own noise is part of the cost: a gain inside it is no gain
+        self.assertFalse(kernel.switches(54.0, 50.0, 0.0, noise=4.0))    # must fail: noise ignored
+        self.assertTrue(kernel.switches(55.0, 50.0, 0.0, noise=4.0))
+
+    def test_spread(self):
+        for values, want in [([], 0.0), ([5.0], 0.0), ([1.0, 3.0], 1.0), ([2.0, 2.0, 2.0], 0.0)]:
+            with self.subTest(values=values):
+                self.assertAlmostEqual(kernel.spread(values), want)
+
+    def test_lost(self):
+        plain = type("A", (), {"cost_s": 2.0})()
+        dug = type("D", (), {"cost_s": 2.0, "kept": 1.0})()           # a dig: the cells stay dug
+        # (action, elapsed) → seconds an abandon throws away
+        rows = [("0.5 s into a 2 s action", plain, 0.5, 0.5), ("1.9 s in", plain, 1.9, 1.9),
+                ("run its course", plain, 2.0, 0.0),
+                ("must fail: a dig keeps its cells, nothing lost", dug, 1.5, 0.0)]
+        for name, act, elapsed, want in rows:
+            with self.subTest(name):
+                self.assertAlmostEqual(kernel.lost_s(act, elapsed), want)
 
 
 if __name__ == "__main__":

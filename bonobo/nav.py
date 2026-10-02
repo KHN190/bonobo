@@ -1,4 +1,4 @@
-"""Getting from A to B: ASKING THE GAME to, and pricing what it answers. There is no pathfinder here any more. There were two — the mod's, which moves the body (walking, digging, bridging, pillaring, ladders), and one in this file, which planned routes the body then did not take. Every disagreement between them became a bug: water in the floor priced as flat ground, ore two blocks inside rock "unreachable", a village room behind a door the walker would have opened. Physics is the world's, so: route_s(cell, policy)   /plan — is there a way, and how many seconds go_to(pos, policy)      travel — the mod walks, digs and bridges its own way there way_to(ctx, cells)      the answer to "could not get to it": walk with digging allowed, then check What stays on this side is the decision: what is worth walking to, what a walk is worth, and when to give up."""
+"""Getting from A to B: ASKING THE GAME to, and pricing what it answers. There is no pathfinder here any more. There were two — the mod's, which moves the body (walking, digging, bridging, pillaring, ladders), and one in this file, which planned routes the body then did not take. Every disagreement between them became a bug: water in the floor priced as flat ground, ore two blocks inside rock "unreachable", a village room behind a door the walker would have opened. Physics is the world's, so: route_s(cell, policy)   /plan — is there a walk, and how many seconds go_to(pos, policy)      travel — the mod walks, digs and bridges its own way there way_to(ctx, cells)      the answer to "could not get to it": a planned way (plan_way's named steps), then check What stays on this side is the decision: what is worth walking to, what a walk is worth, and when to give up."""
 from __future__ import annotations
 
 import math
@@ -8,8 +8,10 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
-from .data import GROUPS, FOOD, EYE_HEIGHT, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
-from .world import NEIGHBOURS6, Inventory, Region, add, feet, to_segment
+from .data import STAIR_BELOW, STAIR_CELLS, is_falling, GROUPS, FOOD, EYE_HEIGHT, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .world import NEIGHBOURS6, Inventory, Region, add, bag, box, feet, route_key, to_segment
+from .knowledge import dig_ticks
+from .beliefs import TICKS_PER_S
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -186,8 +188,6 @@ def mod_features():
         _features = {"pillar"} if v >= (0, 1, 15) else set()
         if v >= (0, 1, 17):
             _features.add("travel")   # the mod plans and executes walk/dig/bridge/pillar routes itself
-        if v >= (0, 1, 40):
-            _features.add("approach_dig")   # mine/place/use dig their own way when walking finds none (ApproachTask)
         if v >= (0, 1, 50):
             _features.add("input")          # keys held until the body stands (the "input" task): climb_out
         if v >= (0, 1, 46):
@@ -199,10 +199,13 @@ def mod_features():
                 log(f"autoeat policy not set: {e}")
     return _features
 
-def building_item():
-    inv = Inventory()
+def building_of(inv):
+    """Pure: the building block the bag holds most of, or None."""
     options = [b for b in GROUPS["building"] if inv.usable(b)]
     return max(options, key=inv.usable) if options else None
+
+def building_item():
+    return building_of(Inventory())
 
 def ground_in_column(solid, x, z, y_hint, span=32):
     """Pure: standing height in column (x, z) within y_hint ± span, or None."""
@@ -267,66 +270,152 @@ PROGRESS_BLOCKS = 2.0
 # legs one call may walk: far targets in one errand, yet the planner gets the body back
 LEGS = 6
 
-AVOID_RADIUS = 64        # protected cells this near a walk's ends go with it: the jar may not dig or build in them
-AVOID_MAX = 4000
-# task types whose approach may dig and build: each carries the "avoid" list
+# task types sent only from a stand the jar's own check holds (I4: gate); the jar's approach then has nothing to do
 APPROACHING = ("mine", "place", "use")
+WAY_TRIES = 3            # ways plan_way is asked for one stand (a staircase comes a segment at a time)
+WAY_FACES = 3            # stand candidates a way's walks are asked for (/plan, break off)
 
-def avoid_cells(protected, *near):
-    """Pure: the protected cells within AVOID_RADIUS of `near`: the "avoid" list a digging walk carries."""
+def use_holds(region, feet_at, cell, reach=REACH):
+    """Pure: the jar's UseBlockTask sight — the block's centre or a face centre the first hit from the eye, in reach."""
+    eye = (feet_at[0] + 0.5, feet_at[1] + EYE_HEIGHT, feet_at[2] + 0.5)
+    centre = tuple(c + 0.5 for c in cell)
+    points = [centre] + [tuple(centre[i] + d[i] * 0.45 for i in range(3)) for d in _FACES]
+    return any(_ray_hits(region, eye, p, cell, reach) for p in points)
 
-    return [{"x": c[0], "y": c[1], "z": c[2]} for c in sorted(protected)
-            if any(math.dist(c, n) <= AVOID_RADIUS for n in near)][:AVOID_MAX]
+def place_holds(region, feet_at, cell, reach=REACH):
+    """Pure: the jar's PlaceTask stand (WorldUtil.findPlacement) — the cell not the body's own, and a solid
+    neighbour whose shared face centre is the first hit from the eye, in reach: the click that fills `cell`."""
+    if tuple(cell) in (tuple(feet_at), add(feet_at, (0, 1, 0))):
+        return False
+    eye = (feet_at[0] + 0.5, feet_at[1] + EYE_HEIGHT, feet_at[2] + 0.5)
+    for d in _FACES:
+        n = add(cell, d)
+        if region.solid(n) and _ray_hits(region, eye, tuple(cell[i] + 0.5 + d[i] * 0.5 for i in range(3)), n, reach):
+            return True
+    return False
 
-def avoid_fields(protected, *near):
-    """Pure: a digging walk's "avoid": the protected cells near its ends (avoid_cells). A home's boxes are kept by
-    the walk's route check (home_flags), not listed."""
-    return {"avoid": avoid_cells(protected, *near)}
+def stands_for(kind, region, feet_at, target, down=False):
+    """Pure: does the body at `feet_at` pass the jar's own check for a `kind` task on `target` — mine: MineTask.holds
+    (holds), place: findPlacement (place_holds), use: sight (use_holds), stand: standing on it."""
+    feet_at, target = tuple(feet_at), tuple(target)
+    if kind == "mine":
+        return holds(region, feet_at, target, down=down)
+    if kind == "place":
+        return place_holds(region, feet_at, target)
+    if kind == "use":
+        return use_holds(region, feet_at, target)
+    return feet_at == target
 
-def with_avoid(task, protected):
-    """Pure: `task` with its "avoid" when its type approaches by digging (APPROACHING) and it names none; else the task as it was."""
+def _cell_of(task):
+    return (int(task["x"]), int(task["y"]), int(task["z"]))
 
-    if task.get("type") not in APPROACHING or "avoid" in task:
-        return task
-    return {**task, **avoid_fields(protected, (task["x"], task["y"], task["z"]))}
+def task_stands(tasks, feet_at):
+    """Pure: [(task, the stand it is sent from)] for the approaching ones — the body's feet, or the last goto's cell
+    before it in the same chain."""
+    out, at = [], tuple(feet_at)
+    for t in tasks:
+        if t.get("type") == "goto":
+            at = _cell_of(t)
+        elif t.get("type") in APPROACHING and "x" in t:
+            out.append((t, at))
+    return out
 
-AVOID_CUBE_R = round(AVOID_MAX ** (1 / 3) / 2)     # the cube round a target whose home cells fill AVOID_MAX
+def _read_box(cells, pad=REACH):
+    lo = tuple(math.floor(min(c[i] for c in cells) - pad) for i in range(3))
+    hi = tuple(math.ceil(max(c[i] for c in cells) + pad) for i in range(3))
+    return box(lo, hi)
 
-def box_cells(boxes, near, most, skip=()):
-    """Pure: the cells of `boxes` (a home's) within AVOID_CUBE_R of `near`, nearest first, at most `most`, `skip`
-    (ours inside) left out."""
-    r = AVOID_CUBE_R
-    cells = [(x, y, z) for lo, hi in boxes
-             for x in range(max(min(lo[0], hi[0]), int(near[0]) - r), min(max(lo[0], hi[0]), int(near[0]) + r) + 1)
-             for y in range(max(min(lo[1], hi[1]), int(near[1]) - r), min(max(lo[1], hi[1]), int(near[1]) + r) + 1)
-             for z in range(max(min(lo[2], hi[2]), int(near[2]) - r), min(max(lo[2], hi[2]), int(near[2]) + r) + 1)
-             if (x, y, z) not in skip]
-    return sorted(cells, key=lambda c: math.dist(c, near))[:most]
+_IN_WAY = [0]            # how deep a way's own steps are being sent (their gate never asks for another way)
+lifecycle.in_place(__name__, "_IN_WAY")
 
-_APPROACH = {}        # this round's approach checks, by target cell: a walk that digs nothing reaches it
-lifecycle.in_place(__name__, "_APPROACH")
+def gate(tasks, policy):
+    """api.GATE (I4): each mine/place/use goes out only from a stand where the jar's own check holds (stands_for);
+    one that fails gets its way first (reach_stand) and the chain is checked again. Returns the after-check (R4)."""
+    pairs = task_stands(tasks, feet())
+    if not pairs:
+        return None
+    region = None
+    for _ in range(WAY_TRIES):
+        pairs = task_stands(tasks, feet())
+        region = _read_box([_cell_of(t) for t, _s in pairs] + [s for _t, s in pairs])
+        bad = next(((t, s) for t, s in pairs if not stands_for(t["type"], region, s, _cell_of(t), t.get("down", False))),
+                   None)
+        if bad is None:
+            break
+        if _IN_WAY[0]:
+            api.detail(f"!! a way's own {bad[0]['type']} at {_cell_of(bad[0])} not standable from {bad[1]}")
+            raise api.NavFailed(f"planned step not standable: {bad[0]['type']} at {_cell_of(bad[0])}")
+        reach_stand(bad[0], policy)
+    else:
+        raise api.NavFailed(f"no stand reached for {[(t['type'], _cell_of(t)) for t, _s in pairs][:3]}")
+    before = region
+    return lambda done: unplanned(before, tasks, done)
 
-def dress(task, policy):
-    """api.DRESS, the door every task passes: an approaching task (APPROACHING) carries its avoid. With no walk that
-    digs nothing to its target, the walk leg goes first (go_to: Python's legs, their tools named by ARM) — the jar's
-    own approach digs holding whatever is in hand (ApproachTask names no tool), so it only walks. A home near the
-    target puts its cells there in the avoid too — that approach is no /plan route and names no cell (10:40: a coal
-    beside the tunnel, 2 cells sent, 5 shell blocks dug)."""
-    task = with_avoid(task, policy.protected)
-    if task.get("type") not in APPROACHING or "x" not in task:
-        return task
-    cell = (int(task["x"]), int(task["y"]), int(task["z"]))
-    if cell not in _APPROACH:
-        walk = _plan_reply(cell, False, False, WORK_REACH)
-        _APPROACH[cell] = walk is None or bool(walk.get("found"))
-    if not _APPROACH[cell]:
-        go_to(cell, policy, range_=WORK_REACH)
-    boxes = getattr(policy.protected, "boxes", ())
-    home = box_cells(boxes, cell, max(0, AVOID_MAX - len(task.get("avoid", []))),
-                     getattr(policy.protected, "mine", ())) if boxes else []
-    if not home:
-        return task
-    return {**task, "avoid": task.get("avoid", []) + [{"x": c[0], "y": c[1], "z": c[2]} for c in home]}
+# blocks that change on their own: falling, flowing, decaying (R4 never counts them as unplanned)
+CHANGE_ON_THEIR_OWN = ("sand", "gravel", "concrete_powder", "leaves", "water", "lava", "fire", "snow")
+
+def unplanned_cells(before, after, tasks, feet_at):
+    """Pure: the cells that turned air (broken) or solid (placed) between two reads with no task naming them — the
+    mine and place cells named, a pillar's column under the body, and blocks that change on their own aside."""
+    named = {_cell_of(t) for t in tasks if t.get("type") in ("mine", "place") and "x" in t}
+    pillar = any(t.get("type") == "pillar" for t in tasks)
+    out = []
+    for c in before.blocks.keys() | after.blocks.keys():
+        was, now = before.name(c), after.name(c)
+        if was == now or c in named or any(was.endswith(k) or now.endswith(k) for k in CHANGE_ON_THEIR_OWN):
+            continue
+        if pillar and (c[0], c[2]) == (feet_at[0], feet_at[2]):
+            continue
+        if before.solid(c) != after.solid(c):
+            out.append((c, was, now))
+    return sorted(out)
+
+def unplanned(before, tasks, done):
+    """R4: the after-read of a segment's box against the before-read; any unnamed change said (detail + anomaly)."""
+    try:
+        after = box(before.lo, before.hi)         # a send came between: a fresh read, the next segment's before
+    except McError as e:
+        api.detail(f"   after-check unread: {e}")
+        return
+    for c, was, now in unplanned_cells(before, after, tasks, feet()):
+        api.detail(f"!! unplanned change at {c}: {was} → {now} (no step named it)")
+        if api.ANOMALY is not None:
+            api.ANOMALY("unplanned change", f"{c}: {was} → {now}")
+
+def stand_candidates(region, target, kind, most=WAY_FACES):
+    """Pure: floored cells round `target` where a `kind` task on it holds, nearest first."""
+    r = int(REACH)
+    cells = [(target[0] + dx, target[1] + dy, target[2] + dz) for dx in range(-r, r + 1) for dy in range(-r, r + 1)
+             for dz in range(-r, r + 1)]
+    ok = [c for c in cells if region.inside(c) and region.solid(add(c, (0, -1, 0))) and not region.solid(c)
+          and not region.solid(add(c, (0, 1, 0))) and stands_for(kind, region, c, target)]
+    return sorted(ok, key=lambda c: math.dist(c, target))[:most]
+
+def reach_stand(task, policy, faces=None):
+    """The way to a stand for `task` (I4): read the box, ask the game's walk (break off) to the stand candidates
+    (`faces`, else stand_candidates), plan_way (a88's: explicit mine/place/goto steps), send them through the door,
+    and again until the stand holds; plan_way's None → NavFailed with its why."""
+    kind = "stand" if task.get("type") == "goto" else task["type"]
+    target = _cell_of(task)
+    for _ in range(WAY_TRIES):
+        here = feet()
+        region = _read_box([here, target])
+        if kind != "stand" and stands_for(kind, region, here, target, task.get("down", False)):
+            return
+        cands = faces if faces is not None else stand_candidates(region, target, kind)
+        walks = {c: _plan_reply(c, False, False, 0.5) for c in cands}
+        steps, why, seconds = plan_way(region, here, target, kind, bag(), policy.protected, walks)
+        if steps is None:
+            raise api.NavFailed(f"no way to {kind} {target}: {why}")
+        if not steps:
+            return
+        api.detail(f"   way to {kind} {target}: {len(steps)} steps, ~{seconds:.0f}s")
+        _IN_WAY[0] += 1
+        try:
+            api.run_chain(steps, stop_on_failure=True)
+        finally:
+            _IN_WAY[0] -= 1
+    raise api.NavFailed(f"no stand for {kind} {target} after {WAY_TRIES} ways")
 
 ARRIVE_RANGE = 1.5       # a walk arrives this near its target (go_to's own margin): what "came to us" means
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
@@ -446,10 +535,6 @@ def walked_closer(start, here, target):
     """Did this leg actually bring us nearer the target? In blocks, against where it began."""
     return math.dist(start, target) - math.dist(here, target) >= PROGRESS_BLOCKS
 
-# what a walk may do by its purpose (break, place, bridge over the void): only a walk with a known far side lays floor over a drop
-# a search walks and never digs ("explore"), unless the thing sought lies underground ("explore_deep": ores, a fortress)
-MOVES = {"work": (True, True, True), "explore": (False, True, False), "explore_deep": (True, True, False),
-         "evade": (True, True, False)}
 SAFE_DROP = 3        # blocks a walk may drop onto dry ground unhurt; deeper only into water (`terrain.landing`)
 
 def landing(region, here, spot, max_drop=None, least=2):
@@ -493,14 +578,10 @@ def landing(region, here, spot, max_drop=None, least=2):
         best = (cx, y, cz)
     return far_enough(best)
 
-def may_alter(purpose, policy):
-    """Pure: (may break, may place, may bridge over the void) for a walk made for `purpose`, within the round's policy."""
-
-    brk, plc, void = MOVES[purpose]
-    return brk and bool(getattr(policy, "allow_dig", True)), plc and bool(getattr(policy, "allow_build", True)), void
-
-def go_to(pos, policy, range_=ARRIVE_RANGE, attempts=3, min_hp: float | None = MIN_WALK_HP, avoid_hazards=True, purpose="work"):
-    """Walk; when the walker can't get there, build/dig a route toward the target."""
+def go_to(pos, policy, range_=ARRIVE_RANGE, attempts=3, min_hp: float | None = MIN_WALK_HP, avoid_hazards=True, purpose="work",
+          y_guess=False):
+    """Walk; when the walker can't get there, build/dig a route toward the target. `y_guess`: the target's y is not
+    known (a waypoint) — only then is a "no route" retried on the column's ground."""
 
     pos = tuple(pos)
     if not arbiter.BODY.owns("nav.go_to"):
@@ -512,7 +593,7 @@ def go_to(pos, policy, range_=ARRIVE_RANGE, attempts=3, min_hp: float | None = M
         if pos is None:
             return False
     if "travel" in mod_features():
-        return _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began)
+        return _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_guess)
     for _ in range(attempts):
         # a jar without `travel`: one step at a time, the same rule
         api.run({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_, "partial": True}, awaits="whether the step arrived (`there`) decides the next attempt")
@@ -568,7 +649,7 @@ def _long_trip(here, pos, policy, min_hp, purpose, _from, _began):
         if min_hp is not None and api.get("/state")["health"] < min_hp:
             log(f"   travel stopped at {min_hp} hp: falling back instead of walking on")
             return None, False
-        if not moved(go_to(hop, policy, range_=6, attempts=1, min_hp=min_hp, purpose=purpose)):
+        if not moved(go_to(hop, policy, range_=6, attempts=1, min_hp=min_hp, purpose=purpose, y_guess=True)):
             # this hop got nowhere; the trip is over only if we are no nearer than at its start
             return None, _arrived(_from, pos, _began, False, closer=walked_closer(_from, feet(), pos))
     here = feet()
@@ -615,37 +696,16 @@ def _doorways_between(here, there):
 
 
 HOME_DOOR = None      # mechanisms.home_exit, wired by the brain: (here, there, policy) → through a home's door
-ROUTE_ALTERS = ("MINE", "FLOOR", "PILLAR")      # /plan's actions that change the world
 
 
-def route_in_boxes(reply, boxes):
-    """Pure: does a /plan route (steps with their actions, "MINE x,y,z") stand in, dig or build in any of `boxes`?"""
-    for st in reply.get("steps") or []:
-        cells = [(st["x"], st["y"], st["z"])] + [tuple(int(v) for v in a.split(" ", 1)[1].split(","))
-                                                for a in st.get("actions") or [] if a.split(" ", 1)[0] in ROUTE_ALTERS]
-        if any(home_box_of(boxes, c) is not None for c in cells):
-            return True
-    return False
-
-
-def home_flags(pos, brk, plc, range_, boxes, here):
-    """(break, place, by the door) for the next leg: the game's route asked first when the leg may dig or build and a
-    home stands in this world — a route through a home goes with both off (a re-path mid-walk digs nothing either);
-    none that way and an end inside a home: by its taught door. No home, or nothing to alter: as asked."""
-    if not boxes or not (brk or plc):
-        return brk, plc, False
-    dug = _plan_reply(pos, brk, plc, range_)
-    if dug is not None and dug.get("found") and not route_in_boxes(dug, boxes):
-        return brk, plc, False
-    walk = _plan_reply(pos, False, False, range_)
-    said = "unasked" if dug is None else "no route" if not dug.get("found") else "through the home"
-    if walk is not None and walk.get("found") is not False or HOME_DOOR is None:
-        api.detail(f"   home: route to {tuple(pos)} {said}: a walk that digs nothing")
-        return False, False, False
-    inside = home_box_of(boxes, here) is not None or home_box_of(boxes, pos) is not None
-    api.detail(f"   home: route to {tuple(pos)} {said}, no walk that digs nothing: "
-               + ("by the home's door" if inside else "both ends outside, the leg digs nothing"))
-    return False, False, inside
+def way_kind(walk, boxes, here, pos):
+    """Pure: how a walk that found no route goes on — "door" (an end in a home: by its taught door), "dig" (a way of
+    explicit steps: reach_stand), or None (the walk found one: legs as they are)."""
+    if walk is None or walk.get("found") is not False:
+        return None
+    if home_box_of(boxes, here) is not None or home_box_of(boxes, pos) is not None:
+        return "door"
+    return "dig"
 
 
 def _leg(task, awaits):
@@ -657,7 +717,7 @@ def _leg(task, awaits):
         return {"status": "failed", "message": str(e)}
 
 
-def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
+def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_guess=False):
     """The mod plans and runs the whole route, so Python never plans moves the walker can't make."""
     here = feet()
     asked = pos
@@ -677,24 +737,30 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
         r = api.run({"type": "use", "x": cell[0], "y": cell[1], "z": cell[2]}, wait=30,
                     awaits="the door opened: the walk goes through it next")
         api.detail(f"   door {cell} on the way opened by hand: {r.get('status')}")
-    avoid = avoid_fields(policy.protected | set(doors) | set(ways), here, pos)
     grounded = False
-    brk, plc, void = may_alter(purpose, policy)
     boxes = getattr(policy.protected, "boxes", ())
-    if locked:
-        brk = False          # a shut door no hand opens: never dug round either — through another way, or no way
     # keep walking while each leg brings us nearer; "target unreachable" at the leg's end is not failure
     for _ in range(max(attempts, LEGS)):
         api.at_boundary()                # nightfall between legs: never inside a walk
         was = feet()
-        b, p, by_door = home_flags(pos, brk, plc, range_, boxes, was)
-        if by_door and HOME_DOOR is not None:
-            HOME_DOOR(was, pos, policy)      # neither dug nor walked out: the home's taught door (NavFailed: none)
+        how = None if locked else way_kind(_plan_reply(pos, False, False, range_), boxes, was, pos)
+        if how == "door":
+            # out (or in) by the home's taught door (NavFailed: none); the walk goes on from its far side
+            api.detail(f"   no walk to {tuple(pos)}: by the home's door")
+            if HOME_DOOR is not None:
+                HOME_DOOR(was, pos, policy)
             continue
+        if how == "dig":
+            # no route: one way (plan_way's steps; NavFailed with its why when there is none), then judged at the
+            # asked cell — never LEGS more asks
+            api.detail(f"   no walk to {tuple(pos)}: a way dug to it")
+            reach_stand({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2]}, policy)
+            ok = there(api.get("/state"), asked, range_)
+            return _arrived(_from, asked, _began, ok, closer=True)
         try:
             r = _leg({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-                      "break": b, "place": p, "voidBridge": void and b, "placeBudget": budget,
-                      **avoid}, "where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
+                      "placeBudget": budget},
+                     "where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
         except api.TaskStuck as e:
             # stuck: decide again from where we stand (the target may sit by a hazard that moved), never stand still
             log(f"   travel stuck ({e}): deciding again from {feet()}")
@@ -707,7 +773,7 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
             continue                     # that leg gained ground: the next one starts from here
         here = feet()
         budget = place_budget(Inventory().count("building"))     # the last leg spent some
-        if grounded or "no route" not in (r.get("message") or "") or \
+        if not y_guess or grounded or "no route" not in (r.get("message") or "") or \
                 math.hypot(pos[0] - here[0], pos[2] - here[2]) > 64:
             continue
         # the target's y was a guess: stand on the column's real ground and try once more
@@ -718,12 +784,10 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
             continue
         log(f"   travel target {pos} had no route; retrying on the ground at y {fy}")
         pos = (pos[0], fy, pos[2])
-        b, p, _door = home_flags(pos, brk, plc, range_, boxes, here)
-        _leg({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-              "break": b, "place": p, "voidBridge": void and b, "placeBudget": budget,
-              **avoid}, "the retry's arrival is read before anything else is asked")
-        if there(api.get("/state"), pos, range_):
-            return _arrived(_from, pos, _began, True)
+        _leg({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_, "placeBudget": budget},
+             "the retry's arrival is read before anything else is asked")
+        if there(api.get("/state"), asked, range_):          # judged at the asked cell, never the rewritten y
+            return _arrived(_from, asked, _began, True)
     if locked:
         raise api.NavFailed(f"blocked by a door at {locked[0]}: shut, no hand opens it, nothing taught")
     # a leg that ended nearer is progress; the next round continues from there
@@ -806,7 +870,7 @@ def sweep(ctx, radius=6, only=(), wait=30, tries=2):
         try:
             return api.run({"type": "collect", "radius": radius, **({'only': list(only)} if only else {})}, wait=wait, awaits="an Unreachable answer names the cells a way is made to before the next sweep")
         except api.Unreachable as out:
-            if attempt + 1 >= tries or not way_to(ctx, out.cells or [feet()], range_=1.5):
+            if attempt + 1 >= tries or not way_to(ctx, out.cells or [feet()], kind="stand"):
                 raise
     return None
 
@@ -820,7 +884,7 @@ ROUTES_PER_ROUND = 6
 def route_s(cell, policy, range_=1.5, nodes=NAV_NODES):
     """(can we get there, seconds it would take) — THE GAME'S answer, not one assembled here."""
 
-    key = (tuple(cell), bool(policy.allow_dig), bool(policy.allow_build), float(range_), int(nodes))
+    key = route_key(cell, range_, nodes)
     hit = _ROUTES.get(key)
     if hit is not None:
         return hit
@@ -828,7 +892,7 @@ def route_s(cell, policy, range_=1.5, nodes=NAV_NODES):
         return (None, None)          # this round has asked enough: unknown, and the caller estimates instead
     _ROUTE_BUDGET[0] += 1
     try:
-        out = _plan(cell, policy.allow_dig, policy.allow_build, range_, nodes)
+        out = _plan(cell, False, False, range_, nodes)       # the walk's price: walks never dig nor build (E3, D6)
     except tape.ReplayMiss:
         return (None, None)                 # a recorded round: not an answer, and never cached as one
     _ROUTES[key] = out
@@ -858,6 +922,10 @@ def climbs_back(start_y, steps, step_up=MOB_STEP_UP):
     ys = [start_y] + [s["y"] for s in steps]
     return all(a - b <= step_up for a, b in zip(ys, ys[1:]))
 
+def plan_walks(cells, range_):
+    """{cell: the game's walk (/plan, nothing dug or built)} for each of `cells` — plan_way's `walks`."""
+    return {tuple(c): _plan_reply(c, False, False, range_) for c in cells}
+
 def walks_to(cell, range_=None, climber=False, start_y=None):
     """Can a walking mob at `cell` come to the body: the game's walk from our side (nothing dug, nothing built),
     taken back — so no drop on it a walker cannot climb (a climber climbs any). None when it cannot be asked."""
@@ -874,7 +942,6 @@ def walks_to(cell, range_=None, climber=False, start_y=None):
 
 def forget_routes():
     """New round, new body position: the routes priced from the old one say nothing about this one."""
-    _APPROACH.clear()
     _ROUTES.clear()
     _ROUTE_BUDGET[0] = 0
 
@@ -898,22 +965,20 @@ def reachable(cell, policy, range_=1.5, nodes=NAV_NODES, feet=None):
         found = not (feet is not None and plainly_below(feet, cell))
     return found, seconds
 
-def way_to(ctx, cells, range_=2.0):
-    """Get these cells within working range, and say whether they now ARE."""
+def way_to(ctx, cells, kind="mine"):
+    """A stand from which `kind` holds on the nearest of `cells`, by a planned way (reach_stand: plan_way's named
+    steps through the door, I3/I4): True there, False when there is no way (said by the NavFailed it raised)."""
 
-    cells = {tuple(int(round(v)) for v in c) for c in cells}
+    cells = sorted({tuple(int(round(v)) for v in c) for c in cells}, key=lambda p: math.dist(p, feet()))
     if not cells:
         return False
-    near = min(cells, key=lambda p: math.dist(p, feet()))
-    if arrived(near, ctx.policy, range_=range_, attempts=1) and reachable(near, ctx.policy, range_)[0]:
-        return True                                    # the walk was enough
-    if not (ctx.policy.allow_dig or ctx.policy.allow_build):
+    x, y, z = cells[0]
+    try:
+        reach_stand({"type": "goto" if kind == "stand" else kind, "x": x, "y": y, "z": z}, ctx.policy)
+    except api.NavFailed as e:
+        api.detail(f"   no way to {kind} {cells[0]}: {e}")
         return False
-    # making a way is travel with digging allowed: nothing to plan here
-    for cell in sorted(cells)[:4]:
-        if arrived(cell, ctx.policy, range_=range_, attempts=1) and reachable(cell, ctx.policy, range_)[0]:
-            return True
-    return False
+    return True
 
 # -- stairs and pits: a body goes down by a staircase it can walk back up, never a 1-wide shaft
 STAIR_STEPS = 8          # steps one staircase segment digs before the ground is read again
@@ -925,30 +990,152 @@ def stair_dir(feet, target):
         return (1, 0)
     return ((1 if dx > 0 else -1), 0) if abs(dx) >= abs(dz) else (0, (1 if dz > 0 else -1))
 
-def stair_down_tasks(region, feet, target, protected=(), max_steps=STAIR_STEPS):
-    """Pure: a 1-wide staircase from `feet` down toward `target` — each step one over and one down, its three cells
-    (feet, head, the head room the walk down passes) cleared, a solid tread under it — until the feet are at the
-    target's level or `max_steps`; stops before a fluid, an unbreakable or protected cell, or a tread that is not
-    there. [] when not below or nothing can be dug."""
+def falling_above(region, cell):
+    """Pure: the falling blocks stacked on `cell`, lowest first — they drop into it once it is dug."""
+    out, c = [], add(cell, (0, 1, 0))
+    while region.inside(c) and is_falling(region.name(c)):
+        out.append(c)
+        c = add(c, (0, 1, 0))
+    return out
+
+def dig_cells(region, cells, start):
+    """Pure: what to break so `cells` stand open — each with the falling blocks over it, top down per column
+    (mine_order): a cell dug under sand drops it into the next one (hello2 11:11 "nothing to mine (air)")."""
+    want = set(cells)
+    for c in cells:
+        want.update(falling_above(region, c))
+    return [c for c in mine_order(want, start) if region.solid(c)]
+
+def _blocked(region, cells, protected, placed=()):
+    """Pure: why these cells may not be opened — a fluid in or beside one (but a floor the step places: a bridge
+    fills it), a protected or unbreakable one — or None."""
+    for c in cells:
+        if region.hazard(c) or any(region.hazard(add(c, n)) and add(c, n) not in placed for n in NEIGHBOURS6):
+            return f"fluid at {c}"
+        if c in protected:
+            return f"home at {c}"
+        if region.unbreakable(c):
+            return f"unbreakable at {c}"
+    return None
+
+def open_tasks(region, cells, floors, start, protected, places):
+    """Pure: (tasks, why) that leave `cells` open with a floor under each of `floors`: the cells opened top down with
+    what falls on them (dig_cells), a missing floor placed from `places` (popped); None and why when a fluid, the home,
+    an unbreakable block or a floor with nothing to place stands in the way."""
+    opened = dig_cells(region, cells, start)
+    missing = [f for f in floors if not region.solid(f)]       # a gap or a fluid: bridged by a placed block
+    why = _blocked(region, set(cells) | set(opened), protected, placed=set(missing))
+    if why:
+        return None, why
+    tasks = [mine_task(c) for c in opened]
+    for f in missing:
+        if f in protected:
+            return None, f"home at {f}"
+        if not places:
+            return None, f"no tread at {f}"
+        tasks.append({"type": "place", "item": places.pop(), "x": f[0], "y": f[1], "z": f[2]})
+    return tasks, None
+
+def _step_tasks(region, step_cells, tread, stand, start, protected, places):
+    """Pure: (tasks, why) for one step of a dug way: its cells opened (open_tasks), then the walk onto `stand`."""
+    tasks, why = open_tasks(region, step_cells, [tread], start, protected, places)
+    if tasks is None:
+        return None, why
+    return tasks + [{"type": "goto", "x": stand[0], "y": stand[1], "z": stand[2], "range": 0.5}], None
+
+def stair_steps(region, feet, target, protected=(), places=(), max_steps=STAIR_STEPS, stop_y=None):
+    """Pure: (tasks, why, end) of a 1-wide staircase from `feet` toward `stop_y` (default one above the target) —
+    down, or up when `stop_y` is above the feet (the climb out) — each step one over and one down/up, its cells
+    opened top down with the falling blocks over them (down: feet, head and the head room the walk down passes; up:
+    feet, head and the head room over the step it leaves, for the jump), a tread under it placed from `places` when
+    missing, then walked onto — until the feet stand at `stop_y` or `max_steps` (the region is read again for the next
+    segment). `end`: where the feet stand after it; `why`: what stopped it short."""
     x, y, z = feet
-    if target[1] >= y - 1:
-        return []
-    d = stair_dir(feet, target)
-    tasks = []
+    stop_y = target[1] + 1 if stop_y is None else stop_y
+    if stop_y == y:
+        return [], None, tuple(feet)
+    dy = 1 if stop_y > y else -1
+    d, left, tasks, end = stair_dir(feet, target), list(places), [], tuple(feet)
     for k in range(1, max_steps + 1):
-        fx, fy, fz = x + d[0] * k, y - k, z + d[1] * k
-        cells = [(fx, fy, fz), (fx, fy + 1, fz), (fx, fy + 2, fz)]
-        tread = (fx, fy - 1, fz)
+        stand = (x + d[0] * k, y + dy * k, z + d[1] * k)
+        cells = ([(stand[0], stand[1] + i, stand[2]) for i in range(STAIR_CELLS)] if dy < 0 else
+                 [stand, add(stand, (0, 1, 0)), add(end, (0, 2, 0))])
+        tread = add(stand, (0, -1, 0))
         if not all(region.inside(c) for c in cells + [tread]):
+            return tasks, None, end
+        step, why = _step_tasks(region, cells, tread, stand, feet, protected, left)
+        if step is None:
+            return tasks, why, end
+        tasks, end = tasks + step, stand
+        if stand[1] * dy >= stop_y * dy:
             break
-        if any(region.hazard(c) or region.hazard(add(c, n)) for c in cells for n in NEIGHBOURS6) \
-                or any(region.unbreakable(c) or c in protected for c in cells) or not region.solid(tread):
-            break
-        tasks += [mine_task(c) for c in cells if region.solid(c)]
-        tasks.append({"type": "goto", "x": fx, "y": fy, "z": fz, "range": 0.5})
-        if fy <= target[1] + 1:
-            break
-    return tasks
+    return tasks, None, end
+
+def tunnel_steps(region, feet, target, protected=(), places=(), done=None):
+    """Pure: (tasks, why) of a 2-high level way from `feet` toward `target`, step by step until `done(feet)` (default:
+    a stand that holds it — reach and sight), each step opened top down, its floor placed when missing."""
+    done = done or (lambda here: holds(region, here, target))
+    y = feet[1]
+    left, tasks, here, been = list(places), [], tuple(feet), {tuple(feet)}
+    while not done(here):
+        d = stair_dir(here, target)
+        stand = (here[0] + d[0], y, here[2] + d[1])
+        cells = [stand, add(stand, (0, 1, 0))]
+        tread = add(stand, (0, -1, 0))
+        if not all(region.inside(c) for c in cells + [tread]) or stand in been:
+            # off the read, or back where it was (over the target: no level stand holds it)
+            return tasks, f"no stand reaches {tuple(target)} within the read"
+        been.add(stand)
+        step, why = _step_tasks(region, cells, tread, stand, feet, protected, left)
+        if step is None:
+            return tasks, why
+        tasks += step
+        here = stand
+    return tasks, None
+
+def stands_at(kind, region, feet, target):
+    """Pure: the way's end for `kind`: standing on the cell (stand), else a stand that holds it (reach and sight)."""
+    return tuple(feet) == tuple(target) if kind == "stand" else holds(region, feet, target)
+
+PLACE_S = 0.25           # one place task (detail.log: "placed minecraft:torch (0.25s)")
+
+def way_s(region, feet, steps, inv):
+    """Pure: seconds a planned way takes — its breaks (knowledge.dig_ticks, the held tool per block), its places,
+    its walks at PLAYER_SPEED."""
+    mined = [region.name((t["x"], t["y"], t["z"])) for t in steps if t["type"] == "mine"]
+    walk, at = 0.0, tuple(feet)
+    for t in steps:
+        if t["type"] == "goto":
+            walk += math.dist(at, (t["x"], t["y"], t["z"]))
+            at = (t["x"], t["y"], t["z"])
+    places = sum(t["type"] == "place" for t in steps)
+    return dig_ticks(mined, inv) / TICKS_PER_S + places * PLACE_S + walk / PLAYER_SPEED
+
+def plan_way(region, feet, target, kind, inv, protected, walks=None):
+    """Pure: (steps | None, why, seconds) — the cheapest way to where `kind` (mine|place|use|stand) of `target` can be
+    done: a walk the game found (`walks`: {cell: its /plan reply, break off}, asked by the caller), else the dug
+    way of named steps: a staircase down when deeper than STAIR_BELOW, a staircase up when above the feet (the climb
+    out), then a level way (dug through, its missing treads placed: a bridge over a gap or a fluid). Steps name cells,
+    never items (the door's ARM/HOLD do); a protected cell refuses the way (why "home at …")."""
+    ways = [([{"type": "goto", "x": c[0], "y": c[1], "z": c[2], "range": 0.5}], None,
+             float(r["seconds"]) if r.get("seconds") is not None else math.dist(feet, c) / PLAYER_SPEED)
+            for c, r in (walks or {}).items() if r and r.get("found")]
+    places = [building_of(inv)] * place_budget(inv.count("building")) if building_of(inv) else []
+    done = lambda here: stands_at(kind, region, here, target)     # noqa: E731
+    if done(tuple(feet)):
+        return [], None, 0.0                       # standing where it can be done: nothing to plan
+    steps, why, end = [], None, tuple(feet)
+    if target[1] < feet[1] - STAIR_BELOW or target[1] > feet[1]:
+        # down (or up) to the target's own level (a buried target is held from beside it), then along it
+        steps, why, end = stair_steps(region, feet, target, protected, places, stop_y=target[1])
+    if why is None and (not steps or end[1] == target[1]):
+        more, why = tunnel_steps(region, end, target, protected, places, done)
+        steps = steps + more
+    if steps:
+        ways.append((steps, None, way_s(region, feet, steps, inv)))
+    if not ways:
+        return None, why or f"no way to {tuple(target)}", None
+    return min(ways, key=lambda w: w[2])
 
 def in_pit(region, feet):
     """Pure: the body stands in a hole it cannot jump out of — on every side the cell at head height is solid (a 1-deep

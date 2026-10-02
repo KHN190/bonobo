@@ -31,6 +31,15 @@ WORLD_NORMAL = {"gamerule spawn_mobs": "true", "gamerule random_tick_speed": "3"
 RESTORE_ALSO = ("forceload remove all",)        # the site chunks the rows force-loaded
 
 
+def fight_line_hp(mob, sword, armor=0, shield=False):
+    """Pure: the health an optional fight with `mob` starts from at least (S5) — critical plus its loss's quantile
+    at this sword tier and armour: the production line (estimate.fight_line_ok), never a typed hp."""
+    from .. import beliefs, estimate
+    from ..data import critical_hp
+    mean, hit = estimate.fight_loss([mob], sword, beliefs.protection(armor, shield))
+    return critical_hp({}) + estimate.loss_q(mean, hit)
+
+
 def restore_commands():
     """Pure: the commands that put every bench-changed setting back to the game's normal."""
     return [f"{k} {v}" for k, v in WORLD_NORMAL.items()] + list(RESTORE_ALSO)

@@ -151,82 +151,33 @@ class TheGuard(unittest.TestCase):
 
 
 class NoDigThroughTheHome(unittest.TestCase):
-    """nav.home_flags: before a leg that may dig, the game's route is asked; one that stands, digs or builds in a
-    home box goes with both off (09:35: the hall's west wall dug by a walk to coal)."""
+    """nav.way_kind: a walk digs nothing (I3); one with no route goes by the home's door when an end is in a home,
+    else by explicit steps (reach_stand) — never a route the jar digs (09:35: the hall's west wall dug by a walk)."""
     SECOND = ((12, 64, 0), (15, 70, 9))            # a home of two boxes, natural rock between them (x 10..11)
 
-    def flags(self, dug, walk, here=(20, 64, 5), pos=(30, 64, 5)):
-        boxes = [(LO, HI), self.SECOND]
-        answers = {True: dug, False: walk}
-        with mock.patch.object(nav, "_plan_reply", lambda cell, brk, plc, r, *a: answers[brk]), \
-                mock.patch.object(nav, "HOME_DOOR", lambda *a: None):
-            return nav.home_flags(pos, True, True, 1.5, boxes, here)
-
-    @staticmethod
-    def route(*steps):
-        return {"found": True, "steps": [{"x": x, "y": y, "z": z, "actions": acts} for (x, y, z), acts in steps]}
-
     def test_rows(self):
-        walk = self.route(((20, 64, 5), []))
-        rows = [("must fail: a route digging a home cell posted with break on",
-                 self.route(((10, 64, 5), ["MINE 9,64,5"])), walk, (False, False, False)),
-                ("near, not through: it digs outside the home", self.route(((10, 64, 5), ["MINE 10,64,5"])), walk,
-                 (True, True, False)),
-                ("two boxes: the rock between them is mined", self.route(((11, 64, 5), ["MINE 11,65,5"])), walk,
-                 (True, True, False)),
-                ("a route standing in the home: both off (a re-path digs nothing)",
-                 self.route(((5, 64, 5), [])), walk, (False, False, False)),
-                ("a pillar in the home: both off", self.route(((20, 64, 5), ["PILLAR 13,65,5"])), walk,
-                 (False, False, False))]
-        for name, dug, w, want in rows:
+        boxes = [(LO, HI), self.SECOND]
+        out, inside = (30, 64, 5), (5, 64, 5)
+        rows = [("a walk with a route: the legs as they are", {"found": True, "steps": []}, out, out, None),
+                ("must fail: no route, both ends outside: explicit steps, not a jar dig", {"found": False}, (20, 64, 5),
+                 out, "dig"),
+                ("no route, the body in the home: by its door", {"found": False}, inside, out, "door"),
+                ("no route, the end in the second box: by its door", {"found": False}, out, (13, 65, 5), "door"),
+                ("the rock between the boxes is no home: steps", {"found": False}, (11, 65, 5), out, "dig"),
+                ("no answer at all: the legs as they are", None, out, out, None)]
+        for name, walk, here, pos, want in rows:
             with self.subTest(name):
-                self.assertEqual(self.flags(dug, w), want)
-        # no walk that digs nothing and the body in the home: by its door — and said (live: 'nav' with no reason)
-        said = []
-        with mock.patch.object(api, "detail", lambda *p: said.append(" ".join(map(str, p)))):
-            self.assertEqual(self.flags(self.route(((8, 64, 5), ["MINE 9,64,5"])), {"found": False}, here=(5, 64, 5)),
-                             (False, False, True))
-        self.assertTrue(any("through the home" in l and "by the home's door" in l for l in said), said)
+                self.assertEqual(nav.way_kind(walk, boxes, here, pos), want)
         between = memory.Protected((), [(LO, HI), self.SECOND])
         self.assertNotIn((11, 65, 5), between)          # rock between the boxes: not the home's
 
-    def test_doors_and_home_both(self):
-        """A walk's avoid: a taught door's cells (mechanisms, pressed not dug); a press in the home is no break."""
-        door = (5, 64, 10)
-        got = nav.avoid_fields(memory.Protected((), [(LO, HI)]) | {door}, (5, 64, 12))
-        cells = {(c["x"], c["y"], c["z"]) for c in got["avoid"]}
-        self.assertIn(door, cells, "must fail: the door dug")
+    def test_a_press_is_no_break(self):
         press = {"type": "use", "x": 5, "y": 65, "z": 9}
         self.assertIsNone(memory.home_refusal(press, [{"boxes": [[list(LO), list(HI)]]}], set()),
                           "must fail: pressing a button in the home refused as a break")
 
 
-class AnApproachDigsNoHome(unittest.TestCase):
-    """nav.dress (api.DRESS): a mine/place/use whose target lies near a home carries the home's cells there in its
-    avoid — the jar's own approach names no cell (10:40: coal beside the tunnel, 2 cells sent, 5 shell blocks dug);
-    with no walk that digs nothing to it, the walk leg first."""
-
-    def dress(self, walk, task):
-        walked = []
-        nav._APPROACH.clear()
-        with mock.patch.object(nav, "_plan_reply", lambda cell, brk, plc, r, *a: walk), \
-                mock.patch.object(nav, "go_to", lambda cell, policy, **k: walked.append(cell)):
-            got = nav.dress(task, nav.Policy(protected=memory.Protected((), [(LO, HI)])))
-        return {(c["x"], c["y"], c["z"]) for c in got.get("avoid", [])}, walked
-
-    def test_rows(self):
-        coal, wall = {"type": "mine", "x": 12, "y": 64, "z": 5}, (9, 64, 5)
-        walk = {"found": True, "steps": []}
-        avoid, walked = self.dress(walk, coal)
-        # must fail: coal beside the home posted with its approach free to dig the wall
-        self.assertIn(wall, avoid)
-        self.assertEqual(walked, [])
-        far = {"type": "mine", "x": HI[0] + nav.AVOID_CUBE_R + 1, "y": 64, "z": 5}
-        self.assertFalse({c for c in self.dress(walk, far)[0] if memory.in_box((LO, HI), c)})   # far off: none
-        avoid, walked = self.dress({"found": False}, coal)
-        self.assertEqual((wall in avoid, walked), (True, [(12, 64, 5)]))    # no walk to it: the walk leg first
-        self.assertEqual(self.dress(walk, {"type": "travel", "x": 12, "y": 64, "z": 5}), (set(), []))
-
+class EveryBreakIsGuarded(unittest.TestCase):
     def test_every_breaking_task_is_guarded(self):
         # a batch (mine_many) is single mine tasks through api.post: one home cell among them refused at the door
         from bonobo import brain

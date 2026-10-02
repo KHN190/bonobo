@@ -37,7 +37,7 @@ class NotedNotScanned(unittest.TestCase):
                         mock.patch.object(gather, "find", find), mock.patch.object(gather, "seek_hits", stop), \
                         mock.patch.object(gather, "require_pickaxe", lambda t: None), \
                         mock.patch.object(gather, "Inventory", lambda: type("I", (), {"count": lambda s, t: 0})()), \
-                        mock.patch.object(gather.nav, "mod_features", lambda: {"approach_dig", "travel"}):
+                        mock.patch.object(gather.nav, "mod_features", lambda: {"travel"}):
                     gen = gather.mine.__wrapped__(ctx, "minecraft:diamond", 1, ["diamond_ore"], 2)
                     with self.assertRaises(Stop):
                         for _ in gen:

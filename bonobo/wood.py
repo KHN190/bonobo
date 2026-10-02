@@ -6,7 +6,6 @@ from . import api, nav
 from .api import McError, NotAvailable, log
 from .data import GROUPS
 from .explore import seek_blocks
-from .knowledge import CHOP_AXE_S
 from .skill import skill
 from .skillcore import feet, gained, settle
 from .world import Inventory, find
@@ -39,7 +38,7 @@ def pick_trunks(logs):
             trunks.append([t])
     return trunks
 
-@skill(gives=K.GIVES_GATHER, needs={}, speed={"axe": CHOP_AXE_S}, start=lambda c: Inventory().count("log"), done=lambda c: Inventory().count("log") >= c.base + c.args[1],
+@skill(gives=K.GIVES_GATHER, needs={}, start=lambda c: Inventory().count("log"), done=lambda c: Inventory().count("log") >= c.base + c.args[1],
        budget=600, stall=90, units=lambda c: c.args[1], key=lambda c: "chop",
        provides={"item:log": lambda ctx, s: (s.count,)}, fills_bag=lambda c: GROUPS["log"])
 def chop(ctx, n):
@@ -75,13 +74,14 @@ def chop(ctx, n):
             # get to the trunk with the navigator first (the walker can't climb or tunnel), then chop within reach
             if not nav.arrived((base["x"], base["y"], base["z"]), ctx.policy, range_=2, attempts=2):
                 # the walker giving up is not "no way": the game's pathfinder decides whether digging or bridging gets there
-                if nav.way_to(ctx, [(base["x"], base["y"], base["z"])], range_=2.0):
+                if nav.way_to(ctx, [(base["x"], base["y"], base["z"])]):
                     pass                         # a way was made and checked: chop from where we now stand
                 elif not nav.reachable((base["x"], base["y"], base["z"]), ctx.policy, 2.0)[0]:
                     for t in trunk:   # genuinely no way in: never mine_many a trunk we cannot get to
                         ctx.ban((t["x"], t["y"], t["z"]))
                     # One failure ends the skill; the brain's retry policy decides (the ban changes its state).
-                    raise api.NavFailed(f"no way to the tree at {(base['x'], base['y'], base['z'])}")
+                    raise api.NavFailed(f"no way to the tree at {(base['x'], base['y'], base['z'])}",
+                                        pos=(base["x"], base["y"], base["z"]))
         before = Inventory().count("log")
         base_pos = (base["x"], base["y"], base["z"])
         # base log from outside, then stand in its cell and take the logs overhead: every face above the eye, no approach search

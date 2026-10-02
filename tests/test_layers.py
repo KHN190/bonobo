@@ -68,7 +68,7 @@ CLOSURE = {
     "loot": 17,
     "mechanisms": 14,        # taught doors: the store, the press skill
     "memory": 4,
-    "nav": 12,
+    "nav": 13,               # + knowledge (data-only facts): plan_way prices its breaks (break_ticks, tool_for)
     "nether": 18,
     "paths": 1,
     "perception": 23,

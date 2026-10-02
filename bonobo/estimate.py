@@ -175,6 +175,34 @@ def fight_cost(here, hazards, sword, prot, speed=None):
         pos = hazard[0]
     return round(seconds, 2), round(lost, 2)
 
+def loss_q(mean_hp, hit_hp, q=None):
+    """Pure: the `q` quantile (engage.fight_line_q) of the health a fight takes — its hits a Poisson count of mean
+    mean_hp / hit_hp, each `hit_hp`: the spread around fight_cost's mean, in the one place the fight is priced."""
+    q = float(ENGAGE["fight_line_q"] if q is None else q)
+    if mean_hp <= 0 or hit_hp <= 0:
+        return 0.0
+    lam = mean_hp / hit_hp
+    n, p = 0, math.exp(-lam)
+    total = p
+    while total < q:
+        n += 1
+        p *= lam / n
+        total += p
+    return n * hit_hp
+
+def fight_loss(kinds, sword, prot):
+    """(mean health lost, the hardest hit) of fighting one each of `kinds` from melee reach: fight_cost's own rows."""
+    rows = [row((float(PLAYER["melee_reach"]), 0.0, 0.0), float(MOBS[k]["reach"]), (0.0, 0.0, 0.0), k)
+            for k in kinds if k in MOBS]
+    if not rows:
+        return 0.0, 0.0
+    _s, lost = fight_cost((0.0, 0.0, 0.0), rows, sword, prot)
+    return lost, max(float(MOBS[r[3]]["attack"]) * (1.0 - prot) for r in rows)
+
+def fight_line_ok(hp, floor, mean_hp, hit_hp, q=None):
+    """Pure (S5): an optional fight starts only when the health above `floor` covers its loss's `q` quantile."""
+    return hp - floor >= loss_q(mean_hp, hit_hp, q)
+
 def state_price_s(model, state):
     """The fifth quantity: seconds the future costs from `state`, according to the model that owns it."""
 

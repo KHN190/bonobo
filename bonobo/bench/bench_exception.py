@@ -2,11 +2,30 @@
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
 from ..explore import SEEK_RANGE, TRAVEL_RANGE
-from .core import ORIGIN
+from .core import KEPT_HP, ORIGIN
 
 FAMILIES = [
     ('lava_strip', [('cross_lava_3', 3, 22), ('cross_lava_lake', 12, 25)]),
-    ('base', [('eat', 'underwater'), ('hunt', 'pillar'), ('craft', 'cliff_edge'), ('smelt', 'nether'), ('sleep', 'rain'),
+    # design-bc §13: the way planner (R1-R3), the tool by the work (R4 and its twin)
+    ('way', [('stairs_under_sand', 'stairs_under_sand',
+              'iron 6 below, sand over the third step, a stone pickaxe → the iron; dug top-down, no sand on the head',
+              ('skill', 'mine', 'minecraft:raw_iron', 1, ['iron_ore'], 1),
+              ('all', ('!gain', 'minecraft:raw_iron', 1), ('!alive', KEPT_HP), ('!call', 'head_clear', []))),
+             ('exposed_over_buried', 'exposed_over_buried',
+              'a buried iron 3 off, an exposed one 6 off → the exposed one (the buried cell still iron)',
+              ('skill', 'mine', 'minecraft:raw_iron', 1, ['iron_ore'], 1),
+              ('all', ('!gain', 'minecraft:raw_iron', 1), ('!blocks', ('@', 3, -2, 0), ('@', 3, -2, 0), ('iron_ore',), 1))),
+             ('vein_behind_home', 'vein_behind_home',
+              'iron behind a home wall across the arena → no way, refused: nothing of the home dug, no walk tried',
+              ('skill', 'mine', 'minecraft:raw_iron', 1, ['iron_ore'], 1),
+              ('all', ('!unchanged', ('@', 2, 0, -8), ('@', 4, 4, 8), []), ('!same_bag',)),
+              (), 'home|no way|unreachable|not reachable', [('home_box', ('@', 2, 0, -8), ('@', 4, 4, 8))])]),
+    # S6: the player's hold stops every reflex (the clutch among them); its twin: the agent driving, the clutch runs
+    ('fall', [('takeover_no_clutch', True), ('clutch_breaks_the_fall', False)]),
+    ('dirt_tool', [('shovel_for_dirt', True, 'a dirt patch, a shovel\'s parts carried, dirt wanted past break-even → a '
+                    'wooden shovel made first'),
+                   ('no_shovel_for_dirt', False, 'the same, dirt wanted under break-even → dug by hand, no shovel (must not)')]),
+    ('base', [('nav', None, 'sealed_target'), ('sleep', 'dark_open'), ('sleep', 'sealed_pod'), ('eat', 'underwater'), ('hunt', 'pillar'), ('craft', 'cliff_edge'), ('smelt', 'nether'), ('sleep', 'rain'),
          ('chop', 'pickup_lag'), ('mine_iron', 'pickup_lag'), ('hunt', 'pickup_lag'), ('craft', 'inventory_lag'),
          ('eat', 'inventory_lag'), ('smelt', 'interrupt_twice'), ('loot', 'interrupt_at_success'), ('nav', 'contested'),
          ('nav', 'player_takeover'), ('nav', 'buried_by_sand'), ('mine_stone', 'buried_by_sand'),
@@ -15,7 +34,7 @@ FAMILIES = [
          ('hunt', 'valuables_full'), ('loot', 'valuables_full'), ('mine_iron', 'tool_one_use'),
          ('mine_iron', 'wrong_tool'), ('craft', 'goal_met'), ('smelt', 'goal_met'),
          ('chop', None, 'leaves_block_trunk'), ('chop', None, 'floating_logs'), ('loot', None, 'empty_chest'),
-         ('sleep', None, 'bed_obstructed'), ('nav', None, 'nav_sealed_in'), ('craft', None, 'craft_short_of_planks'),
+         ('nav', None, 'nav_sealed_in'), ('craft', None, 'craft_short_of_planks'),
          ('smelt', None, 'smelt_without_fuel'), ('eat', None, 'eat_with_nothing'),
          ('mine_iron', None, 'lava_under_ore'), ('mine_stone', None, 'falling_gravel'),
          ('nav', None, 'start_cell_on_a_fence'), ('nav', None, 'start_cell_in_a_nook')]),
@@ -151,6 +170,36 @@ FAMILIES = [
          ('place_cobblestone_facing_ignored', 'minecraft:cobblestone', 'north', None, 'exception')]),
 ]
 ROWS = [
+    # E1/E3 (V4): a drop no walk reaches is left — the jar's approach never digs nor builds to it
+    dict(name='collect_unreachable_drop', module='skills',
+         doc='A diamond on a 3-high stone pillar, no walk up → the collect fails, the pillar standing, the drop there',
+         scene=[('floor',), ('fill', ('@', 3, 0, 0), ('@', 3, 2, 0), 'stone'), ('stand',), ('cmd', 'clear @p'),
+                ('give', 'stone_pickaxe'), ('give', 'cobblestone', 16),
+                ('summon', 'item', ('@', 3, 3, 0), '{Item:{id:"minecraft:diamond",count:1},PickupDelay:0}')],
+         run=('expect_failure', 'collect_unreachable_drop',
+              ('!do', 'bonobo.api.run', [{'type': 'collect', 'radius': 6}],
+               {'awaits': 'the drop out of every walk: refused', 'wait': 20}), 'reach|path|failed|picking'),
+         check=[('unchanged', ('@', 3, 0, 0), ('@', 3, 2, 0), []), ('mobs_near', 'minecraft:item', 1)], budget=25,
+         skills=['travel_to']),
+    # S3: inside the home only a table, furnace, chest, bed or light is placed
+    dict(name='home_place_refused', module='skills',
+         doc='A home box, cobblestone asked into a cell inside it → refused (home), the cell still air',
+         scene=[('floor',), ('at', 'fill {0} {1} stone hollow', ('@', 2, 0, -2), ('@', 6, 3, 2)), ('stand',),
+                ('cmd', 'clear @p'), ('give', 'cobblestone', 4)],
+         before=[('home_box', ('@', 2, 0, -2), ('@', 6, 3, 2))],
+         run=('expect_failure', 'home_place_refused', ('!place_into', ('@', 4, 0, 0), 'minecraft:cobblestone'), 'home'),
+         check=[('blocks', ('@', 4, 0, 0), ('@', 4, 0, 0), ('cobblestone',), 0, 0)], budget=25, skills=[]),
+    # S1: a rescue past its bound turns to the next way (drowning: cover) and lives — a reason alone drowns
+    dict(name='drowning_sealed_pit', module='brain',
+         doc=('A flooded shaft capped with bedrock, little air → surfacing spent, the recovery turns to cover and the '
+              'body lives'),
+         scene=[('tank', -1, 1, -1, 1, 3, None, -4, 'stone'), ('fill', ('@', -1, -3, -1), ('@', 1, 3, 1), 'water'),
+                ('fill', ('@', -4, 4, -4), ('@', 4, 4, 4), 'bedrock'), ('stand', 0, -3), ('give', 'stone_pickaxe'),
+                ('give', 'cobblestone', 32)],
+         run=('brain_rounds', 22, ('!now_api', ('!state', 'dead'))),
+         before=[('start', 'drowning_sealed_pit'), ('&drowning_first',)],
+         check=[('alive', KEPT_HP)], budget=25, point='B', skills=['reach:air'],
+         tags={'base': 'l0', 'hazard': 'drowning'}),
     dict(name='cast_portal', module='building',
          doc=('A 3×3 lava pool beside the body; water bucket, bucket, 16 cobblestone, flint and steel → a portal frame '
               'cast in place and lit (no obsidian carried, no diamond pickaxe).'),
@@ -568,6 +617,10 @@ CODE_ROWS = [
             lambda ctx: _skill("repair_tool")(ctx, "pickaxe"),
             lambda api, inv: inv.count("minecraft:stone_pickaxe") == 1 and any(
                 s_["id"] == "minecraft:stone_pickaxe" and s_.get("damage", 999) < 100 for s_ in inv.slots), 20),
+    one_row("look_in_chest", ["look_in"], "an unopened chest of iron beside the body → what it holds noted, nothing moved",
+            [("floor",), ("chest", ("@", 2, 0, 0), "iron_ingot 9"), ("stand",)],
+            lambda ctx: _skill("look_in")(ctx, at(2, 0, 0)),
+            _container_noted(2, 0, 0, "minecraft:iron_ingot", 9), limit()),
     one_row("anvil_repair_pickaxe", ["repair"], "an anvil, a worn diamond pickaxe, diamonds, levels → repaired",
             [("floor",), ("setblock", ("@", 2, 0, 0), "anvil"), ("stand",), ("give", "diamond_pickaxe[damage=1200]"),
              ("give", "diamond", 2), ("cmd", "experience add @p 20 levels")],

@@ -18,7 +18,7 @@ class OfferDuringALiveEngagement(unittest.TestCase):
         hold = threading.Event()
         th = threading.Thread(target=hold.wait, daemon=True)
         th.start()
-        intent = arbiter.Intent("tactic", lambda: None, "threat:evade")
+        intent = arbiter.Intent("tactic", lambda: None, "threat:evade", key="threat:evade")
         saved = (st.thread, st.intent, st.want, body.lease)
         # the engagement over and threats still seen: release reaches bid
         release = lambda: fight_loop.lease_done({"x": 0, "y": 64, "z": 0}, [{"id": 1}], None)   # noqa: E731

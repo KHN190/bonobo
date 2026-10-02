@@ -26,7 +26,7 @@ def stored_left(st, c):
 
 # -- base life
 
-@skill(gives=["state:room"], remaining=_k.slots_free(FREE_SLOTS_TARGET), needs={}, speed={}, start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
+@skill(gives=["state:room"], remaining=_k.slots_free(FREE_SLOTS_TARGET), needs={}, start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
        budget=60, stall=30, provides={"room:tidy": lambda ctx, s: ()})
 def tidy_inventory(ctx):
     """Free slots with no chest: drop the least valuable stacks to FREE_SLOTS_TARGET, then step away so they aren't picked back up."""
@@ -105,7 +105,7 @@ def _has_something_to_store(c):
     if not store_plan(Inventory().slots):
         raise NotAvailable("nothing worth storing")
 
-@skill(gives=["state:stored"], remaining=lambda st, c: stored_left(st, c), needs={}, speed={}, pre=[_has_something_to_store], start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
+@skill(gives=["state:stored"], remaining=lambda st, c: stored_left(st, c), needs={}, pre=[_has_something_to_store], start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
        budget=600, stall=90, provides={"room:deposit": lambda ctx, s: ()})
 def deposit(ctx, local_only=False):
     """Store everything beyond the keep list in a site chest within 96 blocks, else in a cache chest placed here (a new site)."""
@@ -147,6 +147,7 @@ def deposit(ctx, local_only=False):
         raise McError("could not open the home chest")
     try:
         # container view slot numbers differ from inventory indices: match by owner and index
+        ctx.mem.saw_container(c, world.container()["slots"])
         view = {s["index"]: s for s in world.container()["slots"] if s["owner"] == "player"}
         for s in moving:
             v = view.get(s["slot"])
@@ -160,7 +161,7 @@ def deposit(ctx, local_only=False):
     if after >= before:
         raise NotAvailable("home chest full or nothing moved")
 
-@skill(gives=["state:withdrawn"], remaining=_k.more_than_at_start(lambda c: c.args[1], lambda c: c.args[2]), needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
+@skill(gives=["state:withdrawn"], remaining=_k.more_than_at_start(lambda c: c.args[1], lambda c: c.args[2]), needs={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
        budget=180, stall=60,
        provides={"withdraw": lambda ctx, s: (s.token, s.count, tuple(s.detail["pos"]))})
 def withdraw(ctx, item, count, pos):
@@ -173,6 +174,7 @@ def withdraw(ctx, item, count, pos):
         raise NotAvailable(f"the container at {pos} did not open")
     left = int(count)
     try:
+        ctx.mem.saw_container(pos, world.container()["slots"])
         for s in world.container()["slots"]:
             if left <= 0:
                 break
@@ -186,6 +188,25 @@ def withdraw(ctx, item, count, pos):
         raise NotAvailable(f"no {bare(item)} left in the container at {pos}")
     log(f"took {int(count) - max(0, left)}× {bare(item)} from the container at {pos}")
 
+@skill(gives=["state:looked"], remaining=_k.container_known(lambda c: c.args[1]), needs={},
+       verify=lambda c: c.args[0].mem.container_record(c.args[1]) is not None, budget=120, stall=60,
+       provides={"look": lambda ctx, s: (tuple(s.detail["pos"]),)})
+def look_in(ctx, pos):
+    """Open the container at `pos`, note what it holds, close it: nothing moved (decompose's look, D1)."""
+
+    nav.arrive(pos, ctx.policy, range_=3)
+    r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=30, awaits="the container's slots read")
+    if not opened(r):
+        ctx.mem.forget_container(pos)
+        raise NotAvailable(f"the container at {pos} did not open")
+    try:
+        slots = world.container()["slots"]
+        ctx.mem.saw_container(pos, slots)
+        ctx.mem.note_container(pos, ctx.dimension, slots)
+    finally:
+        api.post("/close")
+    log(f"looked in the container at {pos}")
+
 def _site_missing(site):
     """How many blocks of a site's structure snapshot the world no longer shows (0 without a snapshot)."""
     snap = site.get("snapshot")
@@ -198,7 +219,7 @@ def _site_named(ctx, step):
     site = next((x for x in ctx.mem.sites() if x.get("name") == step.detail.get("site", step.token)), None)
     return (site,) if site is not None else None
 
-@skill(gives=["state:site_whole"], remaining=_k.structure(lambda c: {tuple(int(v) for v in k.split(",")): b for k, b in c.args[1]["snapshot"]["blocks"].items()}), needs={}, speed={}, verify=lambda c: _site_missing(c.args[1]) == 0, budget=600, stall=90, provides={"repair:site": _site_named})
+@skill(gives=["state:site_whole"], remaining=_k.structure(lambda c: {tuple(int(v) for v in k.split(",")): b for k, b in c.args[1]["snapshot"]["blocks"].items()}), needs={}, verify=lambda c: _site_missing(c.args[1]) == 0, budget=600, stall=90, provides={"repair:site": _site_named})
 def repair_site(ctx, site):
     """Rebuild missing blocks (and doors) of a site from its structure snapshot."""
     snap = site.get("snapshot")

@@ -12,7 +12,7 @@ from .api import McError, NotAvailable, log
 from . import bag
 from .bag import bag_signature
 from .cost import Cost
-from .decompose import cooled_ways, night_facts, way_key  # noqa: F401
+from .decompose import cooled_ways, night_facts, night_left_s, way_key  # noqa: F401
 if TYPE_CHECKING:
     from .shapes import BagState, CraftTask
 from .data import DAY_END, NIGHT_WORK, TOOL_KINDS, memo_ttl, mid, FOOD, NUTRITION, DAY_TICKS
@@ -44,10 +44,38 @@ def dusk_s(snap):
     t = int(snap.time) % DAY_TICKS
     return max(0.0, (DAY_END - t) / 20.0) if t < DAY_END else 0.0
 
+def cover(ctx, state):
+    """The cheapest shelter that can run here now — every skill providing a "shelter:" way, priced by the one cost
+    model — run: a hazard's last way (hazard.RECOVERY) when its own way out is spent."""
+    from .planner import Step
+    from .world import Snapshot
+    from . import skill as skillkit
+    cost = Cost(Snapshot.from_readings(state, Inventory()), getattr(ctx, "mem", None))
+    ways = []
+    for c in skillkit.REGISTRY.values():
+        for effect in c.provides:
+            if effect.startswith("shelter:"):
+                step = Step("shelter", effect.split(":", 1)[1], 1)
+                args = c.provides[effect](ctx, step)
+                if args is not None and skillkit.can_run(c.runner, ctx, *args)[0]:
+                    ways.append((cost.estimate(step), c.runner, tuple(args)))
+    if not ways:
+        raise NotAvailable("no shelter can be made here")
+    _s, runner, args = min(ways, key=lambda w: w[0])
+    runner(ctx, *args)
+
 def overnight(inv, cost, facts=None, bed_too=True):
-    """How to get through a night, by price: (choice, seconds, steps); (None, inf, []) when there is none."""
+    """How to get through a night, by price: (choice, seconds, steps); (None, inf, []) when there is none. The bed
+    ways (a carried bed — the sleep row's: a room, light, the gate, taken back — or the home's bed a walk reaches,
+    its open walk priced with the night's risk) against making a bed or a shelter waited in (the night ahead and a
+    sheltered night's risk: night_facts): the cheapest. A shelter is never paired with a sleep."""
 
     bed = []
+
+    def carried():
+        if not (bed_too and inv.count("bed") > 0):
+            raise Unplannable("no bed carried")
+        return []
 
     def bed_plan():
         if not bed_too:
@@ -55,14 +83,20 @@ def overnight(inv, cost, facts=None, bed_too=True):
         bed[:] = decompose.decompose(inv, goals.have(("bed", 1)), cost)
         return bed
 
-    try:
-        steps, way = decompose.cheapest("overnight", 1, bed_plan, inv, cost, facts=facts)
-    except Unplannable as e:
-        log(f"upkeep: no way through the night ({e})")
+    best = None
+    for key, default in (("overnight bed", carried), ("overnight", bed_plan)):
+        try:
+            steps, way, seconds = decompose.cheapest(key, 1, default, inv, cost, facts=facts, priced=True)
+        except Unplannable as e:
+            log(f"upkeep: no {key} way ({e})")
+            continue
+        if steps is None:
+            steps, way = (bed, "bed") if key == "overnight" else ([], "bed")
+        if best is None or seconds < best[0]:
+            best = (seconds, way, steps)
+    if best is None:
         return None, math.inf, []
-    if steps is None:
-        steps, way = bed, "bed"
-    return way, cost.plan_s(steps), steps
+    return best[1], cost.plan_s(best[2]), best[2]
 
 def due_now(left_s, plan_s, known, at_threshold):
     """Pure: is it time to start getting something?"""
@@ -165,7 +199,8 @@ class Needs:
             self.need("night prep", goals.have(("bed", 1)), "a bed skips the night")
         # the night's way from here: the shelter reflex runs it when its parts are carried, else its parts are this round's need
         night_way = _once(None, "night_way", lambda: self.overnight(
-            snap, night_facts(soft_ground(), cooled_ways(b.ready), dig_site()), bed_too=False))
+            snap, night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), night_left_s=night_left_s(snap)),
+            bed_too=False))
         shelter_due = _once(None, "shelter_due", lambda: over and snap.night and not bed_tonight()
                             and not b.reflexes.sheltered(snap, enclosed))
         if shelter_due():
@@ -213,7 +248,7 @@ class Needs:
         if way == "bed":
             self.need("night prep", goals.have(("bed", 1)), "dark before a bed could be made")
             return
-        src = next(s for s in decompose.SOURCES["overnight"] if s["name"] == way)
+        src = next(s for k in ("overnight bed", "overnight") for s in decompose.SOURCES[k] if s["name"] == way)
         if any(st.kind != "shelter" for st in steps):
             self.need("night prep", goals.have(*src["needs"]), f"dark before {way} could be had")
 
@@ -287,7 +322,7 @@ def repair_commands(state: "BagState", args) -> "list[CraftTask]":
         raise NotAvailable(f"no two {kind}s of the same kind worth combining")
     return [{"type": "craft", "pattern": [pair[0], pair[0], None, None], "count": 1}]
 
-@skill(gives=["state:tool_combined"], remaining=_k.fewer_tools(_kind_of), needs={}, speed={}, start=lambda c: _tools_of(_kind_of(c)), verify=lambda c: _tools_of(_kind_of(c)) < c.base,
+@skill(gives=["state:tool_combined"], remaining=_k.fewer_tools(_kind_of), needs={}, start=lambda c: _tools_of(_kind_of(c)), verify=lambda c: _tools_of(_kind_of(c)) < c.base,
        commands=lambda state, args: repair_commands(state, args),
        budget=60, stall=30, prefer=1,
        provides={"repair": lambda ctx, s: (s.token,) if repair_pair(Inventory().slots, s.token) else None})

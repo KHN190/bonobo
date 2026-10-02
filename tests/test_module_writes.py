@@ -113,7 +113,7 @@ class ModuleWrites(unittest.TestCase):
              [(2, "bonobo.api", "INTERRUPT")]),
             ("must fail: a plain write to a name api never declared", "from ... import api\napi.NOPE = 1\n",
              [(2, "bonobo.api", "NOPE")]),
-            ("a declared hook is fine", "from ... import api\napi.DRESS = None\n", []),
+            ("a declared hook is fine", "from ... import api\napi.GATE = None\n", []),
             ("a write to a local object is not a module's", "x = object()\nx.INTERRUPT = 1\n", [])]
 
     def test_rows(self):

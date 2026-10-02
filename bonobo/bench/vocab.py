@@ -42,13 +42,14 @@ from .runner import *        # noqa: F403
 from .runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
 from .bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
-from .words import brain, checks, door, fight, runs, scene as _scene_words
+from .words import brain, checks, door, fight, runs, ways, scene as _scene_words
 from .words.scene import *  # noqa: F401,F403
 from .words.checks import *  # noqa: F401,F403
 from .words.runs import *  # noqa: F401,F403
 from .words.fight import *  # noqa: F401,F403
 from .words.brain import *  # noqa: F401,F403
 from .words.door import *  # noqa: F401,F403
+from .words.ways import *  # noqa: F401,F403
 
 _BEFORE = set(globals())
 # real structures in the test world (seed 1234): no box; /locate gives the truth
@@ -480,7 +481,7 @@ TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
 COMBAT_PREFIXES = ("fight_", "combat_arena", "siege__", "escape__", "fight_before_upkeep", "combat__")
 
 # fights whose names say otherwise; resume_after_combat left out on purpose
-COMBAT_ROWS = ("collect_blaze_rods", "ghast_fireball")
+COMBAT_ROWS = ("collect_blaze_rods", "ghast_fireball", "hunt_hurt_spider")
 
 # the chain's first slice is common, not core: core is what every change can afford
 CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
@@ -490,7 +491,7 @@ COMMON_CONDITIONS = ("night", "canopy", "cave", "full_bag", "interrupt_mid_work"
 
 # upkeep's rows and point-B hazards are everyday: common
 COMMON = ("dig_in_night", "reach_land_swim", "chest_or_tree", "cross_lava_8", "cave_escape",
-          "slice_nether_kit")
+          "slice_nether_kit", "ore_buried", "hand_spare_slot", "furnace_on_slab")
 
 ACCEPTANCE = (ACCEPTANCE_D,)
 
@@ -585,7 +586,8 @@ def base_row(name, base, cond=None, surprise=None):
     x = SURPRISES[surprise] if isinstance(surprise, str) else surprise or {}     # a one-off row: its own surprise
     scene = list(x["scene"]) if x.get("replace_setup") else b["scene"] + c.get("scene", []) + x.get("scene", [])
     hooks: list[tuple]
-    run, check, hooks = x.get("run", b["run"]), x.get("check", b["check"]), [("start", name)]
+    run, hooks = x.get("run", b["run"]), [("start", name)]
+    check = x.get("check") or c.get("check_for", {}).get(base) or b["check"]
     fails = x.get("fails", c.get("fails"))
     scene += c.get("scene_for", {}).get(base, [])
     hooks += [h for h in (b.get("pre"), x.get("before"), c.get("before")) if h]
@@ -626,13 +628,14 @@ def base_row(name, base, cond=None, surprise=None):
     row = {"name": name, "doc": f"{b['doc']} — {x.get('doc') or c.get('doc', 'as is')}", "module": "skills",
            "scene": scene, "before": hooks, "run": run, "check": items(check),
            **({"target_s": target} if target else {}),
-           "budget": min(ROW_LIMIT_S, b["budget"] * (2 if c.get("tick_rate", 20) < 20 else 1)),
+           "budget": (ways.EST[c["est"]]() if c.get("est")
+                      else min(ROW_LIMIT_S, b["budget"] * (2 if c.get("tick_rate", 20) < 20 else 1))),
            "skills": list(b["skills"]), "point": x.get("point", b.get("point", "A")),
            "tags": {"base": base, **({c["axis"]: cond} if c else {}), **({"surprise": name} if x else {})}}
     if fails:
         row["fails"] = fails
-    if "kit" in c:
-        row["kit"] = list(c["kit"])          # the tool is what the condition tests
+    if "kit" in c or "kit" in x:
+        row["kit"] = list(x.get("kit", c.get("kit", [])))          # the tool is what the condition/surprise tests
     for key in ("tick_rate", "dimension"):
         if c.get(key) or x.get(key) or b.get(key):
             row[key] = x.get(key) or c.get(key) or b.get(key)
@@ -706,8 +709,9 @@ def start_row(name, what, start_scene, stand):
 TEMPLATES = {t: globals()[f"{t}_row"] for t in ("base", "one", "real", "place", "start", "lava_strip")}
 NAMES = {"base": lambda base, cond=None, surprise=None: surprise or f"{base}__{cond or 'base'}",
          **{t: (lambda name, *p: name) for t in ("one", "real", "place", "start", "lava_strip")}}
-NAMED = {"arena", "fight_cell", "deflect", "one", "real", "place", "start", "brain", "dirt", "door", "lava_strip"}  # templates whose first parameter is only the row's name
-WORD_MODULES = (_scene_words, checks, runs, fight, brain, door)
+NAMED = {"arena", "fight_cell", "deflect", "line", "fall", "one", "real", "place", "start", "brain", "dirt", "door", "lava_strip",
+         "way", "dirt_tool", "home_night"}  # templates whose first parameter is only the row's name
+WORD_MODULES = (_scene_words, checks, runs, fight, brain, door, ways)
 
 
 def merged(tables, what):
@@ -721,8 +725,8 @@ def merged(tables, what):
     return out
 
 
-TEMPLATES = merged([fight.TEMPLATES, brain.TEMPLATES, door.TEMPLATES, TEMPLATES], "templates")
-NAMES = merged([fight.NAMES, brain.NAMES, door.NAMES, NAMES], "template names")
+TEMPLATES = merged([fight.TEMPLATES, brain.TEMPLATES, door.TEMPLATES, ways.TEMPLATES, TEMPLATES], "templates")
+NAMES = merged([fight.NAMES, brain.NAMES, door.NAMES, ways.NAMES, NAMES], "template names")
 _OWN = set(globals()) - _BEFORE - {"TEMPLATES", "NAMES", "NAMED", "WORD_MODULES", "merged", "_BEFORE"}
 merged([dict.fromkeys(m.__all__) for m in WORD_MODULES] + [dict.fromkeys(_OWN)], "words")    # one home each
 # pyright's view of the words: a static __all__ it can follow; at run time every name here is a word (below)

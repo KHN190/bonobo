@@ -7,9 +7,9 @@ from typing import Any
 
 from .api import McError
 from .data import GROUPS, MATERIAL_TOKEN, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
-from .beliefs import CONFIG, fights_back
+from .beliefs import CONFIG, TICKS_PER_S, fights_back
 from .knowledge import (prior_ticks, COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, TAKEABLE, TOOL_MIN_DURABILITY,
-                        have_remainder, members, needs_rows, source, step_call)
+                        have_remainder, members, needs_rows, own_work, source, step_call, tool_kind, work_s)
 
 MAX_DEPTH = 14
 
@@ -176,9 +176,10 @@ class Planner:
         return 0
 
     def before(self, step, depth):
-        """Before a step is added: plan its skill's needs for the call (tools first, kept not used up), then worthwhile speed tools."""
+        """Before a step is added: plan its skill's needs for the call (tools first, kept not used up), then the tools
+        its work pays for."""
 
-        needs, speed = step_call(step)
+        needs = step_call(step)
         for dim, n in sorted(needs.items(), key=lambda kv: not kv[0].startswith("tool:")):
             if dim.startswith("tool:"):
                 _, kind, tier = dim.split(":")
@@ -187,28 +188,44 @@ class Planner:
                 short = n - self.inv.available(dim)
                 self.need(dim, short, depth + 1)
                 self.inv.add(dim, short)
-        units = step.detail.get("breaks") or step.detail.get("kills") or step.count
-        self.speed_up(step.kind, speed, units, depth)
+        self.speed_up(step, depth)
 
-    def speed_up(self, kind, speed, units, depth):
-        """Before `units` of `kind` work: make a speed tool when it costs less than it saves, never from the same work (an axe needing the logs)."""
+    def held(self):
+        """{tool kind: the best tier planned or held, with wear left}."""
+        out = {}
+        for k, t, d in self.inv.tools:
+            if d >= TOOL_MIN_DURABILITY and t in TOOL_MATERIAL_FOR_TIER:
+                out[k] = max(out.get(k, t), t)
+        return out
+
+    def speed_up(self, step, depth):
+        """Before a step's work (cost.work_of): the next tier of each tool kind it uses, made when what it saves on
+        that work (knowledge.work_s) beats making it (the probe plan's est) — never from the same work (an axe needing
+        the logs)."""
 
         if self.probing:
             return
-        for tool, saved in speed.items():
-            if self.inv.has_tool(tool, 0, TOOL_MIN_DURABILITY):
+        breaks, kills = self.cost.work_of(step)
+        kinds = {k for k in map(tool_kind, breaks) if k is not None} | ({"sword"} if kills else set())
+        held = self.held()
+        for kind in sorted(kinds):
+            tier = held.get(kind, -1) + 1
+            if tier not in TOOL_MATERIAL_FOR_TIER:
+                continue
+            saved = work_s(breaks, kills, held, TICKS_PER_S) - work_s(breaks, kills, {**held, kind: tier}, TICKS_PER_S)
+            if saved <= 0:
                 continue
             probe = Planner(self.inv.counts, [], self.cost)
             probe.inv.produced = Counter(self.inv.produced)
             probe.probing = True
             try:
-                steps = probe.plan([("tool", tool, 0)])
+                steps = probe.plan([("tool", kind, tier)])
             except Unplannable:
                 continue
-            if any(s.kind == kind for s in steps):
+            if any(s.kind == step.kind for s in steps):
                 continue
-            if saved * units > sum(s.est for s in steps) / 20.0:
-                self.need_tool(tool, 0, depth)
+            if saved > sum(s.est for s in steps) / TICKS_PER_S:
+                self.need_tool(kind, tier, depth)
 
     def need_station(self, block, depth):
         """Stations are required, never consumed: once planned or held, every later step reuses them."""
@@ -372,7 +389,7 @@ def hunts_a_fighter(types):
 def runnable(step, inv):
     """Can this step start from the bag now?"""
 
-    needs, _speed = step_call(step)
+    needs = step_call(step)
     if have_remainder(inv, needs_rows(needs)):
         return False
     return all(inv.count(tok) >= n for tok, n in step.detail.get("inputs", {}).items())
@@ -389,3 +406,7 @@ class NullCost:
     def estimate(self, step):
         """The same prior the real cost model starts from (knowledge.prior_ticks): one table, not a second guess."""
         return prior_ticks(step)
+
+    def work_of(self, step):
+        """A step's own work (knowledge.own_work): offline, nothing in sight to dig to."""
+        return own_work(step)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 import traceback
@@ -37,6 +38,7 @@ class ApiState(lifecycle.State):
     mode: str = "normal"                 # "survival" while a rescue runs
     soft: bool = False                   # a soft skill runs: perception's request stays for it to read, no cut
     last_segment_s: float = 2.0          # how far ahead a watcher must look: a segment's measured length
+    posts: int = 0                       # POSTs sent: a read taken since the last one still describes the world
     feet_seen: "tuple[float, float, float] | None" = None     # the body's place in the last /state read
     dim_seen: "str | None" = None                              # its dimension then
     home_break: "str | None" = None      # a rescue's reason while it may break a home block (home_break_allowed)
@@ -83,7 +85,11 @@ def unexpected(where, err, why):
     return None
 
 class McError(Exception):
-    """Something went wrong carrying out a goal."""
+    """Something went wrong carrying out a goal; `pos`: the target cell it was about (a container, prey, a stand)."""
+
+    def __init__(self, message: object = "", pos=None):
+        super().__init__(message)
+        self.pos = tuple(pos) if pos is not None else None
 
 class GameUnreachable(McError):
     """The game isn't running or is restarting. Wait; never counts as a goal failure."""
@@ -93,10 +99,6 @@ class NotAvailable(McError):
 
 class NavFailed(NotAvailable):
     """The body couldn't get where a skill needed it."""
-
-    def __init__(self, message="", pos=None):
-        super().__init__(message)
-        self.pos = tuple(pos) if pos is not None else None
 
 class TaskStuck(McError):
     """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled."""
@@ -437,6 +439,7 @@ def post(path, body=None):
     if path.startswith(BODY_PATHS):
         if not arbiter.BODY.owns(f"api.post({path.split('?')[0]})"):
             return {"status": "failed", "message": "body owned by the arbiter", "tasks": []}
+    STATE.posts += 1
     return api("POST", path, body or {})
 
 def status():
@@ -514,7 +517,63 @@ def returns(seen):
     return back
 
 HELD_SEEN: dict = {}      # task id → what the hand held at the polls while it was mining (said once, held_seen)
-lifecycle.in_place(__name__, "HELD_SEEN")
+APPROACHED: set = set()   # task ids whose jar approach was seen (R1, said once)
+TRAILS: dict = {}           # attack task id → its target polled while it ran (the fight trail: instrumentation)
+lifecycle.in_place(__name__, "HELD_SEEN", "APPROACHED", "TRAILS")
+TRAIL_RADIUS = 64           # the /entities read a trail sample takes: past it a target reads as gone
+ATTACKING = re.compile(r"attacking entity (-?\d+)")
+
+
+def trail_sample(task, st=None):
+    """One poll of a running attack: its target as /entities lists it (dying ones too) and the body's feet."""
+    m = ATTACKING.match(task.get("doing") or "")
+    if m is None:
+        return
+    try:
+        st = st or get("/state")
+        found = get(f"/entities?radius={TRAIL_RADIUS}").get("entities") or []
+    except McError:
+        return
+    e = next((x for x in found if x.get("id") == int(m.group(1))), None)
+    TRAILS.setdefault(task["id"], []).append({
+        "t": time.time(), "entity": int(m.group(1)), "body": (st.get("x"), st.get("y"), st.get("z")),
+        "seen": e is not None, "pos": e and (e.get("x"), e.get("y"), e.get("z")), "hp": e and e.get("health"),
+        "dist": e and e.get("distance")})
+
+
+def trail_line(task_id, samples, now, radius=TRAIL_RADIUS):
+    """Pure: the fight trail of an attack — its target last seen (pos, hp, distance), how long ago, the body then,
+    and whether it died (hp 0), vanished (unloaded, or out past `radius`) or is still there."""
+    seen = [s for s in samples if s["seen"]]
+    if not samples:
+        return f"   fight trail {task_id}: target never polled"
+    if not seen:
+        return f"   fight trail {task_id}: target {samples[0]['entity']} never seen in {len(samples)} polls " \
+               f"(body {where(samples[-1]['body'])})"
+    last = seen[-1]
+    ago = now - last["t"]
+    if (last["hp"] or 0) <= 0:
+        verdict = "died (hp 0)"
+    elif samples[-1]["seen"]:
+        verdict = "still there"
+    else:
+        verdict = f"vanished ({'out of range' if (last['dist'] or 0) >= radius - 2 else 'unloaded or gone'})"
+    return (f"   fight trail {task_id}: target {last['entity']} last seen {where(last['pos'])} hp {last['hp']} "
+            f"{last['dist']} off, {ago:.1f}s (~{round(ago * 20)} ticks) ago, {len(seen)}/{len(samples)} polls seen, "
+            f"body {where(last['body'])}: {verdict}")
+
+
+def where(p):
+    """Pure: a position as the trail and threat lines print it."""
+    return "?" if p is None else "(" + ", ".join(f"{c:.1f}" for c in p) + ")"
+
+
+def trail_end(r):
+    """An attack ended: its fight trail said, then dropped."""
+    samples = TRAILS.pop(r.get("id"), None)
+    if r.get("type") == "attack" and samples is not None:
+        detail(trail_line(r.get("id"), samples, time.time()))
+
 
 
 def await_task(task_id, wait, exempt=("wait",)):
@@ -526,6 +585,7 @@ def await_task(task_id, wait, exempt=("wait",)):
         r = get(f"/task?id={task_id}&wait=2")
         check_interrupt(began, STATE.soft)
         if r["status"] != "running":
+            trail_end(r)
             return r
         if time.time() - said >= FROZEN_S / 2:
             said = time.time()
@@ -535,6 +595,14 @@ def await_task(task_id, wait, exempt=("wait",)):
             raise TaskStuck(f"{r['type']} exceeded its {wait}s budget: {r['doing']}")
         st = get("/state")
         cur = st["control"]["task"]
+        if cur is not None and cur.get("type") == "attack":
+            trail_sample(cur, st)
+        if cur is not None and cur.get("type") in ("mine", "place", "use") \
+                and (cur.get("doing") or "").startswith("walking to") and cur["id"] not in APPROACHED:
+            APPROACHED.add(cur["id"])          # R1: the gate passed it, the jar still walked (and may dig): said
+            detail(f"!! approach: {cur['type']} task {cur['id']} walked ({cur['doing']}): the stand check disagreed")
+            if ANOMALY is not None:
+                ANOMALY("jar approach", f"{cur['type']}: {cur['doing']}")
         if cur is not None and "mining" in (cur.get("doing") or ""):
             hand = f"{(st.get('mainHand') or {}).get('id', 'minecraft:air')} (slot {st.get('selectedSlot')})"
             if hand not in HELD_SEEN.setdefault(cur["id"], []):
@@ -576,9 +644,35 @@ def vet_aim(task):
         return None          # a failed read or a reading short of a field: best-effort, never breaks the task
     return None
 
-# How a task is dressed before it is posted (brain: nav.with_avoid over the protected cells), or None.
-DRESS = None
-ARM = None       # fn(tasks) → the tasks with the item each holds named (skillcore.arm, wired by brain)
+# The one door every task passes, its steps wired by the brain (None: offline, the task goes as built):
+WALKS = ("travel", "goto")       # never dig nor build (I3): their break/place/voidBridge/useBoat are off at the door
+ARM = None       # fn(tasks) → the tasks with the item each holds named (skillcore.arm)
+GATE = None      # fn(tasks) → fn(done) said after them: each mine/place/use sent only from a stand the jar's own
+#                  check holds, its way walked first (nav.gate, I4); the after-check names any unplanned change (R4)
+HOLD = None      # fn(tasks): the item they name put in the main hand first (skillcore.hold, I2)
+HELD_TYPES = ("mine", "place", "pillar", "attack", "eat", "use_item", "bed_bomb", "interact")
+
+
+def walk_only(task):
+    """Pure: a walk as the door sends it — digging, building, bridging and boats off (I3); any other task as it is."""
+    if task.get("type") not in WALKS:
+        return task
+    return {**task, "break": False, "place": False, "voidBridge": False, "useBoat": False} \
+        if task["type"] == "travel" else {**task, "useBoat": False}
+
+
+def segments(tasks, size):
+    """Pure: `tasks` cut at every change of the item held (I2: one hold per segment; a task naming none rides
+    along), at most `size` each."""
+    out, cur, held = [], [], None
+    for t in tasks:
+        named = t.get("item") if t.get("type") in HELD_TYPES else None
+        if cur and (len(cur) >= size or (named is not None and held is not None and named != held)):
+            out.append(cur)
+            cur, held = [], None
+        cur.append(t)
+        held = named if named is not None else held
+    return out + ([cur] if cur else [])
 
 def run(task, *, awaits, wait=TASK_WAIT_S):
     """Run one task to completion; returns its JSON (status may be failed — callers decide)."""
@@ -589,11 +683,14 @@ def run(task, *, awaits, wait=TASK_WAIT_S):
         # one funnel with run_chain and go_to: the skill driver waits the fight out and resumes (never a spent try)
         raise FightHolds(f"the body is held: {task.get('type')} not sent")
     at_boundary()          # nightfall: a single send is a boundary too (mine's mine_many went out after the request)
-    task = DRESS(task) if DRESS else task
+    task = walk_only(task)
     task = ARM([task])[0] if ARM else task
     why = vet_aim(task)
     if why:
         log(f"  !! {why}")
+    after = GATE([task]) if GATE else None
+    if HOLD:
+        HOLD([task])
     began = time.time()
     r = post("/task?wait=0", task)
     refused(r, queued=r.get("id") is not None or r.get("status") != "failed")
@@ -607,6 +704,8 @@ def run(task, *, awaits, wait=TASK_WAIT_S):
     said = break_line(task, r, held_seen(r.get("id")))
     if said:
         detail(said)
+    if after is not None:
+        after([r])
     _raise_if_released([r], since=began)
     out_of_reach(r)
     return r
@@ -681,13 +780,16 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
 
     results: list[TaskResult] = []
     chain_began = time.time()
-    for start in range(0, len(tasks), segment):
-        if start:
+    armed = [walk_only(dict(t)) for t in tasks]
+    armed = ARM(armed) if ARM else armed
+    for n, part in enumerate(segments(armed, segment)):
+        if n:
             # an interrupt stops the chain at a segment boundary; the skill resumes by what the world lacks, never this index
             check_interrupt(chain_began, STATE.soft)
         at_boundary()          # nightfall: before any segment, the first too — between tasks, never inside one
-        part = [DRESS(t) for t in tasks[start:start + segment]] if DRESS else tasks[start:start + segment]
-        part = ARM(part) if ARM else part
+        after = GATE(part) if GATE else None
+        if HOLD:
+            HOLD(part)
         began = time.time()
         if before_segment:
             before_segment(part)
@@ -710,6 +812,8 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
             said = break_line(sent, t, held_seen(t.get("id")))
             if said:
                 detail(said)
+        if after is not None:
+            after(done)
         results += done
         STATE.last_segment_s = max(0.2, min(30.0, time.time() - began))
         _raise_if_released(done, since=began)

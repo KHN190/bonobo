@@ -130,6 +130,41 @@ def _slot_has(item, *words):
         return any(s_["id"] == item and all(w in json.dumps(s_) for w in words) for s_ in inv.slots)
     return check
 
+def wear(slots, item):
+    """Pure: the damage on the carried `item` (the most worn stack), None when none is carried."""
+    got = [s_.get("damage", 0) for s_ in slots if s_["id"] == item]
+    return max(got) if got else None
+
+def _worn(item, least, most=None):
+    """The carried `item` has spent between `least` and `most` uses (its damage, as the mod reports it)."""
+    def check(api, inv):
+        d = wear(inv.slots, item)
+        return d is not None and d >= least and (most is None or d <= most)
+    return check
+
+def dug_cells(cells, broke, line):
+    """Pure: (every cell broken lies on the line, how many were broken) — `broke(c)`: the cell is air now."""
+    gone = [c for c in cells if broke(c)]
+    return all(c in line for c in gone), len(gone)
+
+def _dug_with(item, lo, hi, line_lo, line_hi):
+    """The box [lo, hi] (solid at the start) opened only along [line_lo, line_hi], each break with `item` held: its
+    damage at least the cells broken (a bare-hand break spends none)."""
+    def check(api, inv):
+        from ...world import Region
+        box = [(x, y, z) for x in range(lo[0], hi[0] + 1) for y in range(lo[1], hi[1] + 1)
+               for z in range(lo[2], hi[2] + 1)]
+        line = {(x, y, z) for x in range(line_lo[0], line_hi[0] + 1) for y in range(line_lo[1], line_hi[1] + 1)
+                for z in range(line_lo[2], line_hi[2] + 1)}
+        r = Region(lo, hi)
+        on_line, n = dug_cells(box, lambda c: r.name(c) in ("air", "cave_air"), line)
+        return on_line and (wear(inv.slots, item) or 0) >= n
+    return check
+
+def _held(item):
+    """The main hand holds `item` (the body's /state)."""
+    return lambda api, inv: (api.get("/state").get("mainHand") or {}).get("id") == item
+
 def _mobs_near(kind, least, r=16):
     def check(api, inv):
         from ...world import entities
@@ -247,4 +282,4 @@ RESUMED_LEFT = {}          # row → what the resume found still to do (an inter
 from ... import lifecycle as _lifecycle  # noqa: E402
 _lifecycle.in_place(__name__, "BASE", "FAILED_AS_EXPECTED", "INTERRUPTS", "FIRST", "RESUMED_LEFT")     # a row's own
 
-__all__ = ['_now', 'FIRST', 'RESUMED_LEFT', 'ACCEPTANCE_D', 'BASE', 'FAILED_AS_EXPECTED', 'INTERRUPTS', 'LOGIC', 'OPS', 'PREDICATES', '_alive', '_all', 'arrived', '_base_count', '_blocks', '_dropped_nothing', '_failed_as_expected', '_food_up', '_free_slots', '_gain', '_interrupted', '_inv_now', '_is_day', '_mobs_near', '_named_all', '_no_block_suffix', '_not', '_room_to_work', '_same_bag', '_same_bag_and_place', '_skill', '_slot_has', '_start', '_threading', '_under_feet', 'bag', 'call', 'cmp', 'count', 'fed_as_needed', 'state']
+__all__ = ['_now', 'FIRST', 'RESUMED_LEFT', 'ACCEPTANCE_D', 'BASE', 'FAILED_AS_EXPECTED', 'INTERRUPTS', 'LOGIC', 'OPS', 'PREDICATES', '_alive', '_all', 'arrived', '_base_count', '_blocks', '_dropped_nothing', '_failed_as_expected', '_food_up', '_free_slots', '_gain', '_interrupted', '_inv_now', '_is_day', '_mobs_near', '_named_all', '_no_block_suffix', '_not', '_room_to_work', '_same_bag', '_same_bag_and_place', '_skill', '_slot_has', '_start', '_threading', '_under_feet', 'bag', 'call', 'cmp', 'count', 'fed_as_needed', 'state', 'wear', '_worn', 'dug_cells', '_dug_with', '_held']

@@ -419,7 +419,7 @@ def needs_faults(steps, needs=None):
     the end."""
     bag, tools, out = Counter(), [], []
     for st in steps:
-        own, _speed = knowledge.step_call(st)
+        own = knowledge.step_call(st)
         out += [(str(st), d) for d, n in own.items() if not _holds(bag, tools, d, n)]
         for tok, n in st.detail.get("inputs", {}).items():
             bag[tok] -= n
@@ -503,31 +503,28 @@ class CallNeeds(unittest.TestCase):
 
 
 class CallSpeed(unittest.TestCase):
-    """A skill's `speed` is what the cost model saves when the tool is carried (cost._sped_up → knowledge.step_call),
-    for every skill that declares one; a speed ignored is caught."""
-
-    # skill → a step it carries out, and the tool its speed names (a skill with a speed and no row fails by name)
-    STEPS = {"chop": (("gather", "log", 8, {}), "wooden_axe"),
-             "hunt": (("hunt", "minecraft:beef", 4, {"types": ["minecraft:cow"], "kills": 2}), "wooden_sword"),
-             "mine": (("mine", "minecraft:dirt", 8, {"blocks": ["dirt"], "tier": None, "breaks": 8}), "wooden_shovel"),
-             "dig_in": (("shelter", "dig in", 1, {}), "wooden_shovel")}
+    """What a carried tool saves on a step is its work's break and kill times with it, against the hand
+    (cost._sped_up → knowledge.own_work / work_s over break_ticks and kill_s): no per-skill speed constant."""
 
     def estimate(self, step, tool):
         from tests.world import cost, inventory, snapshot, state
         return cost(snapshot(state(), inventory(*([(tool, 1)] if tool else [])))).estimate(step)
 
-    def test_every_speed_saves_in_the_cost(self):
+    def test_every_work_kind_saves_in_the_cost(self):
         from bonobo.planner import Step
-        from bonobo.skill import REGISTRY
-        fast = {n for n, c in REGISTRY.items() if c.speed}
-        self.assertEqual(fast - set(self.STEPS), set(), "a skill with a speed and no row")
-        for name in sorted(fast):
-            (kind, token, n, detail), tool = self.STEPS[name]
-            step = Step(kind, token, n, dict(detail))
+        # (step, the tool carried) → it saves
+        rows = [("logs, an axe", ("gather", "log", 8, {}), "wooden_axe", True),
+                ("a cow hunt, a sword", ("hunt", "minecraft:beef", 4, {"types": ["minecraft:cow"], "kills": 2}),
+                 "wooden_sword", True),
+                ("dirt, a shovel", ("mine", "minecraft:dirt", 8, {"blocks": ["dirt"], "tier": None, "breaks": 8}),
+                 "wooden_shovel", True),
+                ("must fail: logs, a shovel", ("gather", "log", 8, {}), "wooden_shovel", False),
+                ("must fail: a cow hunt, a pickaxe beats no hand", ("hunt", "minecraft:beef", 4,
+                 {"types": ["minecraft:cow"], "kills": 2}), "wooden_shovel", False)]
+        for name, (kind, token, n, detail), tool, saves in rows:
             with self.subTest(name):
-                self.assertLess(self.estimate(step, tool), self.estimate(step, None))
-                with mock.patch.object(REGISTRY[name], "speed", {}):     # must fail: its speed ignored
-                    self.assertEqual(self.estimate(step, tool), self.estimate(step, None))
+                step = Step(kind, token, n, dict(detail))
+                self.assertEqual(self.estimate(step, tool) < self.estimate(step, None), saves)
 
     def test_a_shovel_is_no_help_in_stone(self):
         from bonobo.planner import Step

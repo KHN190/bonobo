@@ -1,11 +1,11 @@
-"""The maintenance reflexes: a fixed trigger in, a fixed action out — no planning, a second's work. One ordered table (the shape of `recovery.TABLE`), the arbiter's MAINTAIN layer: faster than any plan, slower than a fight. eat on a hungry stomach with food carried · out of the water · home from the Nether when it turns bad · dug out in the morning · into a bed at night · the night's shelter from what is carried · a finished furnace or machine emptied · a full bag emptied · a way made where a walk was blocked · unstuck What must be PLANNED to be had — a bed, food stock, a tool, a bucket, blocks, the night's ore — is not here: those are PLAN proposals (upkeep's needs, `decompose`). A trigger reads only its view (`view`: readings made once per round, lazily); the action is the upkeep executor's."""
+"""The maintenance reflexes: a fixed trigger in, a fixed action out — no planning, a second's work. One ordered table, the arbiter's MAINTAIN layer: faster than any plan, slower than a fight. eat on a hungry stomach with food carried · out of the water · home from the Nether when it turns bad · dug out in the morning · into a bed at night · the night's shelter from what is carried · a finished furnace or machine emptied · a full bag emptied · a way made where a walk was blocked · unstuck What must be PLANNED to be had — a bed, food stock, a tool, a bucket, blocks, the night's ore — is not here: those are PLAN proposals (upkeep's needs, `decompose`). A trigger reads only its view (`view`: readings made once per round, lazily); the action is the upkeep executor's."""
 
 import math
 import time
 from typing import Any
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, building, craft, fluids, nav, nether, store, survive, tape, world, jobs
+from . import api, building, craft, fluids, nav, nether, skillcore, store, survive, tape, world, jobs
 from .api import McError, NotAvailable, log
 from .data import BASE_MARKERS, FULL_BAR, MAX_HP, WALK_BLOCKS_PER_TICK
 from .estimate import eat_due
@@ -14,7 +14,7 @@ from .skill import skill
 from .skillcore import gained
 from .world import BAG_SLOTS, Inventory, Region, nearest
 from .bag import FREE_SLOTS_TARGET, bag_signature, empty_how
-from .decompose import cooled_ways, night_facts, way_key
+from .decompose import cooled_ways, night_facts, night_left_s, way_key
 
 
 def in_sight(snap, kinds, radius):
@@ -189,8 +189,11 @@ class Maintain:
 
         def night_way():
             bed = b.mem.home_part("beds", snap.dimension, snap.feet, anywhere=True)
-            home_s = math.dist(bed, snap.feet) / (WALK_BLOCKS_PER_TICK * 20) if bed is not None else None
-            return b.needs.overnight(snap, night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), home_s),
+            # bed_reach: a home bed with no "no way there" verdict on it (the reach verdict, brain.failed)
+            reach = bed is not None and not skillcore.banned(b.blacklist, bed)
+            home_s = math.dist(bed, snap.feet) / (WALK_BLOCKS_PER_TICK * 20) if reach and bed is not None else None
+            return b.needs.overnight(snap, night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), home_s,
+                                                       night_left_s(snap)),
                                      bed_too=False)
         view = View({
             "died_recently": lambda: worth_recovering(b, snap),
@@ -458,7 +461,7 @@ def _drops_gone(c):
     from .world import entities
     return _death_retired(c) and not entities(10, ["minecraft:item"])
 
-@skill(gives=["state:recovered"], remaining=_k.none_of("minecraft:item", within=6.0), needs={}, speed={}, verify=_drops_gone, budget=300, stall=90)
+@skill(gives=["state:recovered"], remaining=_k.none_of("minecraft:item", within=6.0), needs={}, verify=_drops_gone, budget=300, stall=90)
 def recover_items(ctx):
     """Go back to the last death spot within 5 minutes and pick up what dropped there."""
     s = api.get("/state")
@@ -468,7 +471,7 @@ def recover_items(ctx):
     pos = tuple(death["pos"])
     log(f"   recovering items at the death spot {pos}")
     if not nav.arrived(pos, ctx.policy, range_=2, attempts=1):
-        raise api.NavFailed(f"death spot {pos} not reachable")
+        raise api.NavFailed(f"death spot {pos} not reachable", pos=pos)
     before = Inventory().used_slots()
     nav.sweep(ctx, radius=10, wait=60)
     yield Inventory().used_slots()

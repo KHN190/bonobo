@@ -40,7 +40,7 @@ def unlooted_chests(ctx, radius=32):
         out.append(pos)
     return sorted(out, key=lambda p: math.dist(p, here))
 
-@skill(gives=["state:looted"], remaining=_k.gained_any, needs={}, speed={}, start=lambda c: carried_total(), verify=lambda c: carried_total() > c.base,
+@skill(gives=["state:looted"], remaining=_k.gained_any, needs={}, start=lambda c: carried_total(), verify=lambda c: carried_total() > c.base,
        budget=240, stall=90, provides={"loot": lambda ctx, s: ()}, fills_bag=True)
 def loot_chest(ctx):
     """Open the nearest chest that isn't ours and hasn't been looted, take the valuable stacks, remember it."""
@@ -50,7 +50,7 @@ def loot_chest(ctx):
     pos = chests[0]
     if not nav.arrived(pos, ctx.policy, range_=3, attempts=1):
         ctx.ban(pos, 1800)
-        raise api.NavFailed(f"chest at {pos} not reachable")
+        raise api.NavFailed(f"chest at {pos} not reachable", pos=pos)
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=30, awaits="the chest's slots (loot_plan) are only readable once its screen is open")
     if not opened(r):
         ctx.ban(pos, 1800)
@@ -62,6 +62,7 @@ def loot_chest(ctx):
     taken = 0
     try:
         from .world import container
+        ctx.mem.saw_container(pos, container()["slots"])
         for slot in loot_plan(container()["slots"], prices, Inventory().free_slots()):
             api.post("/click", _bag.quick_move(slot))
             taken += 1

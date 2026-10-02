@@ -225,80 +225,38 @@ AT_REST = [("in the target cell, on the ground", GROUND, 200.0, True),
             False)]
 
 
-def xyz(*ps):
-    return [{"x": x, "y": y, "z": z} for x, y, z in ps]
-
-
-WALL = {(1, 64, 0), (1, 65, 0)}                       # our own wall on the straight line to the ore at (3, 64, 0)
-BOXED = {(3 + dx, 64 + dy, dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)} - {(3, 64, 0)}
-# (situation, task, protected cells) → the "avoid" the jar gets (None: the task goes as it was)
-AVOID = [("our wall on the straight line to the ore: it goes with the mine, the dig goes round it",
-          {"type": "mine", "x": 3, "y": 64, "z": 0}, WALL, xyz((1, 64, 0), (1, 65, 0))),
-         ("must fail: nothing protected: an empty list, the dig goes straight", {"type": "mine", "x": 3, "y": 64, "z": 0},
-          set(), []),
-         ("the ore boxed in by our build: every cell listed, the jar's travel has no route and says so",
-          {"type": "mine", "x": 3, "y": 64, "z": 0}, BOXED, xyz(*sorted(BOXED))),
-         ("a build 100 blocks off: not carried", {"type": "place", "x": 3, "y": 64, "z": 0, "item": "stone"},
-          {(103, 64, 0)}, []),
-         ("a walk-only goto: no digging, nothing added", {"type": "goto", "x": 3, "y": 64, "z": 0}, WALL, None),
-         ("a task that names its own avoid keeps it", {"type": "use", "x": 3, "y": 64, "z": 0, "avoid": []}, WALL,
-          None)]
-
-
 class Arrive(_Clean):
-    def test_what_a_walk_may_do(self):
-        """nav.may_alter: every walk may dig into a hill or bridge a ditch (priced by the pathfinder); only a walk
-        with a known far side bridges out over the void; the round's policy caps them all."""
-        P = nav.Policy
-        rows = [("to work, the round allows digging: all three", "work", P(allow_dig=True), (True, True, True)),
-                ("to work, no digging this round", "work", P(allow_dig=False), (False, True, True)),
-                ("must fail: a search digs (explore__white_bed shafts)", "explore", P(allow_dig=True),
-                 (False, True, False)),
-                ("a search for what lies underground digs", "explore_deep", P(allow_dig=True), (True, True, False)),
-                ("evading: dig into the hill, bridge the ditch, never over the void", "evade", P(allow_dig=True),
-                 (True, True, False)),
-                ("must fail: evading with building off this round", "evade", P(allow_dig=True, allow_build=False),
-                 (True, False, False))]
-        for name, purpose, policy, want in rows:
-            with self.subTest(name):
-                self.assertEqual(nav.may_alter(purpose, policy), want)
-        with self.assertRaises(KeyError):
-            nav.may_alter("wander", P())
+    # (a task a skill runs) → what api.run posts: a walk never digs nor builds (I3), whatever it asked
+    WALKS = [("must fail: a travel that asked to dig and build goes as a walk",
+              {"type": "travel", "x": 3, "y": 64, "z": 0, "break": True, "place": True, "voidBridge": True},
+              {"type": "travel", "x": 3, "y": 64, "z": 0, "break": False, "place": False, "voidBridge": False,
+               "useBoat": False}),
+             ("a plain travel gets the flags off", {"type": "travel", "x": 3, "y": 64, "z": 0},
+              {"type": "travel", "x": 3, "y": 64, "z": 0, "break": False, "place": False, "voidBridge": False,
+               "useBoat": False}),
+             ("a goto: no boat", {"type": "goto", "x": 3, "y": 64, "z": 0},
+              {"type": "goto", "x": 3, "y": 64, "z": 0, "useBoat": False}),
+             ("must fail: a mine is not a walk: posted as it was", {"type": "mine", "x": 3, "y": 64, "z": 0},
+              {"type": "mine", "x": 3, "y": 64, "z": 0})]
 
-    def test_evade_avoids_our_builds(self):
+    def test_every_walk_is_walk_only(self):
+        for name, task, want in self.WALKS:
+            with self.subTest(name):
+                posted = []
+                with mock.patch.object(api, "GATE", None), mock.patch.object(api, "HOLD", None), \
+                        mock.patch.object(api, "ARM", None), \
+                        mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(body) or
+                                          {"status": "succeeded", "type": task["type"], "message": "", "seconds": 0}):
+                    api.run(dict(task), awaits="the test reads what was posted")
+                self.assertEqual(posted, [want])
+
+    def test_evade_is_a_walk(self):
         from bonobo import fight_loop
         from bonobo.threat import Option
         from tests.world import bag, inventory
         st = {"feet": (0, 64, 0), "inv": bag(inventory()), "protected": {(3, 64, 0)}}
         got = fight_loop.batch(Option("evade", (10, 64, 0), 0.0, 0.0, ""), st)
-        self.assertEqual(got[0]["avoid"], [{"x": 3, "y": 64, "z": 0}])
-
-    def test_avoid_over_the_table(self):
-        for name, task, protected, want in AVOID:
-            with self.subTest(name):
-                got = nav.with_avoid(task, protected)
-                self.assertEqual(got, task if want is None else {**task, "avoid": want})
-
-    # (situation, the task a skill runs) → what api.run posts (brain sets api.DRESS each round)
-    DRESSED = [("a mine behind our wall gets the avoid list", {"type": "mine", "x": 3, "y": 64, "z": 0},
-                {"type": "mine", "x": 3, "y": 64, "z": 0, "avoid": xyz((1, 64, 0), (1, 65, 0))}),
-               ("a place near it too", {"type": "place", "x": 2, "y": 64, "z": 0, "item": "minecraft:stone"},
-                {"type": "place", "x": 2, "y": 64, "z": 0, "item": "minecraft:stone",
-                 "avoid": xyz((1, 64, 0), (1, 65, 0))}),
-               ("must fail: a look never approaches: posted as it was", {"type": "look", "x": 3, "y": 64, "z": 0},
-                {"type": "look", "x": 3, "y": 64, "z": 0}),
-               ("far from the wall: an empty avoid list", {"type": "mine", "x": 500, "y": 64, "z": 0},
-                {"type": "mine", "x": 500, "y": 64, "z": 0, "avoid": []})]
-
-    def test_every_post_is_dressed(self):
-        for name, task, want in self.DRESSED:
-            with self.subTest(name):
-                posted = []
-                with mock.patch.object(api, "DRESS", lambda t: nav.with_avoid(t, WALL)), \
-                        mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(body) or
-                                          {"status": "succeeded", "type": task["type"], "message": "", "seconds": 0}):
-                    api.run(dict(task), awaits="the test reads what was posted")
-                self.assertEqual(posted, [want])
+        self.assertEqual(got, [{"type": "travel", "x": 10, "y": 64, "z": 0, "range": 3}])
 
     def test_there_over_the_table(self):
         for name, (x, y, z), pos, range_, want in THERE:
@@ -577,7 +535,7 @@ class ChainStopsAtASegment(unittest.TestCase):
                         mock.patch.object(api, "get", side_effect=lambda p: {"control": {}} if p == "/state"
                                           else {"id": 1, "status": "succeeded", "type": "wait", "message": ""}), \
                         mock.patch.object(api, "await_task", return_value=None), \
-                        mock.patch.object(api.STATE, "mode", "normal"), mock.patch.object(api, "DRESS", None), \
+                        mock.patch.object(api.STATE, "mode", "normal"), mock.patch.object(api, "GATE", None), mock.patch.object(api, "HOLD", None), \
                         mock.patch.object(api.STATE, "interrupt", None):
                     if raises:
                         with self.assertRaises(raises) as got:
@@ -600,7 +558,7 @@ class ASingleSendSaysWhy(unittest.TestCase):
                 ("not a string: refused", {"awaits": 1}, ValueError)]
         for name, kw, want in rows:
             with self.subTest(name), mock.patch.object(api, "post", return_value=ok), \
-                    mock.patch.object(api, "DRESS", None):
+                    mock.patch.object(api, "GATE", None), mock.patch.object(api, "HOLD", None):
                 if want:
                     with self.assertRaises(want):
                         api.run({"type": "wait", "ticks": 1}, **kw)
@@ -966,7 +924,7 @@ class Runner(unittest.TestCase):
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY), mock.patch.object(skillkit, "STATS", stats), \
                     mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01), \
                     mock.patch.object(api, "api", side_effect=AssertionError("the runner read the world")):
-                runner = skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, **kw)(fn)
+                runner = skillkit.skill(needs={}, gives={}, remaining=NOTHING_LEFT, **kw)(fn)
                 if isinstance(want, type):
                     with self.assertRaises(want):
                         runner(None)
@@ -997,7 +955,7 @@ class Runner(unittest.TestCase):
                     mock.patch.object(skillcore, "dead", lambda *a, **k: False), \
                     mock.patch.object(skillkit, "body_now", lambda: {"dimension": "minecraft:overworld"}), \
                     mock.patch.object(skillkit, "STATS", None), mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01):
-                runner = skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, budget=budget, stall=stall)(body)
+                runner = skillkit.skill(needs={}, gives={}, remaining=NOTHING_LEFT, budget=budget, stall=stall)(body)
                 if want is None:
                     self.assertEqual(runner(None), "done")
                     continue
@@ -1042,7 +1000,7 @@ class Runner(unittest.TestCase):
                     mock.patch.object(skillcore, "body_state", lambda *a, **k: {}), \
                     mock.patch.object(skillkit, "HELD_WAITS", []), mock.patch.object(api, "detail", lambda *a: None), \
                     mock.patch.object(api, "api", side_effect=AssertionError("the runner read the world")):
-                runner = skillkit.skill(needs={}, speed={}, gives={}, remaining=lambda st, c, _l=left: _l,
+                runner = skillkit.skill(needs={}, gives={}, remaining=lambda st, c, _l=left: _l,
                                         budget=budget)(fn)
                 if isinstance(want, type):
                     with self.assertRaises(want):
@@ -1073,7 +1031,7 @@ class Runner(unittest.TestCase):
                           # must fail: a precondition's bug is no "cannot run" — it raises (the broad catch hid it)
                           ([lambda c: (_ for _ in ()).throw(RuntimeError())], RuntimeError)):
             with self.subTest(pre=pre), mock.patch.dict(skillkit.REGISTRY):
-                runner = skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, name=f"can_run_{len(pre)}", pre=pre)(lambda ctx: None)
+                runner = skillkit.skill(needs={}, gives={}, remaining=NOTHING_LEFT, name=f"can_run_{len(pre)}", pre=pre)(lambda ctx: None)
                 if isinstance(want, type):
                     with self.assertRaises(want):
                         skillkit.can_run(runner, None)
@@ -1103,7 +1061,7 @@ class Runner(unittest.TestCase):
         for name, provs, want in self.PROVIDERS:
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY, clear=True):
                 for pname, effect, prefer, got in provs:
-                    skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, name=pname, provides={effect: lambda ctx, s, _g=got: _g}, prefer=prefer)(
+                    skillkit.skill(needs={}, gives={}, remaining=NOTHING_LEFT, name=pname, provides={effect: lambda ctx, s, _g=got: _g}, prefer=prefer)(
                         lambda ctx, *a: None)
                 found = skillkit.provider(None, Step("zz", "tok", 1))
                 self.assertEqual(None if found is None else (found[0].contract.name, found[1]), want)
@@ -1525,32 +1483,34 @@ class Commands(unittest.TestCase):
 
 
 class Declarations(unittest.TestCase):
-    """@skill: every skill states `needs` (hard prerequisites), `speed` (tools that make it faster, seconds saved
-    per unit) and `gives` (what it produces: producing tables, or states) — `{}` written out when there are none —
-    or it is refused at import."""
+    """@skill: every skill states `needs` (hard prerequisites) and `gives` (what it produces: producing tables, or
+    states) — `{}` written out when there are none — or it is refused at import."""
+
+    def setUp(self):
+        # a dummy registered here leaves its gives in knowledge.PRODUCERS (plain dicts, no rank): restored per test
+        from bonobo import knowledge
+        self.enterContext(mock.patch.object(knowledge, "PRODUCERS", list(knowledge.PRODUCERS)))
+        self.enterContext(mock.patch.dict(skillkit.REGISTRY))
 
     def test_every_registered_skill_declares_both(self):
-        from bonobo import data
-        tools = set(data.TOOL_KINDS)
-        bad = {n: (c.needs, c.speed) for n, c in skillkit.REGISTRY.items()
-               if not isinstance(c.needs, dict) or not isinstance(c.speed, dict)
-               or not set(c.speed) <= tools or any(not (v > 0) for v in c.speed.values())}
+        bad = {n: c.needs for n, c in skillkit.REGISTRY.items() if not isinstance(c.needs, dict)}
         self.assertEqual(bad, {})
 
     def test_the_decorator_refuses_what_is_undeclared(self):
-        # (situation, needs, speed, gives) → the TypeError's words, or None when it registers
+        # (situation, needs, gives, extra) → the TypeError's words, or None when it registers
         rows = [("must fail: no needs", None, {}, {}, "declares no needs"),
-                ("must fail: no speed", {}, None, {}, "declares no speed"),
-                ("must fail: no gives", {}, {}, None, "declares no gives"),
-                ("must fail: none of them", None, None, None, "declares no needs and no speed and no gives"),
-                ("written out, an item given: registers", {}, {}, [{"minecraft:stick": lambda ctx, s: ()}], None),
-                ("needs as a function of the call, an item given: registers", lambda a: {}, {},
-                 [{"minecraft:stick": lambda ctx, s: ()}], None)]
-        for name, needs, speed, gives, want in rows:
+                ("must fail: no gives", {}, None, {}, "declares no gives"),
+                ("must fail: neither", None, None, {}, "declares no needs and no gives"),
+                ("must fail: a speed= constant (tools are chosen by the work: planner.speed_up)", {}, {},
+                 {"speed": {"axe": 1.5}}, "speed"),
+                ("written out, an item given: registers", {}, [{"minecraft:stick": lambda ctx, s: ()}], {}, None),
+                ("needs as a function of the call, an item given: registers", lambda a: {},
+                 [{"minecraft:stick": lambda ctx, s: ()}], {}, None)]
+        for name, needs, gives, extra, want in rows:
             with self.subTest(name):
-                kw = {k: v for k, v in (("needs", needs), ("speed", speed), ("gives", gives)) if v is not None}
+                kw = {k: v for k, v in (("needs", needs), ("gives", gives)) if v is not None}
                 try:
-                    skillkit.skill("_dummy_for_the_contract_test", **kw)(lambda ctx: None)
+                    skillkit.skill("_dummy_for_the_contract_test", **kw, **extra)(lambda ctx: None)
                     got = None
                 except TypeError as e:
                     got = str(e)
@@ -1691,6 +1651,7 @@ WORLD_LEFT.update({
     "use_portal": (_with("minecraft:the_nether"), lambda: body(),
                    lambda: body(state=_st(dimension="minecraft:the_nether"))),
     "wait_for_day": (_with(), lambda: body(state=_st(timeOfDay=18000)), lambda: body(state=_st(timeOfDay=1000))),
+    "look_in": (_with((1, 64, 0)), lambda: body(containers=[]), lambda: body(containers=[{"pos": [1, 64, 0]}])),
     "withdraw": (_with("minecraft:diamond", 3, (1, 64, 0), base=0), lambda: body(),
                  lambda: body(inv=inventory(("diamond", 3)))),
 })
@@ -1766,8 +1727,7 @@ class Remaining(unittest.TestCase):
         from bonobo.planner import Step
         mine = skillkit.REGISTRY["mine"]
         ran = []
-        body = skillkit.skill("_dummy_needs", needs=mine.needs_fn, speed={},
-                              gives=skillkit.REGISTRY["chop"].gives[:1])(lambda *a: ran.append(a[1]))
+        body = skillkit.skill("_dummy_needs", needs=mine.needs_fn, gives=skillkit.REGISTRY["chop"].gives[:1])(lambda *a: ran.append(a[1]))
         diamond = (None, "minecraft:diamond", 1, ["diamond_ore"], 2)
         rows = [("an iron pickaxe, diamonds: runs", inventory(("iron_pickaxe", 1)), lambda: body(*diamond), None),
                 ("bare hands, dirt (no need): runs", inventory(), lambda: body(None, "minecraft:dirt", 1, ["dirt"], None),
@@ -1807,7 +1767,7 @@ class Remaining(unittest.TestCase):
         for situation, gives, remaining, refused in rows:
             with self.subTest(situation):
                 try:
-                    skillkit.skill("_dummy_left", needs={}, speed={}, gives=gives, remaining=remaining)(lambda ctx: None)
+                    skillkit.skill("_dummy_left", needs={}, gives=gives, remaining=remaining)(lambda ctx: None)
                     got = None
                 except TypeError as e:
                     got = str(e)
@@ -2001,7 +1961,7 @@ class ResumeFromTheWorld(unittest.TestCase):
                                 mock.patch.object(api, "get", lambda path, *a, **k: state(food=world["food"])), \
                                 mock.patch.dict(skillkit.RESUME, clear=True), \
                                 mock.patch.object(arbiter, "BODY", arbiter.Motion()):
-                            runner = skillkit.skill(needs={}, speed={}, gives=gives, remaining=remaining)(fn)
+                            runner = skillkit.skill(needs={}, gives=gives, remaining=remaining)(fn)
                             if source is api.FightHolds:
                                 runner(None, token, 3)      # the driver waits the fight out and resumes itself
                             else:
@@ -2172,23 +2132,20 @@ class BagRules(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(bag.mineable(cells, feet), want)
 
-    # (situation, cells refused now, refused before, jar digs its own approach) → (asked again, dropped)
+    # (situation, cells refused now, refused before) → (asked again after a planned way, dropped)
     REFUSED = [
-        ("first refusal, old jar: ask again after making a way", [(1, 2, 3)], set(), False, ({(1, 2, 3)}, set())),
-        ("must fail: the same block refused twice: dropped (the mine_stone loop)", [(9999, 199, 10000)], {(9999, 199, 10000)},
-         False, (set(), {(9999, 199, 10000)})),
-        ("mixed batch: only the repeat is dropped", [(1, 2, 3), (4, 5, 6)], {(4, 5, 6)}, False,
-         ({(1, 2, 3)}, {(4, 5, 6)})),
-        ("the jar already dug its approach: dropped on the first refusal", [(1, 2, 3)], set(), True,
-         (set(), {(1, 2, 3)})),
-        ("edge: nothing refused", [], {(1, 2, 3)}, False, (set(), set())),
+        ("first refusal: ask again after making a way", [(1, 2, 3)], set(), ({(1, 2, 3)}, set())),
+        ("must fail: the same block refused twice: dropped (the mine_stone loop)", [(9999, 199, 10000)],
+         {(9999, 199, 10000)}, (set(), {(9999, 199, 10000)})),
+        ("mixed batch: only the repeat is dropped", [(1, 2, 3), (4, 5, 6)], {(4, 5, 6)}, ({(1, 2, 3)}, {(4, 5, 6)})),
+        ("edge: nothing refused", [], {(1, 2, 3)}, (set(), set())),
     ]
 
     def test_refused_targets_are_dropped(self):
         from bonobo import bag
-        for name, cells, before, jar_digs, want in self.REFUSED:
+        for name, cells, before, want in self.REFUSED:
             with self.subTest(name):
-                self.assertEqual(bag.refused(cells, before, jar_digs), want)
+                self.assertEqual(bag.refused(cells, before), want)
 
     def test_a_gatherer_checks_the_bag_before_it_starts(self):
         """chop/mine/hunt/loot on a bag with no room for what they gather fail before the body does anything; with
@@ -2204,7 +2161,7 @@ class BagRules(unittest.TestCase):
         for name, fills, carried, want in rows:
             ran = []
 
-            @skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, name="bag_gate_probe", fills_bag=fills)
+            @skillkit.skill(needs={}, gives={}, remaining=NOTHING_LEFT, name="bag_gate_probe", fills_bag=fills)
             def probe(ctx):
                 ran.append(True)
             inv = bag(inventory(*carried))
@@ -2222,7 +2179,7 @@ class BagRules(unittest.TestCase):
     def test_only_gatherers_say_it(self):
         """The same failure on a full bag: a gatherer's names the bag, another skill's stays its own."""
         for fills, want in ((True, "bag full (no free slot): nothing left to take"), (False, "nothing left to take")):
-            @skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, name=f"bag_probe_{fills}", fills_bag=fills)
+            @skillkit.skill(needs={}, gives={}, remaining=NOTHING_LEFT, name=f"bag_probe_{fills}", fills_bag=fills)
             def probe(ctx):
                 raise api.NotAvailable("nothing left to take")
             with self.subTest(fills_bag=fills), mock.patch.object(skillkit, "_free_slots", return_value=0), \
@@ -2335,34 +2292,8 @@ class PortalCast(unittest.TestCase):
 
 
 class PureHelpers(unittest.TestCase):
-    """Small pure rules with no table of their own: the avoid list, the head in water, the kit's needs, when work
-    stops for an interrupt, the incoming-damage ceiling."""
-
-    def test_avoid_cells(self):
-        R = nav.AVOID_RADIUS
-        rows = [("near the walk's end: kept", {(5, 64, 0)}, [(0, 64, 0)], [{"x": 5, "y": 64, "z": 0}]),
-                ("exactly at the radius: kept", {(R, 64, 0)}, [(0, 64, 0)], [{"x": R, "y": 64, "z": 0}]),
-                ("must fail: one past the radius: dropped", {(R + 1, 64, 0)}, [(0, 64, 0)], []),
-                ("near either end counts", {(200, 64, 0)}, [(0, 64, 0), (199, 64, 0)], [{"x": 200, "y": 64, "z": 0}]),
-                ("nothing protected", set(), [(0, 64, 0)], [])]
-        for name, protected, near, want in rows:
-            with self.subTest(name):
-                self.assertEqual(nav.avoid_cells(protected, *near), want)
-
-    def test_with_avoid(self):
-        prot = {(1, 64, 0)}
-        cell = [{"x": 1, "y": 64, "z": 0}]
-        rows = [("a mine task gets the avoid list", {"type": "mine", "x": 0, "y": 64, "z": 0},
-                 {"type": "mine", "x": 0, "y": 64, "z": 0, "avoid": cell}),
-                ("a place task too", {"type": "place", "x": 0, "y": 64, "z": 0},
-                 {"type": "place", "x": 0, "y": 64, "z": 0, "avoid": cell}),
-                ("must fail: a task that names its own avoid is left alone", {"type": "place", "x": 0, "y": 64, "z": 0, "avoid": []},
-                 {"type": "place", "x": 0, "y": 64, "z": 0, "avoid": []}),
-                ("a non-approaching task is left alone", {"type": "look", "x": 0, "y": 64, "z": 0},
-                 {"type": "look", "x": 0, "y": 64, "z": 0})]
-        for name, task, want in rows:
-            with self.subTest(name):
-                self.assertEqual(nav.with_avoid(task, prot), want)
+    """Small pure rules with no table of their own: the head in water, the kit's needs, when work stops for an
+    interrupt, the incoming-damage ceiling."""
 
     def test_head_underwater(self):
         # (situation, body, what is at the eyes' block) → underwater?

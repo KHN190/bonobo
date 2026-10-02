@@ -1,6 +1,6 @@
 """Skill contracts: every skill declares what it is for and how it is judged, and one runner enforces that.
 
-Contract fields: needs/speed/gives (what the planner prices), remaining (what is left after an interruption), pre,
+Contract fields: needs/gives (what the planner prices), remaining (what is left after an interruption), pre,
 start, done, verify, budget, stall, provides (effect → the call a plan step makes), prefer, and commands — the pure
 batch an open-loop skill sends, so a fight can post the same batch itself. The runner watches the goal metric across
 tasks; api.await_task watches one mod task."""
@@ -17,7 +17,6 @@ from .bag import has_room
 
 REGISTRY: "dict[str, Contract]" = {}
 Needs = dict[str, int]         # {dimension: minimum}: "tool:pickaxe:2", "item:minecraft:bucket", ... (knowledge.needs_rows)
-Speed = dict[str, float]       # {tool kind: how much faster}: what the planner prices
 Bag = dict[str, int]           # {item or group token: count}: a wanted bag, what is left of it
 VERIFY_SETTLE_S = 3.0      # how long a finished skill's effect may take to show up in the world
 
@@ -93,7 +92,6 @@ class Spec:
     """What the `skill` decorator declares: the planner's prices and the runner's checks."""
     pre: tuple = ()
     needs: Needs | Callable[[tuple], Needs] | None = None    # a fn of the call's args when the need depends on them
-    speed: Speed | None = None
     gives: Any = None               # producing tables (knowledge.Produces) and states it leaves ("state:sheltered")
     start: Callable[[Call], Any] | None = None
     done: Callable[[Call], bool] | None = None
@@ -108,12 +106,12 @@ class Spec:
     prefer: float = 0
     fills_bag: bool | Callable[[Call], list[str]] = False
     remaining: Callable[[Any, Call], "Bag | None"] | None = None      # (state, call) → what is left, {} when met
+    fights: Callable[[Call], Any] | None = None     # an optional fight's mob kinds (S5: its pre holds the fight line)
 
 class Contract:
     # set by the `skill` decorator once built
     needs_fn: Callable[[tuple], Needs] | None
     needs: Needs
-    speed: Speed
     gives: list
     remaining: Callable[[Any, Call], "Bag | None"] | None
     fills_bag: bool | Callable[[Call], list[str]]
@@ -126,6 +124,7 @@ class Contract:
         # soft: perception's interrupt is left for the body to read instead of ending the skill (a fight takes cover and retries)
         self.soft = spec.soft
         self.name, self.fn, self.pre, self.start, self.done = name, fn, tuple(spec.pre), spec.start, spec.done
+        self.fights = spec.fights        # judged where the skill is offered (brain.fight_line_holds), never here
         self.verify = spec.verify if spec.verify is not None else spec.done
         self.budget, self.stall = spec.budget, spec.stall
         # units(c): how many units a call does; key(c): the statistics key
@@ -188,8 +187,8 @@ def needs_of(contract: Contract, args: tuple) -> Needs:
     fn = getattr(contract, "needs_fn", None)
     return dict(fn(args)) if fn else dict(contract.needs)
 
-def step_call(step) -> tuple[Needs, Speed]:
-    """Pure: (needs, speed) of what carries out `step`, merged over its providers; a call-dependent need reads the args `provides` builds, without ctx."""
+def step_call(step) -> Needs:
+    """Pure: the needs of what carries out `step`, merged over its providers; a call-dependent need reads the args `provides` builds, without ctx."""
     if step.kind == "skill" and step.token in REGISTRY:
         # a skill asked for by name: that skill with the goal's args
         c = REGISTRY[step.token]
@@ -197,13 +196,12 @@ def step_call(step) -> tuple[Needs, Speed]:
             needs = needs_of(c, (None,) + tuple(step.detail.get("args") or ()))
         except (IndexError, KeyError, TypeError):
             needs = dict(c.needs)            # args it cannot read: its no-call default (the runner refuses them)
-        return needs, dict(c.speed)
+        return needs
     for effect in step_keys(step):
         found = providers(effect)
         if not found:
             continue
         needs: Needs = {}
-        speed: Speed = {}
         for c in found:
             args = ()
             if getattr(c, "needs_fn", None):
@@ -214,13 +212,8 @@ def step_call(step) -> tuple[Needs, Speed]:
             call_needs = needs_of(c, args)
             for k, v in call_needs.items():
                 needs[k] = max(needs.get(k, 0), v)
-            # a shovel helps soft ground only, not a call that needs a pickaxe
-            hard = any(k.startswith("tool:pickaxe:") for k in call_needs)
-            for k, v in c.speed.items():
-                if not (k == "shovel" and hard):
-                    speed[k] = max(speed.get(k, 0), v)
-        return needs, speed
-    return {}, {}
+        return needs
+    return {}
 
 class _Blank(dict):
     def __missing__(self, key):
@@ -234,9 +227,9 @@ def _lenient(step):
 def _wire_planner():
     knowledge.STEP_CALL = step_call
 
-def declared(name, needs, speed, gives=(), remaining=None):
-    """Refuse at import a skill that does not state `needs`, `speed` and `gives` ({} when none), or leaves a world state without `remaining`."""
-    missing = [k for k, v in (("needs", needs), ("speed", speed), ("gives", gives)) if v is None]
+def declared(name, needs, gives=(), remaining=None):
+    """Refuse at import a skill that does not state `needs` and `gives` ({} when none), or leaves a world state without `remaining`."""
+    missing = [k for k, v in (("needs", needs), ("gives", gives)) if v is None]
     if missing:
         raise TypeError(f"skill {name!r} declares no {' and no '.join(missing)} (write {{}} when there are none)")
     if world_effect(gives) and not callable(remaining):
@@ -308,12 +301,11 @@ def skill(name=None, **options):
     spec = Spec(**options)
 
     def wrap(fn) -> Callable[..., Any]:
-        declared(name or fn.__name__, spec.needs, spec.speed, spec.gives, spec.remaining)
+        declared(name or fn.__name__, spec.needs, spec.gives, spec.remaining)
         contract = Contract(name or fn.__name__, fn, spec)
         # a need that depends on the call is a fn of its args; `needs` is then the no-tier default
         contract.needs_fn = spec.needs if callable(spec.needs) else None
         contract.needs = {} if callable(spec.needs) else dict(spec.needs or {})
-        contract.speed = dict(spec.speed or {})
         contract.gives = gives_of(spec.gives)
         contract.remaining = spec.remaining
         from .knowledge import PRODUCERS

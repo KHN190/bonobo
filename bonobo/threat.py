@@ -523,6 +523,7 @@ class Answer:
     """One option, wearing kernel's action contract."""
 
     __slots__ = ("option", "name", "cost_s")
+    kept = 1.0      # what an answer did stays in the world when it is dropped: damage dealt, blocks placed, ground gained
 
     def __init__(self, option, price, work_s=None):
         self.option, self.name, self.cost_s = option, option.kind, action_cost(option, price, work_s)

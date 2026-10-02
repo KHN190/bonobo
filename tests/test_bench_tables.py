@@ -73,7 +73,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 275)          # + fight_enderman_provoked; + the taught door and its untaught twin; + hatch in/out, side room; − chop_without_interrupt
+        self.assertEqual(len(rec), 296)          # + design V rows (6: takeover_no_clutch, clutch_breaks_the_fall, collect_unreachable_drop, home_place_refused, drowning_sealed_pit, hunt_hurt_spider); + design A rows (6: ore_buried, hand_spare_slot, furnace_on_slab, sealed_target, no_shield_behind_rock, fight_creeper_from_pickaxe); + design-bc §13 R1-R7 (9), − bed_obstructed; + look_in_chest; + fight_enderman_provoked; + the taught door and its untaught twin; + hatch in/out, side room; − chop_without_interrupt
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
@@ -281,11 +281,19 @@ LOG2 = bag(("oak_log", 2))
 # (why, word, state, bag, sheet globals {name: dict}, want). Each word has a yes row and a no row.
 PRED_ROWS = [
     ("count yes", ("count", "log", ">=", 2), None, LOG2, {}, True),
+    ("worn yes: unworn", ("worn", "minecraft:diamond_pickaxe", 0, 0), None,
+     bag(("diamond_pickaxe", 1), diamond_pickaxe={"damage": 0, "maxDamage": 1561}), {}, True),
+    ("must fail: worn no: a use spent", ("worn", "minecraft:diamond_pickaxe", 0, 0), None,
+     bag(("diamond_pickaxe", 1), diamond_pickaxe={"damage": 1, "maxDamage": 1561}), {}, False),
     ("must fail: count no", ("count", "log", ">=", 3), None, LOG2, {}, False),
     ("state compared yes", ("state", "dimension", "==", "minecraft:overworld"), None, None, {}, True),
     ("state compared no", ("state", "health", ">=", 19), None, None, {}, False),
     ("state truth yes", ("state", "onGround"), None, None, {}, True),
     ("state truth no", ("state", "dead"), None, None, {}, False),
+    ("held yes", ("held", "minecraft:cobblestone"), {"mainHand": {"id": "minecraft:cobblestone", "count": 1}}, None, {},
+     True),
+    ("must fail: held no: swapped to the bucket", ("held", "minecraft:cobblestone"),
+     {"mainHand": {"id": "minecraft:water_bucket", "count": 1}}, None, {}, False),
     ("bag reading yes", ("bag", "used_slots", [], "<", 34), None, LOG2, {}, True),
     ("bag reading no", ("bag", "used_slots", [], "<", 1), None, LOG2, {}, False),
     ("call yes: the trek ended in its range", ("call", "trek_check", ["$api"]), None, None,
@@ -403,6 +411,12 @@ WORLD_ROWS = [
     ("mobs near no", ("mobs_near", "minecraft:cow", 3), {}, [{"type": "minecraft:cow"}] * 2, False),
     ("dropped nothing yes", ("dropped_nothing",), {}, [{"type": "minecraft:cow"}], True),
     ("dropped nothing no", ("dropped_nothing",), {}, [{"type": "minecraft:item"}], False),
+    ("dug with yes: the box whole, nothing broken off the line", ("dug_with", "minecraft:stone_pickaxe", A0,
+                                                                  ("@", 1, 0, 0), A0, A0),
+     {(10000, 200, 10000): "stone", (10001, 200, 10000): "stone"}, [], True),
+    ("must fail: dug with no: a cell broken off the line", ("dug_with", "minecraft:stone_pickaxe", A0, ("@", 1, 0, 0),
+                                                            A0, A0),
+     {(10000, 200, 10000): "stone"}, [], False),
     ("gone yes", ("gone", ["minecraft:zombie"]), {}, [{"type": "minecraft:cow"}], True),
     ("gone no", ("gone", ["minecraft:zombie"]), {}, [{"type": "minecraft:zombie", "health": 5}], False),
     ("away or walled yes: the zombie 5 off", ("away_or_walled", ["minecraft:zombie"]), {},
@@ -462,6 +476,7 @@ NOT_ROW_TESTED = {
     "brain_rule": "a brain grid family's rule for the cell (vocab.BRAIN_FAMILIES): the words it makes are the old ones",
     "hostiles": "the live entities (the gone/mobs_near rows read the same)",
     "killed": "the server's kill statistic, a scoreboard reply (stat_count and the scene: test_judged)",
+    "no_reflex": "the line row's /state `blocking` samples after the wall (its rule: LineRules.test_unblocked)",
 }
 
 
@@ -549,6 +564,33 @@ class Predicates(unittest.TestCase):
                 for item in ([] if callable(row["check"]) else row["check"]):
                     walk(item, True)
         self.assertEqual(sorted(used - tested - set(NOT_ROW_TESTED)), [])
+
+
+class LineRules(unittest.TestCase):
+    """The B4 line row's pure parts: the wall half-way down the corridor, the verdict over its samples; the wear and
+    the dug line of design A's rows."""
+
+    def test_unblocked(self):
+        from bonobo.bench.words import fight
+        rows = [("never blocking", [False] * 5, True), ("must fail: blocked once", [False, True, False], False),
+                ("no sample (setup failed): not a pass", [], False)]
+        for why, samples, want in rows:
+            with self.subTest(why):
+                self.assertIs(fight.unblocked(samples), want)
+
+    def test_line_wall(self):
+        from bonobo.bench.words import fight
+        lo, hi = fight.line_wall(5)
+        self.assertEqual((lo[0] - fight.at(0, 0, 0)[0], hi[1] - lo[1]), (2, 2))     # 2 down, 3 high
+
+    def test_wear_and_line(self):
+        from bonobo.bench.words import checks
+        slots = [{"id": "minecraft:stone_pickaxe", "damage": 3}, {"id": "minecraft:dirt"}]
+        self.assertEqual((checks.wear(slots, "minecraft:stone_pickaxe"), checks.wear(slots, "minecraft:shears")),
+                         (3, None))
+        line = {(2, 0, 0), (2, 1, 0)}
+        self.assertEqual(checks.dug_cells([(2, 0, 0), (2, 1, 0), (3, 0, 0)], lambda c: c in line, line), (True, 2))
+        self.assertEqual(checks.dug_cells([(3, 0, 0)], lambda c: True, line), (False, 1))
 
 
 class Scene(unittest.TestCase):

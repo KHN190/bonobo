@@ -578,8 +578,7 @@ class TheReflexPolicy(unittest.TestCase):
         with mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append((path, body)) or {}):
             fight_loop.wire(None, lambda snap: None, {})
             fight_loop.reflex(counter=True)
-        self.assertEqual(posted[0], ("/reflex", {"counter": False, "shield": True, "deflect": True,
-                                                 "priority": "creeper"}))
+        self.assertEqual(posted[0], ("/reflex", dict(counter=False, **fight_loop.ALWAYS)))
         self.assertEqual(posted[1], ("/reflex", {"counter": True}))
         with self.subTest("must fail: a jar without /reflex: said (swallowed), never raised"), \
                 mock.patch.object(api, "post", side_effect=api.McError("/reflex: 404")), \

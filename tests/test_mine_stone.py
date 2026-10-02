@@ -2,14 +2,16 @@
 buried one by a straight shaft only with the blocks to climb back out and nothing hot below, its overburden priced."""
 import os
 import sys
+import time
 import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import cost as costmod, gather, world  # noqa: E402
-from bonobo.knowledge import DIG_HAND_S, FIND_AT, MINE  # noqa: E402
+from bonobo.data import SOIL_DEPTH, STAIR_BELOW, STAIR_CELLS  # noqa: E402
+from bonobo.knowledge import FIND_AT, MINE  # noqa: E402
 from bonobo.planner import Step  # noqa: E402
-from tests.world import FakeRegion  # noqa: E402
+from tests.world import FakeRegion, bag, inventory  # noqa: E402
 
 FEET = (0, 64, 0)
 SOIL = 3                    # blocks of soil over the stone in every scene
@@ -46,28 +48,37 @@ class Shaft(unittest.TestCase):
                     self.assertEqual(len([t for t in tasks if t.get("type") != "wait"]), depth)
 
 
+PICK = {"id": "minecraft:diamond_pickaxe", "count": 1, "damage": 0, "maxDamage": 1561}
+
+
 class Overburden(unittest.TestCase):
+    """cost._overburden_ticks: the digging to the nearest in sight, each break by the tool held for it
+    (knowledge.break_ticks: dirt 15 ticks by hand, stone 150 by hand, 6 with a diamond pickaxe)."""
+
     def test_rows(self):
         stone_tok = next(t for t, (b, _tier) in MINE.items() if "stone" in b and FIND_AT.get(t) is None)
         ore_tok = next(t for t in MINE if FIND_AT.get(t) is not None)
-        c = costmod.Cost(None)
-        c.snap = type("Snap", (), {"feet": FEET})()
         floor = FEET[1] - 1
-        # (token, the nearest seen's y) → ticks of digging priced
-        rows = [("stone under the soil: the soil dug", stone_tok, floor - SOIL,
-                 round(SOIL * DIG_HAND_S * costmod.TICKS_PER_S)),
-                ("stone at the floor: nothing over it", stone_tok, floor, 0),
-                ("an ore's depth is its staircase's, not overburden", ore_tok, floor - SOIL, 0)]
-        for name, token, y, want in rows:
+        deep = FEET[1] - 20                               # 20 below: 19 steps, 4 of soil (12 cells), 15 of rock (45)
+        soil, rock = SOIL_DEPTH * STAIR_CELLS, (FEET[1] - deep - 1 - SOIL_DEPTH) * STAIR_CELLS
+        hand, pick = bag(inventory()), bag(inventory(PICK))
+        # (situation, token, the nearest seen's y, held, banned?) → ticks of digging priced
+        rows = [("stone under the soil: the soil dug by hand", stone_tok, floor - SOIL, hand, False, SOIL * 15),
+                ("stone at the floor: nothing over it", stone_tok, floor, hand, False, 0),
+                ("an ore 20 below by hand: its staircase", ore_tok, deep, hand, False, soil * 15 + rock * 150),
+                ("an ore 20 below, a diamond pickaxe", ore_tok, deep, pick, False, soil * 15 + rock * 6),
+                ("an ore within STAIR_BELOW: walked to, nothing dug", ore_tok, FEET[1] - STAIR_BELOW, hand, False, 0),
+                ("must fail: a banned (unreachable) stone is not priced", stone_tok, floor - SOIL, hand, True, 0)]
+        for name, token, y, inv, ban, want in rows:
             with self.subTest(name):
                 blocks = MINE[token][0]
-                step = Step("mine", token, 1, {"blocks": blocks})
-                with mock.patch.dict(world._SIGHT, {"near": {blocks[0]: 5.0}, "y": {blocks[0]: y}}):
-                    got = c._overburden_ticks(step)
-                self.assertEqual(got, want)
-        # must fail: a buried stone priced as one lying on the ground
-        with mock.patch.dict(world._SIGHT, {"near": {"stone": 5.0}, "y": {"stone": floor - SOIL}}):
-            self.assertGreater(c._overburden_ticks(Step("mine", stone_tok, 1, {"blocks": MINE[stone_tok][0]})), 0)
+                cell = (FEET[0] + 2, y, FEET[2])
+                c = costmod.Cost(None, blacklist={cell: time.time() + 60} if ban else None)
+                c.snap = type("Snap", (), {"feet": FEET, "inv": inv})()
+                hit = {"x": cell[0], "y": y, "z": cell[2], "distance": 5.0, "block": blocks[0]}
+                with mock.patch.dict(world._SIGHT, {"near": {blocks[0]: 5.0}, "y": {blocks[0]: y},
+                                                    "hits": {world.bare(blocks[0]): [hit]}}):
+                    self.assertEqual(c._overburden_ticks(Step("mine", token, 1, {"blocks": blocks})), want)
 
 
 if __name__ == "__main__":

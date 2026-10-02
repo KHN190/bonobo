@@ -75,23 +75,5 @@ class UseOpensOrFails(unittest.TestCase):
         self.assertEqual(sent, [use])
 
 
-class WalkFirst(unittest.TestCase):
-    def test_an_approach_that_would_dig_walks_first(self):
-        # must fail: no walk to the target and the jar's approach left to dig (with whatever is in hand)
-        from unittest import mock
-        from bonobo import nav
-        walked = []
-        nav._APPROACH.clear()
-        with mock.patch.object(nav, "_plan_reply", lambda *a: {"found": False}), \
-                mock.patch.object(nav, "go_to", lambda cell, policy, **k: walked.append(cell)):
-            nav.dress({"type": "mine", "x": 3, "y": 60, "z": 3}, nav.Policy())
-        self.assertEqual(walked, [(3, 60, 3)])
-        nav._APPROACH.clear()
-        with mock.patch.object(nav, "_plan_reply", lambda *a: {"found": True}), \
-                mock.patch.object(nav, "go_to", lambda cell, policy, **k: walked.append(cell)):
-            nav.dress({"type": "mine", "x": 4, "y": 60, "z": 3}, nav.Policy())
-        self.assertEqual(walked, [(3, 60, 3)])            # a walk reaches: the approach only walks
-
-
 if __name__ == "__main__":
     unittest.main()

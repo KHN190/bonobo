@@ -585,13 +585,12 @@ class OpenFacedCells(unittest.TestCase):
     def test_table(self):
         two = [(1, 64, 0), (2, 64, 0)]
         region = _ores(*two)
-        rows = [("mineable and held, no exposure read", two, None, set(two), two),
-                ("only what /find says is exposed", two, {(1, 64, 0)}, set(two), [(1, 64, 0)]),
-                ("must fail: nothing held", two, None, set(), []),
-                ("must fail: the floor under the feet", [(0, 63, 0)], None, {(0, 63, 0)}, [])]
-        for why, cells, exposed, held, want in rows:
+        rows = [("mineable and held", two, set(two), two),
+                ("must fail: nothing held", two, set(), []),
+                ("must fail: the floor under the feet", [(0, 63, 0)], {(0, 63, 0)}, [])]
+        for why, cells, held, want in rows:
             with self.subTest(why):
-                self.assertEqual(gather.open_faced_cells(cells, (0, 64, 0), region, exposed, held), want)
+                self.assertEqual(gather.open_faced_cells(cells, (0, 64, 0), region, held), want)
 
 
 class OpenerPairs(unittest.TestCase):

@@ -90,6 +90,7 @@ react_s = 3.0              # a threat further out than this is the next decision
 no_go_margin = 2.0         # blocks added to a mob's reach before ordinary planning refuses to route through it
 fuse_s = 1.5               # a creeper's fuse: how long we have to be out of its blast
 fuse_stop_blocks = 7.0     # a lit creeper's fuse runs on while we are this near
+fight_line_q = 0.9         # an optional fight starts only with this quantile of its health loss to spare (S5)
 swing_s = 0.625            # a sword's swing refilling (attack speed 1.6/s): one hit per swing
 keepoff_risk = 0.05        # of a creeper's blast a hit-and-back-off fight still takes, per hit (a late step back)
 eat_s = 1.6                # one bite, and what it heals is regen over the seconds after

@@ -19,6 +19,8 @@ LOGS_WANTED, LOGS_CARRIED = 4, 2
 IRON_CELLS = (('@', -4, 0, 0), ('@', 4, 0, 0))
 IRON_TWO = [('floor',), *[('setblock', c, 'iron_ore') for c in IRON_CELLS], ('stand',)]
 FAMILIES = [
+    ('home_night', [('home_bed_at_night', 'night inside the home, its bed in the hall → slept in it, nothing of '
+                     'the home dug, no shelter built (design-bc §13 R6)')]),
     # the interruption lands by progress (the first ore in the bag: the walk to the second one), not a fight
     ('brain', [('ban_needs_a_failure',
                 'Two free iron ores, the walk to the second interrupted once (the bench\'s own interrupt) → nothing '

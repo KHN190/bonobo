@@ -250,8 +250,7 @@ def farm_done(result, base, held, growing):
         return base is not None and any(h > b for h, b in zip(held(), base))
     return bool(result) and growing(result)
 
-@skill(gives=K.GIVES_FARM, needs={"minecraft:wheat_seeds": 1, "minecraft:water_bucket": 1, "tool:hoe:0": 1}, speed={},
-       commands=lambda state, args: plant_farm_commands(state, args), start=lambda c: _crop_held(), verify=lambda c: farm_done(c.result, c.base, _crop_held, _plot_growing), budget=300, stall=90,
+@skill(gives=K.GIVES_FARM, needs={"minecraft:wheat_seeds": 1, "minecraft:water_bucket": 1, "tool:hoe:0": 1}, commands=lambda state, args: plant_farm_commands(state, args), start=lambda c: _crop_held(), verify=lambda c: farm_done(c.result, c.base, _crop_held, _plot_growing), budget=300, stall=90,
        provides={"farm": lambda ctx, s: ()})
 def plant_farm(ctx):
     """Wheat: reap a grown crop nearby first, else make a 3×3 plot (dig, water, till, sow) and start a crop job."""
@@ -379,7 +378,7 @@ def job_due(job, tick=None):
     return job_ready(job, tick)
 
 @skill(gives=["state:job_collected"], remaining=_k.more_than_at_start(lambda c: c.args[1], lambda c: c.args[2]),
-       needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]),
+       needs={}, start=lambda c: Inventory().count(c.args[1]),
        verify=lambda c: Inventory().count(c.args[1]) > c.base, budget=120, stall=60,
        provides={"await": lambda ctx, s: (s.token, s.count)})
 def await_job(ctx, item, count):
@@ -435,7 +434,7 @@ def harvest(ctx, job):
         ctx.mem.postpone_job(job["id"], 5 * 60)
         raise NotAvailable(f"wheat at {centre} not ripe yet")
     if not nav.arrived((centre[0] - 2, centre[1] + 1, centre[2]), ctx.policy, range_=2.0, attempts=1):
-        raise api.NavFailed(f"farm at {centre} not reachable")
+        raise api.NavFailed(f"farm at {centre} not reachable", pos=centre)
     got = _reap(ripe)
     seeds = Inventory().count("minecraft:wheat_seeds")
     if seeds:
@@ -452,7 +451,7 @@ def _babies():
     """Young animals of the kinds we breed within 24 blocks: what a breeding makes (the jar reports `baby`)."""
     return sum(1 for e in entities(24, list(BREED_FOOD)) if e.get("baby"))
 
-@skill(gives=["state:bred"], remaining=_k.babies, needs={}, speed={}, start=lambda c: _babies(), verify=lambda c: _babies() > c.base, budget=180, stall=60,
+@skill(gives=["state:bred"], remaining=_k.babies, needs={}, start=lambda c: _babies(), verify=lambda c: _babies() > c.base, budget=180, stall=60,
        commands=lambda state, args: breed_commands(state, args),
        provides={"breed": lambda ctx, s: ()})
 def breed(ctx):

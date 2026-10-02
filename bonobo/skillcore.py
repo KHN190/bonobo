@@ -6,8 +6,8 @@ import time
 from . import api, beliefs, knowledge as _know, lifecycle, tape
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
-from .data import BAN_MAX_S, EYE_HEIGHT, bare
-from .world import Inventory, Region, add, feet  # noqa: F401  (feet: read here by the skills)
+from .data import BAN_MAX_S, EYE_HEIGHT, REACH, bare
+from .world import BAG_SLOTS, Inventory, Region, add, bag, box, feet, screen_slot  # noqa: F401  (feet: read here by the skills)
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -187,6 +187,49 @@ def head_buried(s=None):
     eye = (s["blockX"], math.floor(s["y"] + EYE_HEIGHT), s["blockZ"])
     return Region(eye, eye, props=True).buries(eye)
 
+def hold_clicks(slots, selected, item, price=None):
+    """Pure (I2): the /click bodies that put `item` in the main hand (the stack in hotbar slot `selected`): its stack
+    with wear left swapped in; "hand" = the held stack swapped into an empty slot (any, main inventory too), with
+    none the lowest-value non-tool stack (`price(id)`) swapped in. [] when it is held already, or not carried."""
+    by_slot = {s["slot"]: s for s in slots}
+    held = by_slot.get(selected)
+
+    def swap(slot):
+        return {"slot": screen_slot(slot), "button": selected, "action": "SWAP"}
+
+    def tool(s):
+        return bool(s.get("maxDamage"))
+    if item == "hand":
+        if held is None or not tool(held):
+            return []
+        empty = next((i for i in range(BAG_SLOTS) if i not in by_slot), None)
+        if empty is not None:
+            return [swap(empty)]
+        spare = min((s for s in slots if not tool(s)), key=lambda s: (price or (lambda i: 0))(s["id"]) or 0,
+                    default=None)
+        return [swap(spare["slot"])] if spare else []
+    if held is not None and held["id"] == item and not (tool(held) and held["maxDamage"] - held.get("damage", 0) <= 1):
+        return []
+    have = next((s for s in slots if s["id"] == item and not (tool(s) and s["maxDamage"] - s.get("damage", 0) <= 1)),
+                None)
+    return [swap(have["slot"])] if have else []
+
+def hold(tasks, price=None):
+    """api.HOLD (I2): the item `tasks` name put in the main hand before they go out — one /inventory read, the
+    screen closed first (a SWAP needs the player's own), hold_clicks posted and said (what went in the hand)."""
+    item = next((t.get("item") for t in tasks if t.get("type") in api.HELD_TYPES and t.get("item")), None)
+    if item is None:
+        return
+    inv = bag()                  # ARM's read when nothing was sent since (R-a)
+    clicks = hold_clicks(inv.slots, inv.selected, item, price)
+    if not clicks:
+        return
+    close_screen()
+    for body in clicks:
+        api.post("/click", body)
+    came = next((s["id"] for s in inv.slots if screen_slot(s["slot"]) == clicks[0]["slot"]), "nothing")
+    api.detail(f"   hold {item}: {came} swapped into the hand")
+
 def opened(result):
     """Pure: did a use open the block's screen (the jar answers succeeded with screen "none" when it did not)."""
     return (result or {}).get("status") == "succeeded" and ((result or {}).get("result") or {}).get("screen") not in (
@@ -250,23 +293,25 @@ COMMON_FOE = "minecraft:zombie"     # an attack names its mob by id only: the we
 ARM_REGION_MAX = 4096       # cells one read may cover to name what a chain's mines break; larger: a read per cell
 
 def arm(tasks, inv=None, read_blocks=True):
-    """The item each task that breaks or fights holds, named where none is (knowledge.tool_for / route_tool /
-    weapon_for): reads only when a task lacks one — the bag (unless `inv`, the one perception already holds, is given)
-    and the blocks a chain's mines break (unless `read_blocks` is off: the fight path, where a mine holds the route
-    tool and a weapon wants no block). The jar holds exactly that item."""
+    """The item each mine or attack holds, named where none is (knowledge.tool_for / weapon_for): reads only when a
+    task lacks one — the bag (unless `inv`, the one perception already holds, is given) and the blocks the mines
+    break (unless `read_blocks` is off: a mine then names the bare-block tool). HOLD puts that item in hand (I2)."""
     mines = [t for t in tasks if t.get("type") == "mine" and "item" not in t]
-    if not mines and not any(t.get("type") in ("travel", "attack") and "item" not in t for t in tasks):
+    if not mines and not any(t.get("type") == "attack" and "item" not in t for t in tasks):
         return tasks
     try:
-        inv = inv if inv is not None else Inventory()
+        inv = inv if inv is not None else bag()
         cells = [(t["x"], t["y"], t["z"]) for t in mines] if read_blocks else []
         names = {}
         if cells:
-            lo = tuple(min(c[i] for c in cells) for i in range(3))
-            hi = tuple(max(c[i] for c in cells) for i in range(3))
-            if (hi[0] - lo[0] + 1) * (hi[1] - lo[1] + 1) * (hi[2] - lo[2] + 1) <= ARM_REGION_MAX:
-                region = Region(lo, hi)
-                names = {c: region.name(c) for c in cells}
+            # the box the stand gate reads too (cells ± REACH) serves both (R-b); too large: the cells' own box
+            for pad in (REACH, 0):
+                lo = tuple(math.floor(min(c[i] for c in cells) - pad) for i in range(3))
+                hi = tuple(math.ceil(max(c[i] for c in cells) + pad) for i in range(3))
+                if (hi[0] - lo[0] + 1) * (hi[1] - lo[1] + 1) * (hi[2] - lo[2] + 1) <= ARM_REGION_MAX:
+                    region = box(lo, hi)
+                    names = {c: region.name(c) for c in cells}
+                    break
             else:
                 names = {c: Region(c, c).name(c) for c in cells}
     except McError as e:              # no world to read (an offline test): the tasks go as they were — said, never silent
@@ -275,14 +320,10 @@ def arm(tasks, inv=None, read_blocks=True):
     out = []
     for t in tasks:
         kind = t.get("type")
-        if "item" in t or kind not in ("mine", "travel", "attack"):
+        if "item" in t or kind not in ("mine", "attack"):
             out.append(t)
-        elif kind == "mine" and not read_blocks:
-            out.append({**t, "item": _know.route_tool(inv)})
         elif kind == "mine":
             out.append({**t, "item": _know.tool_for(inv, names.get((t["x"], t["y"], t["z"])))})
-        elif kind == "travel":
-            out.append({**t, "item": _know.route_tool(inv)})
         else:
             out.append({**t, "item": _know.weapon_for(inv, beliefs.mob(COMMON_FOE)["hp"])})
     return out

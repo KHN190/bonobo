@@ -10,7 +10,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 MOVES = ("THROW", "QUICK_MOVE")
-SELECTORS = ("tool_for", "weapon_for", "route_tool")     # which item a task holds: chosen in skillcore.arm only
+SELECTORS = ("tool_for", "weapon_for")     # which item a task holds: chosen in skillcore.arm only
 
 
 def violations(source, path):

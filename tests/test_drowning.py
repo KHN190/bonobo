@@ -182,7 +182,7 @@ class Surface(unittest.TestCase):
                 got = hazard.due(st, buried=False)
                 self.assertEqual(got, due)
                 if got:
-                    hazard.RESCUE[got](None, st)
+                    hazard.RECOVERY[got][0](None, st)
                 self.assertEqual(calls, want)
 
 

@@ -13,6 +13,7 @@ from typing import Any
 
 from ... import estimate, paths  # noqa: F401
 from ..core import bag_now
+from ...data import MAX_HP
 import importlib
 import json
 import math
@@ -1118,32 +1119,51 @@ def behaviour_row(name, behaviour):
                      **({"before": proof["before"]} if "before" in proof else {}))
     return dict(row, check=[("behaviour", behaviour)], kit=["sword"])
 
-def fight_cell_row(name, mob, n, tier, secs, hp, clear):
-    """A walled arena, the iron kit, `n` of one mob: all dead (or kept off, or left alone when neutral)."""
-    kinds = [f"minecraft:{mob}"]
-    # an archer 10 blocks off (7, 7: 9.9) — at 4 it was a melee fight; a creeper 7; the rest 4-5 off
-    spots = ([(7, 0, 0)] if mob == "creeper" else [(7, 0, 7)] if mob == "skeleton"
-             else [(4, 0, 0), (-3, 0, 3), (1, 0, -4)])[:n]
+SPOTS = {"creeper": [(7, 0, 0)], "skeleton": [(7, 0, 7)], None: [(4, 0, 0), (-3, 0, 3), (1, 0, -4)]}
+
+
+def fight_est_s(mobs, n, sword=2):
+    """Pure: the production estimate of the fight (estimate.fight_cost: walks and kills, nearest first) of `n` of each
+    of `mobs` placed at SPOTS, the iron sword's tier."""
+    hazards = [estimate.row(spot, float(estimate.MOBS[f"minecraft:{m}"].get("reach", 3.0)), (0.0, 0.0, 0.0),
+                            f"minecraft:{m}") for m in mobs for spot in SPOTS.get(m, SPOTS[None])[:n]]
+    return estimate.fight_cost((0.0, 0.0, 0.0), hazards, sword, 0.0)[0]
+
+
+def fight_cell_row(name, mob, n, tier, secs, hp, clear, held=None):
+    """A walled arena, the iron kit, `n` of each mob in `mob` ("zombie" or "zombie+skeleton"): all dead (or kept
+    off, or left alone when neutral). `secs` None: the fight's own estimate (fight_est_s) × the bench's slack.
+    `held`: an item in the main hand at the start instead of the sword (the weapon put in hand at engage, B3)."""
+    from ..bench_bases import TARGET_SLACK
+    mobs = mob.split("+")
+    kinds = [f"minecraft:{m}" for m in mobs]
+    if secs is None:
+        secs = min(limit(), math.ceil(fight_est_s(mobs, n) * TARGET_SLACK) + RESOLVE_HOLD_S + 2)
     nbt = "{PersistenceRequired:1b,Health:10f}" if mob == "blaze" and n > 1 else "{PersistenceRequired:1b}"
     verdict = {True: "all dead", False: "left alone (neutral)",
                "resolved": f"dead, or kept off and not following for {RESOLVE_HOLD_S:.0f} s"}[clear]
     # judged by the world only: health, the mobs gone and the server's kill count; the fight's own record (its
-    # kills, stalls, answers carried, decision rhythm) is a readout (fight_readout), never the pass (bench.judged)
+    # kills, stalls, answers carried, decision rhythm — and the answer switches) is a readout (fight_readout),
+    # never the pass (bench.judged)
     check = ([("threat_resolved", kinds)] if clear == "resolved"
-             else [("alive", hp), ("gone", kinds), ("killed", kinds, n)] if clear
+             else [("alive", hp), ("gone", kinds)] + [("killed", [k], n) for k in kinds] if clear
              else [("alive", hp), ("call", "hostiles", [24, ("$set", kinds)])])
-    if mob == "skeleton":
+    if "skeleton" in mobs:
         check += [("shield_kept",)]           # arrows: the shield still in the offhand
-    return _row(name, f"Walled platform, iron kit: {n} {mob} → {verdict}, health ≥ {hp}"
-                      + (f", {n} kills credited by the server" if clear is True else ""), "fight_loop",
-                [("sheet", "_ARENA")] + [("summon", mob, ("@", x, y, z), nbt) for x, y, z in spots]
-                + (kill_stat_scene(f"minecraft:{mob}") if clear in (True, "resolved") else []),
+    summons = [("summon", m, ("@", x, y, z), nbt) for m in mobs for x, y, z in SPOTS.get(m, SPOTS[None])[:n]]
+    return _row(name, f"Walled platform, iron kit{f', {held} in hand' if held else ''}: {n} {' + '.join(mobs)} → {verdict}, health ≥ {hp}"
+                      + (f", {n} kills{' each' if len(mobs) > 1 else ''} credited by the server" if clear is True else ""),
+                "fight_loop",
+                [("sheet", "_ARENA")] + summons
+                + [x for k in kinds for x in (kill_stat_scene(k) if clear in (True, "resolved") else [])]
+                + ([("cmd", f"item replace entity @p hotbar.0 with {held}"),
+                    ("cmd", "item replace entity @p hotbar.1 with iron_sword")] if held else []),
                 ("fight_until", kinds, secs - RESOLVE_HOLD_S - 2 if clear == "resolved" else secs - 2)
                 + (() if clear is not False else (False,)), check, point="B", budget=min(secs + 5, limit()),
                 before=[("&record_bids",)], combat=True, skills=[], tier_fixed=tier,
                 tags={"base": "fight", "enemy": mob, "count": n},
                 # the scene proven before the run: exactly this line-up, the arena standing, the kit in hand
-                expect_entities=[(f"minecraft:{mob}", n, n)], expect=ARENA_EXPECT, expect_gear=ARENA_GEAR, kit=["sword"])
+                expect_entities=[(k, n, n) for k in kinds], expect=ARENA_EXPECT, expect_gear=ARENA_GEAR, kit=["sword"])
 
 def siege_detail(name):
     return lambda inv: _siege_detail_of(name)
@@ -1379,10 +1399,103 @@ from ... import lifecycle as _deflect_lifecycle  # noqa: E402
 _deflect_lifecycle.in_place(__name__, "DEFLECT")     # a row's own record
 
 
-TEMPLATES = {t: globals()[f"{t}_row"] for t in ("arena", "siege", "escape", "behaviour", "fight_cell", "deflect")}
+# -- line: an archer's draw cut off by a wall (B4): the shield stays down for a shot that cannot be fired
+LINE = {}               # the running row: the wall's time, /state `blocking` sampled after it, why setup failed
+UNSEEN_DRAW_S = 60 / 20  # BowAttackGoal: a draw held unseen this long (targetSeeingTicker < -60) is dropped, never fired
+LINE_SAMPLE_S = 0.05
+ARCHER = "minecraft:skeleton"
+
+
+def line_wall(dist):
+    """Pure: the corridor's cross-section half-way to an archer `dist` down it — the wall set mid-draw."""
+    dx, _dy, dz = CORRIDOR
+    k = dist // 2
+    return at(dx * k, 0, dz * k), at(dx * k, 2, dz * k)
+
+
+def unblocked(samples):
+    """Pure: the body never blocking after the wall — at least one sample, none of them `blocking`."""
+    return bool(samples) and not any(samples)
+
+
+def line_draw(dist):
+    """`before` hook: once the archer is seen drawing, the wall goes up between, then /state `blocking` is sampled for
+    the longest it may hold that draw unseen (UNSEEN_DRAW_S)."""
+    from ..core import _command
+    from ... import api
+    from ...perception import read_combat
+    lo, hi = line_wall(dist)
+
+    def hook(ctx):
+        LINE.clear()
+        LINE.update(samples=[], done=False, wall_at=None, why=None)
+        _threading.Thread(target=watch, daemon=True, name="line-draw").start()
+
+    def watch():
+        t0 = time.time()
+        try:
+            while time.time() - t0 < VOLLEY_WATCH_S:
+                if any(e["busy"] for e in read_combat(api.get("/entities?radius=16")["entities"]) if e["type"] == ARCHER):
+                    break
+                time.sleep(LINE_SAMPLE_S)
+            else:
+                LINE["why"] = "the archer never drew"
+                return
+            _command(f"fill {_c(lo)} {_c(hi)} stone", [])
+            LINE["wall_at"] = time.time()
+            while time.time() - LINE["wall_at"] < UNSEEN_DRAW_S:
+                LINE["samples"].append(bool(api.get("/state").get("blocking")))
+                time.sleep(LINE_SAMPLE_S)
+        except McError as e:
+            LINE["why"] = f"{type(e).__name__}: {e}"
+        finally:
+            LINE["done"] = True
+    return hook
+
+
+def _line_watch():
+    """The shield reflex on, the agent driving (the reflex runs only then); ends when the sampling does."""
+    def run(ctx):
+        from ... import api
+        api.post("/reflex", {"shield": True, "counter": False, "deflect": False})
+        api.post("/takeover", {})
+        t0 = time.time()
+        while not LINE.get("done") and time.time() - t0 < VOLLEY_WATCH_S + UNSEEN_DRAW_S:
+            time.sleep(LINE_SAMPLE_S)
+        return True
+    return run
+
+
+def no_reflex():
+    """Check (the body): /state `blocking` false at every sample after the wall went up."""
+    def check(api_, inv):
+        from ..runner import CHECK_READOUT
+        CHECK_READOUT["line"] = {"why": LINE.get("why"), "samples": len(LINE.get("samples", [])),
+                                 "blocking": sum(LINE.get("samples", []))}
+        return unblocked(LINE.get("samples", []))
+    return check
+
+
+def line_row(name, dist):
+    """A 1-wide roofed corridor, a shield in the offhand, an archer `dist` down it: once it draws, a wall between →
+    the shield never raised (it cannot fire unseen). The must-fail twin is behaviour shield_arrows (in the open)."""
+    scene = [("cmd", c) for c in corridor(dist + 1)] + [
+        ("stand",), ("cmd", "clear @p"), ("cmd", "effect clear @p"),
+        ("cmd", "item replace entity @p weapon.offhand with shield"), ("cmd", "difficulty normal"),
+        ("summon", ARCHER.split(":")[1], at(CORRIDOR[0] * dist, 0, CORRIDOR[2] * dist), "{PersistenceRequired:1b}")]
+    return _row(name, f"An archer {dist} down a roofed corridor draws; a wall goes up between mid-draw → the shield "
+                      f"stays down the {UNSEEN_DRAW_S:.0f} s it may hold that draw unseen", "fight_loop",
+                scene, ("line_watch",), [("no_reflex",), ("alive", MAX_HP)],
+                budget=min(VOLLEY_WATCH_S + UNSEEN_DRAW_S + 2, limit()), before=[("line_draw", dist)], combat=True,
+                tier_fixed="combat", tags={"base": "line", "enemy": "archer"})
+
+
+_deflect_lifecycle.in_place(__name__, "LINE")
+
+TEMPLATES = {t: globals()[f"{t}_row"] for t in ("arena", "siege", "escape", "behaviour", "fight_cell", "deflect", "line")}
 NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"siege__w{w}",
          "escape": lambda enemy, ground, kit, seed=None: f"escape__{enemy}_{ground}_{kit}",
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name,
-         "deflect": lambda name, *p: name}
+         "deflect": lambda name, *p: name, "line": lambda name, *p: name}
 
-__all__ = ['_fight_recorded', '_sample_alive', 'IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', 'ENGAGED_INTENT', 'WINDOW_PROBE', 'answered_by_time', 'perception_probe', 'missing_columns', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', 'reflex_last', '_scatter', '_seed_of', '_shapes_fit_the_enemy', 'escaped', '_escaped', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', 'game_time', 'provoked', '_endermen_calm', 'ENDERMEN', 'positions', 'covered_in_time', '_took_cover', 'trapped_room', '_kept_health', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'heading', 'moves', 'FIREBALL', 'SHOTS', 'SHOT_DIST', 'CORRIDOR', 'CORRIDOR_LEN', 'VOLLEY_WATCH_S', 'corridor', 'shot_at', 'tag_shots', 'next_shot_due', 'VOLLEY_READS', 'volley_read', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['SPOTS', 'fight_est_s', '_fight_recorded', '_sample_alive', 'IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', 'ENGAGED_INTENT', 'WINDOW_PROBE', 'answered_by_time', 'perception_probe', 'missing_columns', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', 'reflex_last', '_scatter', '_seed_of', '_shapes_fit_the_enemy', 'escaped', '_escaped', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', 'game_time', 'provoked', '_endermen_calm', 'ENDERMEN', 'positions', 'covered_in_time', '_took_cover', 'trapped_room', '_kept_health', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'heading', 'moves', 'FIREBALL', 'SHOTS', 'SHOT_DIST', 'CORRIDOR', 'CORRIDOR_LEN', 'VOLLEY_WATCH_S', 'corridor', 'shot_at', 'tag_shots', 'next_shot_due', 'VOLLEY_READS', 'volley_read', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row', 'LINE', 'UNSEEN_DRAW_S', 'LINE_SAMPLE_S', 'ARCHER', 'line_wall', 'unblocked', 'line_draw', '_line_watch', 'no_reflex', 'line_row']

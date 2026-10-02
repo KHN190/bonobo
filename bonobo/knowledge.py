@@ -1,10 +1,10 @@
 """Where things come from: the requirement graph the planner resolves (recipes, smelting, mining, hunting)."""
 import math
 
-from .data import (BASE_MARKERS, COLORS, DAY_END, DAY_TICKS, EYE_HEIGHT, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS,
+from .data import (ANIMAL_HP, BASE_MARKERS, COLORS, DAY_END, DAY_TICKS, EYE_HEIGHT, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS,
                    HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, ATTACKS_PER_S, BREAK_DIVISOR,
                    DEEPSLATE_ORE_HARDNESS, HAND_ATTACKS_PER_S, HAND_DAMAGE, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS,
-                   SPECIAL_SPEED, TOOL_KINDS, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS)
+                   SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS)
 
 # group recipes: the output follows the input variant; the craft skill picks one owned member with enough
 GROUP_RECIPES = {
@@ -15,18 +15,14 @@ GROUP_RECIPES = {
 }
 
 # seconds a speed tool saves per unit of work; it is made only when that beats making it
-CHOP_AXE_S = 1.5         # a log: ~3 s by hand, ~1.5 s with a wooden axe
-HUNT_SWORD_S = 3.0       # a kill: a cow takes ten fist hits, four with a wooden sword
-DIG_SHOVEL_S = 0.35      # a block of dirt, sand or gravel: 0.75 s by hand, 0.4 s with a wooden shovel
-DIG_HAND_S = 0.75        # the same block by hand (Minecraft Wiki, Breaking: dirt): what overburden costs a shaft
-# fn(step) → (needs, speed) of what carries out a planned step; wired by skill.py so knowledge stays below the skills
+# fn(step) → the needs of what carries out a planned step; wired by skill.py so knowledge stays below the skills
 STEP_CALL = None
 
 def step_call(step):
-    """(needs, speed) of what carries out `step`, skill modules loaded first; ({}, {}) when none is wired in."""
+    """The needs of what carries out `step`, skill modules loaded first; {} when none is wired in."""
 
     producers()
-    return STEP_CALL(step) if STEP_CALL is not None else ({}, {})
+    return STEP_CALL(step) if STEP_CALL is not None else {}
 
 # item → (blocks to break, minimum pickaxe tier or None)
 MINE = {
@@ -226,11 +222,11 @@ SKILL_MODULES = ("brewing", "building", "combat", "dragon", "end", "explore", "f
                  "reflexes", "skills", "ui", "wood")
 
 def producers():
-    """Every producing table the registered skills declare, in rank order (the skill modules loaded first)."""
-    if not PRODUCERS:
-        import importlib
-        for m in SKILL_MODULES:
-            importlib.import_module(f"{__package__}.{m}")
+    """Every producing table the registered skills declare, in rank order (every skill module loaded first: one
+    already imported registers only its own — gather alone left no craft producer, so no tool could be planned)."""
+    import importlib
+    for m in SKILL_MODULES:
+        importlib.import_module(f"{__package__}.{m}")
     return sorted(PRODUCERS, key=lambda g: g.rank)
 
 def produced(kind):
@@ -370,11 +366,42 @@ def tool_for(inv, block, min_left=2):
     breaks it in the fewest ticks (cheapest_equal over break_ticks)."""
     return cheapest_equal(["hand"] + _carried_tools(inv, min_left), lambda i: break_ticks(block, i), item_tier)
 
-ROUTE_BLOCK = "stone"      # what a dug way is mostly cut through: the one item a walk that may dig holds is chosen by it
+def dig_ticks(blocks, inv):
+    """Pure: ticks the breaks of `blocks` (a block name per cell) take, each with the item tool_for holds for it."""
+    return sum(break_ticks(b, tool_for(inv, b)) for b in blocks)
 
-def route_tool(inv):
-    """Pure: what a walk that may dig holds — the jar digs its whole route with one item: tool_for its ROUTE_BLOCK."""
-    return tool_for(inv, ROUTE_BLOCK)
+def tool_item(kind, tier):
+    """Pure: the tool of `kind` at `tier` ("minecraft:stone_shovel")."""
+    return mid(f"{TOOL_MATERIAL_FOR_TIER[tier]}_{kind}")
+
+def work_s(breaks, kills, held, ticks_per_s):
+    """Pure: seconds the work takes — each block of `breaks` broken, each hp of `kills` dealt — with the best of the
+    hand and `held` ({tool kind: tier}) for each."""
+    items = ["hand"] + [tool_item(k, t) for k, t in held.items()]
+    return (sum(min(break_ticks(b, i) for i in items) for b in breaks) / ticks_per_s
+            + sum(min(kill_s(i, hp) for i in items) for hp in kills))
+
+def own_work(step):
+    """Pure: (breaks, kills) a step's own work makes: a mine's blocks, a gather's logs, a hunt's kills (each
+    animal's hp) — a block or an hp per unit (its `breaks`, `kills` or count)."""
+    units = int(step.detail.get("breaks") or step.detail.get("kills") or step.count or 0)
+    if step.kind == "mine" and step.detail.get("blocks"):
+        return [step.detail["blocks"][0]] * units, []
+    if step.kind == "gather":
+        return [GROUPS["log"][0]] * units, []
+    if step.kind == "hunt":
+        hp = [ANIMAL_HP[t] for t in step.detail.get("types", ()) if t in ANIMAL_HP]
+        return [], [min(hp)] * units if hp else []
+    return [], []
+
+def held_tiers(inv, min_left=TOOL_MIN_DURABILITY):
+    """Pure: {tool kind: the best tier the bag holds with wear left}."""
+    out = {}
+    for kind in TOOL_KINDS:
+        tiers = [t for t, d, _ in inv.tools(kind) if d >= min_left and t in TOOL_MATERIAL_FOR_TIER]
+        if tiers:
+            out[kind] = max(tiers)
+    return out
 
 def kill_s(item, hp):
     """Pure: seconds `item` (or "hand") takes to deal `hp` (whole hits × one attack's cooldown, no crits)."""
@@ -651,6 +678,12 @@ def site_known(kind):
         return left(any(s.get("kind") == kind for s in (st.get("sites") or [])), f"site:{kind}")
     return fn
 
+def container_known(pos_of):
+    """The container at pos_of(call) has a record (a /container reading noted: `containers`)."""
+    def fn(st, c):
+        return left(any(tuple(r["pos"]) == tuple(pos_of(c)) for r in (st.get("containers") or [])), "look")
+    return fn
+
 def gained_any(st, c):
     total = sum(int(s.get("count", 1)) for s in st["inv"].slots)
     return left(total > _base(c), "loot")
@@ -708,7 +741,7 @@ def sheltered(sky_light, enclosed, in_site=lambda: False):
 # -- a step's prior work in ticks: the one table (cost.Cost before anything is measured, and planner.NullCost)
 PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 60,
                "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
-               "withdraw": 100, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
+               "withdraw": 100, "look": 40, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
                "farm": 6000, "trade": 600}         # farm: tilling, sowing and a crop's growth; trade: one sale
 
 

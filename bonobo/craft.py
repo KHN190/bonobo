@@ -373,14 +373,14 @@ def _sitting(ctx, recipes, keep_table=False):
                 ctx.mem.add_station("minecraft:crafting_table", placed, ctx.dimension)
     return [(t, times) for t, times in recipes]
 
-@skill(gives=[K.GIVES_CRAFT_GROUP, K.GIVES_CRAFT], needs={}, speed={}, start=lambda c: _plan_start([(c.args[1], c.args[2])]), verify=_plan_made, budget=90, stall=60,
+@skill(gives=[K.GIVES_CRAFT_GROUP, K.GIVES_CRAFT], needs={}, start=lambda c: _plan_start([(c.args[1], c.args[2])]), verify=_plan_made, budget=90, stall=60,
        key=lambda c: "craft", provides={"craft": lambda ctx, s: (s.token, s.detail["times"])},
        commands=lambda state, args: craft_commands(state, ([(args[0], args[1])],)))
 def craft(ctx, token, times):
     """Craft `times` batches of a recipe (2×2 in the inventory, 3×3 at a found or carried crafting table)."""
     return _sitting(ctx, [(token, times)])
 
-@skill(gives=["state:crafted"], remaining=_k.planned_items, needs={}, speed={}, start=lambda c: _plan_start(c.args[1]), verify=_plan_made, budget=120, stall=60, key=lambda c: "craft",
+@skill(gives=["state:crafted"], remaining=_k.planned_items, needs={}, start=lambda c: _plan_start(c.args[1]), verify=_plan_made, budget=120, stall=60, key=lambda c: "craft",
        commands=lambda state, args: craft_commands(state, (args[0],)))
 def craft_chain(ctx, recipes, keep_table=False):
     """Consecutive crafts of one plan in one sitting (`_sitting`). `recipes`: [(token, times)] in plan order."""
@@ -408,7 +408,7 @@ def _furnace_slots():
     return {s["slot"]: s.get("count", 0) for s in world.container()["slots"]
             if s["owner"] != "player" and s["id"] != "minecraft:air"}
 
-@skill(gives=K.GIVES_SMELT, needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
+@skill(gives=K.GIVES_SMELT, needs={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
        budget=900, stall=30, units=lambda c: min(64, c.args[3]), key=lambda c: "smelt",
        provides={"smelt": lambda ctx, s: _smelt_args(s)}, prefer=-1)
 def smelt(ctx, output, input_token, count, fuel):
@@ -469,7 +469,7 @@ def furnace_takes(slots, input_ids, output):
     inp, out = slots.get(0, "minecraft:air"), slots.get(2, "minecraft:air")
     return inp in ("minecraft:air", *input_ids) and out in ("minecraft:air", output)
 
-@skill(gives=["state:smelting"], remaining=_k.less_than_at_start(lambda c: c.args[2], lambda c: min(64, c.args[3])), needs={}, speed={}, start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
+@skill(gives=["state:smelting"], remaining=_k.less_than_at_start(lambda c: c.args[2], lambda c: min(64, c.args[3])), needs={}, start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
        budget=180, stall=40,
        provides={"smelt": lambda ctx, s: _smelt_args(s) if s.count >= ASYNC_SMELT_MIN else None})
 def start_smelt_job(ctx, output, input_token, count, fuel):
@@ -547,7 +547,7 @@ def after_take(job, got, still_cooking, now, tick=None):
         out["ready_tick"] = tick + TICKS_PER_ITEM * still_cooking + 20
     return out
 
-@skill(gives=["state:job_collected"], remaining=_k.more_than_at_start(lambda c: c.args[1]["item"], lambda c: c.args[1]["count"]), needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]["item"]),
+@skill(gives=["state:job_collected"], remaining=_k.more_than_at_start(lambda c: c.args[1]["item"], lambda c: c.args[1]["count"]), needs={}, start=lambda c: Inventory().count(c.args[1]["item"]),
        verify=lambda c: Inventory().count(c.args[1]["item"]) > c.base, budget=240, stall=60)
 def collect_job(ctx, job):
     """Go back to a background furnace job, take the output (and leftovers), pick the furnace up if it was ours."""
@@ -628,7 +628,7 @@ def equip_armor():
             changed = True
     return changed
 
-@skill(gives=["state:smelter_loaded"], remaining=_k.less_than_at_start(lambda c: c.args[2], lambda c: min(64, c.args[3])), needs={}, speed={}, start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
+@skill(gives=["state:smelter_loaded"], remaining=_k.less_than_at_start(lambda c: c.args[2], lambda c: min(64, c.args[3])), needs={}, start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
        budget=300, stall=60, provides={"smelt": _smelter_for}, prefer=1)
 def load_smelter(ctx, machine, input_token, count, fuel, output):
     """Load an auto smelter's input and fuel chests and note the output as pending, so the planner counts it on its way."""
@@ -659,7 +659,7 @@ def load_smelter(ctx, machine, input_token, count, fuel, output):
 def pending_ready(machine):
     return any(p["ready_at"] <= time.time() for p in machine.get("pending", []))
 
-@skill(gives=["state:machine_emptied"], remaining=_k.machine_emptied(lambda c: c.args[1]["name"]), needs={}, speed={}, start=lambda c: sum(p["count"] for p in c.args[1].get("pending", [])),
+@skill(gives=["state:machine_emptied"], remaining=_k.machine_emptied(lambda c: c.args[1]["name"]), needs={}, start=lambda c: sum(p["count"] for p in c.args[1].get("pending", [])),
        verify=lambda c: sum(p["count"] for p in c.args[1].get("pending", [])) < c.base,
        budget=300, stall=60)
 def collect_machine(ctx, machine):

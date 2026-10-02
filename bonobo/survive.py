@@ -8,10 +8,10 @@ from . import events
 from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import ANCHORS, skill, current as current_call
-from .data import (BASE_MARKERS, FULL_BAR, GROUPS, NUTRITION, PLACEABLE_AS, POD_BLOCKS, bare, mid, DAY_END, NIGHT_END,
+from .data import (BED_BOX, BED_REACH, SLEEP_BLOCKERS, SLEEP_BLOCKERS_ANGRY, TORCH_LIGHT, BASE_MARKERS, FULL_BAR, GROUPS, NUTRITION, PLACEABLE_AS, POD_BLOCKS, bare, mid, DAY_END, NIGHT_END,
                    DAY_TICKS, EYE_HEIGHT, WALK_BLOCKS_PER_TICK, MAX_HP, critical_hp)
-from .knowledge import DIG_SHOVEL_S, RAW_MEAT, ALL_FOOD
-from .world import Inventory, Region, add, dark_spots, find
+from .knowledge import RAW_MEAT, ALL_FOOD
+from .world import Inventory, Region, add, dark_spots, entities, find
 from .bag import throw_direction
 from .terrain import (choose_burrow, choose_exit, air_route, is_enclosed, openings, find_open_spot, SOFT_RADIUS,
                       nearest_soft)
@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from .shapes import BodyState, EatTask, PlaceTask, Task
 
-@skill(gives=["state:open_room"], remaining=lambda st, c: open_room_left(st, c), needs={}, speed={}, budget=120, stall=45,
+@skill(gives=["state:open_room"], remaining=lambda st, c: open_room_left(st, c), needs={}, budget=120, stall=45,
        verify=lambda c: c.result is not None and math.dist(feet(), c.result) <= 2
        and len(free_spots_here(limit=2)) >= 2,
        provides={"reach:open": lambda ctx, s: ()})
@@ -119,7 +119,7 @@ def _fed_as_planned(c):
     return isinstance(target, int) and not isinstance(target, bool) and api.get("/state")["food"] >= target
 
 # needs: none the bag can state — a cooked meal, or raw meat when starving
-@skill(gives=["state:fed"], remaining=_k.fed, needs={}, speed={}, start=lambda c: api.get("/state")["food"], verify=_fed_as_planned,
+@skill(gives=["state:fed"], remaining=_k.fed, needs={}, start=lambda c: api.get("/state")["food"], verify=_fed_as_planned,
        commands=lambda state, args: eat_commands(state, args), budget=30, stall=30,
        provides={"eat": lambda ctx, s: (bool(s.detail.get("raw_ok")),)})
 def eat(ctx=None, raw_ok=False):
@@ -143,7 +143,7 @@ def eat(ctx=None, raw_ok=False):
 def _on_land():
     return not swimming(api.get("/state"))
 
-@skill(gives=["state:footing"], remaining=_k.standing, needs={"building": 1}, speed={}, done=lambda c: bool(api.get("/state").get("onGround")), budget=30, stall=20,
+@skill(gives=["state:footing"], remaining=_k.standing, needs={"building": 1}, done=lambda c: bool(api.get("/state").get("onGround")), budget=30, stall=20,
        provides={"reach:footing": lambda ctx, s: ()})
 def stand_on_a_block(ctx):
     """Footing, made rather than travelled to: one block under the feet."""
@@ -200,7 +200,7 @@ def _bridged_nearer(c):
     target = c.args[1]
     return math.dist(feet(), target) < math.dist(c.base, target) - 1
 
-@skill(gives=["state:bridged"], remaining=_k.near(lambda c: c.args[1], lambda c: BRIDGE_REACH), needs={"building": 1}, speed={}, start=lambda c: feet(), verify=_bridged_nearer, commands=bridge_commands, budget=120, stall=45)
+@skill(gives=["state:bridged"], remaining=_k.near(lambda c: c.args[1], lambda c: BRIDGE_REACH), needs={"building": 1}, start=lambda c: feet(), verify=_bridged_nearer, commands=bridge_commands, budget=120, stall=45)
 def bridge_toward(ctx, target):
     """Path blocked: make the way toward `target` by hand instead of asking the walker again."""
 
@@ -211,7 +211,7 @@ def bridge_toward(ctx, target):
     api.run_chain(tasks, stop_on_failure=True, before_segment=ctx.policy.before_segment)
     return feet()
 
-@skill(gives=["state:ashore"], remaining=_k.on_dry_ground, needs={}, speed={}, done=lambda c: _on_land(), budget=180, stall=45, provides={"reach:land": lambda ctx, s: ()})
+@skill(gives=["state:ashore"], remaining=_k.on_dry_ground, needs={}, done=lambda c: _on_land(), budget=180, stall=45, provides={"reach:land": lambda ctx, s: ()})
 def reach_land(ctx):
     """Night in the water: swim (or boat) to the nearest dry standing spot first; shelters are made from land."""
 
@@ -265,7 +265,7 @@ def burrow_commands(state, args=()):
            if region is None or region.solid(c)]
     return dig + [{"type": "goto", "x": end[0], "y": end[1], "z": end[2], "range": 0.4, "partial": False}] + seal
 
-@skill(gives=["state:sheltered"], needs={"tool:pickaxe:0": 1}, speed={}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), budget=90, stall=40, commands=lambda st, a: burrow_commands(st, a),
+@skill(gives=["state:sheltered"], needs={"tool:pickaxe:0": 1}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), budget=90, stall=40, commands=lambda st, a: burrow_commands(st, a),
        provides={"state:sheltered": lambda ctx, s: () if _burrow_here(ctx) else None,
                  "shelter:burrow": lambda ctx, s: ()})
 def burrow(ctx):
@@ -295,7 +295,7 @@ def dig_out_commands(state, args=()):
     return [nav.mine_task(c) for c in cells] + [{"type": "goto", "x": out[0], "y": out[1], "z": out[2],
                                                  "range": 0.6, "partial": True}]
 
-@skill(gives=["state:outside"], remaining=lambda st, c: outside_left(st, c), needs={}, speed={}, done=lambda c: not enclosed(), budget=90, stall=45, commands=lambda st, a: dig_out_commands(st, a),
+@skill(gives=["state:outside"], remaining=lambda st, c: outside_left(st, c), needs={}, done=lambda c: not enclosed(), budget=90, stall=45, commands=lambda st, a: dig_out_commands(st, a),
        provides={"reach:outside": lambda ctx, s: ()})
 def dig_out(ctx):
     """Morning in a sealed pod: open one side (by hand if no pickaxe) and step out, one chain."""
@@ -306,7 +306,7 @@ def dig_out(ctx):
     yield feet()
     log(f"dug out of the shelter toward {tuple(tasks[-1][k] for k in 'xyz')}")
 
-@skill(gives=["state:head_clear"], remaining=_k.head_clear, needs={}, speed={}, done=lambda c: not head_buried(), budget=30, stall=15)
+@skill(gives=["state:head_clear"], remaining=_k.head_clear, needs={}, done=lambda c: not head_buried(), budget=30, stall=15)
 def unbury(ctx):
     """Suffocating in a block: step out to a free side cell first; else break the block at eye level (then the one
     above it if sand/gravel keeps falling). A home block is broken only at critical hp, said as an event (api)."""
@@ -377,7 +377,7 @@ def _breathing_now():
     s = api.get("/state")
     return not head_underwater(s) and s.get("air", AIR_FULL) >= AIR_FULL
 
-@skill(gives=["state:air"], remaining=_k.breathing, needs={}, speed={}, done=lambda c: _breathing_now(), verify=lambda c: _breathing(), budget=45, stall=12,
+@skill(gives=["state:air"], remaining=_k.breathing, needs={}, done=lambda c: _breathing_now(), verify=lambda c: _breathing(), budget=45, stall=12,
        provides={"reach:air": lambda ctx, s: ()})
 def find_air(ctx):
     """Out of breath underwater: swim to the nearest dry cell (surfacing in place sank back), else a block at the surface, else dig the cap."""
@@ -403,23 +403,99 @@ def find_air(ctx):
                 place(nav.building_item(), (fx, fy - 1, fz))
         yield kind
 
+BED_ROOM_REACH = 3        # a bed is placed this far at most (trySleep's reach along x and z)
+
+def bed_cells(feet, dist, d, dy):
+    """Pure: (foot, head) of a bed `dist` along direction `d` (dx, dz) from the feet, `dy` up — the head away from us."""
+    foot = (feet[0] + dist * d[0], feet[1] + dy, feet[2] + dist * d[1])
+    return foot, (foot[0] + d[0], foot[1], foot[2] + d[1])
+
+def bed_room(region, foot, head):
+    """Pure: a bed fits at foot/head — both cells air on a solid floor, neither cell above them burying a head
+    (trySleep's isBedObstructed)."""
+    return all(region.name(c) == "air" and region.solid(add(c, (0, -1, 0))) and not region.buries(add(c, (0, 1, 0)))
+               for c in (foot, head))
+
+def bed_room_tasks(region, feet, protected, places, inv):
+    """Pure: (tasks, (foot, head), seconds, why) of the cheapest room for a bed within BED_ROOM_REACH — an existing
+    one (no tasks), else its cells and the cells above them opened top down and a missing floor placed
+    (nav.open_tasks), priced by nav.way_s; tasks None (and why) when no room can be made here."""
+    best, why = None, "no bed room within reach"
+    for dist in range(1, BED_ROOM_REACH + 1):
+        for d in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            for dy in (0, 1, -1):
+                foot, head = bed_cells(feet, dist, d, dy)
+                if foot in protected or head in protected:
+                    continue                 # a carried bed is never placed in a home: its own beds are used
+                if region.inside(add(head, (0, 1, 0))) and bed_room(region, foot, head):
+                    return [], (foot, head), 0.0, None
+                cells = [foot, head, add(foot, (0, 1, 0)), add(head, (0, 1, 0))]
+                if not all(region.inside(c) for c in cells + [add(foot, (0, -1, 0)), add(head, (0, -1, 0))]):
+                    continue
+                tasks, got = nav.open_tasks(region, cells, [add(foot, (0, -1, 0)), add(head, (0, -1, 0))], feet,
+                                            protected, list(places))
+                if tasks is None:
+                    why = got
+                    continue
+                seconds = nav.way_s(region, feet, tasks, inv)
+                if best is None or seconds < best[2]:
+                    best = (tasks, (foot, head), seconds)
+    return (best + (None,)) if best is not None else (None, None, None, why)
+
 def bed_spot():
+    """The foot cell of a bed room within reach as it stands (nothing dug), or None."""
     s = api.get("/state")
     fx, fy, fz = s["blockX"], s["blockY"], s["blockZ"]
-    region = Region((fx - 4, fy - 2, fz - 4), (fx + 4, fy + 2, fz + 4))
-    for dist in (1, 2, 3):
-        for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-            for dy in (0, 1, -1):
-                foot = (fx + dist * dx, fy + dy, fz + dist * dz)
-                head = (foot[0] + dx, foot[1], foot[2] + dz)
-                if all(region.name(c) == "air" and region.solid(add(c, (0, -1, 0))) for c in (foot, head)):
-                    return foot
+    region = Region((fx - 4, fy - 2, fz - 4), (fx + 4, fy + 3, fz + 4))
+    tasks, cells, _s, _why = bed_room_tasks(region, (fx, fy, fz), (), (), None)
+    return cells[0] if tasks == [] and cells is not None else None
+
+def sleep_gate(state, foot, head, region, hostiles):
+    """Pure: why vanilla refuses this bed now (1.21.11 ServerPlayerEntity.trySleep, in its order), None when it
+    lets us sleep: the dimension and the night (can_sleep), the reach (BED_REACH of either half's bottom centre), the
+    cells above the bed (isBedObstructed), a monster within BED_BOX of it — any SLEEP_BLOCKERS, through walls, a
+    zombified piglin only when angry."""
+    why = can_sleep(state)
+    body = (state["x"], state["y"], state["z"])
+    centre = lambda c: (c[0] + 0.5, c[1], c[2] + 0.5)     # noqa: E731
+    within = lambda p, c, r: all(abs(p[i] - centre(c)[i]) <= r[i] for i in range(3))     # noqa: E731
+    if why and "explodes" in why:
+        return why
+    if not (within(body, foot, BED_REACH) or within(body, head, BED_REACH)):
+        return "too far from the bed"
+    if region.buries(add(foot, (0, 1, 0))) or region.buries(add(head, (0, 1, 0))):
+        return "the bed is obstructed"
+    if why:
+        return why
+    for e in hostiles:
+        if (e["type"] in SLEEP_BLOCKERS or e["type"] in SLEEP_BLOCKERS_ANGRY and e.get("angry")) \
+                and within((e["x"], e["y"], e["z"]), foot, BED_BOX):
+            return f"a {bare(e['type'])} within the bed's box (8/5/8) at {(round(e['x']), round(e['y']), round(e['z']))}"
     return None
+
+def torch_cover(dark):
+    """Pure: the fewest torch cells (of the dark spots themselves) that bring every dark spot to block light > 0 —
+    a torch lights a cell TORCH_LIGHT − manhattan distance (greedy cover)."""
+    left = [tuple(c) for c in dark]
+    lit = lambda t, c: TORCH_LIGHT - sum(abs(t[i] - c[i]) for i in range(3)) > 0     # noqa: E731
+    out = []
+    while left:
+        best = max(left, key=lambda t: (sum(lit(t, c) for c in left), -left.index(t)))
+        out.append(best)
+        left = [c for c in left if not lit(best, c)]
+    return out
+
+def light_pays(dark_n, floor_n, night_left_s, torch_s):
+    """Pure: torches round the bed pay when what they cost is less than the night a monster in the box would keep
+    us awake for, weighed by the share of the box's floor that can spawn one (dark_n of floor_n)."""
+    return dark_n > 0 and floor_n > 0 and torch_s < night_left_s * dark_n / floor_n
 
 # when a bed works (Mojang's rule): outside it using a bed does nothing
 SLEEP_FROM_TICKS, SLEEP_TO_TICKS = 12541, 23458
 
-def _morning(timeout=7.0):
+MORNING_S = 7.0          # how long a lain-in bed is read for the morning (the night skipped in ~5 s)
+
+def _morning(timeout=MORNING_S):
     """Lain in a bed: read the clock until it is morning (the night skipped, ~5 s), at most `timeout` s."""
     day = lambda t: int(t) % DAY_TICKS < 12500      # noqa: E731
     return day(settle(lambda: api.get("/state")["timeOfDay"], day, timeout=timeout, stable_s=0.0, soft=True))
@@ -442,7 +518,7 @@ def _day_now():
 
 DAY_WAIT_TICKS = 200      # one wait while sitting the night out
 
-@skill(gives=["state:day"], remaining=_k.daytime, needs={}, speed={}, done=lambda c: _day_now(), budget=600, stall=60, provides={"wait:day": lambda ctx, s: ()})
+@skill(gives=["state:day"], remaining=_k.daytime, needs={}, done=lambda c: _day_now(), budget=600, stall=60, provides={"wait:day": lambda ctx, s: ()})
 def wait_for_day(ctx):
     """Sit the night out where we are, in ten-second waits, until the sun is up."""
     t = int(api.get("/state")["timeOfDay"]) % DAY_TICKS
@@ -455,7 +531,7 @@ def wait_for_day(ctx):
         yield api.get("/state")["timeOfDay"]
 
 # needs: none the bag can state — a bed carried or one standing nearby
-@skill(gives=["state:day"], remaining=_k.daytime, needs={}, speed={}, verify=lambda c: _k.daytime({"state": api.get("/state")}, c) == {}, budget=240, stall=60,
+@skill(gives=["state:day"], remaining=_k.daytime, needs={}, verify=lambda c: _k.daytime({"state": api.get("/state")}, c) == {}, budget=240, stall=60,
        provides={"sleep": lambda ctx, s: (_night_policy(ctx),)})
 def sleep(ctx, night_policy):
     """Sleep through the night: the home's bed when it is within reach of the night (HOME_BED_R), else a carried bed
@@ -470,28 +546,74 @@ def sleep(ctx, night_policy):
     inv = Inventory()
     bed = next((b for b in GROUPS["bed"] if inv.count(b)), None)
     if bed:
-        spot = bed_spot()
-        if spot is None:
-            raise NotAvailable("no flat 2-block spot for the bed")
-        use = {"type": "use", "x": spot[0], "y": spot[1], "z": spot[2]}
-        try:
-            # placed and lain in as one chain; morning is read, not waited for
-            chain = [{"type": "place", "item": bed, "x": spot[0], "y": spot[1], "z": spot[2]}, use]
-            for _ in range(3):
-                api.run_chain(chain, stop_on_failure=True, wait=30)
-                if _morning():
-                    ctx.mem.slept()
-                    log("slept (carried bed)")
-                    return
-                chain = [use]
-            raise NotAvailable("could not fall asleep (monsters nearby?)")
-        finally:
-            mine_cell(ctx.policy, spot, wait=60)
+        return _sleep_carried(ctx, bed, s, inv)
     beds = find(BASE_MARKERS["bed"], radius=HOME_BED_R, limit=1)
     if not beds:
         raise NotAvailable("no bed carried or nearby")
     return _sleep_in(ctx, (beds[0]["x"], beds[0]["y"], beds[0]["z"]), night_policy, "site bed")
 
+
+def _sleep_carried(ctx, bed, s, inv):
+    """A carried bed: a room made for it when none stands within reach (bed_room_tasks), its box lit when that pays
+    (light_box), the gate read (sleep_gate: a refused sleep places nothing), then placed, lain in, and taken back in
+    the morning (take_bed: always, however the night went)."""
+    here = (s["blockX"], s["blockY"], s["blockZ"])
+    region = Region(add(here, (-4, -2, -4)), add(here, (4, 3, 4)))
+    places = [nav.building_of(inv)] * nav.place_budget(inv.count("building")) if nav.building_of(inv) else []
+    tasks, cells, seconds, why = bed_room_tasks(region, here, ctx.policy.protected, places, inv)
+    if tasks is None or cells is None:
+        raise NotAvailable(f"no room for the bed: {why}")
+    foot, head = cells
+    if tasks:
+        api.detail(f"   bed room at {foot}: {len(tasks)} tasks, ~{seconds or 0:.0f}s")
+        api.run_chain(tasks, stop_on_failure=True, wait=60)
+        region = Region(add(here, (-4, -2, -4)), add(here, (4, 3, 4)))
+    light_box(ctx, (foot, head, here, add(foot, (0, 1, 0)), add(head, (0, 1, 0))), s, inv)   # bed and body: no spawn
+    s = api.get("/state")
+    why = sleep_gate(s, foot, head, region, entities(int(max(BED_BOX)) * 2))
+    if why:
+        raise NotAvailable(why)
+    use = {"type": "use", "x": foot[0], "y": foot[1], "z": foot[2]}
+    try:
+        # placed and lain in as one chain; morning is read, not waited for
+        chain = [{"type": "place", "item": bed, "x": foot[0], "y": foot[1], "z": foot[2]}, use]
+        for _ in range(3):
+            api.run_chain(chain, stop_on_failure=True, wait=30)
+            if _morning():
+                ctx.mem.slept()
+                log("slept (carried bed)")
+                return
+            chain = [use]
+        raise NotAvailable("could not fall asleep in the carried bed")
+    finally:
+        take_bed(ctx, foot)
+
+def take_bed(ctx, foot):
+    """The carried bed back in the bag: one break on its foot (both halves drop it)."""
+    mine_cell(ctx.policy, foot, wait=60)
+
+def light_box(ctx, taken, s, inv):
+    """Torches round the bed when they pay (light_pays): every dark spot (block light 0, a floor under it) in the
+    bed's box lit (torch_cover), with the torches carried — the bed's cells and the body's (`taken`: foot, head,
+    feet) are no spawn spots: a sealed pod with nothing else dark lights nothing."""
+    foot = taken[0]
+    taken = {tuple(c) for c in taken}
+    within = lambda p: all(abs(p[i] - foot[i]) <= BED_BOX[i] for i in range(3))     # noqa: E731
+    r = int(max(BED_BOX))
+    cells = lambda light: [(p["x"], p["y"], p["z"]) for p in dark_spots(radius=r, max_light=light, limit=1000)  # noqa: E731
+                           if within((p["x"], p["y"], p["z"])) and (p["x"], p["y"], p["z"]) not in taken]
+    dark, floor = cells(0), cells(TORCH_LIGHT)
+    torches = torch_cover(dark)
+    left_s = ((NIGHT_END - int(s["timeOfDay"])) % DAY_TICKS) / beliefs.TICKS_PER_S
+    if not light_pays(len(dark), len(floor), left_s, len(torches) * nav.PLACE_S):
+        return []
+    if inv.usable("minecraft:torch") < len(torches):
+        api.detail(f"   bed's box: {len(dark)} dark spots, {len(torches)} torches wanted, "
+                   f"{inv.usable('minecraft:torch')} carried: unlit")
+        return []
+    api.run_chain([{"type": "place", "item": "minecraft:torch", "x": c[0], "y": c[1], "z": c[2]} for c in torches],
+                  stop_on_failure=False, wait=60)
+    return torches
 
 HOME_BED_R = 48       # a bed this near is walked to for the night (the site-bed search radius)
 
@@ -508,6 +630,10 @@ def _sleep_in(ctx, b, night_policy, label):
     """Walk to the standing bed `b` and sleep in it."""
     if not nav.arrived(b, night_policy, range_=2.5, attempts=2):
         raise NotAvailable("bed not walkable tonight")
+    why = sleep_gate(api.get("/state"), b, b, Region(add(b, (-1, -1, -1)), add(b, (1, 2, 1))),
+                     entities(int(max(BED_BOX)) * 2))
+    if why:
+        raise NotAvailable(f"the {label}: {why}")          # the refusal named (17:49: 'unavailable', no reason)
     for _ in range(3):
         api.run_chain([{"type": "use", "x": b[0], "y": b[1], "z": b[2]}], wait=30)
         if _morning():
@@ -583,7 +709,7 @@ def night_ground():
     spot = nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
     return (None if spot is None else spot[1] / (WALK_BLOCKS_PER_TICK * 20)), dig_in_site(region, (x, y, z))
 
-@skill(gives=["state:sheltered"], needs={}, speed={"shovel": DIG_SHOVEL_S}, remaining=lambda st, c: dug_in_left(st, c), start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
+@skill(gives=["state:sheltered"], needs={}, remaining=lambda st, c: dug_in_left(st, c), start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
        provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None,
                  "shelter:dig in": lambda ctx, s: ()}, prefer=1,
        budget=60, stall=30)
@@ -713,7 +839,7 @@ def pod_commands(state, args=()) -> "list[Task]":
         raise NotAvailable(f"need {placed_n} blocks to wall in (supports included), {carried} carried")
     return tasks
 
-@skill(gives=["state:sheltered"], needs={"building": POD_BLOCKS}, speed={}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40,
+@skill(gives=["state:sheltered"], needs={"building": POD_BLOCKS}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40,
        provides={"state:sheltered": lambda ctx, s: (), "shelter:wall in": lambda ctx, s: ()}, prefer=-1)
 def pod(ctx):
     """Night fallback where digging in is unsafe (water/caves below): wall in the body — four sides at feet and head, a roof."""
@@ -738,7 +864,7 @@ def _has_torches_to_spare(c):
 def _torches_standing(radius=12):
     return len(find(["torch", "wall_torch"], radius=radius, limit=64) or ())
 
-@skill(gives=["state:lit"], remaining=_k.few_dark, speed={}, pre=[_has_torches_to_spare], needs={"minecraft:torch": 3}, start=lambda c: _torches_standing(),
+@skill(gives=["state:lit"], remaining=_k.few_dark, pre=[_has_torches_to_spare], needs={"minecraft:torch": 3}, start=lambda c: _torches_standing(),
        verify=lambda c: _torches_standing() > c.base, commands=torch_commands, budget=180, stall=60,
        provides={"light": lambda ctx, s: (int(s.detail.get("radius", 10)), max(1, s.count))})
 def light_area(ctx, radius=10, limit=6, spots=None):

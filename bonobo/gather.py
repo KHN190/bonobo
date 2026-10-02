@@ -8,8 +8,8 @@ from . import knowledge as K
 from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
-from .data import BAN_MAX_S, TASK_WAIT_S, cannot_reach, bare, mid
-from .knowledge import DIG_SHOVEL_S, FIND_AT, HUNT_SWORD_S, members, MINE_YIELD
+from .data import STAIR_BELOW, BAN_MAX_S, TASK_WAIT_S, cannot_reach, bare, mid
+from .knowledge import FIND_AT, members, MINE_YIELD
 from .bag import mineable, opener, pickup_whitelist, refused
 from .world import Inventory, Region, add, connected, entities, find, region_around, ripe_near
 from .skillcore import ToolMissing, feet, mine_cell, gained
@@ -84,8 +84,8 @@ def spent_cells(sent, name_at, blocks) -> list[Cell]:
 
 
 def deep_below(cell: Cell, feet_at: Cell) -> bool:
-    """Pure: `cell` lies more than 2 below the feet: a staircase down, not a walk."""
-    return cell[1] < feet_at[1] - 2
+    """Pure: `cell` lies more than STAIR_BELOW below the feet: a staircase down, not a walk."""
+    return cell[1] < feet_at[1] - STAIR_BELOW
 
 def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
     """Pure: (tasks, why not) for a straight shaft from the feet down to a buried `target`'s level: dug only as deep as
@@ -119,9 +119,9 @@ def held_cells(sight, at: Cell, cells, vein) -> set[Cell]:
     """Pure: the cells the jar can break from `at` (nav.holds: sight, not distance), the vein's other cells not in the way."""
     return {p for p in cells if nav.holds(sight, at, p, through=set(vein))}
 
-def open_faced_cells(cells, at, region, exposed, held):
-    """Pure: the cells sent to the jar: mineable from `at`, exposed when /find says which, and held."""
-    return [p for p in mineable(cells, at, region, nav.SAFE_DROP) if (exposed is None or p in exposed) and p in held]
+def open_faced_cells(cells, at, region, held):
+    """Pure: the cells sent to the jar: mineable from `at`, and held (a buried one's way is the gate's: plan_way)."""
+    return [p for p in mineable(cells, at, region, nav.SAFE_DROP) if p in held]
 
 def opener_pairs(region, cells, at, protected, forced=False):
     """Pure: (cell, the block to break first so the jar sees it: bag.opener) for each cell needing one, never a protected block."""
@@ -147,8 +147,44 @@ def partial_refusal(message):
     return None
 
 
-@skill(gives=K.GIVES_MINE, needs=lambda a: {} if a[4] is None else {f"tool:pickaxe:{a[4]}": 1}, speed={"shovel": DIG_SHOVEL_S},
-       start=lambda c: Inventory().count(c.args[1]),
+def pick_seed(priced):
+    """Pure: the candidate whose way is cheapest — [(cell, seconds | None, distance)]: priced ways first by
+    seconds, then the unpriced by distance; None when there are none."""
+    best = min(priced, key=lambda c: (c[1] is None, c[1] if c[1] is not None else c[2]), default=None)
+    return best[0] if best else None
+
+def _cheapest_seed(ctx, hits, start, open_set):
+    """The vein to go for: of the WALK_FACES nearest, the one plan_way prices cheapest (walked to when its cell is
+    open, else dug) — not merely the nearest (a buried vein near beat an exposed one a little farther)."""
+    cells = sorted(((h["x"], h["y"], h["z"]) for h in hits), key=lambda c: math.dist(c, start))[:WALK_FACES]
+    inv, priced = Inventory(), []
+    for c in cells:
+        region = region_around([start, c], pad=nav.SAFE_DROP + 2)
+        seconds = None
+        if region is not None:
+            walks = nav.plan_walks([c] if c in open_set else [], nav.WORK_REACH)
+            seconds = nav.plan_way(region, start, c, "mine", inv, ctx.policy.protected, walks)[2]
+        priced.append((c, seconds, math.dist(c, start)))
+    return pick_seed(priced) or cells[0]
+
+WALK_FACES = 3           # a vein's open faces asked for a walk before its way is dug
+
+def _go_way(ctx, region, start, target, faces, drop):
+    """Walk to an open face or dig the planned way toward `target` (nav.plan_way, said); False when there is none."""
+    walks = nav.plan_walks(faces, nav.WORK_REACH)
+    steps, why, seconds = nav.plan_way(region, start, target, "mine", Inventory(), ctx.policy.protected, walks)
+    if steps is None:
+        api.detail(f"  mine {bare(drop)}: no way to {target}: {why}")
+        return False
+    api.detail(f"  mine {bare(drop)}: way to {target}: {len(steps)} steps, ~{seconds:.0f}s")
+    walk = steps[0] if len(steps) == 1 and steps[0]["type"] == "goto" else None
+    if walk is not None:
+        return nav.arrived((walk["x"], walk["y"], walk["z"]), approach_policy(ctx.policy), range_=walk["range"],
+                           attempts=1)
+    api.run_chain(steps, stop_on_failure=True, wait=120)
+    return True
+
+@skill(gives=K.GIVES_MINE, needs=lambda a: {} if a[4] is None else {f"tool:pickaxe:{a[4]}": 1}, start=lambda c: Inventory().count(c.args[1]),
        done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90,
        units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}",
        provides={"mine": lambda ctx, s: (s.token, s.count, s.detail["blocks"], s.detail["tier"],
@@ -179,7 +215,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             return
         yield None
         require_pickaxe(tier)
-        # sealed or exposed alike (the jar's approach digs to buried blocks); remembered first, /find only when no noted cell is left
+        # remembered first, /find only when no noted cell is left; a buried cell's way is planned (nav.plan_way)
         notes = [n for b in blocks for n in ctx.mem.seen(b, ctx.dimension)] if ctx.mem is not None else []
         noted = [h for h in noted_hits(notes, blocks, ctx.blocked, ctx.policy.protected)
                  if (h["x"], h["y"], h["z"]) not in no_cell]
@@ -187,10 +223,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         # remembered cells are not searched again: the look only when memory holds none
         exposed_hits = [] if noted else find(blocks, radius=radius, limit=60, exposed=True)
         raw = noted or exposed_hits or find(blocks, radius=radius, limit=60)
-        digs = "approach_dig" in nav.mod_features()
         open_set = {(h["x"], h["y"], h["z"]) for h in exposed_hits}
-        exposed_cells = None if digs else open_set if not noted else \
-            {(h["x"], h["y"], h["z"]) for h in find(blocks, radius=radius, limit=60, exposed=True)}
         fresh = [h for h in raw if (h["x"], h["y"], h["z"]) not in no_cell]
         if raw and not fresh:
             if radius < SEEK_RADII[-1]:
@@ -206,31 +239,30 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         if swimming(api.get("/state")):
             raise NotAvailable("in the water: no digging until back on land")
         # which blocks have an open face is the world's answer (/find exposed), not a second model here
-        seed = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
+        seed = _cheapest_seed(ctx, hits, start, open_set)
         region = region_around([start, seed], pad=nav.SAFE_DROP + 2)   # deep enough to see a drop (bag.floored)
         if region is None and deep_below(seed, start) and ctx.policy.allow_dig:
             # too far to read at once and far below: the ground a staircase segment crosses is read, and the segment
             # dug — the seed read again from the foot of it (no blind shaft)
             leg = region_around([start, stair_leg_end(start, seed)], pad=2)
-            stairs = nav.stair_down_tasks(leg, start, seed, ctx.policy.protected) if leg is not None else []
-            if stairs:
+            if leg is not None:
                 api.detail(f"  mine {bare(drop)}: {seed} too far to read from {start}: a staircase segment down")
-                api.run_chain(stairs, stop_on_failure=True, wait=120)
-                continue
+                if _go_way(ctx, leg, start, seed, [], drop):
+                    continue
         if region is None:
             # too far to read the ground between: walk closer or make a way; only when neither works is the place the problem
             if not nav.arrived(seed, ctx.policy, range_=12) and not nav.way_to(ctx, {seed}):
-                ctx.ban(seed)
-                raise api.NavFailed(f"{blocks[0]} at {seed}: no way there and no tunnel")
+                raise api.NavFailed(f"{blocks[0]} at {seed}: no way there and no tunnel", pos=seed)   # banned by brain.failed
             api.detail(f"  mine {bare(drop)}: {seed} too far to read from {start}, walked closer")
             continue
-        if ctx.mem is not None and hits[0].get("noted") and bare(region.name(seed)) not in {bare(b) for b in blocks}:
+        hit = next(h for h in hits if (h["x"], h["y"], h["z"]) == seed)
+        if ctx.mem is not None and hit.get("noted") and bare(region.name(seed)) not in {bare(b) for b in blocks}:
             for b in blocks:
                 ctx.mem.forget_seen(b, seed, ctx.dimension, radius=0.5)     # gone from where it was noted
             api.detail(f"  mine {bare(drop)}: noted {seed} is {region.name(seed)} now, note forgotten")
             continue
-        vein = set(mineable((p for p in connected(region, seed, blocks) if not ctx.blocked(p)), start,
-                            region, nav.SAFE_DROP))
+        whole = set(connected(region, seed, blocks))      # no way to a vein bans all of it, never cell by cell
+        vein = set(mineable((p for p in whole if not ctx.blocked(p)), start, region, nav.SAFE_DROP))
         if not vein:
             # the whole connected vein is already proven unreachable: next seed
             api.detail(f"  mine {bare(drop)}: vein at {seed} ({region.name(seed)}) has no mineable cell from {start}")
@@ -247,7 +279,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             shaft, why = shaft_plan(nav.dig_down_region(start, start[1] - near[1]), start, near,
                                     Inventory().count("building"), ctx.policy.protected)
             if shaft is None:
-                for p in vein:
+                for p in whole:
                     ctx.ban(p)
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"no shaft down to the {blocks[0]} at {near}: {why}")
@@ -255,15 +287,18 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             api.run_chain(shaft, stop_on_failure=True, wait=120)
             continue
         if deep_below(near, start) and ctx.policy.allow_dig:
-            # far below: a staircase the body can walk back up, never travel's 1-wide shaft (brain__base: 9 deep,
-            # no way out and no sight of the ore 2 blocks off)
-            stairs = nav.stair_down_tasks(region, start, near, ctx.policy.protected)
-            if stairs:
-                api.run_chain(stairs, stop_on_failure=True, wait=120)
+            # far below: an open face walked to, else a staircase the body can walk back up (nav.plan_way)
+            faces = sorted((p for p in vein if p in open_set), key=lambda p: math.dist(p, start))[:WALK_FACES]
+            if _go_way(ctx, region, start, near, faces, drop):
                 continue
+            for p in whole:
+                ctx.ban(p)
+            unreachable += 1
+            _reach_budget(unreachable, blocks, f"no way to the {blocks[0]} vein at {seed}")
+            continue
         walked = nav.arrived(near, ctx.policy, range_=3.5, attempts=1) if "travel" in nav.mod_features() else False
         if not walked and not nav.way_to(ctx, vein):
-            for p in vein:
+            for p in whole:
                 ctx.ban(p)
             # the next vein is another target, not a retry: failing the step over one vein cooled the goal
             unreachable += 1
@@ -275,7 +310,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         if not in_reach:
             near_cell = min(vein, key=lambda p: math.dist(p, here_now))
             if not nav.arrived(near_cell, ctx.policy, range_=2.0, attempts=1) and not nav.way_to(ctx, {near_cell}):
-                for p in vein:
+                for p in whole:
                     ctx.ban(p)
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"{blocks[0]} at {near_cell}: no way there and no tunnel")
@@ -283,14 +318,14 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             here_now = feet()
             in_reach = reach_cells(vein, here_now)
             if not in_reach and not nav.way_to(ctx, vein):
-                for p in vein:
+                for p in whole:
                     ctx.ban(p)
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"got near {near_cell} but no way in to the {blocks[0]}")
                 continue
         # distance is not reachability: only open-faced blocks go to mine_many; travel digs a way to the nearest buried one
         held = held_cells(Region(*sight_box(here_now)), here_now, in_reach, vein)
-        open_faced = open_faced_cells(in_reach, here_now, region, exposed_cells, held)
+        open_faced = open_faced_cells(in_reach, here_now, region, held)
         if not open_faced:
             buried = in_reach[0]
             if not nav.arrived(buried, ctx.policy, range_=BESIDE, attempts=1):
@@ -335,8 +370,9 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 api.run_chain([nav.mine_task(op, down=op[1] < feet()[1]) for _c, op in sides], stop_on_failure=True,
                               wait=60)
                 continue
-            # "cannot reach": make a standing spot and ask again; a way that changed nothing counts against the budget (from jar 0.1.40 its approach already dug)
-            if "approach_dig" not in nav.mod_features() and nav.way_to(ctx, out.cells or vein):
+            # "cannot reach": a planned way to a standing spot (nav.way_to), then ask again; a way that changed
+            # nothing counts against the budget
+            if nav.way_to(ctx, out.cells or vein):
                 unreachable += 1
                 _reach_budget(unreachable + 1, blocks, str(out))    # one more try than a plain refusal gets
                 continue
@@ -359,7 +395,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             bad = partial_refusal(r.get("message"))
             if bad is not None:
                 # "no path" to a block inside rock: dig one face open and it is ordinary
-                again, _ = refused(bad, tried, "approach_dig" in nav.mod_features())
+                again, _ = refused(bad, tried)
                 tried |= bad
                 if again and ctx.policy.allow_dig and nav.way_to(ctx, again):
                     continue           # a face is open now: the same blocks, asked again — once
@@ -385,7 +421,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                     api.run_chain([nav.mine_task(op, down=op[1] < here[1]) for op in ops]
                                   + [{"type": "collect", "radius": 6}], wait=60)
                     continue
-            again, _ = refused(vein, tried, "approach_dig" in nav.mod_features())
+            again, _ = refused(vein, tried)
             tried |= vein
             if again and ctx.policy.allow_dig and nav.way_to(ctx, again):
                 continue               # nothing broke because nothing could be stood next to: now it can, once
@@ -416,7 +452,7 @@ def _not_in_water(c):
     if api.get("/state")["inWater"]:
         raise NotAvailable("standing in water: no strip mining here")
 
-@skill(gives=["state:tunnelled"], remaining=_k.tunnelled(lambda c: c.args[1] if len(c.args) > 1 else 16), speed={}, pre=[_not_in_water], needs={"tool:pickaxe:0": 1},
+@skill(gives=["state:tunnelled"], remaining=_k.tunnelled(lambda c: c.args[1] if len(c.args) > 1 else 16), pre=[_not_in_water], needs={"tool:pickaxe:0": 1},
        start=lambda c: (feet()[1], _stone_held()),
        verify=lambda c: feet()[1] != c.base[0] or _stone_held() > c.base[1], budget=300, stall=60)
 def strip_mine_step(ctx, length=16):
@@ -485,7 +521,8 @@ def _hunt_progress(token, types):
     return Inventory().count(token), (int(near[0]["distance"] // 4) if near else None)
 
 @skill(gives=K.GIVES_HUNT, needs=lambda a: {"tool:sword:1": 1} if beliefs.fights_back(a[3]) else {},
-       speed={"sword": HUNT_SWORD_S}, start=lambda c: Inventory().count(c.args[1]), done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2],
+       fights=lambda c: c.args[3] if beliefs.fights_back(c.args[3]) else (),
+       start=lambda c: Inventory().count(c.args[1]), done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2],
        budget=480, stall=60, units=lambda c: c.args[2], key=lambda c: f"hunt:{c.args[1]}",
        provides={"hunt": lambda ctx, s: (s.token, s.count, s.detail["types"], getattr(ctx, "night", False))},
        fills_bag=lambda c: members(c.args[1]))
@@ -517,7 +554,7 @@ def hunt(ctx, token, count, types, night):
             e = next((n for n in entities(64, types) if n["id"] == e["id"]), None)
             if e is None or e["distance"] > 6:
                 ctx.ban((prey[0]["id"], 0, 0), 300)
-                raise api.NavFailed(f"could not get to the {bare(types[0])}")
+                raise api.NavFailed(f"could not get to the {bare(types[0])}", pos=(prey[0]["id"], 0, 0))
         api.detail(f"   hunt: prey {e['id']} at {(round(e['x'], 1), round(e['y'], 1), round(e['z'], 1))} "
                    f"{e['distance']:.1f} off; {_hunt_seen(types)}")
         try:
@@ -530,7 +567,7 @@ def hunt(ctx, token, count, types, night):
                        f"{Inventory().count(token)} after the sweep")
         except api.TaskStuck:
             ctx.ban((prey[0]["id"], 0, 0), BAN_MAX_S)  # unreachable (across water, on a ledge)
-            raise api.NavFailed(f"the {bare(types[0])} is out of reach for attacks")
+            raise api.NavFailed(f"the {bare(types[0])} is out of reach for attacks", pos=(prey[0]["id"], 0, 0))
         if gained(lambda: Inventory().count(token), before) <= before:
             ctx.ban((prey[0]["id"], 0, 0), 120)
             raise NotAvailable(f"killing the {bare(types[0])} dropped no {bare(token)}")
@@ -584,7 +621,7 @@ def _take_needs(token):
     tool = K.TAKEABLE.get(token, {}).get("tool")
     return {} if tool is None else {f"tool:{tool[0]}:{tool[1]}": 1}
 
-@skill(gives=K.GIVES_TAKE, needs=lambda a: _take_needs(a[1]), speed={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
+@skill(gives=K.GIVES_TAKE, needs=lambda a: _take_needs(a[1]), start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
        budget=180, stall=45, provides={"take": lambda ctx, s: (s.token, s.count, s.detail["blocks"])},
        fills_bag=lambda c: members(c.args[1]))
 def take(ctx, token, count, blocks):

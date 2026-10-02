@@ -1,5 +1,5 @@
 """The one choice of what to hold (knowledge.cheapest_equal): of every candidate, the lowest tier whose time equals
-the best — breaking by whole ticks (tool_for, route_tool), attacking by time to kill (weapon_for). The expected pick
+the best — breaking by whole ticks (tool_for), attacking by time to kill (weapon_for). The expected pick
 is computed here by the vanilla formula over the game's numbers (data), never written in."""
 import math
 import os
@@ -70,9 +70,10 @@ class Breaking(unittest.TestCase):
 
     def test_the_callers_delegate(self):
         inv = bag("iron_pickaxe", "stone_shovel")
-        self.assertEqual(K.route_tool(inv), K.tool_for(inv, K.ROUTE_BLOCK))
-        armed = skillcore.arm([{"type": "travel", "x": 0, "y": 64, "z": 0}], inv=inv, read_blocks=False)
-        self.assertEqual(armed[0]["item"], K.route_tool(inv))
+        armed = skillcore.arm([{"type": "mine", "x": 0, "y": 64, "z": 0}, {"type": "travel", "x": 0, "y": 64, "z": 0}],
+                              inv=inv, read_blocks=False)
+        self.assertEqual(armed[0]["item"], K.tool_for(inv, None))
+        self.assertNotIn("item", armed[1], "must fail: a walk names an item (I3: it breaks nothing)")
 
 
 class Attacking(unittest.TestCase):

@@ -4,13 +4,14 @@ import time
 
 from . import api
 from .beliefs import CONFIG as _CONFIG
+from .data import MAX_HP, critical_hp
 from .api import log
 from .skillcore import head_buried
 
 # rescue skills lent by skills.py at import, so readers of a hazard never drag in the skill library
 SKILLS = {}
 
-KINDS = ("lava", "burning", "drowning", "suffocating", "falling")
+KINDS = ("lava", "burning", "drowning", "suffocating", "critical", "falling")
 
 TICKS_PER_S = 20.0
 REFLEX_SLACK_S = 2.0      # between tasks: surface while there is still room, rather than at the last moment
@@ -50,6 +51,8 @@ def kind(state, buried=False, fallen=0.0):
         return "drowning"
     if buried:
         return "suffocating"
+    if not state.get("dead") and state.get("health", MAX_HP) <= critical_hp(state):
+        return "critical"           # health at the floor is a danger of its own, threat or not (SAFETY's, S1)
     if falling(state, fallen):
         return "falling"
     return None
@@ -120,11 +123,46 @@ def extinguish_commands(s, has_bucket, water):
         raise api.NotAvailable("on fire with no water to put it out")
     return [{"type": "goto", "x": water["x"], "y": water["y"], "z": water["z"], "range": 0.5, "partial": True}]
 
-# the suffocation rescue may break a home block at critical hp (survive.unbury): a life before a build
-RESCUE = {"lava": _leave_lava, "drowning": _surface, "suffocating": _unbury, "burning": _extinguish}
+def _eat(ctx, s):
+    """Critical health with food carried: eat (healing needs a full bar); full already, it heals nothing more here."""
+    if not SKILLS["eat"](ctx):
+        raise api.NotAvailable("full: eating heals nothing more")
+
+def _cover(ctx, s):
+    """Into cover: the cheapest shelter that can run here now (needs.cover, lent like the other rescues)."""
+    SKILLS["cover"](ctx, s)
+
+# each hazard's recovery, in order (S1): its rescue first, then the next way that answers the same hazard when one
+# is spent (over its budget, or refused); the list spent → the reasons. The suffocation rescue may break a home block
+# at critical hp (survive.unbury): a life before a build. Water poured on lava sets it: the lava's second way.
+RECOVERY = {"lava": [_leave_lava, _extinguish], "drowning": [_surface, _cover], "suffocating": [_unbury],
+            "burning": [_extinguish, _cover],
+            # critical health: under a threat out of its reach first (a meal under blows is never finished); calm, eat
+            "critical": {"threatened": [_cover, _eat], "calm": [_eat, _cover]}}
+
+
+def ways(k, threatened=False):
+    """Pure: `k`'s recovery list for the situation (a table keyed by threat where the hazard's answer depends on it)."""
+    got = RECOVERY[k]
+    return got["threatened" if threatened else "calm"] if isinstance(got, dict) else got
+
+
+def recover(ctx, k, state, threatened=False):
+    """Run `k`'s recovery list: each way until one ends without raising; spent → NotAvailable with every reason."""
+    tried = []
+    for way in ways(k, threatened):
+        try:
+            way(ctx, state)
+            return
+        except api.INTERRUPTIONS:
+            raise
+        except api.McError as e:
+            tried.append(f"{way.__name__.lstrip('_')}: {type(e).__name__}: {e}")
+            log(f"L0: {k}: {tried[-1]} → the next way")
+    raise api.NotAvailable(f"{k}: every recovery spent — " + "; ".join(tried))
 # stopped and nothing more: a fall is over before a round acts; the landing is the jar's WaterClutch
 STOP_ONLY = ("falling",)
-assert set(RESCUE) | set(STOP_ONLY) == set(KINDS), "every hazard kind is rescued or declared stop-only"
+assert set(RECOVERY) | set(STOP_ONLY) == set(KINDS), "every hazard kind is recovered or declared stop-only"
 
 def due(state, buried=None):
     """The hazard the brain must answer before anything else this round, or None."""
@@ -137,9 +175,9 @@ def due(state, buried=None):
         except api.McError:
             buried = False
     k = kind(state, buried=buried)
-    return k if k in RESCUE else None
+    return k if k in RECOVERY else None
 
-def handle(ctx, state, attempt, ready):
+def handle(ctx, state, attempt, ready, threatened=False):
     """Run the rescue for the hazard on the body, if there is one."""
 
     k = due(state)
@@ -149,7 +187,7 @@ def handle(ctx, state, attempt, ready):
     api.clear_requests()
     api.set_mode("survival")   # the perception thread does not interrupt the rescue it asked for
     try:
-        attempt(f"rescue {k}", lambda: RESCUE[k](ctx, state))
+        attempt(f"rescue {k}", lambda: recover(ctx, k, state, threatened))
     finally:
         api.set_mode("normal")
     return True

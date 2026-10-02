@@ -76,7 +76,7 @@ def wire(mem, policy_of, blacklist, prices=None):
 
 # -- the jar's combat reflex (anaka combat.Reflex): shield for a predicted hit, a fireball punched back, a counter-hit
 
-ALWAYS = {"shield": True, "deflect": True, "priority": "creeper"}     # from the start: safety, whatever runs
+ALWAYS = {"shield": True, "deflect": True, "priority": "creeper", "gaze": True}     # from the start: safety, whatever runs (gaze: a walk never stares an enderman)
 
 
 def reflex(**policy):
@@ -189,7 +189,10 @@ def carry(want_of, answer, going, held, again=False, stale=None, failed=None):
             held["done"] = want
         elif held["task_id"] is not None:
             r = api.get(f"/task?id={held['task_id']}&wait=1")
+            if r.get("status") == "running" and r.get("type") == "attack":
+                api.trail_sample(r)
             if r.get("status") != "running":
+                api.trail_end(r)
                 # what the jar says the task did (hits, a weapon it could not hold): an attack posted that landed
                 # nothing left no trace (fight_zombie_1: the zombie 2 blocks off at 20 hp every sample)
                 api.detail(f"  fight {want.kind}: task {r.get('status')} — {r.get('message')} {r.get('result') or ''}")
@@ -211,6 +214,10 @@ def _engagement(intent, failure):
     """The fight's own thread: carry out what perception wants, re-reading it every POLL_S, until the lease ends."""
     held = {"done": None, "task_id": None}
     try:
+        if api.HOLD is not None and api.ARM is not None and STATE.want is not None:
+            # the weapon in hand at engage, not at the attack: a switch then resets the swing's cooldown (B3)
+            api.HOLD(api.ARM([{"type": "attack", "entity": STATE.want.target}]))
+
         def loop():
             for _ in carry(lambda: STATE.want, ANSWER, lambda: arbiter.BODY.holder() is intent, held, again=True,
                            stale=_restale, failed=_refail):
@@ -490,10 +497,7 @@ def _attack(option, state, **extra):
         row = rows[ids.index(option.target)]
         spot = lure_spot(state["feet"], row[0], state.get("protected", ()), float(MOBS[row[3]].get("keep_out", 5.0)))
         if spot is not None:
-            brk, plc, void = nav.MOVES["evade"]
-            out.append({"type": "travel", "x": spot[0], "y": spot[1], "z": spot[2], "range": 2, "break": brk,
-                        "place": plc, "voidBridge": void, "placeBudget": int(state["inv"].count("building")),
-                        **nav.avoid_fields(state.get("protected", ()), spot, state["feet"])})
+            out.append({"type": "travel", "x": spot[0], "y": spot[1], "z": spot[2], "range": 2})     # a walk (I3)
     keep = {"keepOff": float(MOBS["minecraft:creeper"]["keep_out"])} if step == "keepoff" else {}   # jar default 5
     return out + [dict(task, footwork=step, **keep)]
 
@@ -502,10 +506,7 @@ def _fight(option, state):
 
 def _evade(option, state):
     x, y, z = option.target
-    brk, plc, void = nav.MOVES["evade"]            # digs and bridges as priced, never out over the void (nav.MOVES)
-    return [{"type": "travel", "x": x, "y": y, "z": z, "range": 3, "break": brk, "place": plc, "voidBridge": void,
-             "placeBudget": int(state["inv"].count("building")),
-             **nav.avoid_fields(state.get("protected", ()), (x, y, z), state["feet"])}]
+    return [{"type": "travel", "x": x, "y": y, "z": z, "range": 3}]         # a walk (I3): the door digs nothing
 
 def _eat(option, state):
     wanted = [option.target] if option.target else list(ALL_FOOD) + list(RAW_MEAT)
@@ -540,10 +541,7 @@ def _place(option, state):
 
 def _cover(option, state):
     x, y, z = option.target
-    brk, plc, void = nav.MOVES["evade"]
-    return [{"type": "travel", "x": x + 0.5, "y": y, "z": z + 0.5, "range": 0.4, "break": brk, "place": plc,
-             "voidBridge": void, "placeBudget": 0, **nav.avoid_fields(state.get("protected", ()), (x, y, z),
-                                                                      state["feet"])}]
+    return [{"type": "travel", "x": x + 0.5, "y": y, "z": z + 0.5, "range": 0.4}]      # a walk (I3)
 
 def _bait(option, state):
     x, y, z = option.target

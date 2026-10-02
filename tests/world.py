@@ -5,10 +5,8 @@ The game is the only simulator. Offline tests are pure functions over what the g
 names (`FakeRegion`, the interface `world.Region` offers with nothing behind it). The sweeps (`worlds`, `dangers`,
 `fights`) are cross-products of such readings, so one relation is claimed over hundreds of situations.
 """
-from bonobo.data import HAZARD, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX, UNBREAKABLE
+from bonobo.data import FALLING, HAZARD, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX, UNBREAKABLE  # noqa: F401
 from bonobo.world import Region
-
-FALLING = {"sand", "red_sand", "gravel", "suspicious_sand", "suspicious_gravel"}     # blocks that fall
 
 
 class FakeRegion:
@@ -505,8 +503,8 @@ WORTH = {"none": 0.0, "small": 5.0, "large": 500.0}
 LAYERS = {"reflex": "reflex", "safety": "safety", "tactic": "tactic", "plan": "plan"}
 
 # Who is already holding the body when someone else speaks, relative to the speaker, and how the new answer
-# compares with what is held. `MARGIN` is the kernel's: a held decision is kept unless a challenger clearly beats
-# it, and the arbiter must not invent a second rule for the same thing.
+# compares with what is held. The rule is the kernel's (kernel.switches): a held decision is kept unless a
+# challenger's gain pays the switch, and the arbiter must not invent a second rule for the same thing.
 HOLDER = {"none": None, "faster": -1, "same_layer": 0, "slower": +1}
 HELD_WORTH = 100.0
 
@@ -532,10 +530,7 @@ class FakeHeld:
 
 def CHALLENGE(kind):
     """What a challenger is worth against a held answer of `HELD_WORTH`."""
-    from bonobo import kernel
-    return {"worse": HELD_WORTH / kernel.MARGIN / 2.0,
-            "equal": HELD_WORTH,
-            "better": HELD_WORTH * kernel.MARGIN * 2.0}[kind]
+    return {"worse": HELD_WORTH / 2.0, "equal": HELD_WORTH, "better": HELD_WORTH * 2.0}[kind]
 
 
 CHALLENGES = ("worse", "equal", "better")
@@ -553,7 +548,7 @@ def intent(kind="walk", layer="plan", elapsed="just_started", at=0.0, **kw):
     """One running intent, built from the dimensions rather than from a pile of keywords."""
     from bonobo import arbiter
     return arbiter.Intent(LAYERS[layer], lambda: None, kind, at=at, cost_rate=1.0, cost_s=600.0,
-                          **dict(INTENT[kind], **kw))
+                          **dict({"key": kind}, **dict(INTENT[kind], **kw)))
 
 
 # ---------------------------------------------------------------- one table of dimensions, one product

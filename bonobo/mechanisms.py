@@ -189,7 +189,7 @@ def _opened_now(c):
     return is_open(c.args[2], lambda p: got[tuple(p)])
 
 
-@skill(gives=["state:opened"], remaining=opens_left, needs={}, speed={}, budget=60, stall=30, verify=_opened_now)
+@skill(gives=["state:opened"], remaining=opens_left, needs={}, budget=60, stall=30, verify=_opened_now)
 def press_mechanism(ctx, press, opens):
     """Open a taught door: already open (read off the world) → nothing pressed; else into reach of the press, use it."""
     got = solid_map(opens)

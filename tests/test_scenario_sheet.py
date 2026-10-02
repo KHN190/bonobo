@@ -154,7 +154,7 @@ class TheCoverIsWhole(unittest.TestCase):
         self.assertTrue({"full_bag", "tool_one_use", "wrong_tool", "goal_met"} <= inventory)
         self.assertIn("inventory_lag", timing)
         self.assertIn("dead_flicker_on_respawn", sc.SCENARIOS)
-        self.assertTrue({"leaves_block_trunk", "floating_logs", "empty_chest", "bed_obstructed", "bed_in_nether",
+        self.assertTrue({"leaves_block_trunk", "floating_logs", "empty_chest", "bed_in_nether",
                          "lava_under_ore", "falling_gravel"} <= set(sc.SURPRISES))
 
     def test_interrupted_rows_resume_and_count(self):
@@ -633,7 +633,7 @@ class ResetBrain(unittest.TestCase):
                 ("a committed task", lambda: setattr(br, "committed", "t1"), lambda: br.committed, None),
                 ("the ban dict stays the one fight_loop holds", lambda: None, lambda: br.blacklist is shared, True),
                 ("must fail: a fight left holding the body: the next row starts with it free",
-                 lambda: setattr(arbiter.BODY, "lease", (arbiter.Intent(sorted(arbiter.SCALES)[0], "fight", "last row"),
+                 lambda: setattr(arbiter.BODY, "lease", (arbiter.Intent(sorted(arbiter.SCALES)[0], "fight", "last row", key="last row"),
                                                           lambda: False, time.time())),
                  lambda: arbiter.BODY.holder(), None)]
         for name, dirty, read, clean in rows:

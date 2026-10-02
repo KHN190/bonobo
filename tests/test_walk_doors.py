@@ -72,14 +72,14 @@ class Walk(unittest.TestCase):
         posted, got = self.walk(WOOD, True)
         self.assertEqual([t["type"] for t in posted][:2], ["use", "travel"])
         # must fail: the wooden door on the way broken
-        self.assertTrue({LOWER, UPPER} <= self.avoided(posted[1]))
+        self.assertFalse(posted[1].get("break"))                 # a walk digs nothing (I3): the door neither
         self.assertTrue(got)
 
     def test_an_iron_door_is_a_wall(self):
         posted, got = self.walk(IRON, False)
         travel = [t for t in posted if t["type"] == "travel"]
         # must fail: the iron door broken, or the wall beside it dug (press_door_to_chest 022603)
-        self.assertTrue(travel and all(not t["break"] and {LOWER, UPPER} <= self.avoided(t) for t in travel))
+        self.assertTrue(travel and all(not t.get("break") for t in travel))
         self.assertNotIn("use", [t["type"] for t in posted])
         self.assertIn("blocked by a door", got)
 

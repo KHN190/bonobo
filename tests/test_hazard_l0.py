@@ -21,6 +21,7 @@ from bonobo import api, hazard, needs, perception, reflexes, retry, skillcore, s
 from bonobo import brain as brainmod  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from tests.world import state  # noqa: E402
+from bonobo.data import CRITICAL_HP  # noqa: E402
 
 W = hazard._W
 DROWN_AIR = int((W["surface_s"] + W["reaction_s"]) * hazard.TICKS_PER_S)     # the clock's own zero, in ticks
@@ -45,14 +46,17 @@ HAZARDS = [
     ("falling into water is a landing", {"onGround": False, "inWater": True}, False, 30.0, None, None),
     ("lava beats everything else on the body", {"inLava": True, "onFire": True, "health": 3.0}, True, 20.0,
      "lava", "lava"),
+    # health at the floor is SAFETY's own danger, threat or not (S1): no MAINTAIN/PLAN work runs past it
+    ("critical health, nothing about", {"health": float(CRITICAL_HP)}, False, 0.0, "critical", "critical"),
+    ("in the End, hurt to its higher floor", {"health": 11.0, "dimension": "minecraft:the_end"}, False, 0.0,
+     "critical", "critical"),
+    ("must fail: one above the floor: not a danger", {"health": float(CRITICAL_HP + 1)}, False, 0.0, None, None),
     ("nether, on netherrack", {"dimension": "minecraft:the_nether", "skyLight": 0}, False, 0.0, None, None),
     ("night, rain: weather is not a hazard", {"timeOfDay": 18000}, False, 0.0, None, None),
 ]
 
 # Hostile situations: the environment is fine, something is coming at us. L0 must not see any of them.
 HOSTILE = [
-    ("critical health", {"health": 3.0}, {}, "critical_health"),
-    ("in the End, hurt", {"health": 11.0, "dimension": "minecraft:the_end"}, {}, "critical_health"),
     ("dragon breath close", {"dimension": "minecraft:the_end"}, {"breath_within": lambda r: True}, "breath"),
     ("an enderman after us", {}, {"enderman_after_us": lambda r: True}, "enderman"),
     ("hurt, a zombie at 3", {"health": 9.0}, {"hostiles_within": lambda r: 3.0}, "hostiles"),
@@ -62,7 +66,8 @@ HOSTILE = [
     ("healthy, a zombie at 3", {"health": 20.0}, {"hostiles_within": lambda r: 3.0}, None),
     ("must fail: hurt, nothing hostile about", {"health": 9.0}, {"hostiles_within": lambda r: None}, None),
     ("dead: nothing to interrupt for", {"dead": True, "health": 0.0}, {}, None),
-    ("the player holds control", {"health": 3.0, "control": {"paused": True}}, {}, None),
+    ("the player holds control", {"health": 9.0, "control": {"paused": True}},
+     {"hostiles_within": lambda r: 3.0}, None),
 ]
 
 
@@ -81,7 +86,7 @@ class Hazards(unittest.TestCase):
     def test_due_only_names_what_has_a_rescue(self):
         for name, changes, buried, fallen, _kind, due in HAZARDS:
             with self.subTest(name):
-                self.assertIn(due, set(hazard.RESCUE) | {None})
+                self.assertIn(due, set(hazard.RECOVERY) | {None})
 
     # (situation, /state changes) → seconds of slack before the water must be left (air/20 − surfacing − reaction)
     CLOCK = [("must fail: dry land has no clock", {"air": 0}, float("inf")),
@@ -99,7 +104,7 @@ class Hazards(unittest.TestCase):
 class HostilesAreNotL0(unittest.TestCase):
     # every danger kind perception can name, and the family that answers it
     FAMILY = {"lava": "L0", "burning": "L0", "drowning": "L0", "suffocating": "L0", "falling": "L0",
-              "critical_health": "fight", "breath": "fight", "enderman": "fight", "hostiles": "fight"}
+              "critical": "L0", "breath": "fight", "enderman": "fight", "hostiles": "fight"}
 
     def test_each_danger_has_exactly_one_family(self):
         self.assertEqual(set(perception.DANGERS), set(self.FAMILY), "a danger kind without a family row")
@@ -174,8 +179,8 @@ class Rescue(unittest.TestCase):
                     modes.append(api.STATE.mode)
                     if does is not OK:
                         raise does
-                table = {k: (lambda ctx, st, _k=k: rescue(ctx, st, _k)) for k in hazard.RESCUE}
-                with mock.patch.dict(hazard.RESCUE, table), \
+                table = {k: [lambda ctx, st, _k=k: rescue(ctx, st, _k)] for k in hazard.RECOVERY}       # one way, either situation
+                with mock.patch.dict(hazard.RECOVERY, table), \
                         mock.patch.object(hazard, "head_buried", return_value=buried), \
                         mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(path)), \
                         mock.patch.object(api, "api", side_effect=AssertionError("L0 read the world")):
@@ -203,6 +208,62 @@ BURNING = [
 ]
 
 
+class Recovery(unittest.TestCase):
+    """hazard.recover (S1): a rescue past its bound turns to the hazard's next way; the list spent, the reasons."""
+
+    def test_rows(self):
+        for kind, situation, ways in [(k, s, hazard.ways(k, s == "threatened")) for k in hazard.RECOVERY
+                                      for s in (("threatened", "calm") if isinstance(hazard.RECOVERY[k], dict) else ("",))]:
+            with self.subTest(f"{kind} {situation}"):
+                ran = []
+
+                def way(i, fails):
+                    def run(ctx, st):
+                        ran.append(i)
+                        if fails:
+                            raise api.TaskStuck(f"way {i} exceeded its budget")
+                    run.__name__ = f"way{i}"
+                    return run
+                # the first over its bound: the next runs (must fail: a reason only, nothing more tried)
+                table = [way(i, i == 0) for i in range(len(ways))]
+                with mock.patch.dict(hazard.RECOVERY, {kind: table}):
+                    if len(ways) > 1:
+                        hazard.recover(None, kind, state())
+                        self.assertEqual(ran, [0, 1])
+                    else:
+                        with self.assertRaises(api.NotAvailable):
+                            hazard.recover(None, kind, state())
+                # every way spent: one NotAvailable naming each
+                ran.clear()
+                with mock.patch.dict(hazard.RECOVERY, {kind: [way(i, True) for i in range(len(ways))]}):
+                    with self.assertRaises(api.NotAvailable) as caught:
+                        hazard.recover(None, kind, state())
+                self.assertEqual(ran, list(range(len(ways))))
+                self.assertTrue(all(f"way{i}" in str(caught.exception) for i in range(len(ways))))
+
+    def test_an_interruption_is_not_a_spent_way(self):
+        def fight(ctx, st):
+            raise api.FightHolds("a fight holds the body")
+        with mock.patch.dict(hazard.RECOVERY, {"drowning": [fight, lambda ctx, st: None]}):
+            with self.assertRaises(api.FightHolds):
+                hazard.recover(None, "drowning", state())
+
+    def test_critical_by_situation(self):
+        # (situation, threatened) → the first way: out of reach under a threat, a meal when calm
+        rows = [("critical, a mob on us: cover first", True, "_cover"),
+                ("critical, nothing about, food carried: eat", False, "_eat")]
+        for name, threatened, first in rows:
+            with self.subTest(name):
+                self.assertEqual(hazard.ways("critical", threatened)[0].__name__, first)
+        self.assertNotEqual(hazard.ways("critical", True)[0].__name__, "_eat",
+                            "must fail: eating under blows (never finished)")
+
+    def test_every_rescued_kind_has_a_next_way_or_says_why(self):
+        # the lists themselves: drowning and burning turn to cover, lava pours water (it sets the lava)
+        self.assertEqual([w.__name__ for w in hazard.RECOVERY["drowning"]], ["_surface", "_cover"])
+        self.assertEqual([w.__name__ for w in hazard.RECOVERY["lava"]], ["_leave_lava", "_extinguish"])
+
+
 class Burning(unittest.TestCase):
     def test_rescue(self):
         from bonobo import world
@@ -219,16 +280,16 @@ class Burning(unittest.TestCase):
                                       [{"status": "succeeded"} for _ in ts]):
                 if raises:
                     with self.assertRaises(raises):
-                        hazard.RESCUE["burning"](None, state(onFire=True, health=5.0))
+                        hazard.RECOVERY["burning"][0](None, state(onFire=True, health=5.0))
                 else:
-                    hazard.RESCUE["burning"](None, state(onFire=True, health=5.0))
+                    hazard.RECOVERY["burning"][0](None, state(onFire=True, health=5.0))
                 self.assertEqual(calls[0], ("post", "/stop"), "the work stops first")
                 self.assertEqual(calls[1:], want)
 
     def test_every_kind_is_rescued_or_stop_only(self):
         for kind in hazard.KINDS:
             with self.subTest(kind):
-                self.assertNotEqual(kind in hazard.RESCUE, kind in hazard.STOP_ONLY)
+                self.assertNotEqual(kind in hazard.RECOVERY, kind in hazard.STOP_ONLY)
 
 
 # Hostiles go to the fight (fight_loop), never to L0. Each answer is a pure batch (fight_loop.batch) from a body state
@@ -258,14 +319,10 @@ def _flat():
 ZOMBIE_EAST = [((5.0, 64.0, 0.0), 3.0, (0.0, 0.0, 0.0), "minecraft:zombie", 1.0, 3.0)]
 BATCHES = [
     ("fight: attack that entity", Decision("fight", 42), fight_body(), [{"type": "attack", "entity": 42}]),
-    ("evade with blocks: may dig and bridge, never over the void (nav.MOVES)", Decision("evade", (10, 64, 0)), fight_body(_inv(cobblestone=8)),
-     [{"type": "travel", "x": 10, "y": 64, "z": 0, "range": 3, "break": True, "place": True, "voidBridge": False,
-       "placeBudget": 8,
-       "avoid": []}]),
+    ("evade with blocks: a walk, nothing dug or built (I3)", Decision("evade", (10, 64, 0)), fight_body(_inv(cobblestone=8)),
+     [{"type": "travel", "x": 10, "y": 64, "z": 0, "range": 3}]),
     ("evade with nothing to place", Decision("evade", (10, 64, 0)), fight_body(),
-     [{"type": "travel", "x": 10, "y": 64, "z": 0, "range": 3, "break": True, "place": True, "voidBridge": False,
-       "placeBudget": 0,
-       "avoid": []}]),
+     [{"type": "travel", "x": 10, "y": 64, "z": 0, "range": 3}]),
     ("eat: a cooked meal first", Decision("eat", None), fight_body(_inv(beef=2, cooked_beef=1)),
      [{"type": "eat", "item": "minecraft:cooked_beef"}]),
     ("eat: raw when that is all", Decision("eat", None), fight_body(_inv(beef=2)),
@@ -375,9 +432,9 @@ class Disengage(unittest.TestCase):
         from bonobo import arbiter, fight_loop
         for name, lease, current, stop, stop_fails, (stopped, left, cleared) in self.ROWS:
             body, posted = arbiter.Motion(), []
-            ours, theirs, other = (arbiter.Intent("tactic", lambda: None, "hostiles"),
-                                   arbiter.Intent("safety", lambda: None, "lava"),
-                                   arbiter.Intent("tactic", lambda: None, "newer"))
+            ours, theirs, other = (arbiter.Intent("tactic", lambda: None, "hostiles", key="hostiles"),
+                                   arbiter.Intent("safety", lambda: None, "lava", key="lava"),
+                                   arbiter.Intent("tactic", lambda: None, "newer", key="newer"))
             body.lease = ((ours if lease == "ours" else theirs), (lambda: False), time.time())
 
             def post(path, body_=None):

@@ -1,11 +1,12 @@
 """L2: a goal and a bag in, an ordered list of steps out. The brain calls only this. decompose(inv, goal, cost, solver=None, pending=None) -> [Step] Item goals (have, craft, milestone) go to a SOLVER; the rest become action steps, after whatever materials they need (build). Solvers are registered by name: `planner` (planner.py, recursive descent over the requirement graph) is the default; `solve` (solve.py over the action columns) is tried when it cannot plan, or chosen by name per task. Every solver gets the same cost model (cost.Cost), so their steps are priced in the same ticks. Pure apart from what the cost model reads (one cached /find per kind)."""
 
 import math
+import time
 
-from . import blueprints, goals, knowledge, actions as act, skill
+from . import beliefs, blueprints, goals, knowledge, actions as act, skill
 from .api import McError
 from .cost import TICKS_PER_S
-from .data import POD_BLOCKS, mid
+from .data import DAY_END, DAY_TICKS, NIGHT_END, POD_BLOCKS, mid
 from .planner import Planner, Step, Unplannable
 from .solve import Unsolvable, solve
 from .knowledge import members
@@ -59,14 +60,29 @@ def solve_needs(inv, needs, cost, solver=None, pending=None, jobs=None):
             last = e
     raise last or Unplannable("no solver could plan this")
 
+def container_p(record, ids, age_s, rate):
+    """Pure: the chance a container holds one of `ids`, from its record: held then, discounted by the change rate
+    over the record's age; not held then, the chance it changed since (an unopened one: p_unknown)."""
+    held = any(record["items"].get(i, 0) > 0 for i in ids)
+    return math.exp(-rate * age_s) if held else 1.0 - math.exp(-rate * age_s)
+
+def p_unknown(k, n):
+    """Pure: the chance an unopened container holds the item, from what the opened ones held: k of n (the rule of
+    succession: 1/2 before any is opened)."""
+    return (k + 1) / (n + 2)
+
 def from_containers(inv, needs, cost, solver=None, pending=None):
-    """Take what containers hold (memory.stored) where that is cheaper than making it: (withdraw steps, pending)."""
+    """Take what containers hold where that is cheaper than making it, each record weighed by the chance it still
+    holds it (memory.container_p); when the records cannot cover a need, look in the unopened home container whose
+    expected saving pays its walk and open best (p_unknown × the make it saves − the look): (steps, pending)."""
 
     mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
     extra = dict(pending or {})
     if mem is None or snap is None or not hasattr(mem, "stored"):
         return [], extra
     steps = []
+    rate = mem.container_change_rate() if hasattr(mem, "container_change_rate") else 0.0
+    now = time.time()
     for need in needs:
         if need[0] == "tool":
             continue
@@ -74,21 +90,48 @@ def from_containers(inv, needs, cost, solver=None, pending=None):
         ids = set(members(token))
         on_way = {token: sum(v for k, v in extra.items() if k in ids)}
         short = goals.have_remainder(inv, [[token, n]], on_way).get(token, 0)
+
+        def make_s(k):
+            try:
+                return cost.plan_s(solve_needs(inv, [(token, k)], cost, solver, extra)) * TICKS_PER_S
+            except Unplannable:
+                return math.inf
+
         for pos, item, have in sorted(mem.stored(token, snap.dimension), key=lambda r: math.dist(r[0], snap.feet)):
             if short <= 0:
                 break
             take = min(short, have)
             step = _action("withdraw", item, cost, pos=list(pos))
             step.count = take
-            try:
-                make = cost.plan_s(solve_needs(inv, [(token, take)], cost, solver, extra)) * TICKS_PER_S
-            except Unplannable:
-                make = math.inf
-            if step.est < make:
+            rec = mem.container_record(pos) if hasattr(mem, "container_record") else None
+            p = container_p(rec, ids, now - rec.get("at", now), rate) if rec else 1.0
+            if p > 0 and step.est / p < make_s(take):
                 steps.append(step)
                 extra[item] = extra.get(item, 0) + take
                 short -= take
+        if short > 0 and hasattr(mem, "home_containers"):
+            look = _best_look(mem, ids, snap, cost, make_s(short))
+            if look is not None:
+                steps.append(look)
+                break                      # what it holds decides the rest: planned again once it is seen
     return steps, extra
+
+def _best_look(mem, ids, snap, cost, make_ticks):
+    """The look into an unopened home container that pays best (p_unknown from the opened ones × the make it saves −
+    the look's own est), or None when none pays."""
+    homes = mem.home_containers(snap.dimension)
+    opened = [c for c in homes if mem.container_record(c) is not None]
+    k = sum(1 for c in opened if any(mem.container_record(c)["items"].get(i, 0) > 0 for i in ids))
+    p = p_unknown(k, len(opened))
+    best = None
+    for c in homes:
+        if mem.container_record(c) is not None:
+            continue
+        step = _action("look", "container", cost, pos=list(c))
+        worth = p * make_ticks - step.est
+        if worth > 0 and (best is None or worth > best[0]):
+            best = (worth, step)
+    return best[1] if best else None
 
 def effect_detail(kind, token, count):
     """What an effect step's skill reads from `detail`, filled where the tables know it."""
@@ -145,23 +188,28 @@ SOURCES = {
                   "yields": 1, "needs": [], "near": (["dirt", "grass_block"], "no dirt or grass in sight"),
                   "gives": "minecraft:dirt"}],
     # A night without a bed (needs.overnight): the default is the bed's plan; these are the other ways through it.
+    # A night with a bed (needs.overnight asks these first: a shelter is only for a night no bed can end): the home's
+    # bed when a walk reaches it (bed_reach: night_facts home_bed / home_walk_s), priced by that walk; a carried bed
+    # (or one the default plans) is the default's — the sleep skill gives it a room, light, the gate and takes it back.
+    "overnight bed": [{"name": "home", "steps": [("shelter", "home", {})], "yields": 1, "needs": [],
+                       "when": ("home_bed", "no home bed a walk reaches"), "extra_s": ("home_walk_s",)}],
+    # A night no bed can end: a shelter to wait in (no sleep is paired with it).
     "overnight": [{"name": "dig in", "steps": [("shelter", "dig_in", {})], "yields": 1,
                    "needs": [("tool", "pickaxe", 0)],
-                   "unless": ("no_dig_site", "the ground here takes no lid below the ground line")},
+                   "unless": ("no_dig_site", "the ground here takes no lid below the ground line"), "extra_s": ("wait_s",)},
                   {"name": "dig in by hand", "steps": [("shelter", "dig_in", {})], "yields": 1, "needs": [],
                    "when": ("soft_ground", "no ground near digs by hand: it needs a pickaxe"),
-                   "extra_s": "soft_walk_s"},        # the walk to that ground (survive.soft_spot) is part of it
-                  {"name": "wall in", "steps": [("shelter", "pod", {})], "yields": 1, "needs": [("building", POD_BLOCKS)]},
-                  # the home's bed, however far: priced by the walk to it (night_facts home_walk_s)
-                  {"name": "home", "steps": [("shelter", "home", {})], "yields": 1, "needs": [],
-                   "when": ("home_bed", "no home bed in this dimension"), "extra_s": "home_walk_s"},
+                   "extra_s": ("soft_walk_s", "wait_s")},   # the walk to that ground (survive.soft_spot), the night
+                  {"name": "wall in", "steps": [("shelter", "pod", {})], "yields": 1, "needs": [("building", POD_BLOCKS)],
+                   "extra_s": ("wait_s",)},
                   # the hut's needs are read from its blueprint (a hand copy named the wrong stone)
                   {"name": "hut", "steps": [("shelter", "hut", {})], "yields": 1,
-                   "needs": sorted(blueprints.materials(blueprints.SHELTER).items())}],
+                   "needs": sorted(blueprints.materials(blueprints.SHELTER).items()), "extra_s": ("wait_s",)}],
 }
 
-def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=None):
-    """The cheapest way to `key` × amount: the solver's steps, or a SOURCES[key] source's runs plus their needs."""
+def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=None, priced=False):
+    """The cheapest way to `key` × amount: the solver's steps, or a SOURCES[key] source's runs plus their needs;
+    (steps, name), with its seconds (extras included) when `priced`."""
 
     mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
     why = []
@@ -210,14 +258,13 @@ def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=Non
                                                        else {})})
             step.est = cost.estimate(Step(kind, tok, 1, dict(detail))) * runs
             own.append(step)
-        # A source's own extra seconds the place facts say (the walk to soft ground), added to its plan.
-        seconds = cost.plan_s(pre + own) + float((facts or {}).get(src.get("extra_s"), 0.0) if src.get("extra_s")
-                                                 else 0.0)
+        # A source's own extra seconds the place facts say (a walk, the night waited), added to its plan.
+        seconds = cost.plan_s(pre + own) + sum(float((facts or {}).get(k, 0.0)) for k in src.get("extra_s", ()))
         if seconds < best:
             best, best_steps, name = seconds, pre + own, src["name"]
     if best == math.inf:
         raise Unplannable(f"no way to {key}: " + "; ".join(why))
-    return best_steps, name
+    return (best_steps, name, best) if priced else (best_steps, name)
 
 # Milestones that end in doing, not holding: after their items, these steps (run once — goals.done says None).
 THEN = {"end portal": [("seek", "stronghold", {}), ("seek", "portal_room", {}), ("activate", "end_portal", {})]}
@@ -330,7 +377,7 @@ def _decompose(inv, goal, cost, solver, pending) -> list[Step]:
 def _prepared(inv, step, cost, solver, pending):
     """The steps that get `step`'s skill needs held for its call, then the step (planner.before's rule for decompose's steps)."""
 
-    needs, _speed = knowledge.step_call(step)
+    needs = knowledge.step_call(step)
     return solve_needs(inv, [tuple(r) for r in knowledge.needs_rows(needs)], cost, solver, pending) + [step]
 
 def to_dict(step: Step) -> dict:
@@ -339,17 +386,29 @@ def to_dict(step: Step) -> dict:
 def from_dict(d) -> Step:
     return Step(d["kind"], d["token"], int(d["count"]), dict(d.get("detail") or {}), int(d.get("est", 0)))
 
-def night_facts(soft, cooled=(), dig_site=True, home_walk_s=None):
+def night_left_s(snap):
+    """Seconds of night still ahead: (NIGHT_END − timeOfDay) / 20 at night, a whole night before dusk (None)."""
+    t = int(snap.time) % DAY_TICKS
+    return (NIGHT_END - t) / 20.0 if DAY_END <= t < NIGHT_END else None
+
+def night_facts(soft, cooled=(), dig_site=True, home_walk_s=None, night_left_s=None):
     """The place facts the night's pricing reads: the soft-ground reading (seconds to hand-diggable ground, or None),
-    the ways that failed here lately (`cooled`: their names, dropped from the pricing), and whether a dig-in can
-    finish here (`dig_site`, survive.dig_in_site: False → dig in is not offered)."""
+    the ways that failed here lately (`cooled`: their names, dropped from the pricing), whether a dig-in can finish
+    here (`dig_site`, survive.dig_in_site: False → dig in is not offered), the home bed's walk (`home_walk_s`) and the
+    night still ahead (`night_left_s`, a whole night when the clock is not read). Priced in seconds with the night's
+    death risk (beliefs risk.*, time.death_cost_s): a walk in the open costs its seconds plus their share of an open
+    night's risk; a shelter costs the night waited in it plus a sheltered night's risk."""
 
     out: dict = {"soft_ground": False} if soft is None or soft is False else \
         {"soft_ground": True, "soft_walk_s": 0.0 if soft is True else float(soft)}
     if not dig_site:
         out["no_dig_site"] = True
+    night_s, death_s = beliefs.value("time.night_s"), beliefs.value("time.death_cost_s")
+    left = float(night_s if night_left_s is None else night_left_s)
     if home_walk_s is not None:
-        out.update(home_bed=True, home_walk_s=float(home_walk_s))      # a home bed here, this walk away
+        open_rate = beliefs.value("risk.night_open") / night_s * death_s     # seconds of risk per second exposed
+        out.update(home_bed=True, home_walk_s=float(home_walk_s) * (1.0 + open_rate))
+    out["wait_s"] = left + beliefs.value("risk.night_sheltered") * death_s
     if cooled:
         out["cooled"] = sorted(cooled)
     return out
@@ -362,4 +421,4 @@ def way_key(way):
 
 def cooled_ways(ready):
     """Pure given `ready(key)`: the night's ways (SOURCES["overnight"]) cooling after a failure here."""
-    return [s["name"] for s in SOURCES["overnight"] if not ready(way_key(s["name"]))]
+    return [s["name"] for k in ("overnight bed", "overnight") for s in SOURCES[k] if not ready(way_key(s["name"]))]

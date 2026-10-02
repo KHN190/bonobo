@@ -25,6 +25,10 @@ WORLD = {
     "door_seen",                # a watcher reading the door's block state through the run
     "door_state",               # the door cells' block states read at the end
     "unchanged",                # the box's walls and roof standing
+    "worn",                     # the bag: a tool's damage as the mod reports it
+    "dug_with",                 # the box's blocks (what was broken) and the tool's damage in the bag
+    "no_reflex",                # a watcher sampling the body's /state `blocking` through the window
+    "held",                     # the body's /state: the main hand
 }
 
 # words that hold a state over the window: true at its start, they pass only if still true at its end (idle mode

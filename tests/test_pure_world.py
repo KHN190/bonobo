@@ -335,6 +335,12 @@ class Knowledge(unittest.TestCase):
 # ---------------------------------------------------------------- nav
 
 class Nav(unittest.TestCase):
+    def setUp(self):
+        # the sight cache and the jar's perBlock answer are module state: each test starts from none, none leaks out
+        from bonobo import world
+        self.enterContext(mock.patch.dict(world._SIGHT, {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}}))
+        self.enterContext(mock.patch.object(world, "_PER_BLOCK", []))
+
     def test_waypoints(self):
         # (situation, here, target, leg) → the points walked to, ending at the target
         rows = [("the portal trip: legs of 40, height interpolated", (-258, 65, 270), (-366, 120, 191), 40,
@@ -468,7 +474,6 @@ class Nav(unittest.TestCase):
                 self.assertEqual((got, len(calls)), (want, requests))
                 if new:
                     self.assertIn(f"perBlock={world.SIGHT_PER_BLOCK}", calls[0])
-        world._PER_BLOCK[:] = []
 
     def test_a_home_block_is_no_source(self):
         # hello2 08:51: "have sword tier 1 → mine 1× stone" priced off the bunker's own walls, then failed (nav)
@@ -491,7 +496,6 @@ class Nav(unittest.TestCase):
                 c = Cost(snap, mem)
                 got = c._source(step) if sources else c.distance(["stone"], 32)
                 self.assertAlmostEqual(got, want, places=1)
-        world._PER_BLOCK[:] = []
 
     def test_at_rest(self):
         rows = [  # (why, state, expected)
@@ -714,9 +718,10 @@ class RetryAndSkill(unittest.TestCase):
     def test_cause_key(self):
         rows = [  # (cause, place, expected)
             ("stuck", ((1, 4, -2), False), "stuck@((1, 4, -2), False)"),
-            ("error", "here", "error@here"),
-            ("", None, "@None"),
-            ("a@b", 3, "a@b@3"),  # must fail: a separator inside the cause is kept, not split
+            ("unavailable", ((1, 4, -2), True), "unavailable@((1, 4, -2), True)"),
+            ("error", "here", "error@*"),     # must fail: a bug cooled only where it happened, re-tried a bin away
+            ("tool", "here", "tool@*"),
+            ("game", None, "game@*"),
         ]
         for cause, place, want in rows:
             with self.subTest(cause):
@@ -1169,7 +1174,7 @@ class RoundLog(unittest.TestCase):
         with mock.patch.dict(api.STATE.clock, {"ended": None, "first_post": None, "ended_id": -1}), \
                 mock.patch.object(api.STATE, "ended_ids", set()), mock.patch.object(api, "api", side_effect=call), \
                 mock.patch.object(api.time, "perf_counter", side_effect=lambda: next(clock)), \
-                mock.patch.object(api, "DRESS", None), mock.patch.object(api.STATE, "last_posted", None), \
+                mock.patch.object(api, "GATE", None), mock.patch.object(api, "HOLD", None), mock.patch.object(api.STATE, "last_posted", None), \
                 mock.patch.object(api, "detail"), mock.patch.object(api, "at_boundary", lambda: None), \
                 mock.patch.object(api, "_raise_if_released", lambda *a, **k: None), \
                 mock.patch.object(arbiter, "BODY", arbiter.Motion()):
@@ -1233,7 +1238,7 @@ class SkillLine(unittest.TestCase):
 
 
 class Pits(unittest.TestCase):
-    """nav.in_pit / pit_exit_tasks / stair_down_tasks: a body never ends in a hole it cannot leave."""
+    """nav.in_pit / pit_exit_tasks: a body never ends in a hole it cannot leave (stairs: test_plan_way)."""
 
     @staticmethod
     def ground(depth, feet=(0, 64, 0), half=3):
@@ -1273,37 +1278,6 @@ class Pits(unittest.TestCase):
             with self.subTest(name):
                 tasks = nav.pit_exit_tasks(region, (0, 64 if want else 65, 0), block)
                 self.assertEqual(tasks[-1]["type"] if tasks else None, want)
-
-    def test_stairs_not_a_shaft(self):
-        from bonobo import nav
-        region = self.ground(0)
-        rows = [("5 below and 3 east: steps east, one down each", (3, 59, 0), (1, 0)),
-                ("straight below: steps along x, never the own column", (0, 60, 0), (1, 0)),
-                ("must fail: level with the feet: no stairs", (4, 64, 0), None),
-                ("one below: a step, not stairs", (2, 63, 0), None)]
-        for name, target, d in rows:
-            with self.subTest(name):
-                tasks = nav.stair_down_tasks(region, (0, 64, 0), target)
-                gotos = [(t["x"], t["y"], t["z"]) for t in tasks if t["type"] == "goto"]
-                if d is None:
-                    self.assertEqual(tasks, [])
-                else:
-                    self.assertTrue(gotos)
-                    self.assertTrue(all(g[1] == 64 - k and (g[0], g[2]) == (d[0] * k, d[1] * k)
-                                        for k, g in enumerate(gotos, 1)))
-
-    def test_stairs_stop_before_danger(self):
-        from bonobo import nav
-        from tests.world import FakeRegion
-        flat = self.ground(0)
-        lava = FakeRegion(flat.lo, flat.hi, {**flat.blocks, (1, 63, 0): "lava"})
-        rows = [("must fail: lava in the first step", lava, (3, 59, 0), ()),
-                ("must fail: the first step protected", flat, (3, 59, 0), {(1, 63, 0)}),
-                ("must fail: the target above", flat, (2, 70, 0), ()),
-                ("must fail: bedrock under the steps", self.bedrock(0), (3, 59, 0), ())]
-        for name, region, target, protected in rows:
-            with self.subTest(name):
-                self.assertEqual(nav.stair_down_tasks(region, (0, 64, 0), target, protected), [])
 
 
 class HeadBuried(unittest.TestCase):

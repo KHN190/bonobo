@@ -87,7 +87,7 @@ class PerceptionInterruptsOnPressure(unittest.TestCase):
             "onGround": True}
     ROWS = [("full health, dead in 0.1 s at this pressure: interrupt", {}, 0.1, "hostiles"),
             ("must fail: 8 hp, nothing pressing (dead in 10 min): no interrupt (must not)", {"health": 8}, 600.0, None),
-            ("3 hp: the floor, whatever presses", {"health": 3}, 600.0, "critical_health"),
+            ("3 hp: the floor, whatever presses", {"health": 3}, 600.0, "critical"),
             ("dead in 0.1 s but swinging already: the fight answers, no interrupt",
              {"control": {"task": {"type": "attack"}}}, 0.1, None)]
 

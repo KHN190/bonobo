@@ -136,7 +136,7 @@ def _by_kind(hits):
         out.setdefault(h.get("block") or h.get("type"), []).append((round(h["x"]), round(h["y"]), round(h["z"])))
     return out
 
-@skill(gives=["state:seen"], remaining=_k.some_of(lambda c: c.args[1]), needs={}, speed={}, start=lambda c: feet(), verify=_searched, budget=900, stall=120,
+@skill(gives=["state:seen"], remaining=_k.some_of(lambda c: c.args[1]), needs={}, start=lambda c: feet(), verify=_searched, budget=900, stall=120,
        provides={"explore:mobs": lambda ctx, s: (list(s.detail["types"]),)})
 def explore_for(ctx, types, legs=SEARCH_LEGS, leg=40):
     """Find entities of `types`: remembered sightings first, then the unsearched frontier (`_search`)."""
@@ -155,7 +155,7 @@ def explore_for(ctx, types, legs=SEARCH_LEGS, leg=40):
     ctx.mem.note_seen(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), ctx.dimension)
     return found
 
-@skill(gives=["state:found"], remaining=_k.found(lambda c: c.args[1]), needs={}, speed={}, start=lambda c: feet(), verify=_searched, budget=900, stall=120,
+@skill(gives=["state:found"], remaining=_k.found(lambda c: c.args[1]), needs={}, start=lambda c: feet(), verify=_searched, budget=900, stall=120,
        provides={"explore:blocks": lambda ctx, s: (list(s.detail["blocks"]),)})
 def seek_blocks(ctx, blocks, legs=SEARCH_LEGS, leg=40):
     """Find a block type not in range: the unsearched frontier (`_search`), looking after every leg."""
@@ -169,7 +169,7 @@ def seek_blocks(ctx, blocks, legs=SEARCH_LEGS, leg=40):
                 if nav.reachable((h["x"], h["y"], h["z"]), ctx.policy, 2.0, feet=here)[0]]
     return (yield from _search(ctx, list(blocks), look, LOOK_BLOCKS, legs))
 
-@skill(gives=["state:found"], remaining=_k.found(lambda c: c.args[1]), needs={}, speed={}, start=lambda c: feet(), verify=_searched, budget=900, stall=120,
+@skill(gives=["state:found"], remaining=_k.found(lambda c: c.args[1]), needs={}, start=lambda c: feet(), verify=_searched, budget=900, stall=120,
        provides={"seek": lambda ctx, s: (list(s.detail["kinds"]), s.detail.get("pos"))})
 def seek(ctx, kinds, pos=None):
     """Go to where one of these is: the nearest in sight, else the spot memory named, else look for one (a spiral)."""
@@ -190,7 +190,7 @@ def seek(ctx, kinds, pos=None):
     ctx.mem.note_here(kinds[0], target, ctx.dimension)     # standing at one: `at:<kind>` for the next plan
     return [target]
 
-@skill(gives=["state:there"], remaining=_k.near(lambda c: c.args[1], lambda c: c.args[2] if len(c.args) > 2 else TRAVEL_RANGE), needs={}, speed={}, provides={"goto": lambda ctx, s: (tuple(s.detail["pos"]), s.detail.get("range", TRAVEL_RANGE))}, budget=900, stall=120,
+@skill(gives=["state:there"], remaining=_k.near(lambda c: c.args[1], lambda c: c.args[2] if len(c.args) > 2 else TRAVEL_RANGE), needs={}, provides={"goto": lambda ctx, s: (tuple(s.detail["pos"]), s.detail.get("range", TRAVEL_RANGE))}, budget=900, stall=120,
        verify=lambda c: nav.there(api.get("/state"), tuple(c.args[1]), c.args[2] if len(c.args) > 2 else TRAVEL_RANGE))
 def travel_to(ctx, pos, range_=TRAVEL_RANGE):
     """Be at `pos` (within `range_`): walk, dig and bridge there leg by leg (`nav.arrive`)."""

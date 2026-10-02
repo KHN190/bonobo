@@ -13,7 +13,7 @@ from bonobo import api, arbiter
 
 
 def intent(layer, mark, out, **kw):
-    return arbiter.Intent(layer, lambda: out.append(mark), mark, **kw)
+    return arbiter.Intent(layer, lambda: out.append(mark), mark, **{"key": mark, **kw})
 
 
 # (intents as (layer, reason, at, deadline_s), now) → the reason arbitrate picks, or None
@@ -62,7 +62,36 @@ class Ordering(unittest.TestCase):
     def test_an_unknown_layer_is_refused(self):
         for layer in ("urgent", "", "PLAN"):
             with self.subTest(layer=layer), self.assertRaises(ValueError):
-                arbiter.Intent(layer, lambda: None)
+                arbiter.Intent(layer, lambda: None, key="x")
+
+    def test_every_intent_has_a_key(self):
+        # D5: what fails cools by its key; a keyless intent (wait for day, 136 checker rows) was offered for ever
+        rows = [("must fail: no key", {}, TypeError), ("must fail: an empty key", {"key": ""}, ValueError),
+                ("a key", {"key": "wait for day"}, None)]
+        for name, kw, raises in rows:
+            with self.subTest(name):
+                if raises:
+                    with self.assertRaises(raises):
+                        arbiter.Intent("plan", lambda: None, "wait for day", **kw)
+                else:
+                    self.assertEqual(arbiter.Intent("plan", lambda: None, "wait for day", **kw).key, kw["key"])
+
+    def test_a_cooling_key_is_not_offered(self):
+        wait = arbiter.Intent("plan", lambda: None, "wait for day", key="wait for day", kind="wait for day")
+        self.assertFalse(arbiter.viable(wait, {"cooling": {"wait for day"}}))
+        self.assertTrue(arbiter.viable(wait, {"cooling": set()}))
+
+    def test_critical_health_takes_the_body_from_any_work(self):
+        # S1: hp at the floor is SAFETY's (hazard.due), and SAFETY wins over every MAINTAIN/PLAN proposal
+        from bonobo import hazard
+        from bonobo.data import CRITICAL_HP
+        from tests.world import state
+        k = hazard.due(state(health=float(CRITICAL_HP)), buried=False)
+        self.assertEqual(k, "critical", "must fail: critical health left to the work layers")
+        work = [arbiter.Intent("maintain", lambda: None, "eat", key="eat", seq=0),
+                arbiter.Intent("plan", lambda: None, "task 1", key="task 1", kind="queue")]
+        rescue = arbiter.Intent("safety", lambda: None, f"rescue {k}", key=f"rescue {k}")
+        self.assertIs(arbiter.arbitrate(work + [rescue]), rescue)
 
 
 # A sequence of preemptions on one Motion: ("preempt", layer, reason, kw) →
@@ -182,7 +211,7 @@ def situation(view=(), fight=False, hazard=False, plan=(), ready=lambda name: Tr
     that fires (reflexes.due, its table place as seq), and the PLAN proposals by kind."""
     v = dict(CALM, **dict(view))
     out = []
-    mk = lambda layer, reason, **kw: arbiter.Intent(layer, lambda: None, reason, at=at, **kw)   # noqa: E731
+    mk = lambda layer, reason, **kw: arbiter.Intent(layer, lambda: None, reason, at=at, **{"key": reason, **kw})   # noqa: E731
     if hazard:
         out.append(mk("safety", "hazard"))
     if fight:
@@ -211,11 +240,12 @@ class Invariants(unittest.TestCase):
                 ("one intent", [("plan", "queue")])]
         for name, spec in rows:
             with self.subTest(name):
-                intents = [arbiter.Intent(layer, lambda: None, f"{layer}:{k}", at=0.0, kind=k) for layer, k in spec]
+                intents = [arbiter.Intent(layer, lambda: None, f"{layer}:{k}", at=0.0, kind=k, key=f"{layer}:{k}")
+                           for layer, k in spec]
                 picks = {chosen(list(p)) for p in itertools.permutations(intents)}
                 self.assertEqual(len(picks), 1)
         with self.subTest("must fail: a chooser that takes the first submitted is caught by the same check"):
-            intents = [arbiter.Intent(layer, lambda: None, f"{layer}:{k}", at=0.0, kind=k)
+            intents = [arbiter.Intent(layer, lambda: None, f"{layer}:{k}", at=0.0, kind=k, key=f"{layer}:{k}")
                        for layer, k in rows[1][1]]
             self.assertGreater(len({list(p)[0].reason for p in itertools.permutations(intents)}), 1)
 
@@ -223,8 +253,8 @@ class Invariants(unittest.TestCase):
         for a, b in itertools.permutations(self.LAYERS, 2):
             with self.subTest(f"{a} vs {b}"):
                 want = a if arbiter.SCALES[a] < arbiter.SCALES[b] else b
-                self.assertEqual(chosen([arbiter.Intent(a, lambda: None, a, at=0.0, kind="queue"),
-                                         arbiter.Intent(b, lambda: None, b, at=0.0, kind="queue")]), want)
+                self.assertEqual(chosen([arbiter.Intent(a, lambda: None, a, at=0.0, kind="queue", key=a),
+                                         arbiter.Intent(b, lambda: None, b, at=0.0, kind="queue", key=b)]), want)
 
     def test_a_tie_in_layer_and_kind_is_settled_by_place_then_newest(self):
         # (seq, at) of two same-layer same-kind intents → which wins
@@ -234,23 +264,23 @@ class Invariants(unittest.TestCase):
                 ("must fail: a tie read as the newest — identical: the first submitted, every time", ((0, 1.0), (0, 1.0)), 0)]
         for name, ((s0, a0), (s1, a1)), want in rows:
             with self.subTest(name):
-                intents = [arbiter.Intent("plan", lambda: None, str(i), at=a, kind="queue", seq=sq)
+                intents = [arbiter.Intent("plan", lambda: None, str(i), at=a, kind="queue", seq=sq, key=str(i))
                            for i, (sq, a) in enumerate(((s0, a0), (s1, a1)))]
                 self.assertEqual([chosen(intents, now=10.0) for _ in range(3)], [str(want)] * 3)
 
     def test_an_expired_intent_never_runs(self):
         for layer in self.LAYERS:
             with self.subTest(layer):
-                stale = arbiter.Intent(layer, lambda: None, "stale", at=0.0, deadline_s=1.0, kind="queue")
-                live = arbiter.Intent("plan", lambda: None, "live", at=0.0, kind="idle")
+                stale = arbiter.Intent(layer, lambda: None, "stale", at=0.0, deadline_s=1.0, kind="queue", key="stale")
+                live = arbiter.Intent("plan", lambda: None, "live", at=0.0, kind="idle", key="live")
                 self.assertEqual((chosen([stale], now=2.0), chosen([stale, live], now=2.0), chosen([stale], now=0.5)),
                                  (None, "live", "stale"))
 
     def test_an_unknown_kind_ranks_after_every_known_one(self):
         for kind in [k for k in self.KINDS if k not in arbiter.LAST_RESORT]:    # last-resort kinds: `gate`'s table
             with self.subTest(kind):
-                self.assertEqual(chosen([arbiter.Intent("plan", lambda: None, "?", at=0.0, kind="no such kind"),
-                                         arbiter.Intent("plan", lambda: None, kind, at=0.0, kind=kind)]), kind)
+                self.assertEqual(chosen([arbiter.Intent("plan", lambda: None, "?", at=0.0, kind="no such kind", key="?"),
+                                         arbiter.Intent("plan", lambda: None, kind, at=0.0, kind=kind, key=kind)]), kind)
 
 
 
@@ -437,9 +467,9 @@ def simulate(view_of, plan, cause_for, rounds):
             if reflexes.stalled(name in fired, before, reflexes.progress_of(name, v)):
                 r.failed(name, reflexes.NO_PROGRESS, "changed nothing", now, "here")
         active = reflexes.latched(fired, v)
-        intents = [arbiter.Intent("maintain", lambda: None, x, at=now, kind=x, seq=reflexes.NAMES.index(x))
+        intents = [arbiter.Intent("maintain", lambda: None, x, at=now, kind=x, seq=reflexes.NAMES.index(x), key=x)
                    for x in fired if r.ready(x, now, "here")]
-        intents += [arbiter.Intent("plan", lambda: None, k, at=now, kind=k) for k in plan]
+        intents += [arbiter.Intent("plan", lambda: None, k, at=now, kind=k, key=k) for k in plan]
         pick = chosen(intents, now=now)
         picks.append(pick)
         if pick in reflexes.NAMES:
@@ -516,7 +546,7 @@ class WaitsCounted(unittest.TestCase):
             with self.subTest(name):
                 picks = collections.Counter()
                 for k in kinds:
-                    arbiter.note_pick(picks, arbiter.Intent("plan", lambda: None, k, at=0.0, kind=k))
+                    arbiter.note_pick(picks, arbiter.Intent("plan", lambda: None, k, at=0.0, kind=k, key=k))
                 self.assertEqual(arbiter.waits(picks), want)
 
 

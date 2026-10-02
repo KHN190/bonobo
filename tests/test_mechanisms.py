@@ -165,8 +165,7 @@ class Walk(unittest.TestCase):
         # must fail: the crossing leg may break (press_door_to_chest 022603: the door shut, the wall beside it dug)
         self.assertEqual((cross["break"], cross["place"]), (False, False))
         self.assertEqual((cross["x"], cross["y"], cross["z"]), mech.through_cell(tuple(DOOR), INSIDE))
-        avoid = {(c["x"], c["y"], c["z"]) for c in posted[3]["avoid"]}
-        self.assertTrue(set(DOOR) <= avoid)                               # the door is never dug
+        self.assertFalse([t for t in posted if t["type"] == "travel" and t.get("break")])     # nothing dug (I3)
 
 
 class Cross(unittest.TestCase):
@@ -386,7 +385,7 @@ class HomeExit(unittest.TestCase):
         self.assertEqual(uses, [HATCH_IN, HATCH_OUT])          # pressed from the hall, shut behind from above
         self.assertTrue(state["shut"])
         self.assertEqual((legs[-1]["x"], legs[-1]["y"], legs[-1]["z"]), self.COAL)
-        self.assertTrue(legs[-1]["break"])                     # the outside leg digs as ever
+        self.assertFalse(legs[-1].get("break"))                # a walk digs nothing (I3), outside too
 
     def test_the_door_in_another_box_of_the_home(self):
         # must fail: the body in the hall box, the hatch in the entrance box of the same home → NavFailed (live 3 boxes)
