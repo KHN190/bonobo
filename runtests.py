@@ -66,12 +66,12 @@ _SANDBOX = None
 
 
 def sandbox():
-    """The environment a test process gets: its own empty data directory, made once per run."""
+    """One test process's env: its own empty data dir under the run's root (a shared one leaked a queue across)."""
     global _SANDBOX
     if _SANDBOX is None:
         _SANDBOX = tempfile.mkdtemp(prefix="bonobo-tests-")
     env = dict(os.environ)
-    env["MC_DATA"] = _SANDBOX
+    env["MC_DATA"] = tempfile.mkdtemp(dir=_SANDBOX)
     # The per-file overrides too: a module that takes its own env var would otherwise still find the real file.
     for var in ("MC_NOTES", "MC_ROUTE", "MC_DIRECTIVES", "MC_WANTS", "MC_TAPE"):
         env.pop(var, None)
@@ -115,7 +115,7 @@ def main(argv):
         names = [n for n in files() if not ("--fast" in argv and n in SLOW)]
     began = time.time()
     failed, total, took_by = [], 0, times()
-    sandbox()                       # one empty data directory for the whole run, removed at the end
+    sandbox()                       # the run's root: each process's data directory under it, removed at the end
     batches = groups(names, min(WORKERS, len(names) or 1))
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(WORKERS, len(batches))) as pool:
         for group, code, out, took in pool.map(run_group, batches):

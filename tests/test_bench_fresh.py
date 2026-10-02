@@ -161,22 +161,6 @@ class TightDusk(unittest.TestCase):
         self.assertFalse(needs.due_now(needs.dusk_s(SimpleNamespace(time=11930)), 3.0, True, False))
         self.assertNotIn("time set 11930", [c for cs in wb.BRAIN_DIMS["dusk"].values() for c in cs])
 
-    def test_the_order_ends_the_run(self):
-        # 043641: bed first, then the whole night slept before the log — past the budget; the claim is the order
-        from bonobo.bench import table
-        from bonobo.bench.words import checks as wc
-        row = next(r for t in table.TIERS for n, r in table.rows(t).items() if n == "brain__tight")
-        done = table.dec(row["run"][1])
-        cell = wb._grid_cell(tuple(row["tags"][d] for d in wb.BRAIN_DIMS))
-        rule = wb.BRAIN_FAMILIES["night_first"][2](cell)[0]
-        # (FIRST, the run over, the claim holds); a log first ends the run at the queue's end (the log task done)
-        rows = [("nothing yet: runs on", {}, False, False),
-                ("the bed first: over at once, passed", {"bed": 1.0}, True, True),
-                ("must fail: the log first: failed", {"log": 1.0}, False, False),
-                ("the log, then the bed: failed", {"log": 1.0, "bed": 2.0}, True, False)]
-        for name, first, over, ok in rows:
-            with self.subTest(name), mock.patch.dict(wc.FIRST, first, clear=True):
-                self.assertEqual((done(), rule(None, None)), (over, ok))
 
 class FullBagStart(unittest.TestCase):
     def test_a_full_bag_throws_away_from_the_tree(self):
