@@ -833,6 +833,7 @@ class ShieldAndHole(unittest.TestCase):
         rows = [("a zombie, a sword, a shield: fight (the reflex shields)", [row("minecraft:zombie", 4, 0)],
                  dict(sword="minecraft:iron_sword", shield=True), ("fight", 0)),
                 ("a zombie, a sword, no shield: fight", [row("minecraft:zombie", 4, 0)], dict(sword="minecraft:iron_sword"), ("fight", 0)),
+                # dig 2 × 0.9 = 1.8 s < their arrival 1.83 s: 0 hp, then 2.1 hp/s follows; evade 8.55 hp over 5.7 s, 6.0 hp/s on
                 ("three zombies at night, 10 hp, no sword, ground that digs: a hole down", crowd,
                  dict(sword=None, hp=10, night=True, dig_ok=True, field=field.Field()), ("reshape", ("down", 2))),
                 ("must fail: the same, ground that does not dig: leave", crowd,

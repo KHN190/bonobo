@@ -341,7 +341,9 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
             if leaves > press - float(ENGAGE["shape_min_gain"]) * max(press, 1e-6) \
                     and blast_after >= blast_here - 1e-6:
                 continue
-            out.append(Option("reshape", (where, n), round(press * seconds, 2), seconds,
+            # health lost while building: only what reaches us before the shape is done (pressure over its own seconds)
+            during = pressure(here, hazards, prot, ground=grid, horizon=seconds) * seconds if seconds > 0 else 0.0
+            out.append(Option("reshape", (where, n), round(during, 2), seconds,
                               f"{where}: {n} × {each_s}s", leaves=round(leaves, 3), blast_after=blast_after))
     return out
 
