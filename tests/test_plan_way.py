@@ -215,11 +215,11 @@ class WalkOrStair(unittest.TestCase):
 
 
 class LevelReach(unittest.TestCase):
-    """data.STAIR_BELOW (the prior where no region is read: cost, gather) is holds' own geometry: an open block beside
+    """data.LEVEL_SIGHT_DEPTH (the prior where no region is read: cost, gather) is holds' own geometry: an open block beside
     a level stand is held down to it, not one deeper (the rim hides it)."""
 
     def test_rows(self):
-        from bonobo.data import STAIR_BELOW
+        from bonobo.data import LEVEL_SIGHT_DEPTH
 
         def shaft(d):
             blocks = {(x, y, z): "stone" for x in range(-3, 4) for z in range(-3, 4) for y in range(50, 64)}
@@ -227,8 +227,8 @@ class LevelReach(unittest.TestCase):
                 blocks.pop((1, y, 0))
             return FakeRegion((-3, 50, -3), (3, 70, 3), blocks)
         # (situation, depth below the feet) → held from the level stand
-        rows = [("STAIR_BELOW down: held", STAIR_BELOW, True),
-                ("must fail: one deeper: the rim hides it", STAIR_BELOW + 1, False)]
+        rows = [("LEVEL_SIGHT_DEPTH down: held", LEVEL_SIGHT_DEPTH, True),
+                ("must fail: one deeper: the rim hides it", LEVEL_SIGHT_DEPTH + 1, False)]
         for name, d, want in rows:
             with self.subTest(name):
                 self.assertIs(nav.holds(shaft(d), FEET, (1, FEET[1] - d, 0)), want)

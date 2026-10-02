@@ -8,7 +8,7 @@ from . import knowledge as K
 from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
-from .data import STAIR_BELOW, BAN_MAX_S, TASK_WAIT_S, cannot_reach, bare, mid
+from .data import LEVEL_SIGHT_DEPTH, BAN_MAX_S, TASK_WAIT_S, cannot_reach, bare, mid
 from .knowledge import FIND_AT, members, MINE_YIELD
 from .bag import mineable, opener, pickup_whitelist, refused
 from .world import Inventory, Region, add, connected, entities, find, region_around, ripe_near
@@ -85,8 +85,8 @@ def spent_cells(sent, name_at, blocks) -> list[Cell]:
 
 
 def deep_below(cell: Cell, feet_at: Cell) -> bool:
-    """Pure: `cell` lies more than STAIR_BELOW below the feet: a staircase down, not a walk."""
-    return cell[1] < feet_at[1] - STAIR_BELOW
+    """Pure: `cell` lies deeper than a level stand sees (LEVEL_SIGHT_DEPTH): reached by a way down, not a walk."""
+    return cell[1] < feet_at[1] - LEVEL_SIGHT_DEPTH
 
 def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
     """Pure: (tasks, why not) for a straight shaft from the feet down to a buried `target`'s level: dug only as deep as

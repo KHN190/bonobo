@@ -4,7 +4,7 @@ import math
 
 from .api import McError
 from .beliefs import CONFIG as _PLAY
-from .data import DEEPSLATE_TOP, STAIR_BELOW, STAIR_CELLS, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
+from .data import DEEPSLATE_TOP, LEVEL_SIGHT_DEPTH, STAIR_CELLS, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
 from .knowledge import soil_depth, dig_ticks, held_tiers, own_work, work_s, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
 from .world import ROUTES, entities, job_ready, nearest, route_key, sight_y
@@ -28,11 +28,11 @@ def walk_ticks(distance):
 
 def dig_blocks(feet_y, y, ore, soil):
     """Pure: the blocks dug to reach y from the feet, expected — a buried surface kind straight down through the soil
-    over it; an ore a level stand holds (STAIR_BELOW: no region read here) nothing, deeper by a staircase
+    over it; an ore a level stand holds (LEVEL_SIGHT_DEPTH: no region read here) nothing, deeper by a staircase
     (STAIR_CELLS a step), its first `soil` steps soil (knowledge.soil_depth), the rest rock (deepslate below DEEPSLATE_TOP)."""
     if not ore:
         return ["dirt"] * max(0, feet_y - 1 - y)
-    if y >= feet_y - STAIR_BELOW:
+    if y >= feet_y - LEVEL_SIGHT_DEPTH:
         return []
     out = []
     for k in range(1, feet_y - y):

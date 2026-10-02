@@ -8,6 +8,7 @@ from unittest import mock
 from . import DATA as _DIR
 
 Decision = namedtuple("Decision", "layer kind token target writes reason name alternatives")
+STUBBED = ("fight_loop.offer",)     # stood in for while the round runs: the threat answer's handover of the body
 
 
 def _fresh_dir():
@@ -47,8 +48,11 @@ def decide(facts, fail_then_again=True):
         chosen = real_arbitrate(intents, now=now, facts=facts)
         seen["intents"], seen["chosen"] = list(intents), chosen
         return chosen
+    from .facts import DIMS
     mem = Memory()
     world = gamma(facts, mem)
+    failure = next((d.failure(facts) for d in DIMS if hasattr(d, "failure")), None) \
+        or NotAvailable("check: the step failed here")
     ctx = {}
     with mock.patch.object(api, "api", world.api), mock.patch.object(arbiter, "arbitrate", watched), \
             mock.patch.object(api, "detail", lambda *a: None), mock.patch.object(api, "log", lambda *a: None), \
@@ -59,7 +63,10 @@ def decide(facts, fail_then_again=True):
             from bonobo.decompose import way_key
             from .facts import night_ways
             for way in night_ways():
-                b.failed(way_key(way), NotAvailable("check: this night way failed here"), quiet=True)
+                b.failed(way_key(way), failure, quiet=True)
+        for dim in DIMS:
+            if hasattr(dim, "prepare"):
+                dim.prepare(b, facts)
         snap = Snapshot.from_readings(api.get("/state"), Inventory())
         b.place = None
         b.policy_cache = b.policy(snap, snap.night)
@@ -70,7 +77,7 @@ def decide(facts, fail_then_again=True):
         def offer(option, worth, key, now, release, held, seen_at):
             offered.append((option, worth))
             return ("tactic", key), None, {}
-        with mock.patch.object(fight_loop, "offer", offer):
+        with mock.patch.object(fight_loop, STUBBED[0].partition(".")[2], offer):
             w = perception.Watcher()
             w._look(snap.state)
             w._answer_threats(snap.state)          # the threat layer's answer: TACTIC preempts the plan (K3)
@@ -99,6 +106,6 @@ def decide(facts, fail_then_again=True):
         if fail_then_again and act is not None and chosen is not None:
             # D5: the step fails here; the arbiter's gate drops an intent whose key is cooling (arbiter.viable) —
             # an intent with no key, or one the failure does not cool, is offered again in this same state
-            b.failed(act.name, NotAvailable("check: the step failed here"))
+            b.failed(act.name, failure)
             ctx["reselected"] = chosen.key is None or b.ready(chosen.key)
     return d, got, ctx

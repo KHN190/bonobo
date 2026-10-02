@@ -1,6 +1,6 @@
 """α: the finite facts the decision code reads, each computed by the production predicate it names (imported, never
 copied). A fact that comes with another agent's merge is in PENDING, with the interface it will be read through."""
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 
 from bonobo import knowledge
 from bonobo.actions import STATION_R
@@ -29,13 +29,28 @@ DOMAINS = {
     "station": ("none", "crafting_table", "furnace"),   # memory.stations within actions.STATION_R
     "mob": ("zombie", "skeleton", "creeper"),   # the threat's kind (its first value when there is no threat)
 }
-DEPENDS = {"mob": "threat"}     # a fact read only while another holds: else its first value (one state, not many)
+# a fact read only while (pred, the facts that turn it on) holds: else its first value (one state, not many)
+DEPENDS = {"mob": (lambda f: f["threat"], {"threat": True})}
 # facts the decision reads that come with another agent's merge: the interface this checker wires to, fixed now
 PENDING = {
     "F1": "F1 priced candidates: the round's alternatives [(name, seconds, steps)] from the planner "
           "(R1 tool tiers, R2 detours, R4 ways, D4 within PLAN by seconds, D6 est == the steps as run; "
           "V1: gather's nearest-3 cut, V2: highest craftable tier); the old planner is not patched for it",
 }
+
+
+def _with_dims():
+    """The dimension modules (check/dims) joined to the base: their domains after the base's, their DEPENDS."""
+    from .dims import DIMS
+    for d in DIMS:
+        assert d.NAME not in DOMAINS, f"dimension {d.NAME} defined twice"
+        DOMAINS[d.NAME] = tuple(d.DOMAIN)
+        if getattr(d, "DEPENDS", None) is not None:
+            DEPENDS[d.NAME] = d.DEPENDS
+    return DIMS
+
+
+DIMS = _with_dims()
 
 
 def _region(world, feet):
@@ -73,7 +88,9 @@ def alpha(snap, mem, world, ready):
     threats = [e for e in ents if aggro(e, {"day": not snap.night}) and e["type"] in MOBS
                and e["distance"] <= float(MOBS[e["type"]].get("notice_r", 16))]
     threat = bool(threats)
+    a = SimpleNamespace(snap=snap, mem=mem, world=world, ready=ready, region=region)
     return MappingProxyType({
+        **{d.NAME: d.alpha(a) for d in DIMS},
         "dimension": snap.dimension, "night": bool(snap.night), "hp": "crit" if float(s.get("health", 20)) <= critical_hp(s) else "ok",
         "place": place, "bed": "carried" if inv.count("bed") else "home" if home_bed is not None else "none",
         "pickaxe": knowledge.held_tiers(inv).get("pickaxe", -1), "building": inv.count("building") >= POD_BLOCKS,
@@ -101,8 +118,8 @@ def key(facts):
 def of(**kw):
     """Facts from keyword values (the rest, and a DEPENDS fact whose condition is off: the domain's first value)."""
     out = {k: kw.get(k, d[0]) for k, d in DOMAINS.items()}
-    for k, on in DEPENDS.items():
-        if not out[on]:
+    for k, (on, _witness) in DEPENDS.items():
+        if not on(out):
             out[k] = DOMAINS[k][0]
     return MappingProxyType(out)
 

@@ -95,7 +95,7 @@ class GammaRoundTrip(unittest.TestCase):
         from check import round as rnd
         for k, values in DOMAINS.items():
             for v in values:
-                f = of(**{k: v}, **({DEPENDS[k]: DOMAINS[DEPENDS[k]][-1]} if k in DEPENDS else {}))
+                f = of(**{k: v}, **(DEPENDS[k][1] if k in DEPENDS else {}))
                 with self.subTest(fact=k, value=v):
                     _d, got, _ctx = rnd.decide(f, fail_then_again=False)
                     self.assertEqual(dict(got), dict(f))
@@ -117,6 +117,52 @@ class Model(unittest.TestCase):
         graph = {"a": ("a", wait, False), "b": ("c", wait, False), "c": ("b", wait, True), "d": ("e", wait, False)}
         loops = {k for k, _n, _l in explore.cycles(graph)}
         self.assertEqual(loops, {"a"})                                      # must fail: b-c makes progress
+
+
+class Dimensions(unittest.TestCase):
+    """check/dims: a dimension is a file; joined to the base facts once, never over one already there."""
+
+    def test_joined(self):
+        import types
+        from unittest import mock
+        from check import dims, facts
+        fresh = types.SimpleNamespace(NAME="check_probe", DOMAIN=(0, 1),
+                                      DEPENDS=(lambda f: f["threat"], {"threat": True}))
+        rows = [("a new fact: its domain and its condition joined", fresh, None),
+                ("must fail: a base fact defined again", types.SimpleNamespace(NAME="night", DOMAIN=(0,)),
+                 AssertionError)]
+        for name, dim, raises in rows:
+            with self.subTest(name), mock.patch.object(dims, "DIMS", [dim]), \
+                    mock.patch.dict(facts.DOMAINS), mock.patch.dict(facts.DEPENDS):
+                if raises:
+                    self.assertRaises(raises, facts._with_dims)
+                else:
+                    facts._with_dims()
+                    self.assertEqual(facts.DOMAINS[dim.NAME], dim.DOMAIN)
+                    self.assertEqual(facts.of(threat=False)[dim.NAME], 0)   # its condition off: its first value
+
+
+class Denominator(unittest.TestCase):
+    """check/coverage.decision_code: the brain's decision code by structure — reached from the round's entry points,
+    execution excluded with its reason."""
+
+    def test_rows(self):
+        from check import coverage
+        decision, why = coverage.decision_code()
+        name = {f"{c.co_filename.rsplit('/', 1)[-1][:-3]}.{c.co_qualname}": c for c in list(decision) + list(why)}
+        # (function, None: in the denominator | the reason it is excluded)
+        rows = [("brain.Brain.decide", None), ("needs.Needs.overnight", None), ("threat.options", None),
+                ("gather.mine", "a skill's body"),                          # must fail: a skill body counted
+                ("fight_loop._engagement", "a thread's body"),
+                ("perception.Watcher.run", "a thread's body"),
+                ("fight_loop.offer", "the round stands in for it"),
+                ("brain.Brain.attempt", "sends to the jar"),
+                # a hook handed to the door (Policy.before_segment): run as tasks are sent
+                ("brain.Brain.segment_reflexes", "no entry point reaches it but through execution")]
+        for fn, want in rows:
+            with self.subTest(fn):
+                c = name[fn]
+                self.assertEqual(None if c in decision else why[c].split(" (")[0].split(":")[0], want)
 
 
 if __name__ == "__main__":

@@ -1,53 +1,235 @@
-"""The branch-coverage gate: sys.monitoring BRANCH_LEFT/RIGHT over the decision modules while the explorer runs.
-Every branch arm (code.co_branches) of every function in those modules must be hit; the unhit arms are listed
-module:line with the line's text."""
+"""The branch-coverage gate: sys.monitoring BRANCH_LEFT/RIGHT over the decision code while the explorer runs.
+
+The denominator is the brain's decision code, found by structure, not by a list of names: every function of the
+decision modules the round's entry points (ROOTS: what check/round.py calls) reach through the static call graph,
+never through execution. Execution is excluded, each with its reason (K8: checked live, E/P):
+  - a skill's body (registered by @skill: skill.REGISTRY) and what is defined inside it: it runs the world;
+  - a function that sends to the jar (calls an api function that POSTs): it acts, it does not decide;
+  - a function no entry point reaches without passing through one of those: run-time code (runners, threads).
+Every arm of what is left must be hit; the unhit arms are listed module:line with the line's text."""
+import dis
+import importlib
 import inspect
 import linecache
 import sys
 import types
 
-MODULES = ("needs", "decompose", "cost", "planner", "threat", "kernel", "fight_loop", "arbiter", "reflexes", "retry",
-           "actions", "solve")
+MODULES = ("brain", "needs", "decompose", "cost", "estimate", "planner", "threat", "kernel", "fight_loop", "arbiter",
+           "reflexes", "retry", "actions", "solve", "gather", "survive", "perception")
+# the round's entry points: what check/round.py calls (the brain's round, the watcher's look and threat answer)
+ROOTS = ("brain.Brain.decide", "brain.Brain.policy", "brain.Brain.context", "brain.Brain.failed", "brain.Brain.ready",
+         "brain.fight_line_holds", "needs.Needs.overnight", "perception.Watcher._look",
+         "perception.Watcher._answer_threats")
 TOOL = sys.monitoring.COVERAGE_ID
+VIA = {}        # a decision code → the code it was first reached from (why it is in the denominator)
 
 
 def _codes(module):
-    """Every code object defined in `module` (functions, methods, nested)."""
-    out, todo = [], [module]
-    seen = set()
+    """{code: its top-level owner's qualname} for every code object defined in `module` (functions, methods,
+    nested), and {class name: its methods' codes}."""
+    out, classes, todo, seen = {}, {}, [module], set()
+    here = inspect.getsourcefile(module)
     while todo:
         obj = todo.pop()
         for v in vars(obj).values() if isinstance(obj, (types.ModuleType, type)) else ():
-            if isinstance(v, types.FunctionType) and v.__module__ == module.__name__ and id(v) not in seen:
+            if isinstance(v, (staticmethod, classmethod)):
+                v = v.__func__
+            if isinstance(v, property):
+                v = v.fget
+            if isinstance(v, types.FunctionType):
+                v = inspect.unwrap(v)           # a skill's runner: its body
+            if isinstance(v, types.FunctionType) and v.__code__.co_filename == here and id(v) not in seen:
                 seen.add(id(v))
-                todo_code = [v.__code__]
-                while todo_code:
-                    c = todo_code.pop()
-                    out.append(c)
-                    todo_code += [k for k in c.co_consts if isinstance(k, types.CodeType)]
+                if isinstance(obj, type):
+                    classes.setdefault(obj.__name__, []).append(v.__code__)
+                stack = [v.__code__]
+                while stack:
+                    c = stack.pop()
+                    out[c] = v.__code__
+                    stack += [k for k in c.co_consts if isinstance(k, types.CodeType)]
             elif isinstance(v, type) and v.__module__ == module.__name__ and id(v) not in seen:
                 seen.add(id(v))
                 todo.append(v)
-    return out
+    return out, classes
 
 
 def ident(code):
     return code.co_filename, code.co_firstlineno, code.co_qualname
 
 
+def _senders():
+    """api's functions that send to the jar: those calling its transport with "POST", and those calling one of them
+    (closed)."""
+    from bonobo import api
+    fns = {n: f for n, f in vars(api).items() if isinstance(f, types.FunctionType) and f.__module__ == api.__name__}
+    # api("POST", …)
+    out = {n for n, f in fns.items() if "POST" in f.__code__.co_consts and "api" in f.__code__.co_names}
+    while True:
+        more = {n for n, f in fns.items() if n not in out and set(f.__code__.co_names) & out}
+        if not more:
+            return out
+        out |= more
+
+
+def _skill_bodies():
+    """The codes registered as skills' bodies (@skill: skill.REGISTRY)."""
+    from bonobo import skill
+    out = set()
+    for contract in skill.REGISTRY.values():
+        fn = inspect.unwrap(contract.fn)
+        if hasattr(fn, "__code__"):
+            out.add(fn.__code__)
+    return out
+
+
+def _thread_bodies(module_of, owner):
+    """Codes a thread runs: a threading.Thread subclass's run, and every function a code that makes a Thread loads
+    (its target)."""
+    import threading
+    out = set()
+    for m in module_of.values():
+        for v in vars(m).values():
+            if isinstance(v, type) and issubclass(v, threading.Thread) and "run" in vars(v):
+                out.add(vars(v)["run"].__code__)
+    for c in owner:
+        ins = list(dis.get_instructions(c))
+        if not any(i.opname in ("LOAD_ATTR", "LOAD_GLOBAL") and i.argval == "Thread" for i in ins):
+            continue
+        g = vars(module_of[c.co_filename])
+        for i in ins:
+            obj = g.get(i.argval) if i.opname == "LOAD_GLOBAL" else None
+            if isinstance(obj, types.FunctionType) and obj.__code__ in owner:
+                out.add(obj.__code__)
+        out |= {k for k in c.co_consts if isinstance(k, types.CodeType)}
+    return out
+
+
+def _stubbed():
+    """The codes check/round.py stands in for while the round runs (its STUBBED)."""
+    from .round import STUBBED
+    out = set()
+    for name in STUBBED:
+        mod, _, attr = name.partition(".")
+        out.add(inspect.unwrap(getattr(importlib.import_module(f"bonobo.{mod}"), attr)).__code__)
+    return out
+
+
+def decision_code():
+    """(decision codes, {excluded code: why}) — the structure above."""
+    mods = [importlib.import_module(f"bonobo.{m}") for m in MODULES]
+    owner, classes = {}, {}
+    for m in mods:
+        codes, cls = _codes(m)
+        owner.update(codes)
+        for k, v in cls.items():
+            classes.setdefault(k, []).extend(v)
+    from bonobo import api
+    senders, bodies = _senders(), _skill_bodies()
+    module_of = {inspect.getsourcefile(m): m for m in mods}
+    threads, stubbed = _thread_bodies(module_of, owner), _stubbed()
+    why = {}
+    for c, top in owner.items():
+        mod = module_of[c.co_filename]
+        # api.<sender>(…), or a sender imported by name
+        sends = sorted(n for n in c.co_names if n in senders
+                       and ("api" in c.co_names or getattr(mod, n, None) is getattr(api, n)))
+        if top in bodies:
+            why[c] = "a skill's body (@skill): it runs the world"
+        elif top in threads:
+            why[c] = "a thread's body (threading.Thread): it runs beside the round"
+        elif top in stubbed:
+            why[c] = "the round stands in for it (check/round.py STUBBED): the body's handover"
+        elif sends:
+            why[c] = f"sends to the jar ({', '.join(sends)})"
+
+    methods = {}
+    for k, v in classes.items():
+        for m in v:
+            methods.setdefault(m.co_name, []).append(m)
+
+    def resolve(obj):
+        """The decision codes a module-level object stands for: a function, a class's constructor, a table's
+        functions."""
+        if isinstance(obj, types.FunctionType):
+            obj = inspect.unwrap(obj)
+            return [obj.__code__] if obj.__code__ in owner else []
+        if isinstance(obj, type):
+            return [m for m in classes.get(obj.__name__, ()) if m.co_name in ("__init__", "__post_init__", "__call__")]
+        if isinstance(obj, (dict, list, tuple, set, frozenset)):
+            vals = obj.values() if isinstance(obj, dict) else obj
+            return [k for v in vals if isinstance(v, types.FunctionType) for k in resolve(v)]
+        return []
+
+    def wired(code, i):
+        """Is the function loaded at `i` handed over rather than called: stored in an attribute (api.GUARD = …) or
+        passed by keyword to a constructor (Policy(before_segment=…)) — a hook, run where it is called (the door, a
+        runner), not by the round. A keyword `key` (sorted, min, max) is called right there."""
+        if code[i].arg is not None and code[i].arg & 1:
+            return False                                   # loaded to be called (the NULL/self slot)
+        for ins in code[i + 1:]:
+            if ins.opname in ("STORE_ATTR", "STORE_GLOBAL"):
+                return True
+            if ins.opname == "LOAD_CONST" and isinstance(ins.argval, tuple) and ins.argval \
+                    and all(isinstance(k, str) for k in ins.argval):
+                return "key" not in ins.argval
+            if ins.opname.startswith(("CALL", "RETURN", "STORE_FAST", "POP_JUMP", "BUILD")):
+                return False
+        return False
+
+    def edges(c):
+        """What `c` calls: a global resolved in its module (a module's attribute through it), a method by its name
+        on an object, a name asked for by its text (getattr), and the functions defined inside it."""
+        g = vars(module_of[c.co_filename])
+        out = [k for k in c.co_consts if isinstance(k, types.CodeType)]
+        out += [m for k in c.co_consts if isinstance(k, str) and k.isidentifier() and not k.startswith("__")
+                for m in methods.get(k, ())]
+        base = None
+        code = list(dis.get_instructions(c))
+        for i, ins in enumerate(code):
+            if ins.opname == "LOAD_GLOBAL":
+                obj = g.get(ins.argval)
+                base = obj if isinstance(obj, types.ModuleType) else None
+                out += [] if wired(code, i) else resolve(obj)
+            elif ins.opname in ("LOAD_ATTR", "LOAD_METHOD", "LOAD_SUPER_ATTR"):
+                # a dunder by name is any class's (super().__init__): only a resolved class's constructor counts
+                got = resolve(getattr(base, ins.argval, None)) if base is not None \
+                    else [] if ins.argval.startswith("__") else methods.get(ins.argval, [])
+                out += [] if wired(code, i) else got
+                base = None
+            else:
+                base = None
+        return out
+    roots = []
+    for r in ROOTS:
+        mod, _, qual = r.partition(".")
+        roots += [c for c in owner if c.co_filename == inspect.getsourcefile(importlib.import_module(f"bonobo.{mod}"))
+                  and c.co_qualname == qual]
+    seen, todo = set(), [c for c in roots if c not in why]
+    while todo:
+        c = todo.pop()
+        if c in seen:
+            continue
+        seen.add(c)
+        for k in edges(c):
+            if k in owner and k not in why and k not in seen:
+                VIA.setdefault(k, c)
+                todo.append(k)
+    for c in owner:
+        if c not in seen and c not in why:
+            why[c] = "no entry point reaches it but through execution (run-time code)"
+    return seen, why
+
+
 class Gate:
     def __init__(self):
-        import importlib
-        self.mods = [importlib.import_module(f"bonobo.{m}") for m in MODULES]
+        decision, self.excluded = decision_code()
         self.arms = {}          # (code, offset, dest) → hit
         self.codes = {}         # a code's process-independent id → the code
-        for m in self.mods:
-            for c in _codes(m):
-                self.codes[ident(c)] = c
-                for src, left, right in c.co_branches():
-                    self.arms[(c, src, left)] = False
-                    self.arms[(c, src, right)] = False
-        self.files = {inspect.getsourcefile(m) for m in self.mods}
+        for c in decision:
+            self.codes[ident(c)] = c
+            for src, left, right in c.co_branches():
+                self.arms[(c, src, left)] = False
+                self.arms[(c, src, right)] = False
 
     def __enter__(self):
         sys.monitoring.use_tool_id(TOOL, "check")
@@ -78,10 +260,25 @@ class Gate:
             if c is not None and (c, src, dst) in self.arms:
                 self.arms[(c, src, dst)] = True
 
+    def exclusions(self):
+        """{reason: [module qualname]} of the excluded functions (top-level codes only)."""
+        out = {}
+        for c, why in self.excluded.items():
+            out.setdefault(why.split(" (")[0], []).append(f"{c.co_filename.rsplit('/', 1)[-1][:-3]}.{c.co_qualname}")
+        return {k: sorted(set(v)) for k, v in out.items()}
+
+    def unhit(self):
+        """[(module, line, qualname)] of the unhit arms."""
+        out = set()
+        for (c, src, dst), ok in self.arms.items():
+            if not ok:
+                line = next((ln for st, end, ln in c.co_lines() if st <= src < end and ln), c.co_firstlineno)
+                out.add((c.co_filename.rsplit("/", 1)[-1], line, c.co_qualname))
+        return sorted(out)
+
     def clusters(self):
         """{module: (functions entered, of all; arms hit, of the entered functions' arms; unhit arms of entered
-        functions as 'line qualname')}. An unentered function is code the decision never calls (execution, a skill);
-        an unhit arm of an entered one is a value the facts never take."""
+        functions as 'line qualname')}."""
         out = {}
         by = {}
         for (c, src, dst), ok in self.arms.items():
@@ -103,10 +300,7 @@ class Gate:
 
     def report(self):
         """(hit, total, [unhit 'module:line  text'])."""
-        unhit = []
-        for (c, src, dst), ok in self.arms.items():
-            if not ok:
-                line = next((ln for start, _end, ln in c.co_lines() if start <= src < _end and ln), c.co_firstlineno)
-                unhit.append(f"{c.co_filename.rsplit('/', 1)[-1]}:{line}  {linecache.getline(c.co_filename, line).strip()}")
+        unhit = [f"{m}:{ln}  {linecache.getline(c, ln).strip()}" for m, ln, _q in self.unhit()
+                 for c in [next(k.co_filename for k in self.codes.values() if k.co_filename.endswith('/' + m))]]
         hit = sum(self.arms.values())
         return hit, len(self.arms), sorted(set(unhit))

@@ -141,6 +141,8 @@ def R5(b, d, a, ctx):
 
 CHECKS = {k: globals()[k] for k in ("S1", "S2", "S3", "S4", "S5", "S6", "D1", "D2", "D3", "D4", "D5", "D6", "D7",
                                     "E1", "E2", "E3", "P1", "R1", "R2", "R3", "R4", "R5")}
+from .inv import CHECKS as _MORE  # noqa: E402  (check/inv: a family's invariants, each in its own module)
+CHECKS.update(_MORE)
 
 
 def violations(before, d, after, ctx):

@@ -38,10 +38,25 @@ def _floor():
                                                                       (x + 16, y - 1, z + 16), "stone"))
 
 
+class Build:
+    """What a dimension's gamma adds to (check/dims): the world's blocks, the bag (give), the entities, the /state
+    readings, the memory."""
+
+    def __init__(self, mem):
+        self.blocks, self.slots, self.entities, self.state, self.mem = {}, [], [], {}, mem
+
+    def give(self, item, n=1):
+        material = item.rpartition("_")[0]
+        self.slots.append({"slot": len(self.slots), "id": f"minecraft:{item}", "count": n, "damage": 0,
+                           **({"maxDamage": TOOL_USES[material]} if material in TOOL_USES else {})})
+
+
 def gamma(f, mem):
     """(StubWorld, the home boxes registered in `mem`) for the facts `f`."""
+    from .facts import DIMS
     x, y, z = FEET
-    blocks = {}
+    g = Build(mem)
+    blocks = g.blocks
     if f["place"] in ("enclosed", "home"):
         lo, hi = HOME
         blocks.update({c: "stone" for c in _box(lo, hi, "stone") if not (lo[0] < c[0] < hi[0] and c[1] < hi[1]
@@ -59,12 +74,7 @@ def gamma(f, mem):
         mem.add_station(f"minecraft:{f['station']}", STATION, f["dimension"])
     if f["bed"] == "home":
         blocks[(2, y, 2)], blocks[(3, y, 2)] = "red_bed[facing=east,part=foot]", "red_bed[facing=east,part=head]"
-    slots = []
-
-    def give(item, n=1):
-        material = item.rpartition("_")[0]
-        slots.append({"slot": len(slots), "id": f"minecraft:{item}", "count": n, "damage": 0,
-                      **({"maxDamage": TOOL_USES[material]} if material in TOOL_USES else {})})
+    slots, give = g.slots, g.give
     if f["pickaxe"] >= 0:
         give(f"{TOOL_MATERIAL_FOR_TIER[f['pickaxe']]}_pickaxe")
     if f["bed"] == "carried":
@@ -79,7 +89,7 @@ def gamma(f, mem):
             give(item, n)
         want = f"minecraft:{f['queued']}"
         tasks.add(goals.have((want, 1 + sum(sl["count"] for sl in slots if sl["id"] == want))))   # one more than held
-    entities = []
+    entities = g.entities
     if f["threat"]:
         mob = f"minecraft:{f['mob']}"
         entities.append({"id": 1, "type": mob, "x": x + 3.5, "y": y, "z": z + 0.5, "health": 20.0,
@@ -91,6 +101,9 @@ def gamma(f, mem):
              "onGround": True, "inWater": False, "skyLight": sky, "blockLight": 0, "air": 300, "armor": 0,
              "gameTime": 1000, "selectedSlot": 0,
              "control": {"active": True, "paused": bool(f["takeover"]), "task": None}}
+    g.state = state
+    for d in DIMS:
+        d.gamma(f[d.NAME], f, g)
     world = StubWorld(state, slots, blocks, entities, base=_floor())
     if f["place"] == "home":
         lo, hi = HOME

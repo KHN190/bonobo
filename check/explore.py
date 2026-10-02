@@ -5,7 +5,7 @@ import re
 from collections import deque
 
 from . import oracle, round as rnd
-from .facts import DOMAINS, key, of
+from .facts import DIMS, DOMAINS, key, of
 
 # a decision's effect on the facts, read from what the production step declares it gives (its kind and name)
 GIVES = (("sleep", {"night": False}), ("wait for day", {"night": False}), ("dig in", {"place": "enclosed"}),
@@ -14,7 +14,7 @@ GIVES = (("sleep", {"night": False}), ("wait for day", {"night": False}), ("dig 
          ("leave the nether", {"dimension": "minecraft:overworld"}), ("threat:", {"threat": False}), ("pickaxe tier", {"pickaxe": None}),
          ("food", {"food": True}), ("eat", {"hunger": "full"}))
 # facts the world changes on its own; each move one fact
-WORLD = ("night", "threat", "hp", "takeover")
+WORLD = ("night", "threat", "hp", "takeover") + tuple(d.NAME for d in DIMS if getattr(d, "WORLD", False))
 PROGRESS = oracle.GIVING      # a step kind that leaves something in the world (E2 live): progress in the bag
 
 
@@ -33,6 +33,9 @@ def step(facts, d, ctx):
                     out[k] = v
     if ctx.get("step_kind") == "mine" and d.token and "iron" in d.token:
         out["ore"] = "none"
+    for dim in DIMS:
+        if hasattr(dim, "step"):
+            out.update(dim.step(facts, d, ctx))
     return of(**out)
 
 
@@ -55,7 +58,8 @@ def starts():
 # the facts the night/danger/ownership decision reads together (needs.overnight, reflexes' shelter and sleep rows,
 # the danger layers, the takeover): their full product. The rest (the bag, the targets in sight, the queue) feed the
 # plan's steps: every PAIR of their values is combined (pairwise), not every tuple.
-CORE = ("dimension", "night", "hp", "place", "bed", "threat", "takeover", "cooled")
+CORE = ("dimension", "night", "hp", "place", "bed", "threat", "takeover", "cooled") \
+    + tuple(d.NAME for d in DIMS if getattr(d, "CORE", False))
 
 
 def pairwise(names):

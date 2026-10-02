@@ -66,6 +66,9 @@ def main(argv):
     lines += [f"| {k} | {why} |" for k, why in unchecked.items()]
     lines += ["", f"## γ round-trip mismatches: {len(roundtrip)}"]
     lines += [f"- asked {f} → alpha {g}" for f, g in roundtrip[:20]]
+    lines += ["", "## excluded from the denominator (execution, by structure: check/coverage.py)", "| why | functions |",
+              "|---|---|"]
+    lines += [f"| {why} | {len(names)}: {', '.join(names)} |" for why, names in sorted(gate.exclusions().items())]
     lines += ["", "## coverage by module (entered = a function the round called)",
               "| module | functions entered | arms hit in entered functions | unhit arms in entered functions (line qualname) |",
               "|---|---|---|---|"]

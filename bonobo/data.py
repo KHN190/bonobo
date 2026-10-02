@@ -373,9 +373,10 @@ DEEPSLATE_TOP = 0        # below this y the overworld's rock is deepslate
 # overworld soil over the rock, in blocks, where the column under the feet is not read (knowledge.soil_depth):
 # a prior — worldgen's surface rule lays dirt under the grass a few blocks deep — not a measurement
 SOIL_DEPTH = 4
-# the deepest an open block beside a level stand is held from it (nav.holds over an open shaft: the rim hides a
-# deeper one; test_plan_way.LevelReach) — where no region is read (cost, gather), deeper is a staircase
-STAIR_BELOW = 2
+# the sight depth from a level stand: the deepest an open block beside it is held from it (nav.holds over an open
+# shaft: the rim hides a deeper one; test_plan_way.LevelReach). A fact of the reach, not a choice of way: plan_way
+# chooses by seconds; where no region is read (cost, gather) a deeper one is priced as a staircase
+LEVEL_SIGHT_DEPTH = 2
 STAIR_CELLS = 3          # cells one staircase step clears: feet, head and the head room the walk down passes
 BAN_MAX_S = 600          # the longest any cell stays banned, however often it failed
 TASK_WAIT_S = 900

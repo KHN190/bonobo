@@ -8,7 +8,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import cost as costmod, gather, world  # noqa: E402
-from bonobo.data import SOIL_DEPTH, STAIR_BELOW, STAIR_CELLS  # noqa: E402
+from bonobo.data import SOIL_DEPTH, LEVEL_SIGHT_DEPTH, STAIR_CELLS  # noqa: E402
 from bonobo.knowledge import FIND_AT, MINE  # noqa: E402
 from bonobo.planner import Step  # noqa: E402
 from tests.world import FakeRegion, bag, inventory  # noqa: E402
@@ -99,7 +99,7 @@ class Overburden(unittest.TestCase):
                 ("stone at the floor: nothing over it", stone_tok, floor, hand, False, 0),
                 ("an ore 20 below by hand: its staircase", ore_tok, deep, hand, False, soil * 15 + rock * 150),
                 ("an ore 20 below, a diamond pickaxe", ore_tok, deep, pick, False, soil * 15 + rock * 6),
-                ("an ore within STAIR_BELOW: walked to, nothing dug", ore_tok, FEET[1] - STAIR_BELOW, hand, False, 0),
+                ("an ore within LEVEL_SIGHT_DEPTH: walked to, nothing dug", ore_tok, FEET[1] - LEVEL_SIGHT_DEPTH, hand, False, 0),
                 ("must fail: a banned (unreachable) stone is not priced", stone_tok, floor - SOIL, hand, True, 0)]
         for name, token, y, inv, ban, want in rows:
             with self.subTest(name):
