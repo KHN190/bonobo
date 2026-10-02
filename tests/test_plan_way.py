@@ -303,3 +303,23 @@ class PickSeed(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AWayPassesItsOwnGate(unittest.TestCase):
+    """nav.unstandable: a dug way's later stands are judged with its earlier mines dug (the gate before the chain
+    runs) — brain__base's diamond way failed at its first goto into a cell still stone."""
+
+    def test_rows(self):
+        from bonobo.world import Inventory
+        blocks = {(x, y, z): "grass_block" for x in range(-8, 9) for y in (-2, -1) for z in range(-8, 9)}
+        blocks.update({(x, y, z): "stone" for x in range(1, 4) for y in range(0, 3) for z in range(-3, 0)})
+        blocks[(2, 0, -2)] = "diamond_ore"
+        region = FakeRegion((-12, -4, -12), (12, 8, 12), blocks)
+        inv = Inventory({"slots": [dict(PICK, slot=0), {"id": "minecraft:cobblestone", "count": 16, "slot": 1}],
+                         "equipment": {}})
+        feet = (3, 0, 2)
+        steps, why, _s = nav.plan_way(region, feet, (2, 0, -2), "mine", inv, set())
+        self.assertTrue(any(t["type"] == "goto" for t in steps or ()), why)
+        # must fail: judged over the undug region (the old gate), its first goto into rock fails
+        self.assertIsNone(nav.unstandable(steps, region, feet))
+

@@ -315,6 +315,38 @@ def stands_for(kind, region, feet_at, target, down=False):
 def _cell_of(task):
     return (int(task["x"]), int(task["y"]), int(task["z"]))
 
+class Dug:
+    """A region with `cells` already dug: read as air."""
+
+    def __init__(self, region, cells):
+        self.region, self.cells = region, frozenset(cells)
+
+    def __getattr__(self, name):
+        return getattr(self.region, name)
+
+    def name(self, p):
+        return "air" if tuple(p) in self.cells else self.region.name(p)
+
+    def solid(self, p):
+        return tuple(p) not in self.cells and self.region.solid(p)
+
+    def hazard(self, p):
+        return tuple(p) not in self.cells and self.region.hazard(p)
+
+
+def unstandable(tasks, region, feet_at):
+    """Pure: the first (task, stand) of a chain whose stand fails the jar's check (stands_for), each judged over the
+    region with the cells the chain mined before it dug (a way's later stands are opened by its earlier mines)."""
+    dug, before = [], {}
+    for t in tasks:
+        if t.get("type") in APPROACHING and "x" in t:
+            before[id(t)] = tuple(dug)
+        if t.get("type") == "mine" and "x" in t:
+            dug.append(_cell_of(t))
+    return next(((t, s) for t, s in task_stands(tasks, feet_at)
+                 if not stands_for(t["type"], Dug(region, before[id(t)]), s, _cell_of(t), t.get("down", False))), None)
+
+
 def task_stands(tasks, feet_at):
     """Pure: [(task, the stand it is sent from)] for the approaching ones — the body's feet, or the last goto's cell
     before it in the same chain."""
@@ -344,8 +376,7 @@ def gate(tasks, policy):
     for _ in range(WAY_TRIES):
         pairs = task_stands(tasks, feet())
         region = _read_box([_cell_of(t) for t, _s in pairs] + [s for _t, s in pairs])
-        bad = next(((t, s) for t, s in pairs if not stands_for(t["type"], region, s, _cell_of(t), t.get("down", False))),
-                   None)
+        bad = unstandable(tasks, region, feet())
         if bad is None:
             break
         if _IN_WAY[0]:
