@@ -307,7 +307,12 @@ class Denominator(unittest.TestCase):
                 ("fight_loop.offer", "the round stands in for it"),
                 ("brain.Brain.attempt", "sends to the jar"),
                 # a hook handed to the door (Policy.before_segment): run as tasks are sent
-                ("brain.Brain.segment_reflexes", "no entry point reaches it but through execution")]
+                ("brain.Brain.segment_reflexes", "no entry point reaches it but through execution"),
+                # a maintain row's act: run when the arbiter hands it the body (the shelter it builds, the pit left)
+                ("reflexes.Maintain.shelter", "a maintain row's act"),       # must fail: counted as decision code
+                ("reflexes.Maintain.leave_pit", "a maintain row's act"),
+                ("reflexes.Maintain.ready_machine", None),     # also the view's (machine_ready): decision code stays
+                ("reflexes.Maintain.proposals", None)]
         for fn, want in rows:
             with self.subTest(fn):
                 c = name[fn]
