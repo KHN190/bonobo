@@ -81,7 +81,7 @@ def line_raisers(kinds, state, inv, material=LINE_ARMOR):
     from .data import ARMOR_POINTS, ARMOR_SLOTS
     hp, floor = float(state.get("health", 0.0)), critical_hp(state)
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
-    sword, armor = _k.best_sword(inv), float(state.get("armor", 0))     # the item carried (None: the hand)
+    sword, armor = _k.attack_weapon(inv, beliefs.COMMON_FOE_HP), float(state.get("armor", 0))     # held (None: hand)
 
     def inside(item, points):
         mean, hit = estimate.melee_loss(kinds, item, beliefs.protection(points, shield))
@@ -172,6 +172,7 @@ class Brain:
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
         perception.IN_SITE = self.reflexes.in_site      # nightfall asks the night way's judgement, every Brain built
+        reflexes.STEP_RUN = dispatch.execute             # the shelter row's parts run as the plan's steps do
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.place = None  # what causes are cooled against
         self.idle_since = None

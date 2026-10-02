@@ -8,7 +8,7 @@ from dataclasses import dataclass, field as _dc_field
 from typing import Any
 
 from . import api, arbiter, events, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat, world
-from .data import memo_ttl, DAY_END, NIGHT_END, DAY_TICKS, is_night
+from .data import memo_ttl, is_night
 from .game import EYE_HEIGHT
 from .beliefs import COMMON_FOE_HP, CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)

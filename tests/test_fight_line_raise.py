@@ -20,7 +20,8 @@ def inside(kinds, snap, rows):
     """The line with `rows` added to the bag and worn: an independent check of what a raiser claims."""
     from bonobo.data import ARMOR_POINTS, TOOL_MATERIAL_FOR_TIER
     tiers = [r[2] for r in rows if r[0] == "tool"]
-    sword = f"minecraft:{TOOL_MATERIAL_FOR_TIER[max(tiers)]}_sword" if tiers else brain._k.best_sword(snap.inv)
+    sword = f"minecraft:{TOOL_MATERIAL_FOR_TIER[max(tiers)]}_sword" if tiers else \
+        brain._k.attack_weapon(snap.inv, beliefs.COMMON_FOE_HP)
     points = float(snap.state.get("armor", 0)) + sum(
         ARMOR_POINTS[r[0].removeprefix("minecraft:").split("_")[0]][r[0].rsplit("_", 1)[1]] for r in rows if r[0] != "tool")
     mean, hit = estimate.melee_loss(kinds, sword, beliefs.protection(points))
