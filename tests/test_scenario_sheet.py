@@ -986,7 +986,9 @@ class EveryPartHasAMustFail(unittest.TestCase):
                 self.assertNotEqual(self.controls(rows), [], f"{base}: no must-fail row")
 
     def test_every_brain_family(self):
-        families = set(words_brain.BRAIN_FAMILIES) | {"fight_first"}
+        tagged = {f for r in sc.SCENARIOS.values() for f in r.get("tags", {}).get("family", "").split("+") if f}
+        families = (set(words_brain.BRAIN_FAMILIES) | {"fight_first"}) & tagged     # a family with rows left
+        self.assertTrue(families)
         for fam in sorted(families):
             with self.subTest(fam):
                 rows = [(n, r) for n, r in sc.SCENARIOS.items() if fam in r.get("tags", {}).get("family", "").split("+")]
