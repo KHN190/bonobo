@@ -164,8 +164,7 @@ def arbitrate(intents, now=None, facts=None):
     return min(live, key=lambda i: (i.scale, plan_rank(i.kind) if i.layer == "plan" else 0, i.seq, -i.at))
 
 def work_left_s(intent, now):
-    """Pure: seconds the body's committed work has left (`commit_s` from when it was taken); None: no commitment, or
-    its estimate spent (no better guess than the default horizon)."""
+    """Pure: seconds left of the committed work; None when uncommitted or overrun."""
     if intent is None or intent.commit_s is None:
         return None
     left = intent.commit_s - (now - intent.at)

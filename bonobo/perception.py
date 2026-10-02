@@ -191,7 +191,7 @@ NIGHTFALL = "night"
 
 
 IN_SITE = None      # (feet, dimension) → inside a site's interior: set by every Brain built (Brain.__init__)
-COVER = None        # (feet, dimension) → the nearest cell of a site's interior, or None: set by every Brain built
+COVER = None        # (feet, dimension) → nearest site interior cell or None: set by Brain
 
 
 def nightfall(state, enclosed, in_site=lambda: False):
@@ -205,30 +205,25 @@ def nightfall(state, enclosed, in_site=lambda: False):
 
 
 def cover_near(s):
-    """The nearest cell of one of our sites' interiors (COVER, set by the brain): an escape the threat weighs."""
     return None if COVER is None else COVER((s["blockX"], s["blockY"], s["blockZ"]), s.get("dimension"))
 
 
 def in_site_here(s):
-    """The feet inside one of our sites' interiors (IN_SITE, set by the brain); False before a brain is built."""
     return IN_SITE is not None and IN_SITE((s["blockX"], s["blockY"], s["blockZ"]), s.get("dimension"))
 
 
-# the kit's readings the survival price takes as they are (threat.price_state's keys)
 KIT_PRICED = ("sword", "shield", "food_items", "bed", "torches", "bag_free")
 
 
 def price_inputs(state):
-    """Pure given IN_SITE: the survival state health is priced in (threat.price_state), every key read from the
-    perceived state (the kit merged; a kit not read leaves its keys at price_state's). Walls are not read: a body a
-    mob reaches is not walled in. nights_missed has no reading anywhere: price_state's."""
+    """threat.price_state from the perceived state; walls unread (a reached body is not walled in)."""
     t, dim = int(state["timeOfDay"]), state.get("dimension", "minecraft:overworld")
     tier = state.get("pick_tier")
     return threat.price_state(
         night=is_night(t, dim), ticks_until_dusk=world.ticks_until_dusk(t), hp=max(1, int(state.get("health", 20))),
         food=int(state.get("food", 20)), armor=int(state.get("armor", 0)), dark=dark_here(state),
         sheltered=sheltered(state.get("skyLight", 15), lambda: False, lambda: in_site_here(state)),
-        pickaxe=0 if tier is None else max(1, tier),       # threat.tool_loss: 0 none, 1 stone-class, 2+ iron
+        pickaxe=0 if tier is None else max(1, tier),       # tool_loss: 0 none, 1 stone-class, 2+ iron
         **{k: state[k] for k in KIT_PRICED if k in state})
 
 
@@ -591,7 +586,7 @@ def kit(signature):
         return STATE.kit
     from .world import Inventory
     inv = Inventory()
-    got = {"sword": attack_weapon(inv, COMMON_FOE_HP),       # what an attack holds (knowledge.attack_weapon), None: the hand
+    got = {"sword": attack_weapon(inv, COMMON_FOE_HP),
             "shield": inv.offhand() == "minecraft:shield",
             "food_items": food_count(inv),              # knowledge's one food table
             "bed": inv.count("bed") > 0,

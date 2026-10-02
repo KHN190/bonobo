@@ -63,7 +63,7 @@ def fight_line_holds(contract, args, state, inv):
     if not kinds:
         return True, None
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
-    mean, hit = estimate.melee_loss(kinds, _k.attack_weapon(inv, beliefs.COMMON_FOE_HP),   # what the attack holds
+    mean, hit = estimate.melee_loss(kinds, _k.attack_weapon(inv, beliefs.COMMON_FOE_HP),
                                     beliefs.protection(state.get("armor", 0), shield))
     hp, floor = float(state.get("health", 0.0)), critical_hp(state)
     if estimate.fight_line_ok(hp, floor, mean, hit):
@@ -81,7 +81,7 @@ def line_raisers(kinds, state, inv, material=LINE_ARMOR):
     from .data import ARMOR_POINTS, ARMOR_SLOTS
     hp, floor = float(state.get("health", 0.0)), critical_hp(state)
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
-    sword, armor = _k.attack_weapon(inv, beliefs.COMMON_FOE_HP), float(state.get("armor", 0))     # held (None: hand)
+    sword, armor = _k.attack_weapon(inv, beliefs.COMMON_FOE_HP), float(state.get("armor", 0))
 
     def inside(item, points):
         mean, hit = estimate.melee_loss(kinds, item, beliefs.protection(points, shield))
@@ -106,8 +106,7 @@ def line_raisers(kinds, state, inv, material=LINE_ARMOR):
 
 
 def act_commit_s(act):
-    """Pure: the act's planned seconds (its steps' est, ticks), None when none is priced: the body's commitment
-    (arbiter.work_left_s, the threat's horizon)."""
+    """Pure: the act's planned seconds, None when unpriced."""
     ticks = sum(int(getattr(st, "est", 0) or 0) for st in getattr(act, "steps", ()))
     return ticks / TICKS_PER_S if ticks > 0 else None
 
@@ -178,8 +177,8 @@ class Brain:
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
         perception.IN_SITE = self.reflexes.in_site      # nightfall asks the night way's judgement, every Brain built
-        perception.COVER = self.reflexes.nearest_interior    # the threat's cover candidate (perceived)
-        reflexes.STEP_RUN = dispatch.execute             # the shelter row's parts run as the plan's steps do
+        perception.COVER = self.reflexes.nearest_interior
+        reflexes.STEP_RUN = dispatch.execute
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.place = None  # what causes are cooled against
         self.idle_since = None
@@ -519,7 +518,7 @@ class Brain:
             if arbiter.BODY.holder() is not None or api.mode() == "survival":
                 out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
             unanswered = threat.THREAT_UNANSWERED       # the threat layer's "no answer": SAFETY's (hazard "threat")
-            afloat = self.reflexes.afloat       # in the water, not yet ashore (reflexes.afloat): SAFETY's
+            afloat = self.reflexes.afloat
             k = hazard.rescue_due(snap.state, unanswered=unanswered, afloat=afloat)
             if k is not None and self.ready(f"rescue {k}"):
                 out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
@@ -566,7 +565,7 @@ class Brain:
         if tasks.expire(items):
             tasks.save(items)
         live = [t for t in items if t["state"] in tasks.LIVE]
-        closed = snap.night      # surface work walks out, sheltered here or not (data.is_night)
+        closed = snap.night
         self.just_finished = False
         for seq, task in enumerate(live):
             if not self.ready(f"task {task['id']}"):
@@ -604,7 +603,7 @@ class Brain:
         except Unplannable as e:
             self.__dict__.setdefault("unplannable", {})[name] = str(e)     # why this need offers no step (readout)
             return None
-        closed = snap.night      # surface work walks out, sheltered here or not (data.is_night)
+        closed = snap.night
         step = next((st for st in steps if self.valid(st, snap, ctx) and not (closed and arbiter.on_surface(st.kind))),
                     None)
         if step is None:

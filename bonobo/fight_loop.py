@@ -316,7 +316,7 @@ def threat_state(state, rows, work_s=None, ids=()):
           "alive": set(threat.THREAT_ALIVE) | {i for i in ids if i is not None},
           "impacts": list(threat.THREAT_IMPACTS), "lit": set(threat.THREAT_LIT),
           "low_cover": getattr(state.get("field"), "cover", None),
-          "cover": state.get("cover")}         # a site's interior nearest (perception.perceived): escape_spot's candidate
+          "cover": state.get("cover")}
     if work_s is not None:
         st["work_s"] = work_s
     return st
@@ -348,7 +348,7 @@ def bid(state, rows, price, work_s=None, now=None, ids=()):
         threat.THREAT_UNANSWERED = None
         return None
     STATE.last_bid.update(state=state, price=price)
-    if work_s is None:      # the work the body is committed to: what is left of it is the account's length
+    if work_s is None:
         work_s = arbiter.work_left_s(arbiter.BODY.driving, now if now is not None else time.time())
     st = threat_state(state, rows, work_s, ids)
     field_model = threat.Field(st, price, refused=refused_now)

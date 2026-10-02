@@ -58,18 +58,15 @@ def pit_due(v):
     return bool(v["in_pit"]) if known else False
 
 def open_night(v):
-    """Pure: night (data.is_night) with no cover here (knowledge.sheltered) — a row that walks or works from here
-    waits (S4)."""
+    """Pure: night with no cover here (S4)."""
     return v["night"] and not v["sheltered"]
 
 
 def sleep_due(v):
-    """Pure: a bed works tonight and one is carried or near."""
     return v["overworld"] and v["night"] and v["bed_works"] and (v["bed_carried"] or v["bed_near"])
 
 def cover_due(v):
-    """Pure: the night's cover is due (sleep or shelter) — a meal in the open waits for it (S4; hunger at the floor
-    is SAFETY's, hazard "critical")."""
+    """Pure: sleep or shelter is due; a non-critical meal waits for it (S4)."""
     return sleep_due(v) or v["shelter_ready"]
 
 
@@ -93,17 +90,17 @@ TABLE = [
 ]
 NAMES = tuple(row[0] for row in TABLE)
 
-LAND_EXIT_S = 1.0     # out of the water only after this long on something not water (shore water flips `swimming`)
+LAND_EXIT_S = 1.0     # on land this long before ashore (shore water flips `swimming`)
 
 
 def afloat(swimming, was_afloat, on_land_s):
-    """Pure: still to be brought ashore (hazard "swimming") — in the water, or out of it less than LAND_EXIT_S since."""
+    """Pure: in the water, or out of it less than LAND_EXIT_S."""
     return bool(swimming) or (bool(was_afloat) and on_land_s < LAND_EXIT_S)
 
 # what a reflex's work should move: firing again with it unchanged is a failure, so a useless reflex cannot hold the body
 PROGRESS = {"empty the bag": lambda v: v["used_slots"], "unstuck": lambda v: v["feet"],
             "eat": lambda v: v["food"],
-            "shelter": lambda v: (v["feet"], len(v["night_way"][2]))}     # a part made shortens the way
+            "shelter": lambda v: (v["feet"], len(v["night_way"][2]))}
 NO_PROGRESS = "stuck"          # the retry cause a reflex that changed nothing fails with
 
 def progress_of(name, view):
@@ -166,7 +163,7 @@ def _once(reads, key, read):
     return get
 
 # a shelter step's token → the skill that makes it
-STEP_RUN: Any = None     # (ctx, step, night) → one plan step run (dispatch.execute): set by every Brain built
+STEP_RUN: Any = None     # dispatch.execute, set by Brain
 SHELTER_RUN = {"dig_in": lambda ctx: survive.dig_in(ctx), "pod": lambda ctx: survive.pod(ctx),
                "hut": lambda ctx: building.build_shelter(ctx), "home": lambda ctx: survive.sleep_at_home(ctx)}
 
@@ -179,7 +176,7 @@ class Maintain:
         self.escalated = {}
         self.blocked = None           # {"t", "place", "pos"}: the last path failure and where it was going
         self.land_since = None        # when the body last stood on something that is not water
-        self.afloat = False           # in the water, not yet ashore (`afloat`): SAFETY's hazard "swimming"
+        self.afloat = False
         self.last_run: tuple[str, Any] | None = None     # (name, progress when it started): judged next round (`stalled`)
 
     def observe(self, snap):
@@ -263,8 +260,7 @@ class Maintain:
 
     # -- night
     def shelter(self, snap, ctx, night_way):
-        """Night, exposed, no bed: the way `overnight` priced cheapest here, its parts first — one step a round, the
-        way re-priced each round from the bag it left — then the shelter."""
+        """The cheapest night way: one part per round, then the shelter."""
 
         b = self.brain
         ctx = b.context(snap.dimension, b.policy(snap, True))
@@ -293,7 +289,6 @@ class Maintain:
         return _k.sheltered(snap.get("skyLight", 15), walled, lambda: self.in_site(snap.feet, snap.dimension))
 
     def nearest_interior(self, feet, dimension):
-        """The cell of our sites' interiors nearest the feet, or None (no site here)."""
         cells = [tuple(c) for s in self.brain.mem.sites(dimension) for c in s.get("interior", [])]
         return min(cells, key=lambda c: math.dist(c, feet), default=None)
 

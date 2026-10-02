@@ -198,8 +198,7 @@ class TheFastLane(unittest.TestCase):
                 self.assertEqual((got[0].kind, got[1]), (want, worth))
 
     def test_the_horizon_is_the_work_left(self):
-        """W2: the account's length is what is left of the work the body is committed to (arbiter.work_left_s over
-        BODY.driving, its commit_s from brain.act_commit_s), the default horizon only when nothing is committed."""
+        """W2: bid's horizon is the committed work's time left."""
         from unittest import mock
         from bonobo import arbiter, brain, estimate, planner
         steps = [planner.Step("mine", "minecraft:coal", 1, est=60), planner.Step("craft", "minecraft:torch", 4, est=20)]

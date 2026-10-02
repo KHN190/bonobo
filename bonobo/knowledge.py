@@ -427,8 +427,7 @@ def weapon_for(inv, hp):
     return cheapest_equal(["hand"] + weapons, lambda i: kill_s(i, hp), item_tier)
 
 def attack_weapon(inv, foe_hp):
-    """Pure: the weapon an attack holds (weapon_for at `foe_hp`: beliefs.COMMON_FOE_HP), None: the hand. The one
-    choice — skillcore.arm holds it; the fight line (brain) and the threat's kit (perception) price it."""
+    """Pure: the weapon an attack holds (weapon_for), None for the hand."""
     w = weapon_for(inv, foe_hp)
     return None if w == "hand" else w
 

@@ -625,8 +625,7 @@ class Perception(unittest.TestCase):
             self.assertEqual(len(perception.STATE.answered), 3)
 
     def test_attack_weapon(self):
-        """The priced weapon is the held one: knowledge.weapon_for at the common foe's health (its choice is
-        test_tool_choice's), the hand as None."""
+        """attack_weapon is weapon_for, hand as None."""
         from bonobo.beliefs import COMMON_FOE_HP as hp
         from bonobo.knowledge import attack_weapon, weapon_for
         from tests.world import bag, inventory, slot

@@ -2035,8 +2035,7 @@ class OneArbiter(unittest.TestCase):
                 ("a finished furnace job vs the queue: collect it (reflex)", [P("queue"), M("collect job")],
                  "collect job"),
                 ("nothing to do but stock up: idle", [P("idle")], "idle"),
-                # recover items after sleep: R3 (a bed, the night is slept; a sheltered night lets the walk run,
-                # open_night); after eat: a bite in place leaves the drops' worth (test_eating_first_keeps_the_drops)
+                # recover items after sleep (R3), after eat (test_eating_first_keeps_the_drops)
                 ("must fail: a sheltered night, a bed carried, died: sleep before the walk back (R3)",
                  [M("recover items"), M("sleep")], "sleep"),
                 ("died a minute ago, hungry: eat before the walk back to the drops", [M("eat"), M("recover items")],
@@ -2050,8 +2049,7 @@ class OneArbiter(unittest.TestCase):
                 self.assertEqual(got.action if got else None, want)
 
     def test_eating_first_keeps_the_drops(self):
-        """Eat before recover items costs the drops nothing while the walk still beats the despawn by a bite
-        (threat.ENGAGE eat_s): the worth after the bite is the worth now."""
+        """A bite before the walk loses no drops while the walk beats the despawn."""
         from bonobo import nav, reflexes
         from bonobo.data import ITEM_DESPAWN_S
         from bonobo.threat import ENGAGE
@@ -2170,8 +2168,7 @@ class Overnight(unittest.TestCase):
                 self.assertEqual((got, [st.kind for st in steps]), (way, kinds))
 
     def test_the_shelter_row_makes_the_parts(self):
-        """Night in the open, on stone, no pickaxe: the night's cheapest way (dig in, its parts first) is the shelter
-        row's — it fires and runs the way's first part as a plan step, not left to a plan the surface gate closes."""
+        """The shelter row runs the night way's first part, then the shelter."""
         rows = [("must fail: an empty bag on stone: dig in, its parts first", [("cooked_beef", 8)]),
                 ("a pickaxe: dig in at once", [("cooked_beef", 8), ("stone_pickaxe", 1)])]
         for name, carried in rows:
@@ -2198,8 +2195,7 @@ class Overnight(unittest.TestCase):
                 self.assertEqual(ran, [steps[0] if len(steps) > 1 else "shelter"])
 
     def test_every_way_cooled_no_shelter_row(self):
-        """Every night way cooling after a failure here (needs.way_key): the shelter row does not take the night (D5:
-        a failed act is not reselected); the next layer has it (wait for day)."""
+        """Every night way cooled: no shelter row (D5)."""
         from bonobo import decompose
         with tempfile.TemporaryDirectory() as tmp:
             b = brainmod.Brain.__new__(brainmod.Brain)

@@ -388,8 +388,7 @@ class Crowded(unittest.TestCase):
 
 
 class Flicker(unittest.TestCase):
-    """What stops a shore reading from toggling the swimming rescue: `swimming` is in water AND off the ground, so
-    standing in a shore block's water is not swimming. The trigger's boundary, and hunger's."""
+    """Shore water standing is not swimming; hunger's boundary."""
 
     def test_in_the_water_boundary(self):
         # (inWater, onGround, air) → swimming (hazard "swimming" due)
@@ -426,8 +425,7 @@ class Flicker(unittest.TestCase):
 
 
 class Hysteresis(unittest.TestCase):
-    """reflexes.afloat: in on swimming, out only after reflexes.LAND_EXIT_S on something that is not water. Rounds fed
-    as Maintain.observe does."""
+    """reflexes.afloat over rounds."""
     OUT = reflexes.LAND_EXIT_S
     # (situation, rounds of (swimming, on_land_s)) → afloat each round
     ROWS = [("deep water: in", [(True, 0.0)], [True]),

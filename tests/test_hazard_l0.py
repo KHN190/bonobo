@@ -261,8 +261,7 @@ class Recovery(unittest.TestCase):
                             "must fail: eating under blows (never finished)")
 
     def test_afloat_is_safetys(self):
-        """In the water, not yet ashore (reflexes.afloat, handed by the brain): SAFETY's rescue, reach land; never an
-        interrupt — perception asks kind with no `afloat`, so a crossing swims on."""
+        """Afloat is SAFETY's (reach land), never perception's interrupt."""
         # (situation, state changes, afloat) → the kind due
         rows = [("must fail: treading water: ashore first", {"inWater": True, "onGround": False}, True, "swimming"),
                 ("treading water, as perception asks: no interrupt", {"inWater": True, "onGround": False}, False, None),

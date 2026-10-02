@@ -97,8 +97,7 @@ class Perceived(unittest.TestCase):
 
 
 class CoverCarried(unittest.TestCase):
-    """W1: the nearest cell of a site's interior (perception.COVER, the brain's) rides the perceived state into the
-    threat state, where escape_spot weighs it as an escape."""
+    """W1: the nearest site interior cell reaches threat_state."""
 
     def test_rows(self):
         from unittest import mock

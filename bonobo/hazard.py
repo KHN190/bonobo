@@ -42,8 +42,8 @@ def falling(state, fallen):
 
 def kind(state, buried=False, fallen=0.0, unanswered=None, afloat=False):
     """Pure: the hazard on the body now (one of KINDS), or None. `unanswered`: why the threat layer has no answer to
-    what is closing (threat.THREAT_UNANSWERED) — handed here, SAFETY's like the environment's. `afloat`: in the water,
-    not yet ashore (reflexes.afloat) — the brain's, between tasks: a crossing is never interrupted for it."""
+    what is closing (threat.THREAT_UNANSWERED) — handed here, SAFETY's like the environment's. `afloat`: never passed
+    by perception, so a crossing is not interrupted."""
 
     if state.get("inLava"):
         return "lava"
@@ -143,7 +143,6 @@ def _dig_in(ctx, s):
     SKILLS["dig_in"](ctx)
 
 def _reach_land(ctx, s):
-    """Ashore: the nearest land (survive.reach_land, lent)."""
     SKILLS["reach_land"](ctx)
 
 # each hazard's recovery, in order (S1): its rescue first, then the next way that answers the same hazard when one
@@ -155,7 +154,6 @@ RECOVERY = {"lava": [_leave_lava, _extinguish], "drowning": [_surface, _into_cov
             "critical": {"threatened": [_into_cover, _meal], "calm": [_meal, _into_cover]},
             # a threat the threat layer has no answer to (threat.THREAT_UNANSWERED): out of its reach
             "threat": [_into_cover, _dig_in],
-            # in the water, not yet ashore: land first (shelters, digging and work are made from land)
             "swimming": [_reach_land]}
 
 

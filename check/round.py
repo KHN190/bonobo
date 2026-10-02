@@ -59,8 +59,7 @@ def step_failures(first):
 
 
 def look(state):
-    """Perception's look as a round after the first makes it: the kit already read (perception.STATE.kit, cleared by
-    lifecycle.reset_all) — the threat rows' context reads it (threat.context_of: gold worn, a piglin no threat)."""
+    """Perception's look with the kit already read (reset_all clears it; gold worn decides piglins)."""
     import time
     from bonobo import perception
     perception.kit(perception.kit_signature(state, time.time()))
