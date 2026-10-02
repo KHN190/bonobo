@@ -22,7 +22,7 @@ def _decision(act, chosen, intents, world):
     alts = [(i.layer, i.kind, getattr(i.action, "name", None)) for i in intents]
     return Decision(layer=chosen.layer if chosen else None, kind=getattr(act, "layer", None),
                     token=getattr(step, "token", None) if step is not None else None,
-                    target=tuple(step.detail["pos"]) if step is not None and "pos" in step.detail else None,
+                    target=tuple(step.detail["pos"]) if step is not None and step.detail.get("pos") is not None else None,
                     writes=tuple(p for p, _b in world.posts), reason=None if act is not None else None,
                     name=getattr(act, "name", None), alternatives=tuple(alts))
 

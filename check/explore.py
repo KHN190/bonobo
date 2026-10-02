@@ -97,11 +97,17 @@ def states():
     return list(out.values())
 
 
+def made_progress(f, d, ctx):
+    """An edge D7 does not hold against: a step that leaves something in the world, a danger answer, or a round
+    while the player holds the body — what happens next is the player's move (S6), not a decision's."""
+    return ctx.get("step_kind") in PROGRESS or d.layer in oracle.DANGER_LAYERS or bool(f["takeover"])
+
+
 def judge(f):
     """One state: the production decision, its successor, the oracle's verdicts (picklable for the shards)."""
     d, got, ctx = rnd.decide(f)
     after = step(f, d, ctx)
-    progress = ctx.get("step_kind") in PROGRESS or d.layer in oracle.DANGER_LAYERS
+    progress = made_progress(f, d, ctx)
     return key(f), key(after), d, progress, oracle.violations(f, d, after, ctx), dict(got) != dict(f), dict(got)
 
 
@@ -119,7 +125,7 @@ def explore(limit, on_edge):
             roundtrip.append((f, got))
         after = step(f, d, ctx)
         on_edge(f, d, after, ctx, oracle.violations(f, d, after, ctx))
-        graph[k] = (key(after), d, ctx.get("step_kind") in PROGRESS or d.layer in oracle.DANGER_LAYERS)
+        graph[k] = (key(after), d, made_progress(f, d, ctx))
         queue.append(after)
         queue.extend(moves(f))
     return seen, graph, roundtrip
