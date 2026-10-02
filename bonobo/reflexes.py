@@ -63,7 +63,7 @@ def open_night(v):
 
 
 def sleep_due(v):
-    return v["overworld"] and v["night"] and v["bed_works"] and (v["bed_carried"] or v["bed_near"])
+    return v["night"] and v["bed_works"] and (v["bed_carried"] or v["bed_near"])
 
 def cover_due(v):
     """Pure: sleep or shelter is due; a non-critical meal waits for it (S4)."""
@@ -195,7 +195,7 @@ class Maintain:
     def proposals(self, snap, ctx, reads=None):
         """[(seq, name, run)] of every reflex that fires; triggers read this round's snapshot only, so asking order does not matter."""
 
-        b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
+        b, s, inv = self.brain, snap.state, snap.inv
         blocked = self.blocked_here(b.place)
         enclosed, soft_ground, dig_site = ground(reads)
 
@@ -217,7 +217,7 @@ class Maintain:
             "bed_near": _once(reads, "bed_near", lambda: home_bed_near(b.mem, snap)
                               or in_sight(snap, BASE_MARKERS["bed"], survive.HOME_BED_R)),
             "night_way": night_way,
-            "shelter_ready": lambda: over and snap.night and not _once(reads, "bed_tonight",
+            "shelter_ready": lambda: snap.night and not _once(reads, "bed_tonight",
                                                                         lambda: b.needs.bed_tonight(snap))()
             and not view["sheltered"] and view["night_way"][0] is not None,
             "sheltered": lambda: self.sheltered(snap, enclosed),
@@ -227,7 +227,7 @@ class Maintain:
             # a hole open to the sky, deeper than a jump (travel's shaft, a dug pit): read only under open sky
             "in_pit": lambda: s.get("skyLight", 0) >= OPEN_SKY and not _k.swimming(s)
             and _once(reads, "in_pit", lambda: self.in_pit(snap.feet))(),
-        }, snap=snap, ctx=ctx, food=s.get("food", 20), hp=s.get("health", MAX_HP), night=snap.night, overworld=over,
+        }, snap=snap, ctx=ctx, food=s.get("food", 20), hp=s.get("health", MAX_HP), night=snap.night,
             bed_carried=inv.count("bed") > 0, used_slots=inv.used_slots(), blocked=blocked is not None,
             blocked_at=blocked, building=inv.count("building"), feet=snap.feet)
         fired = due(view)

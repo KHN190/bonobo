@@ -1200,6 +1200,8 @@ UPKEEP = [
     Row("eating failed here a moment ago: the next row", None, food=10, cooling=("eat",)),
     Row("in the Nether with two meals left", "leave the Nether", dimension=NETHER, skyLight=0,
         inv=[("cooked_beef", 2), ("stone_pickaxe", 1)]),
+    Row("the Nether at the Overworld's midnight, a bed carried: no sleep (data.is_night, can_sleep)", None,
+        dimension=NETHER, skyLight=0, time_of_day=NIGHT, inv=[("white_bed", 1), ("cooked_beef", 8), ("stone_pickaxe", 1)]),
     Row("in the Nether at 6 hp", "leave the Nether", dimension=NETHER, skyLight=0, health=6.0),
     Row("morning in a sealed pod", "dig out", enclosed=True),
     Row("night, a bed carried", "sleep", time_of_day=NIGHT),
@@ -2799,7 +2801,7 @@ class Reflexes(unittest.TestCase):
     """reflexes.TABLE: each trigger over the round's view — fires, and does not."""
 
     BASE = {"died_recently": False, "food": 20, "meal": False, "nether_bad": False,
-            "night": False, "enclosed": False, "overworld": True, "sheltered": False, "bed_works": False, "bed_carried": False,
+            "night": False, "enclosed": False, "sheltered": False, "bed_works": False, "bed_carried": False,
             "bed_near": False, "shelter_ready": False, "job_ready": False, "machine_ready": False, "used_slots": 10,
             "blocked": False, "building": 0, "stuck": False, "in_pit": False}
     # (reflex, the view's changes that fire it, the changes that do not) (must fail: the third column never fires)
@@ -2807,7 +2809,7 @@ class Reflexes(unittest.TestCase):
             ("leave the Nether", {"nether_bad": True}, {}),
             ("dig out", {"enclosed": True}, {"enclosed": True, "night": True}),
             ("sleep", {"night": True, "bed_works": True, "bed_carried": True},
-             {"night": True, "bed_works": True, "overworld": False, "bed_carried": True}),
+             {"night": True, "bed_works": False, "bed_carried": True}),
             ("shelter", {"shelter_ready": True}, {}),
             # must fail: under the open night sky they wait (the shelter first, S4)
             ("recover items", {"died_recently": True}, {"died_recently": True, "night": True}),

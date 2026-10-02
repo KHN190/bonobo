@@ -198,7 +198,7 @@ from bonobo import hazard, knowledge, reflexes, retry as retry_mod   # noqa: E40
 
 # A calm round: nothing fires. Every key a reflexes.TABLE trigger reads.
 CALM = {"died_recently": False, "food": 20, "meal": False, "nether_bad": False, "night": False,
-        "enclosed": False, "overworld": True, "sheltered": False, "bed_works": True, "bed_carried": False, "bed_near": False,
+        "enclosed": False, "sheltered": False, "bed_works": True, "bed_carried": False, "bed_near": False,
         "shelter_ready": False, "job_ready": False, "machine_ready": False, "used_slots": 5, "blocked": False,
         "building": 64, "stuck": False, "feet": (0, 64, 0)}
 HUNGRY = {"food": reflexes.EAT_BELOW - 1}
