@@ -6,7 +6,7 @@ import time
 from . import beliefs, blueprints, goals, knowledge, actions as act, skill
 from .api import McError
 from .cost import TICKS_PER_S
-from .data import DAY_END, DAY_TICKS, NIGHT_END, POD_BLOCKS, mid
+from .data import DAY_TICKS, NIGHT_END, POD_BLOCKS, is_night, mid
 from .planner import Planner, Step, Unplannable
 from .solve import Unsolvable, solve
 from .knowledge import members
@@ -438,9 +438,10 @@ def from_dict(d) -> Step:
     return Step(d["kind"], d["token"], int(d["count"]), dict(d.get("detail") or {}), int(d.get("est", 0)))
 
 def night_left_s(snap):
-    """Seconds of night still ahead: (NIGHT_END − timeOfDay) / 20 at night, a whole night before dusk (None)."""
+    """Seconds of night still ahead: (NIGHT_END − timeOfDay) / TICKS_PER_S at night (data.is_night: the Overworld's
+    only), else None (a whole night before dusk; none at all in the Nether or the End)."""
     t = int(snap.time) % DAY_TICKS
-    return (NIGHT_END - t) / 20.0 if DAY_END <= t < NIGHT_END else None
+    return (NIGHT_END - t) / TICKS_PER_S if is_night(t, getattr(snap, "dimension", "minecraft:overworld")) else None
 
 def night_facts(soft, cooled=(), dig_site=True, home_walk_s=None, night_left_s=None):
     """The place facts the night's pricing reads: the soft-ground reading (seconds to hand-diggable ground, or None),
