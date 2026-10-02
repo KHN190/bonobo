@@ -54,7 +54,7 @@ def mob(kind, x):
 
 class AFightExactly(unittest.TestCase):
     """`fight_cost` on hand-placed rows, to the hundredth. From the game's weapon data (data.weapon_hit): a fist hits 1
-    at 4/s, a stone sword 5 at 1.6/s — whole hits; a zombie has 20 hp and does 6.25 dps, a skeleton 20 hp at 2 dps and shoots; melee reach 3, speed 4.3.
+    at 4/s, a stone sword 5 at 1.6/s — whole hits; a zombie has 20 hp and does 3 dps (3 per 20 ticks), a skeleton 20 hp at 4 per 60 ticks and shoots; melee reach 3, speed 4.3.
     per kill: see = api.READ_EVERY_S (0.1, the loop's poll); walk = (distance − 3) / 4.3; kill = ceil(20 / hit) / rate;
     pickup = (3 − pickup_r 1) / 4.3 onto the drops; lost = (see + walk) × ranged still alive + kill × all still alive
     + pickup × ranged left alive, all incoming capped at 6 hp/s (a 3-hp hit every 0.5 s of hurt immunity). Every
@@ -67,22 +67,24 @@ class AFightExactly(unittest.TestCase):
         self.assertEqual((weapon_hit(None), weapon_hit(STONE), PLAYER["melee_reach"], PLAYER["speed"],
                           PLAYER["pickup_r"], READ_EVERY_S), ((1.0, 4.0), (5.0, 1.6), 3.0, 4.3, 1.0, 0.1))
         rows = [MOBS[f"minecraft:{k}"] for k in ("zombie", "skeleton")]
-        self.assertEqual([(m["hp"], m["dps"]) for m in rows], [(20, 6.25), (20, 2.0)])
+        self.assertEqual([(m["hp"], m["dps"]) for m in rows], [(20, 3.0), (20, 4.0 / 3)])
 
     # (situation, rows, sword held, protection) → (seconds, hp lost)
     ROWS = [("must fail: nothing to fight", [], STONE, 0.0, (0.0, 0.0)),
-            ("a zombie in reach, bare hands: see 0.1 + 20 hits / 4 s under the 6 hp/s cap + pickup 0.47",
-             [mob("zombie", 2)], None, 0.0, (5.57, 30.0)),
+            ("a zombie in reach, bare hands: 0.1 + 20/4 s + 0.47; 5 s × 3 hp/s",
+             [mob("zombie", 2)], None, 0.0, (5.57, 15.0)),
             # must fail without the see (2.97), without the pickup walk (2.6), or the kill alone (2.5)
-            ("a zombie in reach, stone sword: see + 4 hits / 1.6 s + pickup", [mob("zombie", 2)], STONE, 0.0, (3.07, 15.0)),
-            # must fail without the walk in (3.07)
-            ("a zombie 10 away: the walk is free of a melee mob", [mob("zombie", 10)], STONE, 0.0, (4.69, 15.0)),
-            ("two zombies: hurt immunity, not the sum — 6 hp/s throughout", [mob("zombie", 2), mob("zombie", 4)], STONE,
-             0.0, (6.13, 30.0)),
-            ("a skeleton 10 away: shot at while seen and on the walk", [mob("skeleton", 10)], STONE, 0.0, (4.69, 8.46)),
+            ("a zombie in reach, stone sword: see + 4 hits / 1.6 s + pickup", [mob("zombie", 2)], STONE, 0.0, (3.07, 7.5)),
+            # must fail without the walk in (3.07); 0.1 + 7/4.3 + 4/1.6 + 2/4.3 = 4.69; 2.5 × 3 = 7.5
+            ("a zombie 10 away: the walk is free of a melee mob", [mob("zombie", 10)], STONE, 0.0, (4.69, 7.5)),
+            ("two zombies: 2.5 s × 6 (both) + 2.5 s × 3", [mob("zombie", 2), mob("zombie", 4)], STONE,
+             0.0, (6.13, 22.5)),
+            # (0.1 + 7/4.3) × 4/3 + 2.5 × 4/3 = 5.64
+            ("a skeleton 10 away: shot at while seen and on the walk", [mob("skeleton", 10)], STONE, 0.0, (4.69, 5.64)),
             # must fail when the pickup is charged the skeleton's arrows after it is dead, or not at all
+            # (0.1×4/3 + 2.5×13/3 + 0.47×4/3 + (0.1 + 5/4.3)×4/3 + 2.5×4/3) × 0.5 = 8.3
             ("zombie then skeleton, half armoured off; shot at on the zombie's pickup", [mob("zombie", 2),
-             mob("skeleton", 10)], STONE, 0.5, (7.29, 14.33))]
+             mob("skeleton", 10)], STONE, 0.5, (7.29, 8.3))]
 
     def test_fight_cost_over_the_table(self):
         for name, rows, sword, prot, want in self.ROWS:

@@ -3,19 +3,28 @@
 import os
 import tomllib
 
+from . import game
+
+TICKS_PER_S = 20.0      # the game's clock, in one place
+
 CONFIG_PATH = os.environ.get("MC_PLAY_CONFIG", os.path.join(os.path.dirname(__file__), "play.toml"))
 
 with open(CONFIG_PATH, "rb") as _f:
     CONFIG = tomllib.load(_f)
 
-def _with_dps(row):
-    """`dps` is derived, never stored: a published hit divided by how often it lands."""
-
+def _with_dps(kind, row):
+    """A mob's row with the game's numbers (game.py) over play.toml's behaviour; dps = hit / cadence."""
     out = dict(row)
-    out["dps"] = row["attack"] / row["attack_s"]
+    out.setdefault("hp", game.MOB_HP.get(kind))
+    out.setdefault("attack", game.MOB_HIT.get(kind))
+    if kind in game.MOB_CADENCE_TICKS:
+        out["attack_s"] = game.MOB_CADENCE_TICKS[kind] / TICKS_PER_S
+    out["dps"] = out["attack"] / out["attack_s"]
     return out
 
-MOBS = {kind: _with_dps(row) for kind, row in CONFIG["mobs"].items()}
+CONFIG["engage"].setdefault("fuse_s", game.CREEPER_FUSE_TICKS / TICKS_PER_S)
+CONFIG["engage"].setdefault("fuse_stop_blocks", game.CREEPER_STOP_BLOCKS)
+MOBS = {kind: _with_dps(kind, row) for kind, row in CONFIG["mobs"].items()}
 # a creeper is kept off past where its fuse stops (fight_creeper_1: backed to 6.9, blew)
 MOBS["minecraft:creeper"]["keep_out"] = float(CONFIG["engage"]["fuse_stop_blocks"]) + 0.5
 PLAYER = CONFIG["player"]
@@ -53,4 +62,3 @@ def slot_cost_s(bag_free):
     free = max(1.0, float(bag_free))
     return float(CONFIG["plan"]["slot_fill_s"]) / (free * free)
 
-TICKS_PER_S = 20.0      # the game's clock, in one place

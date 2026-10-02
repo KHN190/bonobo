@@ -29,11 +29,12 @@ def inside(kinds, snap, rows):
 class Raisers(unittest.TestCase):
     # (situation, kinds, body, some raiser expected?)
     ROWS = [
-        ("an enderman, full health, an iron sword, no armour: armour raises the line", E,
+        ("a piglin, full health, an iron sword, no armour: armour raises the line", ["minecraft:piglin"],
          body(items=[("iron_sword", 1)]), True),
-        ("an enderman, bare hands: a sword or armour", E, body(), True),
+        ("a zombie, bare hands: a sword or armour", Z, body(), True),
         ("must fail: a spider already inside the line needs nothing raised", S, body(items=[("iron_sword", 1)]), None),
-        ("must fail: no kit when health itself is the wall (2 hp)", E, body(health=2.0), False),
+        ("must fail: no kit when health itself is the wall (2 hp)", ["minecraft:piglin"], body(health=2.0), False),
+        ("must fail: an enderman (7 per 20 ticks): no sword or iron armour clears it", E, body(), False),
     ]
 
     def test_rows(self):

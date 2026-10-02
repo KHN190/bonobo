@@ -91,7 +91,7 @@ def line_raisers(kinds, state, inv, material=LINE_ARMOR):
         if gain > 0:
             rows, points = rows + [(f"minecraft:{material}_{piece}", 1)], points + gain
             sets.append((rows, points))
-    # the craftable swords that hit harder than the one carried (data.weapon_hit), each by its tier for the needs row
+    # stronger craftable swords, by tier
     strength = lambda item: weapon_hit(item)[0] * weapon_hit(item)[1]  # noqa: E731
     swords = sorted((t, f"minecraft:{m}_sword") for t, m in TOOL_MATERIAL_FOR_TIER.items()
                     if strength(f"minecraft:{m}_sword") > strength(sword))

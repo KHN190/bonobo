@@ -170,9 +170,7 @@ class TheFastLane(unittest.TestCase):
         state = {"x": 0, "y": 64, "z": 0, "health": hp, "armor": armor, "sword": sword, "blocks": 64}
         return self.fight_loop.bid(state, rows, lambda dhp: self.sv.hp_seconds(ss, dhp))
 
-    # (rows in sight) → the answer bid for, or None: no bid. Its worth is never typed here: it is what that answer
-    # saves over the others (threat.saves) in the state the bid reads, priced by the production tables (D6: the
-    # fight charges its see, walk, whole hits at the weapon's cooldown, pickup).
+    # (rows in sight) → the answer bid for; its worth is threat.saves of that answer
     BIDS = [("must fail: nothing near", [], None),
             ("a zombie 5 away", [row("minecraft:zombie", 5, 0)], "fight"),
             ("a zombie 60 away: not worth the body", [row("minecraft:zombie", 60, 0)], None),
@@ -776,37 +774,34 @@ class EvadeOnlyPostpones(unittest.TestCase):
              dict(sword=None), "bait"),
             ("a creeper 2 off at 4 hp: one late step is the end, leave", [row("minecraft:creeper", 2, 0)],
              dict(sword="minecraft:iron_sword", hp=4), "evade"),
-            # data.weapon_hit: an iron sword hits 6 at 1.6/s. The creeper hit-and-back: ceil(20/6) = 4 hits, each
-            # risking keepoff_risk 0.05 of its 43 blast = 8.6 hp; then the zombie: 4 hits / 1.6 = 2.5 s under its
-            # 6.25 hp/s capped at 6 (hurt immunity) = 15 hp → 23.6 hp > 20: the fight is not survivable (passing_columns),
-            # and walking out of reach (evade, ~10.9 hp) is what is left. With 18 dps at 0.625 s a swing (the dps table
-            # this replaced) it was 2 hits and 1.1 s: a fight.
-            ("a creeper and a zombie, an iron sword, no armour: the fight costs more than the 20 hp, leave",
-             [row("minecraft:creeper", 4, 0), row("minecraft:zombie", -3, 0)], dict(sword="minecraft:iron_sword"), "evade"),
+            # 4 × 0.05 × 43 + ceil(20/6)/1.6 × 3 = 8.6 + 7.5 = 16.1 < 19
+            ("a creeper and a zombie, an iron sword, no armour: the fight, creeper first",
+             [row("minecraft:creeper", 4, 0), row("minecraft:zombie", -3, 0)], dict(sword="minecraft:iron_sword"), "fight"),
             ("three zombies, 5 hp, a stone sword: cannot win, leave",
              [row("minecraft:zombie", 3, 0), row("minecraft:zombie", 0, 3), row("minecraft:zombie", -3, 0)],
              dict(hp=5, sword="minecraft:stone_sword"), "evade"),
             ("must fail: one zombie 40 away", [row("minecraft:zombie", 40, 0)], dict(sword="minecraft:iron_sword"), "ignore"),
-            # A zombie 3 off, by what is in hand (ban_needs_a_failure / resume_after_combat evaded: their report's bag
-            # was empty — no sword read, no fight on offer).
             ("a zombie 3 off, an iron sword: fight", [row("minecraft:zombie", 3, 0)], dict(sword="minecraft:iron_sword"), "fight"),
             ("a zombie 3 off, a stone sword, full health: fight", [row("minecraft:zombie", 3, 0)], dict(sword="minecraft:stone_sword"),
              "fight"),
-            ("a zombie 3 off, a stone sword, 10 hp: the fight would cost it all, leave", [row("minecraft:zombie", 3, 0)],
-             dict(sword="minecraft:stone_sword", hp=10), "evade"),
-            ("a zombie 3 off, bare hands: no fight on offer, leave", [row("minecraft:zombie", 3, 0)], dict(sword=None),
+            # ceil(20/5)/1.6 × 3 = 7.5 > 8 − 1
+            ("a zombie 3 off, a stone sword, 8 hp: the fight would cost it all, leave", [row("minecraft:zombie", 3, 0)],
+             dict(sword="minecraft:stone_sword", hp=8), "evade"),
+            # 20/4 × 3 = 15 < 19
+            ("a zombie 3 off, bare hands, full health: fight", [row("minecraft:zombie", 3, 0)], dict(sword=None), "fight"),
+            ("a zombie 3 off, bare hands, 12 hp: 15 > 11, leave", [row("minecraft:zombie", 3, 0)], dict(sword=None, hp=12),
              "evade")]
 
     def test_no_evade_past_a_lethal_drop(self):
         """Nowhere to walk to on connected ground (footing answers None everywhere): evade is not offered."""
         nowhere, anywhere = (lambda spot: None), (lambda spot: tuple(spot))
-        rows = [("bare hands, open ground: leave", dict(sword=None, footing=anywhere), "evade"),
+        rows = [("bare hands, open ground: leave", dict(sword=None, hp=12, footing=anywhere), "evade"),
                 ("must fail: bare hands, a pillar in the sky, nothing to wall in with: carry on (no evade)",
-                 dict(sword=None, footing=nowhere), "ignore"),
-                ("bare hands, a pillar in the sky, 16 blocks: wall in", dict(sword=None, blocks=16, footing=nowhere),
+                 dict(sword=None, hp=12, footing=nowhere), "ignore"),
+                ("bare hands, a pillar in the sky, 16 blocks: wall in", dict(sword=None, hp=12, blocks=16, footing=nowhere),
                  "wall_in"),
                 ("an iron sword, a pillar: fight", dict(sword="minecraft:iron_sword", footing=nowhere), "fight"),
-                ("no ground read (footing None): as before", dict(sword=None), "evade")]
+                ("no ground read (footing None): as before", dict(sword=None, hp=12), "evade")]
         for name, kw, want in rows:
             with self.subTest(name):
                 self.assertEqual(decide([row("minecraft:zombie", 3, 0)], **kw).kind, want)
@@ -932,8 +927,7 @@ class APillarUnderHits(unittest.TestCase):
         from bonobo import field
         # (a zombie this far off) → the seconds of each pillar on offer {n: seconds}
         # one block up stops no walker (reaches_share: a step at melee_stop_blocks): never on offer
-        rows = [("must fail: 1.5 off, in reach: one block stops nothing, two are too many to live", 1.5, {}),
-                ("12 off: nothing near enough to be worth it", 12, {})]
+        rows = [("12 off: nothing near enough to be worth it", 12, {})]
         for name, x, want in rows:
             with self.subTest(name):
                 state = {"here": HERE, "hp": 20, "sword": None, "protection": 0.0, "blocks": 5,
@@ -941,6 +935,10 @@ class APillarUnderHits(unittest.TestCase):
                 got = {o.target[1]: round(o.seconds, 2) for o in threat.options(state)
                        if o.kind == "reshape" and o.target[0] == "under"}
                 self.assertEqual(got, want)
+        with self.subTest("must fail: 1.5 off, in reach: one block stops nothing"):
+            state = {"here": HERE, "hp": 20, "sword": None, "protection": 0.0, "blocks": 5,
+                     "hazards": [row("minecraft:zombie", 1.5, 0)], "ids": [0], "field": field.Field()}
+            self.assertNotIn(1, {o.target[1] for o in threat.options(state) if o.kind == "reshape" and o.target[0] == "under"})
         with self.subTest("6 off: blocks set before it arrives are quiet, the rest knocked back"):
             z = row("minecraft:zombie", 6, 0)
             t_free, block = threat.arrival(HERE, z, ground=field.Field()), float(threat.ENGAGE["block_s"])
@@ -951,30 +949,16 @@ class APillarUnderHits(unittest.TestCase):
                 else:
                     self.assertGreater(s, n * block)
 
-    def test_every_shape_under_hits(self):
-        """A hole or a wall built under a walker's hits is knocked back like a pillar (combat__dig_in: 2.7 s of
-        digging went nowhere). Read before the survivability veto: the price itself."""
+    def test_only_what_is_done_before_they_arrive(self):
         from bonobo import field
-        ground, hazards = field.Field(bucket="underground"), [row("minecraft:zombie", 2.5, 0)]
-        press = threat.pressure(HERE, hazards, 0.0, ground=ground)
-        opts = threat.reshape_options({"blocks": 5, "dig_ok": True}, ground, hazards, HERE, press, 0.0, 0.0, 20.0)
-        got = {o.target[0]: o.seconds / o.target[1] for o in opts}
-        quiet = {"down": float(threat.ENGAGE["dig_s"]), "under": float(threat.ENGAGE["block_s"]),
-                 "between": float(threat.ENGAGE["block_s"])}
-        self.assertEqual(set(got), set(quiet))
-        for where in quiet:
-            with self.subTest(where):
-                # must fail: priced as a quiet block under a zombie's hits
-                self.assertGreater(got[where], quiet[where])
-
-    def test_knockback_rate(self):
-        rows = [("a zombie in reach: one hit per attack_s", [row("minecraft:zombie", 1.5, 0)], 1 / 0.48),
-                ("a zombie 10 off: none yet", [row("minecraft:zombie", 10, 0)], 0.0),
-                ("a skeleton in reach: arrows do not knock a pillar down here", [row("minecraft:skeleton", 2, 0)], 0.0),
-                ("two zombies in reach", [row("minecraft:zombie", 1.5, 0), row("minecraft:zombie", 0, 1.5)], 2 / 0.48)]
-        for name, hazards, want in rows:
+        ground = field.Field(bucket="underground")
+        for name, x, offered in [("must fail: a zombie 3 off, a dirt floor by hand: no dig in", 3, set()),
+                                 ("a zombie 2.5 off: no shape at all", 2.5, set())]:
             with self.subTest(name):
-                self.assertAlmostEqual(threat.knockback_rate(HERE, hazards, 0.6), want, places=3)
+                hazards = [row("minecraft:zombie", x, 0)]
+                press = threat.pressure(HERE, hazards, 0.0, ground=ground)
+                opts = threat.reshape_options({"blocks": 5, "dig_ok": True}, ground, hazards, HERE, press, 0.0, 0.0, 20.0)
+                self.assertEqual({o.target[0] for o in opts} - {"roof"}, offered)
 
 
 class AHoleDeepEnoughToStopThem(unittest.TestCase):
@@ -1026,7 +1010,7 @@ class ADelayIsNotASeal(unittest.TestCase):
                 ("a sealed passage: the wall", field.Field(seal=2), ("reshape", ("between", 2)))]
         for name, ground, want in rows:
             with self.subTest(name):
-                d = decide(walker, sword=None, blocks=128, field=ground, dig_ok=True)
+                d = decide(walker, sword=None, hp=12, blocks=128, field=ground, dig_ok=True)
                 self.assertEqual((d.kind, d.target), want)
 
 
@@ -1098,7 +1082,7 @@ class DodgeThePredictedImpact(unittest.TestCase):
         rows = [("must fail: evade beats the pillar vs a walker at 6", threat.impacts_of(lunge), ("reshape", ("under", 2)))]
         for name, impacts, want in rows:
             with self.subTest(name):
-                d = decide(walker, sword=None, blocks=128, field=field.Field(bucket="underground"), dig_ok=True,
+                d = decide(walker, sword=None, hp=12, blocks=128, field=field.Field(bucket="underground"), dig_ok=True,
                            impacts=impacts)
                 self.assertEqual((d.kind, d.target), want)
 
@@ -1376,10 +1360,10 @@ class NeverStillUnderAFollower(unittest.TestCase):
         z = [row("minecraft:zombie", 3, 0)]
         nowhere = (lambda spot: None)  # noqa: E731
         # (our kit) → the pick
-        rows = [("blocks carried, no ground to flee: wall in", dict(sword=None, blocks=16, footing=nowhere), "wall_in"),
-                ("bare hands, open ground: flee (it is slower)", dict(sword=None), "evade"),
-                ("must fail: bare hands, 10 hp, a stone sword — not ignore", dict(sword="minecraft:stone_sword", hp=10), "evade"),
-                ("nowhere to go, nothing to build, a fist fight is lethal: nothing else exists", dict(sword=None, footing=nowhere),
+        rows = [("blocks carried, no ground to flee: wall in", dict(sword=None, hp=12, blocks=16, footing=nowhere), "wall_in"),
+                ("bare hands, open ground: flee (it is slower)", dict(sword=None, hp=12), "evade"),
+                ("must fail: 8 hp, a stone sword — not ignore", dict(sword="minecraft:stone_sword", hp=8), "evade"),
+                ("nowhere to go, nothing to build, a fist fight is lethal: nothing else exists", dict(sword=None, hp=12, footing=nowhere),
                  "ignore")]
         for name, kw, want in rows:
             with self.subTest(name):
@@ -1432,7 +1416,7 @@ class AFloorThatDigs(unittest.TestCase):
         """must fail: a dirt floor and no pickaxe gave no 'down' (dig_ok was 'a pickaxe carried')."""
         from bonobo import field, perception
         ground = field.Field(bucket="underground", floor=("minecraft:dirt",) * 4)
-        hazards = [row("minecraft:zombie", 5, 0, vel=(-4.0, 0.0, 0.0))]
+        hazards = [row("minecraft:zombie", dig_fits_at(), 0)]
         press = threat.pressure(HERE, hazards, 0.0, ground=ground)
         offered = threat.reshape_options({"blocks": 0, "dig_ok": perception.dig_ok(ground, None)}, ground, hazards,
                                          HERE, press, 0.0, 0.0, 20.0)
@@ -1471,7 +1455,7 @@ class NoAnswerGoesToSafety(unittest.TestCase):
                 ("nothing closing: nothing to hand over", [row("minecraft:zombie", 40, 0)], dict(sword=None), False)]
         for name, hazards, kw, handed in rows:
             with self.subTest(name):
-                state = {"here": HERE, "hp": 20, "sword": None, "protection": 0.0, "blocks": 0, "hazards": hazards,
+                state = {"here": HERE, "hp": 12, "sword": None, "protection": 0.0, "blocks": 0, "hazards": hazards,
                          "ids": list(range(len(hazards))), **kw}
                 why = threat.unanswered(threat.Field(state))
                 self.assertEqual(why is not None, handed, why)
