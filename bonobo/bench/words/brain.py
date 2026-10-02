@@ -200,10 +200,11 @@ def _seen(kind, pos):
         core.BRAIN.mem.note_seen(kind, pos, "minecraft:overworld")
     return before
 
-def _not_remembered(kind):
+def _not_remembered(kind, pos):
+    """The note of `kind` at `pos` retired: another one seen since is a sighting, not this note."""
     def check(api, inv):
-        return core.BRAIN.mem.seen(kind, "minecraft:overworld") == []
-    check.why = lambda: f"{kind} still noted at {[r['pos'] for r in core.BRAIN.mem.seen(kind, 'minecraft:overworld')]}"
+        return not any(tuple(r["pos"]) == tuple(pos) for r in core.BRAIN.mem.seen(kind, "minecraft:overworld"))
+    check.why = lambda: f"{kind} still noted at {pos}"
     return check
 
 def _remembered_any(kinds):
@@ -423,17 +424,18 @@ def _bag_rule(cell):
 
 FINDS: dict = {"diamond": 0}          # also keeps the real api.get
 
-def is_diamond_scan(path):
-    """Pure: a /find that looks for diamond ore — not the estimates' one look per round (world.nearest's perBlock=1
-    over every source block, diamond among them), which sees what is near and searches for nothing."""
-    return path.startswith("/find") and "diamond" in path and "perBlock=1" not in path
+def is_diamond_scan(path, in_task):
+    """Pure: a /find the task sent (`in_task`: a skill call running) that looks for diamond ore — not the round's
+    look-around (explore.note_around, outside any call) nor the estimates' one look per round (world.nearest's
+    perBlock=1 over every source block), which see what is near and search for nothing."""
+    return in_task and path.startswith("/find") and "diamond" in path and "perBlock=1" not in path
 
 def _count_finds(ctx):
-    """`before` hook: count /find scans for diamond ore during the row, at api.get."""
-    from ... import api
+    """`before` hook: count the task's /find scans for diamond ore during the row, at api.get."""
+    from ... import api, skill
     real = FINDS.setdefault("real", api.get)
     def get(path, *a, **k):
-        if is_diamond_scan(path):
+        if is_diamond_scan(path, skill.current() is not None):
             FINDS["diamond"] += 1
             FINDS.setdefault("paths", []).append((round(time.time(), 2), path))
         return real(path, *a, **k)
@@ -450,7 +452,7 @@ def _no_scan():
 def _seen_rule(cell):
     # seeing through stone is allowed: a noted ore is walked to straight, an unnoted one found by scanning
     if cell["seen"] == "noted":
-        return (_all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore"), _no_scan()),
+        return (_all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore", _diamond_of(cell)), _no_scan()),
                 "noted: straight there without a scan (must not scan), the note retired")
     return _gain("minecraft:diamond", 1), "not noted: found anyway, by scanning"
 

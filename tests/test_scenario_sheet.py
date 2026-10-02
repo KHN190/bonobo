@@ -1260,22 +1260,53 @@ class ServerProbe(unittest.TestCase):
                 self.assertIs(core.probe_answer(core.reply_before(lines, mark)), want)
 
 
-class DiamondScan(unittest.TestCase):
-    """is_diamond_scan: _no_scan counts a search for the ore, not the estimates' one look per round."""
+class SeenStore(unittest.TestCase):
+    """seen_store__noted judges the task: its own diamond searches (a skill call running), the noted cell's note."""
+    RARE = "/find?blocks=minecraft:diamond_ore,minecraft:obsidian&radius=48&limit=8"
 
     def test_is_diamond_scan(self):
-        from bonobo.bench import vocab
-        rows = [("mine's search for the ore", "/find?blocks=minecraft:diamond_ore&radius=24&limit=60", True),
-                ("a travel scan's rare sightings", "/find?blocks=minecraft:diamond_ore,minecraft:obsidian&radius=48&limit=8",
-                 True),
+        rows = [("mine's search for the ore", "/find?blocks=minecraft:diamond_ore&radius=24&limit=60", True, True),
+                ("a rare-sightings find sent by the task", self.RARE, True, True),
+                ("must fail: the round's look-around (note_around, no call running)", self.RARE, False, False),
                 ("must fail: the round's one look over every source block",
                  "/find?blocks=minecraft:coal_ore,minecraft:diamond_ore,minecraft:oak_log&radius=48&limit=14&perBlock=1",
-                 False),
-                ("must fail: a find for other blocks", "/find?blocks=minecraft:oak_log&radius=48&limit=20", False),
-                ("must fail: not a find", "/state", False)]
-        for name, path, want in rows:
+                 True, False),
+                ("must fail: a find for other blocks", "/find?blocks=minecraft:oak_log&radius=48&limit=20", True, False),
+                ("must fail: not a find", "/state", True, False)]
+        for name, path, in_task, want in rows:
             with self.subTest(name):
-                self.assertIs(words_brain.is_diamond_scan(path), want)
+                self.assertIs(words_brain.is_diamond_scan(path, in_task), want)
+
+    def test_no_scan_counts_by_source(self):
+        from bonobo import api
+        # (calls running when the find is sent) → no scan holds
+        rows = [("the look-around between calls: a sighting", [], True),
+                ("must fail: the task's own diamond search", [object()], False)]
+        for name, calls, want in rows:
+            with self.subTest(name), mock.patch.object(api, "get", lambda path: {"blocks": []}), \
+                    mock.patch.dict(words_brain.FINDS, {"diamond": 0}, clear=True), \
+                    mock.patch.object(skillkit, "CALLS", calls):
+                words_brain._count_finds(None)
+                api.get(self.RARE)
+                self.assertIs(words_brain._no_scan()(None, None), want)
+
+    def test_not_remembered_the_noted_cell(self):
+        import tempfile
+        import types
+        from bonobo.memory import Memory
+        up, down = words_brain.DIAMOND_UP, words_brain.DIAMOND_DOWN
+        # (cells noted at the end) → the note at DIAMOND_UP retired
+        rows = [("nothing noted", [], True),
+                ("the other ore seen since: a sighting, not the note", [down], True),
+                ("must fail: the noted cell still noted", [up], False),
+                ("must fail: still noted, the other seen too", [up, down], False)]
+        for name, cells, want in rows:
+            with self.subTest(name):
+                mem = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
+                for c in cells:
+                    mem.note_seen("diamond_ore", c, "minecraft:overworld")
+                with mock.patch.object(core, "BRAIN", types.SimpleNamespace(mem=mem)):
+                    self.assertIs(words_brain._not_remembered("diamond_ore", up)(None, None), want)
 
 
 class SliceVerdict(unittest.TestCase):

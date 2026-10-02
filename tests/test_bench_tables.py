@@ -455,7 +455,7 @@ NOT_ROW_TESTED = {
     "slice_check": "the slice's trace and decision lines (SLICE, LAST_LINES) through review",
     "placed_facing": "a placed block's facing property from the world",
     "surfaced": "a hold over time of the body's height",
-    "not_remembered": "the memory file",
+    "not_remembered": "the memory file (its rule: test_scenario_sheet.SeenStore)",
     "threat_resolved": "a hold over time of hostiles, gap and health",
     "endermen_calm": "the server's AngerTime per enderman (its parse: test_combat_harness.Endermen)",
     "took_cover_alcove": "the runner's trace (its rule: test_combat_harness.Endermen)",
