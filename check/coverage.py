@@ -5,6 +5,8 @@ decision modules the round's entry points (ROOTS: what check/round.py calls) rea
 never through execution. Execution is excluded, each with its reason (K8: checked live, E/P):
   - a skill's body (registered by @skill: skill.REGISTRY) and what is defined inside it: it runs the world;
   - a function that sends to the jar (calls an api function that POSTs): it acts, it does not decide;
+  - a maintain row's act (reflexes.TABLE's third column) and the Maintain methods only acts name: the arbiter runs
+    the act when the row wins; the round only proposes it (the row's trigger, its second column, is decision code);
   - a function no entry point reaches without passing through one of those: run-time code (runners, threads).
 Every arm of what is left must be hit; the unhit arms are listed module:line with the line's text."""
 import dis
@@ -118,6 +120,16 @@ def _stubbed():
     return out
 
 
+def _row_acts(owner):
+    """(the codes of reflexes.TABLE's acts, the Maintain methods named by acts and by no other code): what a maintain
+    row runs once the arbiter hands it the body — never called by the round deciding."""
+    from bonobo import reflexes
+    acts = {act.__code__ for _name, _trigger, act in reflexes.TABLE}
+    named = {n for c in acts for n in c.co_names if callable(getattr(reflexes.Maintain, n, None))}
+    elsewhere = {n for c in owner if c not in acts for n in c.co_names}
+    return acts, {f"Maintain.{n}" for n in named - elsewhere}
+
+
 def decision_code():
     """(decision codes, {excluded code: why}) — the structure above."""
     mods = [importlib.import_module(f"bonobo.{m}") for m in MODULES]
@@ -131,6 +143,7 @@ def decision_code():
     senders, bodies = _senders(), _skill_bodies()
     module_of = {inspect.getsourcefile(m): m for m in mods}
     threads, stubbed = _thread_bodies(module_of, owner), _stubbed()
+    acts, act_only = _row_acts(owner)
     why = {}
     for c, top in owner.items():
         mod = module_of[c.co_filename]
@@ -141,6 +154,8 @@ def decision_code():
             why[c] = "a skill's body (@skill): it runs the world"
         elif top in threads:
             why[c] = "a thread's body (threading.Thread): it runs beside the round"
+        elif top in acts or (mod.__name__ == "bonobo.reflexes" and top.co_qualname in act_only):
+            why[c] = "a maintain row's act (reflexes.TABLE): the arbiter runs it, the round only proposes"
         elif top in stubbed:
             why[c] = "the round stands in for it (check/round.py STUBBED): the body's handover"
         elif f"{mod.__name__.rpartition('.')[2]}.{top.co_qualname}" in EXECUTION:
