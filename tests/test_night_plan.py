@@ -126,5 +126,25 @@ class TakeBed(unittest.TestCase):
                 self.assertEqual(len(taken), 1, "must fail: the bed left behind")
 
 
+class OpenAirAtNight(unittest.TestCase):
+    """S4: by night the sky over the body is what is open, not the step's kind — a craft for food stock or the queue
+    under the open sky is not offered; under cover it is (brain.under_sky, need_act, plan_proposals)."""
+
+    ROWS = [("the open sky, starving, a stick queued: no craft offered", dict(night=True, hunger="starve",
+             queued="stick", station="crafting_table", pickaxe=-1, ore="buried", cooled=True), False),
+            ("walled in, the same: the craft goes on under cover", dict(night=True, hunger="starve", queued="stick",
+             station="crafting_table", pickaxe=-1, ore="buried", cooled=True, place="enclosed"), True)]
+
+    def test_rows(self):
+        import contextlib
+        import io
+        from check import round as rnd
+        from check.facts import of
+        for name, kw, crafts in self.ROWS:
+            with self.subTest(name), contextlib.redirect_stdout(io.StringIO()):
+                _d, _got, ctx = rnd.decide(of(**kw), fail_then_again=False)
+                self.assertEqual(ctx.get("step_kind") == "craft", crafts, ctx)   # must fail: crafted in the open
+
+
 if __name__ == "__main__":
     unittest.main()
