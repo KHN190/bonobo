@@ -70,6 +70,26 @@ FAMILIES = [
          ]),
 ]
 ROWS = [
+    dict(name='collect_blaze_rods', module='combat',
+         doc=('Nether platform, 3 blazes, sword + shield + iron armor → fight_loop fights them, the step picks up at '
+              'least one rod.'),
+         scene=[('floor', 'nether_bricks', 8, 2),
+                ('at', 'fill {0} {1} nether_bricks hollow', ('@', -9, 0, -9), ('@', 9, 5, 9)),
+                ('fill', ('@', -8, 0, -8), ('@', 8, 4, 8), 'air'), ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'),
+                ('give', 'diamond_sword'), ('cmd', 'item replace entity @p weapon.offhand with shield'),
+                ('cmd', 'item replace entity @p armor.chest with iron_chestplate'),
+                ('cmd', 'item replace entity @p armor.head with iron_helmet'), ('give', 'cooked_beef', 16),
+                ('give', 'cobblestone', 32), ('summon', 'blaze', ('@', 3, 1, 0), '{PersistenceRequired:1b,Health:4f}'),
+                ('summon', 'blaze', ('@', -3, 1, 2), '{PersistenceRequired:1b,Health:4f}'),
+                ('summon', 'blaze', ('@', 0, 1, -3), '{PersistenceRequired:1b,Health:4f}')],
+         run=('do', 'bonobo.combat.collect_blaze_rods', ['$ctx', 1], {}),
+         # S5: an optional fight: the line held (diamond sword, iron chest + helmet, a shield)
+         check=[('count', 'minecraft:blaze_rod', '>=', 1),
+                ('state', 'health', '>=', fight_line_hp('minecraft:blaze', 'minecraft:diamond_sword', IRON_CHEST + IRON_HELMET, True))],
+         budget=25,
+         dimension='minecraft:the_nether', combat=True,
+         expect=[(('@', -8, -1, -8), ('@', 8, -1, 8), 'nether_bricks', 289, 289)],
+         expect_entities=[('minecraft:blaze', 3)], skills=['collect_blaze_rods']),
     dict(name='fight_enderman_1', module='nav',
          doc=('Four endermen about the arena, a walk 14 blocks across through them → reached, none provoked '
               '(server AngerTime 0 each), health kept'),

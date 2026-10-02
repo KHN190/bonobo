@@ -47,6 +47,11 @@ def _fill_bag(free, item="dirt", stack=64):
             time.sleep(0.5)
     return hook
 
+def _bench_machine(ctx, origin):
+    """The arena's auto smelter as memory knows a built one (the dict `upkeep.ready_machine` hands the skill)."""
+    name = ctx.mem.add_machine("auto_smelter", origin, 0, "minecraft:overworld", ["smelting"])
+    return next(m for m in ctx.mem.machines("minecraft:overworld") if m["name"] == name)
+
 # -- tier "brain": the whole brain on a private queue, the world set to the deciding moment, judged by the world and its log
 BRAIN_LOG: dict = {"replans": 0}      # also keeps the real brain.replan (a fn): not an int table
 
@@ -493,6 +498,12 @@ def grid_name(families, cell):
     return _cell_name(families[0] if len(families) == 1 else "brain", cell)
 
 # -- every upkeep line through the whole brain: the moment built, the answer shown in the world; (line, setup, hooks, done, check)
+def _job_ready_at(pos, item, n):
+    """`before` hook: memory holds a finished background furnace job at `pos` (its output already in the furnace)."""
+    def hook(ctx):
+        ctx.mem.add_job("furnace", pos, "minecraft:overworld", item, n, time.time() - 1, False)
+    return hook
+
 def _state_before(*fields):
     """`before` hook: each /state field as the run starts, BASE[f"{field}_before"] (what `rose` and food_up read)."""
     def hook(ctx):
@@ -705,4 +716,4 @@ NAMES = {"upkeep": lambda line, *p: f"upkeep__{line}",
          "cell": lambda *key: grid_name(_grid_cells()[key]["families"], _grid_cell(key)),
          "brain": lambda name, *p: name, "dirt": lambda name, *p: name}
 
-__all__ = ['DECIDED', '_first_seen', 'tight_dusk_time', '_tight_dusk', '_state_before', '_rose', 'BAG_FILL', 'BITE_S', 'BRAIN_BASE', 'BRAIN_DIMS', 'BRAIN_FAMILIES', 'BRAIN_LOG', 'BRAIN_WORLD', 'COBBLE_MORE', 'DIAMOND_DOWN', 'DIAMOND_UP', 'DIRT_PATCH', 'DRAIN_OVER', 'EXHAUSTION_PER_POINT', 'HUNGER_MAX_AMP', 'HUNGER_PER_TICK', 'EDGE_Y', 'FINDS', 'FIRST_WATCH', 'HOME_BED', 'HOME_FURNACE', 'IRON_ORE_CAGED', 'IRON_ORE_FREE', 'KIT_COBBLE', 'KIT_LOG', 'LOG_GOAL', 'LOW_FOOD', 'LOW_FOOD_MAX_S', 'POCKET', 'REGEN_RULE', 'SEARCH_FLAGS', 'SMELT_FURNACES', 'THROW_START', 'WALK', '_ARENA_B', '_bag_rule', '_bed_then_log', '_before_in_bag', '_cell_before', '_cell_name', '_cell_setup_hooks', '_clear_bans', '_container_noted', '_count_finds', '_diamond_of', '_drain_to', '_fill_bag', '_first_times', '_forget_all', '_furnace_holds', '_grid_cell', '_grid_cells', '_have', '_hunger_drained', '_in_the_patch_underground', '_interrupt_once_loaded', '_iron_in_furnaces', '_load_the_rest', '_night_rule', '_no_scan', '_not_banned', '_not_remembered', '_remembered_any', '_replans_at_most', '_seen', '_seen_rule', '_tool_rule', '_walk_once', 'ate_on_the_way', 'brain_cell_hooks', 'brain_row', 'brain_rule', 'cell_row', 'dirt_row', 'drain_plan', 'fed_up', 'first_step', 'furnace_slots', 'gamerule_value', 'grid_name', 'is_diamond_scan', 'mine_fed', 'slept_before', 'slept_through', 'upkeep_row', 'walk_ate', 'worked_fed']
+__all__ = ['DECIDED', '_first_seen', 'tight_dusk_time', '_tight_dusk', '_state_before', '_rose', 'BAG_FILL', 'BITE_S', 'BRAIN_BASE', 'BRAIN_DIMS', 'BRAIN_FAMILIES', 'BRAIN_LOG', 'BRAIN_WORLD', 'COBBLE_MORE', 'DIAMOND_DOWN', 'DIAMOND_UP', 'DIRT_PATCH', 'DRAIN_OVER', 'EXHAUSTION_PER_POINT', 'HUNGER_MAX_AMP', 'HUNGER_PER_TICK', 'EDGE_Y', 'FINDS', 'FIRST_WATCH', 'HOME_BED', 'HOME_FURNACE', 'IRON_ORE_CAGED', 'IRON_ORE_FREE', 'KIT_COBBLE', 'KIT_LOG', 'LOG_GOAL', 'LOW_FOOD', 'LOW_FOOD_MAX_S', 'POCKET', 'REGEN_RULE', 'SEARCH_FLAGS', 'SMELT_FURNACES', 'THROW_START', 'WALK', '_ARENA_B', '_bag_rule', '_bed_then_log', '_before_in_bag', '_bench_machine', '_cell_before', '_cell_name', '_cell_setup_hooks', '_clear_bans', '_container_noted', '_count_finds', '_diamond_of', '_drain_to', '_fill_bag', '_first_times', '_forget_all', '_furnace_holds', '_grid_cell', '_grid_cells', '_have', '_hunger_drained', '_in_the_patch_underground', '_interrupt_once_loaded', '_iron_in_furnaces', '_job_ready_at', '_load_the_rest', '_night_rule', '_no_scan', '_not_banned', '_not_remembered', '_remembered_any', '_replans_at_most', '_seen', '_seen_rule', '_tool_rule', '_walk_once', 'ate_on_the_way', 'brain_cell_hooks', 'brain_row', 'brain_rule', 'cell_row', 'dirt_row', 'drain_plan', 'fed_up', 'first_step', 'furnace_slots', 'gamerule_value', 'grid_name', 'is_diamond_scan', 'mine_fed', 'slept_before', 'slept_through', 'upkeep_row', 'walk_ate', 'worked_fed']
