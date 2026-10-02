@@ -47,6 +47,40 @@ from .bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   
 from .words import brain, checks, door, fight, runs, ways, scene as _scene_words
 
 _BEFORE = set(globals())
+# real structures in the test world (seed 1234): no box; /locate gives the truth
+LEG_START = (10400, 200, 10400)
+
+STRONGHOLD_LEG = 200        # nether.locate_stronghold's sideways leg between the two throws
+
+LEG_PAD = 12     # the eye's reading is a few degrees off /locate's: the plane is wider than the line
+
+def _leg_box(start, stronghold):
+    """Pure: (x0, z0, x1, z1) around the leg the skill walks, perpendicular to the line to the stronghold, padded."""
+    x, z = start
+    d = math.dist(stronghold, start) or 1.0
+    ex, ez = round(x - (stronghold[1] - z) / d * STRONGHOLD_LEG), round(z + (stronghold[0] - x) / d * STRONGHOLD_LEG)
+    return (min(x, ex) - LEG_PAD, min(z, ez) - LEG_PAD, max(x, ex) + LEG_PAD, max(z, ez) + LEG_PAD)
+
+def _stronghold_leg(ctx):
+    """The walk between throws on a flat stone plane at sky height (real hills were most of a 60 s row)."""
+    real = locate_reply(LAST_FEEDBACK)
+    if not real:
+        raise SetupInvalid("no /locate answer for the stronghold")
+    x, y, z = LEG_START
+    box = _leg_box((x, z), real)
+    _load_area(*box)
+    _overworld(_flat(*box, y, "stone") + [f"tp @p {x} {y + 1} {z}", "effect give @p speed 60 3 true"])
+    time.sleep(1)
+
+def _broken_hut(ctx):
+    """The hut in the arena as a remembered site whose snapshot is the whole wall (taken before it was broken)."""
+    lo, hi = at(2, 0, -2), at(6, 2, 2)
+    blocks = {f"{x},{y},{z}": "cobblestone" for x in range(lo[0], hi[0] + 1) for y in range(lo[1], hi[1] + 1)
+              for z in range(lo[2], hi[2] + 1) if x in (lo[0], hi[0]) or y in (lo[1], hi[1]) or z in (lo[2], hi[2])}
+    site = ctx.mem.add_site("shelter", at(4, 0, 0), "minecraft:overworld", name="bench-hut",
+                            snapshot={"lo": list(lo), "hi": list(hi), "blocks": blocks})
+    return site
+
 
 
 
@@ -345,6 +379,9 @@ TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
 # fighting is its own tier
 COMBAT_PREFIXES = ("fight_", "combat_arena", "siege__", "escape__", "fight_before_upkeep", "combat__")
 
+# fights whose names say otherwise; resume_after_combat left out on purpose
+COMBAT_ROWS = ("collect_blaze_rods", "ghast_fireball", "hunt_hurt_spider")
+
 
 # the chain's first slice is common, not core: core is what every change can afford
 CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
@@ -360,7 +397,7 @@ ACCEPTANCE = (ACCEPTANCE_D,)
 
 def tier_of(name, row):
     """Pure: the tier a row belongs to (a row that states its own tier keeps it)."""
-    if name.startswith(COMBAT_PREFIXES) or row.get("module") == "fight_loop":
+    if name.startswith(COMBAT_PREFIXES) or name in COMBAT_ROWS or row.get("module") == "fight_loop":
         return "combat"
     if row.get("tier_fixed") in ("core", "common", "brain", "combat", "exception"):
         return row["tier_fixed"]
