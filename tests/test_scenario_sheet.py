@@ -1152,10 +1152,12 @@ class DecisionOrderWatch(unittest.TestCase):
                 ("beef in a furnace stamped", 0, logs_at_start, True, dict(bed, furnace_beef=3.0), True),
                 ("must fail: a stale watcher (a later row started) writes nothing", 1, logs_at_start, True, {}, False),
                 ("must fail: tokens at their start count are not stamped", 0, all_at_start, False, {}, True)]
+        current = object()
         for name, behind, start, beef, want, going in rows:
-            with self.subTest(name), mock.patch.dict(words_brain.FIRST_WATCH, {"gen": 5}), \
+            with self.subTest(name), mock.patch.dict(words_brain.FIRST_WATCH, {"row": current}), \
                     mock.patch.dict(words_checks.FIRST, {}, clear=True):
-                got = words_brain.first_step(5 - behind, 100.0, bag, lambda t: start.get(t, 0), lambda: beef, 103.0)
+                token = object() if behind else current
+                got = words_brain.first_step(token, 100.0, bag, lambda t: start.get(t, 0), lambda: beef, 103.0)
                 self.assertEqual((dict(words_checks.FIRST), got), (want, going))
 
 
@@ -1237,9 +1239,10 @@ class SleptBefore(unittest.TestCase):
         from bonobo.world import Inventory
         from tests.world import inventory
         for name, turned, want in [("the day turned", True, {"morning": 2.0}), ("must fail: still night", False, {})]:
-            with self.subTest(name), mock.patch.dict(words_brain.FIRST_WATCH, {"gen": 1}), \
+            token = object()
+            with self.subTest(name), mock.patch.dict(words_brain.FIRST_WATCH, {"row": token}), \
                     mock.patch.dict(words_checks.FIRST, {}, clear=True):
-                words_brain.first_step(1, 10.0, Inventory(inventory()), lambda t: 0, lambda: False, 12.0, lambda: turned)
+                words_brain.first_step(token, 10.0, Inventory(inventory()), lambda t: 0, lambda: False, 12.0, lambda: turned)
                 self.assertEqual(dict(words_checks.FIRST), want)
 
 

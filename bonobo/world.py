@@ -1,6 +1,7 @@
 """What the world looks like right now: player snapshot, inventory, block regions, searches."""
 from __future__ import annotations
 
+import functools
 import math
 
 import time
@@ -187,18 +188,22 @@ _SIGHT = {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}}
 SIGHT_PER_BLOCK = 4        # hits kept per block: a source is the nearest of them outside the protected cells
 # the round's route answers and the last look are about the world we stood in (a new row may stand at the same feet)
 lifecycle.in_place(__name__, "ROUTES", "_SIGHT")
-_PER_BLOCK = []            # [bool] once known: the running jar answers /find?perBlock (≥ 0.1.55)
+PER_BLOCK_SINCE = (0, 1, 55)       # the jar version that answers /find?perBlock
+
+
+@functools.cache
+def _jar_answers_per_block():
+    """Once known, per process: the running jar answers /find?perBlock (an unreachable game is asked again)."""
+    import re
+    return tuple(int(x) for x in re.findall(r"\d+", str(api.game_status().get("version", "0")))[:3]) >= PER_BLOCK_SINCE
+
 
 def _per_block_ok():
-    if not _PER_BLOCK:
-        import re
-        try:
-            v = tuple(int(x) for x in re.findall(r"\d+", str(api.game_status().get("version", "0")))[:3])
-        except api.McError as e:
-            api.swallowed("world._per_block_ok", e)
-            return False
-        _PER_BLOCK.append(v >= (0, 1, 55))
-    return _PER_BLOCK[0]
+    try:
+        return _jar_answers_per_block()
+    except api.McError as e:
+        api.swallowed("world._per_block_ok", e)
+        return False
 
 def nearest(kinds, feet, dimension, radius=48, union=(), skip=None):
     """Blocks to the nearest of `kinds` in sight, or None — estimates never search the world themselves. `skip`:

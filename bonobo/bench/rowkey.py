@@ -1,6 +1,7 @@
 """A bench row's readiness key, parts that do not depend on this checkout: the row's own definition (`row_hash`) and the production functions it reaches (`reach_hash`, over any package directory — another checkout's, when old verdicts are migrated to a new key format). Standard library only, so an old checkout can load it by path."""
 
 import ast
+import functools
 import hashlib
 import os
 import re
@@ -8,14 +9,12 @@ import types
 
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-_INDEX = {}
 NOT_PRODUCTION = ()          # the bench lives in bonobo/bench (not indexed): the row's own definition covers what it uses
 
+@functools.cache
 def code_index(pkg_dir=PKG):
     """{name: [source]} of every production function, method and class (a name defined twice counts both: over-reaching is safe)."""
 
-    if pkg_dir in _INDEX:
-        return _INDEX[pkg_dir]
     index = {}
     for fname in sorted(os.listdir(pkg_dir)):
         mod = fname[:-3]
@@ -33,7 +32,6 @@ def code_index(pkg_dir=PKG):
                 for t in node.targets:          # module constants a function reads (tables, thresholds)
                     if isinstance(t, ast.Name):
                         index.setdefault(t.id, []).append(f"{mod}.{ast.get_source_segment(text, node)}")
-    _INDEX[pkg_dir] = index
     return index
 
 _BUILTINS = set(dir(__import__("builtins")))

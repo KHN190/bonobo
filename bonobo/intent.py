@@ -3,13 +3,14 @@
 import json
 import os
 
-from . import api, paths
+from . import api, lifecycle, paths
 
 LAYERS = ("survival", "safety", "threat", "goal", "step", "alternatives")
 FILE = paths.data("intent.json")
 MAX_CHAT = 230        # one chat line; the file keeps the full stack
 
 _state = {}
+lifecycle.in_place(__name__, "_state")     # the last life's intentions say nothing about this one
 _last_sent = None
 
 def say(layer, text):

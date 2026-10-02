@@ -336,10 +336,11 @@ class Knowledge(unittest.TestCase):
 
 class Nav(unittest.TestCase):
     def setUp(self):
-        # the sight cache and the jar's perBlock answer are module state: each test starts from none, none leaks out
+        # the sight cache is module state, the jar's perBlock answer a process cache: each test sets its own
         from bonobo import world
         self.enterContext(mock.patch.dict(world._SIGHT, {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}}))
-        self.enterContext(mock.patch.object(world, "_PER_BLOCK", []))
+        self.per_block = [True]          # the jar's perBlock answer, per test (world._per_block_ok reads it)
+        self.enterContext(mock.patch.object(world, "_per_block_ok", lambda: self.per_block[0]))
 
     def test_waypoints(self):
         # (situation, here, target, leg) → the points walked to, ending at the target
@@ -455,7 +456,7 @@ class Nav(unittest.TestCase):
             with self.subTest(name):
                 calls = []
                 world._SIGHT.update(key=None, t=0.0, near={})
-                world._PER_BLOCK[:] = [new]
+                self.per_block[:] = [new]
                 feet = [(0, 64, 0)]
                 got = []
                 def ask(path):
@@ -492,7 +493,7 @@ class Nav(unittest.TestCase):
         for name, sources, want in rows:
             with self.subTest(name), mock.patch.object(api, "get", return_value=answer), \
                     mock.patch.dict(world._SIGHT, {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}}):
-                world._PER_BLOCK[:] = [True]
+                self.per_block[:] = [True]
                 c = Cost(snap, mem)
                 got = c._source(step) if sources else c.distance(["stone"], 32)
                 self.assertAlmostEqual(got, want, places=1)

@@ -78,16 +78,16 @@ def _furnace_holds(items, radius=16):
             return True
     return False
 
-FIRST_WATCH = {"gen": 0}   # the row whose watcher may write FIRST: a new row's hook retires the last row's watcher
+FIRST_WATCH: "dict[str, object]" = {"row": None}   # the watcher that may write FIRST (its own token): a new row's hook, or a new life, retires the last one
 
 def slept_through(start_tod, tod):
     """Pure: the row began at night and the day is back — only a sleep turns it (the arena's clock stands still)."""
     return int(start_tod) % DAY_TICKS >= SLEEP_FROM_TICKS and int(tod) % DAY_TICKS < DAY_END
 
-def first_step(gen, t0, inv, base_count, furnace_beef, now, morning=lambda: False):
+def first_step(token, t0, inv, base_count, furnace_beef, now, morning=lambda: False):
     """One look of a row's watcher: stamp each token first above the row's start, on this row's clock. False (and
     nothing written) once another row's hook has started its own watcher — a stale watcher's clock is not this row's."""
-    if gen != FIRST_WATCH["gen"]:
+    if token is not FIRST_WATCH["row"]:
         return False
     for s_ in inv.slots:
         for tok in (s_["id"], s_["id"].rsplit("_", 1)[-1]):     # "minecraft:white_bed" → also "bed"
@@ -101,8 +101,7 @@ def first_step(gen, t0, inv, base_count, furnace_beef, now, morning=lambda: Fals
 
 def _first_times(ctx):
     """`before` hook: note when each token first rises above the row's start: the brain's decision order, read from the world."""
-    FIRST_WATCH["gen"] += 1
-    gen = FIRST_WATCH["gen"]
+    gen = FIRST_WATCH["row"] = object()
     t0 = time.time()
 
     def furnace_beef():
@@ -607,7 +606,7 @@ def _in_the_patch_underground(api, inv):
 # eating on the move by the jar's autoeat, still walking while chewing; control: mining is not interrupted to eat
 WALK = {}
 from ... import lifecycle as _lifecycle  # noqa: E402
-_lifecycle.in_place(__name__, "BRAIN_LOG", "FINDS", "WALK")     # a row's own records (FIRST_WATCH: a generation, kept)
+_lifecycle.in_place(__name__, "BRAIN_LOG", "FINDS", "WALK", "FIRST_WATCH")     # a row's own records
 
 BITE_S = 1.6        # one bite (32 ticks): the window before the bar rises in which the body must keep moving
 

@@ -103,7 +103,7 @@ class ReflexesReadTheRoundsLook(unittest.TestCase):
                 ("a chest group: the barrel 4 away, within 6", ["chest", "barrel"], 6, True),
                 ("must fail: lava 5 away is not within 3", ["lava"], 3, False),
                 ("must fail: nothing of it seen", ["diamond_ore"], 48, False)]
-        with mock.patch.object(world.api, "get", get), mock.patch.object(world, "_PER_BLOCK", [True]), \
+        with mock.patch.object(world.api, "get", get), mock.patch.object(world, "_per_block_ok", lambda: True), \
                 mock.patch.dict(world._SIGHT, {"key": None, "t": 0.0, "near": {}}):
             for name, kinds, radius, want in rows:
                 with self.subTest(name):
