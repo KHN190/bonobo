@@ -38,3 +38,6 @@ MOB_CADENCE_TICKS = {"minecraft:zombie": MELEE_TICKS, "minecraft:husk": MELEE_TI
                      "minecraft:ghast": 60, "minecraft:piglin": MELEE_TICKS, "minecraft:zombified_piglin": MELEE_TICKS,
                      "minecraft:blaze": 178 / 3, "minecraft:enderman": MELEE_TICKS,
                      "minecraft:area_effect_cloud": 20}
+# a hit pushes its target 0.4 blocks/tick, slowed ×0.6×0.91 a tick on the ground (LivingEntity.knockback, travel)
+HIT_KNOCKBACK = 0.4
+GROUND_DRAG = 0.6 * 0.91

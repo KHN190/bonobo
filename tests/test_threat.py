@@ -774,7 +774,7 @@ class EvadeOnlyPostpones(unittest.TestCase):
              dict(sword=None), "bait"),
             ("a creeper 2 off at 4 hp: one late step is the end, leave", [row("minecraft:creeper", 2, 0)],
              dict(sword="minecraft:iron_sword", hp=4), "evade"),
-            # 4 × 0.05 × 43 + ceil(20/6)/1.6 × 3 = 8.6 + 7.5 = 16.1 < 19
+            # 4 × 0.05 × blast(3 blocks) 16.75 + 2.5 s × 3 × 0.648 = 3.35 + 4.86 = 8.21 < 19
             ("a creeper and a zombie, an iron sword, no armour: the fight, creeper first",
              [row("minecraft:creeper", 4, 0), row("minecraft:zombie", -3, 0)], dict(sword="minecraft:iron_sword"), "fight"),
             ("three zombies, 5 hp, a stone sword: cannot win, leave",
@@ -784,12 +784,12 @@ class EvadeOnlyPostpones(unittest.TestCase):
             ("a zombie 3 off, an iron sword: fight", [row("minecraft:zombie", 3, 0)], dict(sword="minecraft:iron_sword"), "fight"),
             ("a zombie 3 off, a stone sword, full health: fight", [row("minecraft:zombie", 3, 0)], dict(sword="minecraft:stone_sword"),
              "fight"),
-            # ceil(20/5)/1.6 × 3 = 7.5 > 8 − 1
-            ("a zombie 3 off, a stone sword, 8 hp: the fight would cost it all, leave", [row("minecraft:zombie", 3, 0)],
-             dict(sword="minecraft:stone_sword", hp=8), "evade"),
-            # 20/4 × 3 = 15 < 19
+            # 2.5 s × 3 × (1 − 0.88/4 × 1.6) = 4.86 > 5 − 1
+            ("a zombie 3 off, a stone sword, 5 hp: the fight would cost it all, leave", [row("minecraft:zombie", 3, 0)],
+             dict(sword="minecraft:stone_sword", hp=5), "evade"),
+            # 20/2 s × 3 × (1 − 0.88/4 × 2) = 16.78 < 19 (the target's hurt immunity: 2 hits/s)
             ("a zombie 3 off, bare hands, full health: fight", [row("minecraft:zombie", 3, 0)], dict(sword=None), "fight"),
-            ("a zombie 3 off, bare hands, 12 hp: 15 > 11, leave", [row("minecraft:zombie", 3, 0)], dict(sword=None, hp=12),
+            ("a zombie 3 off, bare hands, 12 hp: 16.78 > 11, leave", [row("minecraft:zombie", 3, 0)], dict(sword=None, hp=12),
              "evade")]
 
     def test_no_evade_past_a_lethal_drop(self):
@@ -1362,7 +1362,7 @@ class NeverStillUnderAFollower(unittest.TestCase):
         # (our kit) → the pick
         rows = [("blocks carried, no ground to flee: wall in", dict(sword=None, hp=12, blocks=16, footing=nowhere), "wall_in"),
                 ("bare hands, open ground: flee (it is slower)", dict(sword=None, hp=12), "evade"),
-                ("must fail: 8 hp, a stone sword — not ignore", dict(sword="minecraft:stone_sword", hp=8), "evade"),
+                ("must fail: 5 hp, a stone sword — not ignore", dict(sword="minecraft:stone_sword", hp=5), "evade"),
                 ("nowhere to go, nothing to build, a fist fight is lethal: nothing else exists", dict(sword=None, hp=12, footing=nowhere),
                  "ignore")]
         for name, kw, want in rows:
@@ -1440,6 +1440,30 @@ class EatingInAFight(unittest.TestCase):
                 self.assertEqual([(o.kind, o.target, o.heals) for o in got], want)
 
 
+class FightsAPlayerWins(unittest.TestCase):
+    """Fights an ordinary player wins: the threat model must offer the fight inside the survivable line."""
+
+    def test_rows(self):
+        from bonobo import fight_loop
+        iron = "minecraft:iron_sword"
+        # (fight, threats, armour points) — an iron sword; iron armour is 15 points
+        rows = [("a zombie", [row("minecraft:zombie", 4, 0)], 0),
+                ("a skeleton", [row("minecraft:skeleton", 8, 0)], 0),
+                ("a spider", [row("minecraft:spider", 4, 0)], 0),
+                ("a creeper", [row("minecraft:creeper", 4, 0)], 0),
+                ("a creeper and a zombie", [row("minecraft:creeper", 4, 0), row("minecraft:zombie", -3, 0)], 0),
+                ("two zombies", [row("minecraft:zombie", 4, 0), row("minecraft:zombie", -4, 0)], 0),
+                ("an enderman, iron armour", [row("minecraft:enderman", 4, 0)], 15),
+                ("a blaze, iron armour", [row("minecraft:blaze", 6, 0)], 15)]
+        for name, hazards, armor in rows:
+            with self.subTest(name):
+                player = {"x": HERE[0], "y": HERE[1], "z": HERE[2], "health": 20, "armor": armor, "sword": iron,
+                          "blocks": 0}
+                st = fight_loop.threat_state(player, hazards, ids=list(range(len(hazards))))
+                fights = [o for o in threat.options(st) if o.kind.startswith("fight")]
+                self.assertTrue(fights and threat.survivable(fights[0], 20.0), [o.hp for o in fights])
+
+
 class NoAnswerGoesToSafety(unittest.TestCase):
     """threat.unanswered: carrying on still hurts and the fallback has nothing — the fact handed to SAFETY (hazard
     kind "threat", recovered by cover then dig in), never left to the plan (S1)."""
@@ -1471,8 +1495,8 @@ class NoAnswerGoesToSafety(unittest.TestCase):
         """RV8: fight_loop.unanswered_now asks the rows seen now; an earlier bid's verdict does not carry."""
         from unittest import mock
         from bonobo import fight_loop
-        ss = sv.price_state(hp=20)
-        player = {"x": HERE[0], "y": HERE[1], "z": HERE[2], "health": 20, "blocks": 0, "footing": lambda spot: None}
+        ss = sv.price_state(hp=12)
+        player = {"x": HERE[0], "y": HERE[1], "z": HERE[2], "health": 12, "blocks": 0, "footing": lambda spot: None}
         zombie = [row("minecraft:zombie", 3, 0)]
         # (situation, rows seen how long ago) → handed to SAFETY
         rows = [("must fail: closing now, nowhere to go: handed over", 0.0, True),

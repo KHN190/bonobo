@@ -154,7 +154,8 @@ def keepoff_cost(here, hazard, sword, prot, speed=None):
     hits = math.ceil(float(mob["hp"]) / per_hit)
     walk = max(0.0, math.dist(here, hazard[0]) - float(beliefs.PLAYER["melee_reach"])) / speed
     cycle = 2.0 * float(mob.get("keep_out", 3.0)) / speed + swing
-    lost = hits * float(ENGAGE["keepoff_risk"]) * float(mob["attack"]) * (1.0 - prot)
+    blast = formulas.explosion_damage(game.EXPLOSION_POWER[hazard[3]], float(beliefs.PLAYER["melee_reach"]))
+    lost = hits * float(ENGAGE["keepoff_risk"]) * blast * (1.0 - prot)
     return round(walk + hits * cycle, 2), round(lost, 2)
 
 def _ranged_dps(rows):
@@ -164,6 +165,13 @@ def _ranged_dps(rows):
     cap = incoming_cap(max(float(beliefs.MOBS[r[3]].get("attack", 0.0)) for r in rows))
     return min(cap, sum(_row_dps(r) for r in rows if beliefs.MOBS[r[3]].get("ranged")))
 
+def _knocked_off(mob, hits_s):
+    """Share of the time the mob we hit is pushed out of its own reach (a ranged one shoots on)."""
+    if mob.get("ranged") or not mob.get("speed"):
+        return 0.0
+    push = game.HIT_KNOCKBACK / (1.0 - game.GROUND_DRAG)
+    return min(1.0, push / float(mob["speed"]) * hits_s)
+
 def fight_cost(here, hazards, sword, prot, speed=None):
     """(seconds, hp lost) to kill every threat in melee, nearest first, while the rest keep hitting. Each kill is the
     whole of what the fight loop does for it: see it (one read of the game, `api.READ_EVERY_S`), walk into reach,
@@ -172,6 +180,7 @@ def fight_cost(here, hazards, sword, prot, speed=None):
 
     speed = float(beliefs.PLAYER["speed"]) if speed is None else float(speed)
     per_hit, rate = weapon_hit(sword)
+    rate = min(rate, 1.0 / float(beliefs.PLAYER["hurt_immunity_s"]))     # a hit inside the target's immunity is lost
     order = sorted((h for h in hazards if h[3] in beliefs.MOBS), key=lambda h: math.dist(here, h[0]))
     pickup = max(0.0, float(beliefs.PLAYER["melee_reach"]) - float(beliefs.PLAYER["pickup_r"])) / speed
     seconds = lost = 0.0
@@ -182,7 +191,7 @@ def fight_cost(here, hazards, sword, prot, speed=None):
         kill = math.ceil(float(mob["hp"]) / per_hit) / rate
         # The row's own rate (what THIS one hits for, `threat.row`), as pressure reads it — not the table's.
         cap = incoming_cap(max(float(beliefs.MOBS[r[3]].get("attack", 0.0)) for r in order[i:]))
-        under_everything = min(cap, sum(_row_dps(r) for r in order[i:]))
+        under_everything = min(cap, sum(_row_dps(r) for r in order[i + 1:]) + _row_dps(hazard) * (1.0 - _knocked_off(mob, rate)))
         lost += ((READ_EVERY_S + walk) * _ranged_dps(order[i:]) + kill * under_everything
                  + pickup * _ranged_dps(order[i + 1:])) * (1.0 - prot)
         seconds += READ_EVERY_S + walk + kill + pickup

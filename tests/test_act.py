@@ -71,20 +71,20 @@ class AFightExactly(unittest.TestCase):
 
     # (situation, rows, sword held, protection) → (seconds, hp lost)
     ROWS = [("must fail: nothing to fight", [], STONE, 0.0, (0.0, 0.0)),
-            ("a zombie in reach, bare hands: 0.1 + 20/4 s + 0.47; 5 s × 3 hp/s",
-             [mob("zombie", 2)], None, 0.0, (5.57, 15.0)),
+            # 0.1 + 20/2 + 0.47 = 10.57 (2 hits/s: the target's hurt immunity); 10 s × 3 × (1 − 0.88/4 × 2) = 16.78
+            ("a zombie in reach, bare hands", [mob("zombie", 2)], None, 0.0, (10.57, 16.78)),
             # must fail without the see (2.97), without the pickup walk (2.6), or the kill alone (2.5)
-            ("a zombie in reach, stone sword: see + 4 hits / 1.6 s + pickup", [mob("zombie", 2)], STONE, 0.0, (3.07, 7.5)),
-            # must fail without the walk in (3.07); 0.1 + 7/4.3 + 4/1.6 + 2/4.3 = 4.69; 2.5 × 3 = 7.5
-            ("a zombie 10 away: the walk is free of a melee mob", [mob("zombie", 10)], STONE, 0.0, (4.69, 7.5)),
-            ("two zombies: 2.5 s × 6 (both) + 2.5 s × 3", [mob("zombie", 2), mob("zombie", 4)], STONE,
-             0.0, (6.13, 22.5)),
+            ("a zombie in reach, stone sword: see + 4 hits / 1.6 s + pickup", [mob("zombie", 2)], STONE, 0.0, (3.07, 4.86)),
+            # must fail without the walk in (3.07); 0.1 + 7/4.3 + 4/1.6 + 2/4.3 = 4.69; 2.5 × 3 × (1 − 0.88/4 × 1.6) = 4.86
+            ("a zombie 10 away: the walk is free of a melee mob", [mob("zombie", 10)], STONE, 0.0, (4.69, 4.86)),
+            ("two zombies: 2.5 × (3 + 1.94) + 4.86", [mob("zombie", 2), mob("zombie", 4)], STONE,
+             0.0, (6.13, 17.21)),
             # (0.1 + 7/4.3) × 4/3 + 2.5 × 4/3 = 5.64
             ("a skeleton 10 away: shot at while seen and on the walk", [mob("skeleton", 10)], STONE, 0.0, (4.69, 5.64)),
             # must fail when the pickup is charged the skeleton's arrows after it is dead, or not at all
-            # (0.1×4/3 + 2.5×13/3 + 0.47×4/3 + (0.1 + 5/4.3)×4/3 + 2.5×4/3) × 0.5 = 8.3
+            # (0.1×4/3 + 2.5×(1.94 + 4/3) + 0.47×4/3 + (0.1 + 5/4.3)×4/3 + 2.5×4/3) × 0.5 = 6.98
             ("zombie then skeleton, half armoured off; shot at on the zombie's pickup", [mob("zombie", 2),
-             mob("skeleton", 10)], STONE, 0.5, (7.29, 8.3))]
+             mob("skeleton", 10)], STONE, 0.5, (7.29, 6.98))]
 
     def test_fight_cost_over_the_table(self):
         for name, rows, sword, prot, want in self.ROWS:
