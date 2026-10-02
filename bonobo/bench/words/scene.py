@@ -42,7 +42,6 @@ def _tree(x, z, wood="oak", height=TREE_HEIGHT):
             f"fill {_c(at(x - 1, height, z - 1))} {_c(at(x + 1, height, z + 1))} {wood}_leaves[persistent=true]",
             f"fill {_c(at(x, 0, z))} {_c(at(x, height - 1, z))} {wood}_log"]
 
-CHOP_TREE = (2, 0)       # the chop base's one oak (x, z): rows that must leave it standing read it here
 
 def _grove(*spots, wood="oak"):
     return [f"fill {_c(at(-8, -1, -8))} {_c(at(8, -1, 8))} grass_block"] + [c for x, z in spots for c in _tree(x, z, wood)]
@@ -221,4 +220,4 @@ def resolve(name):
         return getattr(importlib.import_module(mod), attr)
     raise KeyError(f"no word {name!r}")
 
-__all__ = ['REGISTRY', 'WORDS', 'resolve', 'scene_now', 'scene_expect', 'CHOP_TREE', 'SCENE', '_chest', '_floor', '_grove', '_pen', '_progress', '_row', '_scene_params', '_tank', '_tp', '_tree', 'items', 'limit', 'nest', 'scene', 'top']
+__all__ = ['REGISTRY', 'WORDS', 'resolve', 'scene_now', 'scene_expect', 'SCENE', '_chest', '_floor', '_grove', '_pen', '_progress', '_row', '_scene_params', '_tank', '_tp', '_tree', 'items', 'limit', 'nest', 'scene', 'top']
