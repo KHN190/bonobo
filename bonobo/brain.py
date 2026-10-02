@@ -564,7 +564,7 @@ class Brain:
             write(task, update)
             if act is not None:
                 queued = arbiter.Intent("plan", act, kind="queue", seq=seq, key=f"task {task['id']}",
-                                        surface=act_on_surface(act))
+                                        surface=act_on_surface(act) or (closed and self.under_sky(snap)))
                 if arbiter.viable(queued, {"surface_closed": closed}):
                     return [queued]     # a surface step at night: the next task's, or the night's own work
         if self.just_finished and not any(t["state"] in tasks.LIVE for t in tasks.load()):
@@ -581,6 +581,11 @@ class Brain:
                 out.append(arbiter.Intent("plan", act, kind="night stock", key=act.name))
         return out
 
+    def under_sky(self, snap):
+        """The body stands under the open sky (reflexes.sheltered: not under rock, walled in, nor inside a site): by
+        night every step it takes there is open-air work (S4), whatever its kind."""
+        return not self.reflexes.sheltered(snap)
+
     def need_act(self, kind, goal, snap, ctx):
         """The first runnable step toward `goal` now, or None; planned each round, never queued (the queue is the player's)."""
         name = f"{kind}: {goals.describe(goal)}"
@@ -592,9 +597,12 @@ class Brain:
         except Unplannable as e:
             self.__dict__.setdefault("unplannable", {})[name] = str(e)     # why this need offers no step (readout)
             return None
-        closed = snap.night      # surface work walks out, sheltered here or not (data.is_night)
-        step = next((st for st in steps if self.valid(st, snap, ctx) and not (closed and arbiter.on_surface(st.kind))),
-                    None)
+        # by night, a step out on the surface, or any step when the body stands under the open sky (S4: the sky over
+        # the site is what is open, not the step's kind) — the night's own preparation apart (its way out of the open)
+        closed = snap.night
+        open_air = closed and kind != "night prep" and self.under_sky(snap)
+        step = next((st for st in steps if self.valid(st, snap, ctx)
+                     and not (closed and arbiter.on_surface(st.kind)) and not open_air), None)
         if step is None:
             return None
         return craft_act("upkeep", name, ctx, steps, step, snap.night, inv=snap.inv)
