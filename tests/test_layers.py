@@ -48,13 +48,13 @@ CLOSURE = {
     "dragon": 14,
     "dispatch": 22,
     "end": 17,
-    "estimate": 4,
+    "estimate": 5,           # + data (READ_EVERY_S: fight_cost charges the loop's poll per target)
     "events": 2,             # the concise event log: paths only
     "explore": 17,
     "farming": 22,
     "field": 1,
     "fight_loop": 19,
-    "fight_plan": 6,
+    "fight_plan": 7,         # + data via estimate (READ_EVERY_S)
     "fluids": 18,
     "fresh": 2,
     "gather": 20,
@@ -63,7 +63,7 @@ CLOSURE = {
     "intent": 9,
     "jobs": 21,
     "lifecycle": 1,
-    "kernel": 5,
+    "kernel": 6,             # + data via estimate (READ_EVERY_S)
     "knowledge": 2,
     "loot": 17,
     "mechanisms": 14,        # taught doors: the store, the press skill
@@ -86,7 +86,7 @@ CLOSURE = {
     "tape": 2,
     "tasks": 5,
     "terrain": 15,
-    "threat": 6,
+    "threat": 7,             # + data via estimate (READ_EVERY_S)
     "ui": 21,
     "needs": 37,
     "reflexes": 36,

@@ -84,7 +84,7 @@ def unexpected(where, err, why):
         detail("".join(traceback.format_exception(type(err), err, err.__traceback__)).rstrip())
     return None
 
-READ_EVERY_S = 0.1     # the fastest useful re-read of the game while waiting on it: two ticks
+from .data import READ_EVERY_S   # noqa: E402 — the fact lives with the facts (estimate charges it)
 
 class McError(Exception):
     """Something went wrong carrying out a goal; `pos`: the target cell it was about (a container, prey, a stand)."""

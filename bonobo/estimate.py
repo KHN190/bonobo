@@ -3,6 +3,7 @@
 import math
 
 from . import beliefs, combat_model
+from .data import READ_EVERY_S     # the fight loop's poll: a target is acted on one read after it is there
 
 ENGAGE = beliefs.CONFIG["engage"]
 
@@ -152,12 +153,22 @@ def keepoff_cost(here, hazard, sword, prot, speed=None):
     lost = hits * float(ENGAGE["keepoff_risk"]) * float(mob["attack"]) * (1.0 - prot)
     return round(walk + hits * cycle, 2), round(lost, 2)
 
+def _ranged_dps(rows):
+    """What the ranged ones among `rows` put on us while we are not trading blows, capped by hurt immunity."""
+    if not rows:
+        return 0.0
+    cap = incoming_cap(max(float(beliefs.MOBS[r[3]].get("attack", 0.0)) for r in rows))
+    return min(cap, sum(_row_dps(r) for r in rows if beliefs.MOBS[r[3]].get("ranged")))
+
 def fight_cost(here, hazards, sword, prot, speed=None):
-    """(seconds, hp lost) to kill every threat in melee, nearest first, while the rest keep hitting."""
+    """(seconds, hp lost) to kill every threat in melee, nearest first, while the rest keep hitting. Each kill is the
+    whole of what the fight loop does for it: see it (one read of the game, `api.READ_EVERY_S`), walk into reach,
+    swing it dead, walk onto its drops (they lie where it died, `pickup_r` short of it) — no hidden work (D6)."""
 
     speed = float(beliefs.PLAYER["speed"]) if speed is None else float(speed)
     dps = float(beliefs.PLAYER["dps"][str(min(3, max(0, int(sword))))])
     order = sorted((h for h in hazards if h[3] in beliefs.MOBS), key=lambda h: math.dist(here, h[0]))
+    pickup = max(0.0, float(beliefs.PLAYER["melee_reach"]) - float(beliefs.PLAYER["pickup_r"])) / speed
     seconds = lost = 0.0
     pos = here
     for i, hazard in enumerate(order):
@@ -166,10 +177,10 @@ def fight_cost(here, hazards, sword, prot, speed=None):
         kill = float(mob["hp"]) / dps
         # The row's own rate (what THIS one hits for, `threat.row`), as pressure reads it — not the table's.
         cap = incoming_cap(max(float(beliefs.MOBS[r[3]].get("attack", 0.0)) for r in order[i:]))
-        under_fire = min(cap, sum(_row_dps(r) for r in order[i:] if beliefs.MOBS[r[3]].get("ranged")))
         under_everything = min(cap, sum(_row_dps(r) for r in order[i:]))
-        lost += (walk * under_fire + kill * under_everything) * (1.0 - prot)
-        seconds += walk + kill
+        lost += ((READ_EVERY_S + walk) * _ranged_dps(order[i:]) + kill * under_everything
+                 + pickup * _ranged_dps(order[i + 1:])) * (1.0 - prot)
+        seconds += READ_EVERY_S + walk + kill + pickup
         pos = hazard[0]
     return round(seconds, 2), round(lost, 2)
 

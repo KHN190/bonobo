@@ -54,26 +54,33 @@ def mob(kind, x):
 class AFightExactly(unittest.TestCase):
     """`fight_cost` on hand-placed rows, to the hundredth. From the belief table: a fist does 3 dps, a stone sword
     12; a zombie has 20 hp and does 6.25 dps, a skeleton 20 hp at 2 dps and shoots; melee reach 3, speed 4.3.
-    walk = (distance − 3) / 4.3; kill = 20 / sword dps; lost = walk × ranged still alive + kill × all still alive,
-    all incoming capped at 6 hp/s (a 3-hp hit every 0.5 s of hurt immunity)."""
+    per kill: see = api.READ_EVERY_S (0.1, the loop's poll); walk = (distance − 3) / 4.3; kill = 20 / sword dps;
+    pickup = (3 − pickup_r 1) / 4.3 onto the drops; lost = (see + walk) × ranged still alive + kill × all still alive
+    + pickup × ranged left alive, all incoming capped at 6 hp/s (a 3-hp hit every 0.5 s of hurt immunity). Every
+    term is non-zero in every row with a mob: the totals fail when any one of them is dropped (D6, hidden work)."""
 
     def test_the_belief_table_is_what_the_rows_assume(self):
         from bonobo.beliefs import MOBS, PLAYER
-        self.assertEqual((PLAYER["dps"]["0"], PLAYER["dps"]["1"], PLAYER["melee_reach"], PLAYER["speed"]),
-                         (3.0, 12.0, 3.0, 4.3))
+        from bonobo.api import READ_EVERY_S
+        self.assertEqual((PLAYER["dps"]["0"], PLAYER["dps"]["1"], PLAYER["melee_reach"], PLAYER["speed"],
+                          PLAYER["pickup_r"], READ_EVERY_S), (3.0, 12.0, 3.0, 4.3, 1.0, 0.1))
         rows = [MOBS[f"minecraft:{k}"] for k in ("zombie", "skeleton")]
         self.assertEqual([(m["hp"], m["dps"]) for m in rows], [(20, 6.25), (20, 2.0)])
 
     # (situation, rows, sword tier, protection) → (seconds, hp lost)
     ROWS = [("must fail: nothing to fight", [], 1, 0.0, (0.0, 0.0)),
-            ("a zombie in reach, bare hands: 20/3 s under the 6 hp/s cap", [mob("zombie", 2)], 0, 0.0, (6.67, 40.0)),
-            ("a zombie in reach, stone sword: 20/12 s", [mob("zombie", 2)], 1, 0.0, (1.67, 10.0)),
-            ("a zombie 10 away: the walk is free of a melee mob", [mob("zombie", 10)], 1, 0.0, (3.29, 10.0)),
+            ("a zombie in reach, bare hands: see 0.1 + 20/3 s under the 6 hp/s cap + pickup 0.47", [mob("zombie", 2)],
+             0, 0.0, (7.23, 40.0)),
+            # must fail without the see (2.13), without the pickup walk (1.77), or the kill alone (1.67)
+            ("a zombie in reach, stone sword: see + 20/12 s + pickup", [mob("zombie", 2)], 1, 0.0, (2.23, 10.0)),
+            # must fail without the walk in (2.23)
+            ("a zombie 10 away: the walk is free of a melee mob", [mob("zombie", 10)], 1, 0.0, (3.86, 10.0)),
             ("two zombies: hurt immunity, not the sum — 6 hp/s throughout", [mob("zombie", 2), mob("zombie", 4)], 1,
-             0.0, (3.33, 20.0)),
-            ("a skeleton 10 away: shot at on the walk", [mob("skeleton", 10)], 1, 0.0, (3.29, 6.59)),
-            ("zombie then skeleton, half the damage armoured off", [mob("zombie", 2), mob("skeleton", 10)], 1,
-             0.5, (4.5, 9.5))]
+             0.0, (4.46, 20.0)),
+            ("a skeleton 10 away: shot at while seen and on the walk", [mob("skeleton", 10)], 1, 0.0, (3.86, 6.79)),
+            # must fail when the pickup is charged the skeleton's arrows after it is dead, or not at all
+            ("zombie then skeleton, half armoured off; shot at on the zombie's pickup", [mob("zombie", 2),
+             mob("skeleton", 10)], 1, 0.5, (5.63, 10.16))]
 
     def test_fight_cost_over_the_table(self):
         for name, rows, sword, prot, want in self.ROWS:

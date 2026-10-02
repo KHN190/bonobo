@@ -76,6 +76,7 @@ dps = { "0" = 3.0, "1" = 12.0, "2" = 18.0, "3" = 24.0 }   # by sword tier: fist,
 protection_per_point = 0.04 # armour points from /state (0–20) → fraction of damage removed
 shield = 0.15
 protection_cap = 0.8
+pickup_r = 1.0              # the game picks an item up within one block of the body (the box grown by 1): a kill's drops are that much short of a walk away
 hurt_immunity_s = 0.5       # the game ignores further damage for 10 ticks after a hit: incoming dps has a ceiling
 
 [engage]

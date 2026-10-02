@@ -172,9 +172,9 @@ class TheFastLane(unittest.TestCase):
 
     # (rows in sight) → (answer, seconds it is worth), or None: no bid
     BIDS = [("must fail: nothing near", [], None),
-            ("a zombie 5 away", [row("minecraft:zombie", 5, 0)], ("fight", 197.2)),
+            ("a zombie 5 away", [row("minecraft:zombie", 5, 0)], ("fight", 196.7)),   # the fight now charges its see and pickup (D6)
             ("a zombie 60 away: not worth the body", [row("minecraft:zombie", 60, 0)], None),
-            ("a skeleton 10 away", [row("minecraft:skeleton", 10, 0)], ("fight", 173.1))]
+            ("a skeleton 10 away", [row("minecraft:skeleton", 10, 0)], ("fight", 171.8))]
 
     def test_bids_over_the_table(self):
         for name, rows, want in self.BIDS:
