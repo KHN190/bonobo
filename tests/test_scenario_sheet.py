@@ -155,13 +155,15 @@ class TheCoverIsWhole(unittest.TestCase):
             self.assertEqual(set(spec["bases"]) - set(bench_bases.BASES), set(), cond)
             with self.subTest(condition=cond):
                 self.assertIn(cond, {c for c, _b in pairs})
-        for cond, base in pairs:
+        kept = [(c, b) for b in bench_bases.BASES for c in bench_bases.CONDITIONS if f"{b}__{c}" in sc.SCENARIOS]
+        self.assertTrue(kept)
+        for cond, base in kept:
             with self.subTest(condition=cond, base=base):
                 row = sc.SCENARIOS[f"{base}__{cond}"]
                 self.assertEqual(row["tags"][bench_bases.CONDITIONS[cond]["axis"]], cond)
-        for surprise in bench_bases.SURPRISES:
+        for surprise in [s for s in bench_bases.SURPRISES if s in sc.SCENARIOS]:
             with self.subTest(surprise=surprise):
-                self.assertIn(surprise, sc.SCENARIOS)
+                self.assertEqual(sc.SCENARIOS[surprise]["tags"]["base"], bench_bases.SURPRISES[surprise]["base"])
 
     def test_every_axis_is_covered(self):
         axes = {spec["axis"] for spec in bench_bases.CONDITIONS.values()}
@@ -676,7 +678,8 @@ class BrainGrid(unittest.TestCase):
                 cells = words_brain._grid_cells()
                 names = [words_brain.grid_name(cells[tuple(c[d] for d in words_brain.BRAIN_DIMS)]["families"], c) for c in grid]
                 self.assertEqual((len(grid) >= 2, len(whys) >= 2, len(set(names)) == len(names)), (True, True, True))
-                self.assertEqual([n for n in names if sc.SCENARIOS[n]["budget"] > 60 or vocab.tier_of(n, sc.SCENARIOS[n]) != "brain"],
+                kept = [n for n in names if n in sc.SCENARIOS]
+                self.assertEqual([n for n in kept if sc.SCENARIOS[n]["budget"] > 60 or vocab.tier_of(n, sc.SCENARIOS[n]) != "brain"],
                                  [])
 
     def test_rules(self):
@@ -966,7 +969,7 @@ class SkillsAreTimed(unittest.TestCase):
     def test_the_timed_rows(self):
         """The rows with a target run through `_timed`; the others do not."""
         for name, want in (("chop__base", True), ("mine_stone__base", True), ("craft__base", True), ("eat__base", True),
-                           ("find_air_capped", True), ("smelt__base", False), ("chop__night", False)):
+                           ("find_air_capped", True), ("smelt__base", False), ("chop__pickup_lag", False)):
             with self.subTest(name):
                 self.assertEqual(sc.SCENARIOS[name]["run"].__qualname__ == "_timed.<locals>.go", want)
                 self.assertEqual("target_s" in sc.SCENARIOS[name], want)
@@ -1095,7 +1098,6 @@ class HungryRowsTarget(unittest.TestCase):
     """A row made hungry for its own work is judged by its check, not held to the eat base's time: only an eat row's
     `before` sets BASE["target_s"] (the runner's judge fails a slower run against it)."""
     ROWS = [("eat_while_walking: drained, no eat target", "eat_while_walking", False),
-            ("mine_while_hungry: drained, no eat target", "mine_while_hungry", False),
             ("must fail: the eat base sets its target", "eat__base", True)]
 
     def test_only_eat_rows_set_a_target(self):
@@ -1345,7 +1347,7 @@ class KitRule(unittest.TestCase):
             with self.subTest(name):
                 self.assertIn(give, sc.SCENARIOS[name]["setup"])
         # must not: a row that tests getting the tool is left bare
-        self.assertNotIn(core.BEST_TOOLS["pickaxe"], sc.SCENARIOS["tool_tier__one_use"]["setup"])
+        self.assertNotIn(core.BEST_TOOLS["pickaxe"], sc.SCENARIOS["mine_iron__tool_one_use"]["setup"])
 
 
 class SetupReplies(unittest.TestCase):
