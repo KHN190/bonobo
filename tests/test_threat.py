@@ -170,18 +170,32 @@ class TheFastLane(unittest.TestCase):
         state = {"x": 0, "y": 64, "z": 0, "health": hp, "armor": armor, "sword": sword, "blocks": 64}
         return self.fight_loop.bid(state, rows, lambda dhp: self.sv.hp_seconds(ss, dhp))
 
-    # (rows in sight) → (answer, seconds it is worth), or None: no bid
+    # (rows in sight) → the answer bid for, or None: no bid. Its worth is never typed here: it is what that answer
+    # saves over the others (threat.saves) in the state the bid reads, priced by the production tables (D6: the
+    # fight charges its see, walk, whole hits at the weapon's cooldown, pickup).
     BIDS = [("must fail: nothing near", [], None),
-            ("a zombie 5 away", [row("minecraft:zombie", 5, 0)], ("fight", 196.7)),   # the fight now charges its see and pickup (D6)
+            ("a zombie 5 away", [row("minecraft:zombie", 5, 0)], "fight"),
             ("a zombie 60 away: not worth the body", [row("minecraft:zombie", 60, 0)], None),
-            ("a skeleton 10 away", [row("minecraft:skeleton", 10, 0)], ("fight", 171.8))]
+            ("a skeleton 10 away", [row("minecraft:skeleton", 10, 0)], "fight")]
 
     def test_bids_over_the_table(self):
+        sword, hp, armor = "minecraft:iron_sword", 20, 8
+        ss = self.sv.price_state(hp=hp, sword=sword, armor=armor)
+        price = lambda dhp: self.sv.hp_seconds(ss, dhp)  # noqa: E731
         for name, rows, want in self.BIDS:
             with self.subTest(name):
                 self.fight_loop.STATE.held = None
-                got = self.bid(rows)
-                self.assertEqual(None if got is None else (got[0].kind, got[1]), want)
+                got = self.bid(rows, hp=hp, sword=sword, armor=armor)
+                if want is None:
+                    self.assertIsNone(got)
+                    continue
+                st = self.fight_loop.threat_state({"x": 0, "y": 64, "z": 0, "health": hp, "armor": armor,
+                                                   "sword": sword, "blocks": 64}, rows)
+                opts = threat.options(st)
+                answer = next(o for o in opts if o.kind == want)
+                worth = round(threat.saves(answer, opts, price, threat.horizon_for(st)), 1)
+                self.assertGreater(worth, 0.0)
+                self.assertEqual((got[0].kind, got[1]), (want, worth))
 
     def test_the_bid_is_what_its_own_answer_saves(self):
         """Closed against the state the bid itself built, not against one reassembled here: a test that rebuilds
@@ -736,8 +750,13 @@ class EvadeOnlyPostpones(unittest.TestCase):
              dict(sword=None), "bait"),
             ("a creeper 2 off at 4 hp: one late step is the end, leave", [row("minecraft:creeper", 2, 0)],
              dict(sword="minecraft:iron_sword", hp=4), "evade"),
-            ("a creeper and a zombie, an iron sword: the fight, creeper first",
-             [row("minecraft:creeper", 4, 0), row("minecraft:zombie", -3, 0)], dict(sword="minecraft:iron_sword"), "fight"),
+            # data.weapon_hit: an iron sword hits 6 at 1.6/s. The creeper hit-and-back: ceil(20/6) = 4 hits, each
+            # risking keepoff_risk 0.05 of its 43 blast = 8.6 hp; then the zombie: 4 hits / 1.6 = 2.5 s under its
+            # 6.25 hp/s capped at 6 (hurt immunity) = 15 hp → 23.6 hp > 20: the fight is not survivable (passing_columns),
+            # and walking out of reach (evade, ~10.9 hp) is what is left. With 18 dps at 0.625 s a swing (the dps table
+            # this replaced) it was 2 hits and 1.1 s: a fight.
+            ("a creeper and a zombie, an iron sword, no armour: the fight costs more than the 20 hp, leave",
+             [row("minecraft:creeper", 4, 0), row("minecraft:zombie", -3, 0)], dict(sword="minecraft:iron_sword"), "evade"),
             ("three zombies, 5 hp, a stone sword: cannot win, leave",
              [row("minecraft:zombie", 3, 0), row("minecraft:zombie", 0, 3), row("minecraft:zombie", -3, 0)],
              dict(hp=5, sword="minecraft:stone_sword"), "evade"),
