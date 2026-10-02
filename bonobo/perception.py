@@ -205,6 +205,15 @@ def nightfall(state, enclosed, in_site=lambda: False):
     return NIGHTFALL
 
 
+def hide_near(s):
+    """The nearest cell out of every archer's line of fire over the ground read (world.hidden_cell), or None."""
+    region = STATE.region
+    eyes = [(r[0][0], r[0][1] + EYE_HEIGHT, r[0][2]) for r in threat.THREAT_ROWS if MOBS[r[3]].get("ranged")]
+    if region is None or not eyes:
+        return None
+    return world.hidden_cell(region.solid, (s["x"], s["y"], s["z"]), eyes, GRID_R)
+
+
 def cover_near(s):
     return None if COVER is None else COVER((s["blockX"], s["blockY"], s["blockZ"]), s.get("dimension"))
 
@@ -537,6 +546,7 @@ def perceived(state, now, ground_of=None, kit_of=None):
                        ("ground", lambda: out.update(field=ground_of(state))),
                        ("footing", lambda: out.update(footing=footing(state))),
                        ("cover", lambda: out.update(cover=cover_near(state))),
+                       ("hide", lambda: out.update(hide=hide_near(state))),
                        ("dig", lambda: out.update(dig_ok=dig_ok(out.get("field"), out.get("pick_tier"))))):
         try:
             read()

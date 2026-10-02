@@ -181,14 +181,24 @@ def _combat_intent(state: dict[str, Any]):
 
 TRACE_EVERY_S = 0.2
 
-def reflex_last(api_):
-    """The jar's last reflex act from GET /reflex (`last` / `lastAct`), or None when this jar doesn't say."""
+def reflex_read(api_):
+    """GET /reflex, or {} when this jar doesn't say."""
     try:
-        r = api_.get("/reflex")
+        return api_.get("/reflex")
     except McError as e:
-        swallowed("fight.reflex_last", e)
-        return None
-    return r.get("last") or r.get("lastAct")
+        swallowed("fight.reflex_read", e)
+        return {}
+
+
+def shield_ticks(ticks, after):
+    """Pure: the jar's per-tick shield notes (GET /reflex `ticks`) past world tick `after`, and per note a hit (the
+    health fell since the tick before) — [(tick, using, hand, blocking, hit)]."""
+    out, prev = [], None
+    for n in ticks:
+        if prev is not None and n["tick"] > after:
+            out.append((n["tick"], n["using"], n.get("hand"), n["blocking"], n["health"] < prev))
+        prev = n["health"]
+    return out
 
 
 def _sampler(stop, out, began):
@@ -196,11 +206,17 @@ def _sampler(stop, out, began):
     from ... import api as _api
     from ...world import entities
     kinds = _threat_kinds()
+    seen_tick = -1
     while not stop.is_set():
         try:
             state = _api.get("/state")
-            near = [(e["type"], round(e["distance"], 2), round(e.get("health", 0.0), 1))
+            # the target's place too (its retreat speed is read off the trace)
+            near = [(e["type"], round(e["distance"], 2), round(e.get("health", 0.0), 1), e.get("id"),
+                     round(e["x"], 2), round(e["z"], 2))
                     for e in entities(24) if e.get("type") in kinds]
+            reflex = reflex_read(_api)
+            ticks = shield_ticks(reflex.get("ticks") or [], seen_tick)
+            seen_tick = ticks[-1][0] if ticks else seen_tick
             task = (state.get("control") or {}).get("task") or {}
             out.append({"t": round(time.time() - began, 2), "hp": state["health"],
                         "pos": [round(state[k], 2) for k in ("x", "y", "z")], "near": near,
@@ -208,7 +224,11 @@ def _sampler(stop, out, began):
                         # what moved the body: the running task and the jar's last reflex act (escape: off the pillar)
                         "task": [task.get("type"), task.get("status"), str(task.get("message") or "")[:60]]
                         if task else None,
-                        "reflex": reflex_last(_api)})
+                        "reflex": reflex.get("last") or reflex.get("lastAct"),
+                        # per tick since the last sample: shield in use, hand, blocking, hit taken
+                        "shield": ticks,
+                        "hits": sum(1 for t in ticks if t[4]),
+                        "blocking_ticks": sum(1 for t in ticks if t[3])})
         except McError as e:
             swallowed("fight._sampler", e)
         stop.wait(TRACE_EVERY_S)
@@ -1107,7 +1127,7 @@ def behaviour_row(name, behaviour):
                      "bench/behaviour.jsonl", 0.6, (), stochastic=True, variant=sorted(cell.items()),
                      expect=FIGHT_EXPECT, tick_rate=60,
                      **({"expect_entities": [(kind, COUNT[cell["count"]], COUNT[cell["count"]])]} if kind else {}),
-                     **({"before": proof["before"]} if "before" in proof else {}))
+                     before=[("&_record_bids",)] + list(proof.get("before", ())))
     return dict(row, check=[("behaviour", behaviour)], kit=["sword"])
 
 SPOTS = {"creeper": [(7, 0, 0)], "skeleton": [(7, 0, 7)], None: [(4, 0, 0), (-3, 0, 3), (1, 0, -4)]}
@@ -1495,4 +1515,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name,
          "deflect": lambda name, *p: name, "line": lambda name, *p: name}
 
-__all__ = ['SPOTS', 'fight_est_s', '_fight_recorded', '_sample_alive', 'IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', 'ENGAGED_INTENT', 'WINDOW_PROBE', 'answered_by_time', 'perception_probe', 'missing_columns', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', 'reflex_last', '_scatter', '_seed_of', '_shapes_fit_the_enemy', 'escaped', '_escaped', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', 'game_time', 'provoked', '_endermen_calm', 'ENDERMEN', 'positions', 'covered_in_time', '_took_cover', '_kept_health', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'heading', 'moves', 'FIREBALL', 'SHOTS', 'SHOT_DIST', 'CORRIDOR', 'CORRIDOR_LEN', 'VOLLEY_WATCH_S', 'corridor', 'shot_at', 'tag_shots', 'next_shot_due', 'VOLLEY_READS', 'volley_read', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row', 'LINE', 'UNSEEN_DRAW_S', 'LINE_SAMPLE_S', 'ARCHER', 'line_wall', 'unblocked', 'line_draw', '_line_watch', 'no_reflex', 'line_row']
+__all__ = ['SPOTS', 'fight_est_s', '_fight_recorded', '_sample_alive', 'IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', 'ENGAGED_INTENT', 'WINDOW_PROBE', 'answered_by_time', 'perception_probe', 'missing_columns', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', 'escaped', '_escaped', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', 'game_time', 'provoked', '_endermen_calm', 'ENDERMEN', 'positions', 'covered_in_time', '_took_cover', '_kept_health', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'heading', 'moves', 'FIREBALL', 'SHOTS', 'SHOT_DIST', 'CORRIDOR', 'CORRIDOR_LEN', 'VOLLEY_WATCH_S', 'corridor', 'shot_at', 'tag_shots', 'next_shot_due', 'VOLLEY_READS', 'volley_read', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row', 'LINE', 'UNSEEN_DRAW_S', 'LINE_SAMPLE_S', 'ARCHER', 'line_wall', 'unblocked', 'line_draw', '_line_watch', 'no_reflex', 'line_row', 'reflex_read', 'shield_ticks']

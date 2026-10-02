@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
 from .data import DOOR_NEAR, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
-from .game import EYE_HEIGHT
+from .game import EYE_HEIGHT, PLAYER_SPRINT
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
 from .knowledge import dig_ticks
 from .beliefs import TICKS_PER_S
@@ -242,7 +242,7 @@ def safe_destination(pos, hazards=None, clear=1.0, standable=None):
     spot, slack = combat_model.best_step(pos, hazards, standable=standable)
     return spot if slack is not None and slack > 0 else None
 
-PLAYER_SPEED = 4.3
+PLAYER_SPEED = PLAYER_SPRINT
 
 def least_way_s(cell, start):
     """Pure: seconds no way to `cell` can beat: the straight walk."""

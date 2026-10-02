@@ -68,7 +68,6 @@ use_order = [["pickaxe"], ["axe", "sword"], ["shovel", "hoe"]]  # most used firs
 "minecraft:small_fireball" = { hp = 1, notice_r = 0.0, attack_s = 1.0, reach = 4.0, keep_out = 4.0, speed = 12.0, burst = true, squeezes = true }
 
 [player]
-speed = 4.3                 # sprinting, blocks per second
 melee_reach = 3.0
 eye_height = 1.62
 shield = 0.15
@@ -88,6 +87,7 @@ react_s = 3.0              # a threat further out than this is the next decision
 no_go_margin = 2.0         # blocks added to a mob's reach before ordinary planning refuses to route through it
 fight_line_q = 0.9         # an optional fight starts only with this quantile of its health loss to spare (S5)
 keepoff_risk = 0.05        # of a creeper's blast a hit-and-back-off fight still takes, per hit (a late step back)
+shield_arrow_block = 0.0   # of the arrows met while chasing an archer the raised shield stops: 0 until the jar holds it up
 eat_s = 1.6                # one bite, and what it heals is regen over the seconds after
 eat_heals = 6.0            # health a bite is worth over the horizon, fed and undisturbed (regen from saturation)
 golden_heals = 8.0         # a golden apple: health back at once (4) and absorption (4) — the only food that heals now

@@ -1310,6 +1310,25 @@ class Pits(unittest.TestCase):
                 self.assertEqual(tasks[-1]["type"] if tasks else None, want)
 
 
+class HiddenCell(unittest.TestCase):
+    """world.hidden_cell: the nearest cell a body stands in that no archer's eye has a clear line to."""
+
+    def test_rows(self):
+        from bonobo.game import EYE_HEIGHT
+        from bonobo.world import hidden_cell
+        floor = {(x, 63, z): "stone" for x in range(-8, 9) for z in range(-8, 9)}
+        wall = {(-2, y, z): "stone" for y in (64, 65) for z in (-1, 0, 1)}
+        eye = (13.5, 64 + EYE_HEIGHT, 0.5)
+        # (situation, blocks, the archers' eyes) → the cell
+        rows = [("must fail: a wall 2 cells off: the cell behind it", {**floor, **wall}, [eye], (-3, 64, 0)),
+                ("open ground: nowhere", floor, [eye], None),
+                ("no archer: here", floor, [], (0, 64, 0))]
+        for name, blocks, eyes, want in rows:
+            with self.subTest(name):
+                solid = lambda c, b=blocks: c in b      # noqa: E731
+                self.assertEqual(hidden_cell(solid, (0.5, 64.0, 0.5), eyes, 8), want)
+
+
 class HeadBuried(unittest.TestCase):
     """skillcore.head_buried / Region.buries: a head suffocates in a full cube only (20260930-041238: the walk
     through an open iron door read suffocating, the interrupt cut the crossing)."""

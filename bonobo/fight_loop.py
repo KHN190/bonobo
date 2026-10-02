@@ -317,7 +317,7 @@ def threat_state(state, rows, work_s=None, ids=()):
           "alive": set(threat.THREAT_ALIVE) | {i for i in ids if i is not None},
           "impacts": list(threat.THREAT_IMPACTS), "lit": set(threat.THREAT_LIT),
           "low_cover": getattr(state.get("field"), "cover", None),
-          "cover": state.get("cover")}
+          "cover": state.get("cover"), "hide": state.get("hide")}
     if work_s is not None:
         st["work_s"] = work_s
     return st
@@ -566,6 +566,7 @@ def _bait(option, state):
     return _evade(option, state)
 
 BATCH = {"fight": _fight, "evade": _evade, "eat": _eat, "reshape": _reshape, "bait": _bait, "cover": _cover,
+         "hide": _cover,
          "place": _place}       # "shoot" is lent by combat (combat.shoot_batch)
 # what a batch reads around the body, by kind; skills register theirs so this module never imports the skill library
 REGION = {}

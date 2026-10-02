@@ -30,6 +30,7 @@ MOBS = {kind: _with_dps(kind, row) for kind, row in CONFIG["mobs"].items()}
 # a creeper is kept off past where its fuse stops (fight_creeper_1: backed to 6.9, blew)
 MOBS["minecraft:creeper"]["keep_out"] = float(CONFIG["engage"]["fuse_stop_blocks"]) + 0.5
 PLAYER = CONFIG["player"]
+PLAYER.setdefault("speed", game.PLAYER_SPRINT)     # the jar walks and chases sprinting (AttackTask, GotoTask)
 COMMON_FOE_HP = MOBS["minecraft:zombie"]["hp"]     # the health an attack's weapon is chosen for
 
 def value(path):

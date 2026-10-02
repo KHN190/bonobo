@@ -413,8 +413,8 @@ def options(state):
         first = min(creepers, key=lambda i: math.dist(here, hazards[i][0]))
         t_c, lost_c = estimate.keepoff_cost(here, hazards[first], sword, prot)
         rest = [h for i, h in enumerate(hazards) if i != first]
-        t_r, lost_r = estimate.fight_cost(hazards[first][0], rest, sword, prot,
-                                          shapes=getattr(grid, "shape_now", ())) if rest else (0.0, 0.0)
+        t_r, lost_r = estimate.fight_cost(hazards[first][0], rest, sword, prot, shapes=getattr(grid, "shape_now", ()),
+                                          shield=bool(state.get("shield"))) if rest else (0.0, 0.0)
         out.append(Option("fight", ids[first], round(lost_c + lost_r, 2), round(t_c + t_r, 2),
                           f"kill the creeper hit-and-back in ~{t_c}s"
                           + (f", then {len(rest)} more" if rest else "")))
@@ -427,7 +427,7 @@ def options(state):
     above = [hazards[i] for i in range(len(hazards)) if i not in reach]
     if reach and not any(MOBS[h[3]].get("burst") for h in hazards):
         t_fight, lost = estimate.fight_cost(here, [hazards[i] for i in reach], sword, prot,
-                                            shapes=getattr(grid, "shape_now", ()))
+                                            shapes=getattr(grid, "shape_now", ()), shield=bool(state.get("shield")))
         nearest = min(reach, key=lambda i: math.dist(here, hazards[i][0]))
         out.append(Option("fight", ids[nearest], lost + blast_here, t_fight,
                           f"kill {len(reach)} in ~{t_fight}s for ~{lost} hp",
@@ -459,6 +459,14 @@ def options(state):
         rest = [h for h in hazards if not MOBS[h[3]].get("tall")]
         out.append(Option("cover", tuple(cover), round(press * walk_s, 2), walk_s, f"under a 2-high roof, {walk_s}s off",
                           leaves=pressure(here, rest, prot, ground=grid) if rest else 0.0))
+    hide = state.get("hide")
+    shooters = [h for h in hazards if MOBS[h[3]].get("ranged")]
+    if shooters and hide is not None:
+        # out of every archer's line of fire (terrain between): their pressure until there, the rest's after
+        walk_s = round(math.dist(here, hide) / float(beliefs.PLAYER["speed"]), 2)
+        rest = [h for h in hazards if not MOBS[h[3]].get("ranged")]
+        out.append(Option("hide", tuple(hide), round(press * walk_s, 2), walk_s, f"out of their line of fire, {walk_s}s off",
+                          leaves=pressure(tuple(hide), rest, prot, ground=grid) if rest else 0.0))
     for option in eat_options(state, hp, press, blast_here):
         out.append(option)
     if grid is not None:
