@@ -24,6 +24,8 @@ import time
 SLOW = {"tests.test_acceptance", "tests.test_offline", "tests.test_incidents", "tests.test_playthrough"}
 
 
+WORKERS = 6          # processes at once: the CPU rule (≤ 6 cores)
+
 def files():
     return [f"tests.{os.path.basename(p)[:-3]}" for p in sorted(glob.glob("tests/test_*.py"))]
 
@@ -97,8 +99,8 @@ def main(argv):
     began = time.time()
     failed, total = [], 0
     sandbox()                       # one empty data directory for the whole run, removed at the end
-    batches = groups(names, min(8, len(names) or 1))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(batches)) as pool:
+    batches = groups(names, min(WORKERS, len(names) or 1))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(WORKERS, len(batches))) as pool:
         for group, code, out, took in pool.map(run_group, batches):
             total += sum(int(ln.split()[1]) for ln in out.splitlines() if ln.startswith("Ran "))
             if code:
