@@ -1,4 +1,8 @@
 # check.run known violations over the fuzzer's corpus (check/corpus; --all adds the enumeration): "INVARIANT COUNT"; counts only fall (gate.sh)
-R3 13
-S1 8
-S4 7
+# + dims dusk, task, chest, cooking, carried, tools and their kept violation states: D1 (a held tool task: no proposal, no reason), D7 (the iron-tools milestone waits for day in the Nether)
+# merge: each count the larger of the two branches' (not re-run: the merged corpus may raise them)
+D1 5
+D7 2
+R3 16
+S1 27
+S4 14

@@ -116,6 +116,18 @@ class Model(unittest.TestCase):
             with self.subTest(d=d.name):
                 self.assertEqual(explore.step(facts, d, ctx)[k], want)
 
+    def test_progress(self):
+        rows = [("a gather leaves logs", of(), dec(), {"step_kind": "gather"}, True),
+                ("must fail: a reach changes nothing", of(), dec(), {"step_kind": "reach"}, False),
+                ("a seek ends with the thing seen", of(), dec(), {"step_kind": "seek"}, True),
+                ("must fail: waiting for a day that does not come", of(dimension="minecraft:the_nether"), dec(),
+                 {"step_kind": "wait"}, False),
+                ("the player holds the body: the next move is theirs", of(takeover=True), dec(),
+                 {"step_kind": "reach"}, True)]
+        for name, facts, d, ctx, want in rows:
+            with self.subTest(name):
+                self.assertEqual(explore.made_progress(facts, d, ctx), want)
+
     def test_cycles(self):
         wait = dec(name="wait")
         graph = {"a": ("a", wait, False), "b": ("c", wait, False), "c": ("b", wait, True), "d": ("e", wait, False)}
