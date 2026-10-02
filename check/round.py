@@ -54,7 +54,22 @@ def decide(facts, fail_then_again=True):
     failure = next((d.failure(facts) for d in DIMS if hasattr(d, "failure")), None) \
         or NotAvailable("check: the step failed here")
     ctx = {}
+    from bonobo import kernel
+    weighed, held_log = [], []
+    real_switches, real_held = kernel.switches, kernel.Held.decide
+
+    def switches(fresh, staying, lost, noise=0.0):
+        out = real_switches(fresh, staying, lost, noise)
+        weighed.append((fresh, staying, lost, noise, out))      # D4: what the kernel weighed, as it weighed it
+        return out
+
+    def held_decide(self, model, state, now, holds=None):
+        before = self.choice.name if self.choice is not None and self.choice.action is not None else None
+        out = real_held(self, model, state, now, holds)
+        held_log.append((before, getattr(out, "name", None), self.because))
+        return out
     with mock.patch.object(api, "api", world.api), mock.patch.object(arbiter, "arbitrate", watched), \
+            mock.patch.object(kernel, "switches", switches), mock.patch.object(kernel.Held, "decide", held_decide), \
             mock.patch.object(api, "detail", lambda *a: None), mock.patch.object(api, "log", lambda *a: None), \
             mock.patch.object(tape, "REPLAY", None), \
             mock.patch.object(api.STATE, "feet_seen", None):     # the stub's /state stays in the round, not the process
@@ -89,7 +104,7 @@ def decide(facts, fail_then_again=True):
             d = Decision(layer="tactic", kind="threat", token=option.kind, target=getattr(option, "target", None),
                          writes=tuple(p for p, _b in world.posts), reason=None, name=f"threat:{option.kind}",
                          alternatives=(("tactic", option.kind, worth),))
-            return d, got, {"step_kind": "threat"}
+            return d, got, {"step_kind": "threat", "switches": weighed, "holds": held_log}
         d = _decision(act, seen.get("chosen"), seen.get("intents", ()), world)
         step = getattr(act, "step", None)
         boxes = [tuple(map(tuple, bx)) for h in mem.homes(snap.dimension) for bx in h.get("boxes", ())]
@@ -103,6 +118,7 @@ def decide(facts, fail_then_again=True):
                 ctx["fight_line"] = why
         if snap.night:
             ctx["night_way"] = b.needs.overnight(snap)[0]
+        ctx.update(plan_ctx(b, act, snap, mem, world), switches=weighed, holds=held_log)
         chosen = seen.get("chosen")
         if fail_then_again and act is not None and chosen is not None:
             # D5: the step fails here; the arbiter's gate drops an intent whose key is cooling (arbiter.viable) —
@@ -110,3 +126,39 @@ def decide(facts, fail_then_again=True):
             b.failed(act.name, failure)
             ctx["reselected"] = chosen.key is None or b.ready(chosen.key)
     return d, got, ctx
+
+
+def plan_ctx(b, act, snap, mem, world):
+    """The plan's invariants' readings (check/inv/plan.py), taken while the stub is the transport: the task's held plan,
+    the production cost model's price of a step on this state, the bag and memory, and the ways to a mine target."""
+    from bonobo.cost import Cost
+    task = getattr(act, "task", None)
+    held = b.held.get(task["id"]) if task is not None else None
+    cost = Cost(snap, mem, b.blacklist, policy=b.policy_cache)
+    out = {"plan": list(held["steps"]) if held is not None else None, "price": cost.estimate, "inv": snap.inv,
+           "mem": mem, "dimension": snap.dimension, "feet": snap.feet,
+           "task_goal": task.get("goal") and {"goal": task["goal"], "args": task.get("args", {})} if task else None,
+           "way": None}
+    step = getattr(act, "step", None)
+    pos = step.detail.get("pos") if step is not None and step.kind == "mine" else None
+    if pos is not None:
+        out["way"] = ways(snap, world, tuple(pos))
+    return out
+
+
+def ways(snap, world, target):
+    """(the way plan_way takes, the cheapest dug way, the cheapest walk the game finds) to stand where `target` is
+    mined, in seconds (None: no such way)."""
+    from bonobo import nav
+    from bonobo.world import Region
+    feet = tuple(snap.feet)
+    lo = tuple(min(a, b) - 4 for a, b in zip(feet, target))
+    hi = tuple(max(a, b) + 4 for a, b in zip(feet, target))
+    region = Region.of(lo, hi, dict(world._cells(lo, hi)))
+    stands = [(target[0] + dx, target[1] + dy, target[2] + dz) for dx, dy, dz in
+              ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0))]
+    walks = nav.Walks(stands, 0.5)
+    chosen = nav.plan_way(region, feet, target, "mine", snap.inv, set(), walks=walks)[2]
+    dug = nav.plan_way(region, feet, target, "mine", snap.inv, set(), walks={})[2]
+    found = [float(r["seconds"]) for c in stands if (r := walks[c]) and r.get("found") and r.get("seconds") is not None]
+    return chosen, dug, min(found) if found else None
