@@ -51,9 +51,10 @@ def held_for(value, goal, snap, mem):
     """The held plan of `value` for `goal` (brain.held's shape: steps, sig, event, dim, want), each step priced by the
     production cost model as the planner prices its own (Step.est: D6 reads it)."""
     from bonobo.cost import Cost
+    from typing import cast
     out = _held_for(value, goal, snap, mem)
     cost = Cost(snap, mem)
-    for st in out["steps"]:
+    for st in cast(list, out["steps"]):
         st.est = cost.estimate(st)
     return out
 

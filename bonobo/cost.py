@@ -5,7 +5,7 @@ import math
 from .api import McError
 from .beliefs import CONFIG as _PLAY
 from .data import DEEPSLATE_TOP, LEVEL_SIGHT_DEPTH, STAIR_CELLS, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
-from .knowledge import soil_depth, dig_ticks, held_tiers, own_work, work_s, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
+from .knowledge import soil_depth, dig_ticks, held_tiers, own_work, work_s, dawn_s, FIND_AT, MIN_FIND_P, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
 from .world import ROUTES, entities, job_ready, nearest, route_key, sight_y
 from .skill import MIN_SAMPLES
@@ -181,9 +181,14 @@ class Cost:
     def estimate(self, step):
         """Ticks this step takes from here: measured work when there is enough of it, the prior otherwise, plus the walk to where it happens."""
 
+        return self.work_ticks(step) + self._walk(step)
+
+    def work_ticks(self, step):
+        """Ticks of the step's own work, without the walk to it: measured when there is enough of it, else the prior
+        less what the carried tools save. The column solver prices a column per unit by this (the walks are its seek
+        columns); a planned step's price is `estimate`."""
         measured = self.measured(step)
-        work = measured if measured is not None else max(0, self._prior_work(step) - self._sped_up(step))
-        return work + self._walk(step)
+        return measured if measured is not None else max(0, self._prior_work(step) - self._sped_up(step))
 
     def _sped_up(self, step):
         """Ticks the carried tools save on this step's prior work (work_of; the prior is the hand's)."""
@@ -206,6 +211,13 @@ class Cost:
         return breaks, kills
 
     def _prior_work(self, step):
+        """The step's work before anything is measured: a seek is the search (to where one is, over the chance it is
+        found: seek_s / find_p), a wait for day the night left on the clock, the rest the PRIOR_TICKS table."""
+        if step.kind == "seek":
+            kinds = list(step.detail.get("kinds") or [step.token])
+            return round(self.seek_s(kinds) / max(MIN_FIND_P, self.find_p(kinds)) * TICKS_PER_S)
+        if step.kind == "wait":
+            return round(dawn_s(getattr(self.snap, "state", None) or {}) * TICKS_PER_S)
         return prior_ticks(step)
 
     SOURCED = ("gather", "mine", "hunt", "trade")      # step kinds that walk to where their thing is found
@@ -267,16 +279,7 @@ class Cost:
         """Seconds a whole plan takes: Σ Step.est."""
         return sum(s.est for s in steps) / TICKS_PER_S
 
-    # -- what the column solver asks (actions.table), in seconds
-    WORK_S = {("gather", None): 4.0, ("craft", None): 3.0, ("smelt", None): 10.0, ("mine", None): 3.0,
-              ("hunt", None): 15.0, ("shelter", "dig in"): 25.0, ("shelter", "wall in"): 40.0,
-              ("shelter", "hut"): 120.0, ("sleep", "bed"): 8.0,
-              ("room", "tidy"): 15.0, ("room", "deposit"): 60.0, ("farm", None): 60.0, ("breed", None): 20.0}
-
-    def work_s(self, kind, token):
-        """Seconds per unit of work once there."""
-        return self.WORK_S.get((kind, token), self.WORK_S.get((kind, None), 10.0))
-
+    # -- what the column solver asks (actions.table), in seconds: its columns' work is `work_ticks`
     def where(self, kinds):
         """The position of the nearest known one, or None: what "on the way" is judged by."""
         hit = self._nearest(kinds)

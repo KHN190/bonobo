@@ -52,7 +52,7 @@ TRACK_FILE = paths.data("track.jsonl")
 # Step kinds a night under cover can carry on with (data.NIGHT_WORK). Everything else (a tree, an animal, a plan's wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
 from .data import NIGHT_WORK  # noqa: E402
 from . import beliefs, estimate  # noqa: E402
-from .data import critical_hp  # noqa: E402
+from .data import TOOL_MATERIAL_FOR_TIER, critical_hp, weapon_hit  # noqa: E402
 
 
 def fight_line_holds(contract, args, state, inv):
@@ -69,6 +69,41 @@ def fight_line_holds(contract, args, state, inv):
     if estimate.fight_line_ok(hp, floor, mean, hit):
         return True, None
     return False, f"health {hp:.0f} under the fight line for {kinds} ({floor:.0f} + {estimate.loss_q(mean, hit):.0f})"
+
+# the armour the line asks for: the first a plan can make from mined iron (data.recipes), pieces by points, most first
+LINE_ARMOR = "iron"
+
+
+def line_raisers(kinds, state, inv, material=LINE_ARMOR):
+    """Pure (S5 as a precondition): [needs rows] — the kit that puts an optional fight against `kinds` inside the fight
+    line from here, each alone enough: a better sword, the armour of `material` piece by piece (most points first,
+    over what is worn), and a better sword with each of those. Empty when none does (the line is health's)."""
+    from .data import ARMOR_POINTS, ARMOR_SLOTS
+    hp, floor = float(state.get("health", 0.0)), critical_hp(state)
+    shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
+    sword, armor = _k.best_sword(inv), float(state.get("armor", 0))     # the item carried (None: the hand)
+
+    def inside(item, points):
+        mean, hit = estimate.melee_loss(kinds, item, beliefs.protection(points, shield))
+        return estimate.fight_line_ok(hp, floor, mean, hit)
+
+    sets, rows, points = [], [], armor
+    for piece in sorted(ARMOR_POINTS[material], key=lambda p: -ARMOR_POINTS[material][p]):
+        worn_mat, _, worn_piece = bare(inv.worn(ARMOR_SLOTS[piece]) or "air").rpartition("_")
+        gain = ARMOR_POINTS[material][piece] - ARMOR_POINTS.get(worn_mat, {}).get(worn_piece, 0)
+        if gain > 0:
+            rows, points = rows + [(f"minecraft:{material}_{piece}", 1)], points + gain
+            sets.append((rows, points))
+    # the craftable swords that hit harder than the one carried (data.weapon_hit), each by its tier for the needs row
+    strength = lambda item: weapon_hit(item)[0] * weapon_hit(item)[1]  # noqa: E731
+    swords = sorted((t, f"minecraft:{m}_sword") for t, m in TOOL_MATERIAL_FOR_TIER.items()
+                    if strength(f"minecraft:{m}_sword") > strength(sword))
+    out = [[("tool", "sword", t)] for t, item in swords if inside(item, armor)]
+    for rows_, points_ in sets:
+        out += [rows_] if inside(sword, points_) else []
+        out += [[("tool", "sword", t)] + rows_ for t, item in swords if inside(item, points_)]
+    return out
+
 
 def act_on_surface(act):
     """Pure: does this act's step walk the surface (arbiter.on_surface)? An act with no step (a chain, a whole
@@ -615,6 +650,12 @@ class Brain:
             self.fail_task(task, f"nothing left to plan, still short of {waiting}")
             return None
         step = next((s for s in held["steps"] if self.valid(s, snap, ctx)), None)
+        if step is None and ctx is not None:
+            # a step refused only by the fight line (S5): the kit that puts it inside the line is this task's next need
+            kinds = self.fight_blocked(held["steps"], snap, ctx)
+            act = self.raise_line(kinds, snap, ctx) if kinds else None
+            if act is not None:
+                return act
         if step is None:
             # same bag, same plan: re-solving every round ran nothing, so the step cools until the next event
             self.fail_step(task, NotAvailable("no step of the plan can run from here"))
@@ -636,6 +677,31 @@ class Brain:
         if found is not None and not fight_line_holds(found[0].contract, (ctx,) + tuple(found[1]), snap.state, snap.inv)[0]:
             return False
         return dispatch.can_start(ctx, step)
+
+    def fight_blocked(self, steps, snap, ctx):
+        """The mob kinds of the first held step refused only by the fight line (its inputs held, its key ready, a
+        provider found), or None."""
+        for st in steps:
+            if not (runnable(st, snap.inv) and self.ready(step_key(st))):
+                continue
+            found = dispatch.runner_for(ctx, st)
+            if found is None:
+                continue
+            contract, args = found[0].contract, (ctx,) + tuple(found[1])
+            if not fight_line_holds(contract, args, snap.state, snap.inv)[0]:
+                return list(contract.fights(skillkit.Call(args, {})) or ())
+        return None
+
+    def raise_line(self, kinds, snap, ctx):
+        """The first step toward the cheapest kit (by the plan's seconds) that puts a fight against `kinds` inside the
+        line (line_raisers), or None when no kit does or none can be planned."""
+        import math
+        priced = [(self.needs.plan_s(goals.have(*rows), snap), rows) for rows in line_raisers(kinds, snap.state, snap.inv)]
+        priced = [(secs, rows) for secs, rows in priced if secs < math.inf]
+        if not priced:
+            return None
+        _secs, rows = min(priced, key=lambda p: p[0])
+        return self.need_act("fight line", goals.have(*rows), snap, ctx)
 
     def repair(self, task, goal, snap, held, cost):
         """Bring the held plan up to date: run-once goals keep what is left (a road walks on); item goals are re-solved from the bag."""

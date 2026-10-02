@@ -2,7 +2,7 @@
 import math
 
 from .game import COVERED_SKY, EYE_HEIGHT
-from .data import (ANIMAL_HP, BASE_MARKERS, COLORS, DAY_END, DAY_TICKS, SOIL_DEPTH, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS,
+from .data import (ANIMAL_HP, BASE_MARKERS, COLORS, DAY_END, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS,
                    HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, ATTACKS_PER_S, BREAK_DIVISOR,
                    DEEPSLATE_ORE_HARDNESS, HAND_ATTACKS_PER_S, HAND_DAMAGE, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS,
                    SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit)
@@ -755,7 +755,22 @@ def sheltered(sky_light, enclosed, in_site=lambda: False):
 PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 60,
                "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
                "withdraw": 100, "look": 40, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
-               "farm": 6000, "trade": 600}         # farm: tilling, sowing and a crop's growth; trade: one sale
+               "farm": 1200, "trade": 600,         # farm: tilling and sowing a plot (its growth: GROW_S); trade: one sale
+               "reach": 200,                       # reach: up for air, to land, a block underfoot
+               "breed": 400,                       # breed: feeding the pair (the young's growth: GROW_S, then a kill)
+               "shelter:dig_in": 500, "shelter:pod": 800, "shelter:hut": 2400,      # the night's shelters, built
+               "room:tidy": 300, "room:deposit": 1200}                               # bag room: tidy, or a trip to store
+GROW_S = {"crop": 15 * 60, "animal": 20 * 60}     # a wheat plot to ripe; a bred animal to grown (jobs.DURATION)
+NIGHT_S = 420.0               # a night, when the clock cannot say how much of it is left
+MIN_FIND_P = 0.02             # a floor keeps a rare find a price, not a wall
+
+
+def dawn_s(state):
+    """Pure: seconds until the sun is up again, from the /state clock; a whole night when it cannot say."""
+    if "timeOfDay" not in (state or {}):
+        return NIGHT_S
+    t = int(state["timeOfDay"]) % DAY_TICKS
+    return max(1.0, ((NIGHT_END - t) % DAY_TICKS) / 20.0)
 
 
 def prior_ticks(step):
@@ -771,4 +786,12 @@ def prior_ticks(step):
         return PRIOR_TICKS["hunt_each"] * step.detail.get("kills", step.count)
     if k == "fill":
         return PRIOR_TICKS["fill"] * step.count
+    if k == "take" and step.token in TAKEABLE:
+        return round(float(TAKEABLE[step.token]["break_s"]) * TICKS_PER_S) * max(1, int(step.count))
+    if k == "farm":
+        return (PRIOR_TICKS["farm"] + GROW_S["crop"] * TICKS_PER_S) * max(1, int(step.count))
+    if k == "breed":
+        return (PRIOR_TICKS["breed"] + GROW_S["animal"] * TICKS_PER_S + PRIOR_TICKS["hunt_each"]) * max(1, int(step.count))
+    if f"{k}:{step.token}" in PRIOR_TICKS:
+        return PRIOR_TICKS[f"{k}:{step.token}"]
     return PRIOR_TICKS.get(k, 1000)
