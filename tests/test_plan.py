@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import actions, data, memory  # noqa: E402
+from bonobo import actions, data, knowledge, memory  # noqa: E402
 from bonobo.solve import Action, Unsolvable, reach_cost, solve  # noqa: E402
 from tests.world import inventory, places, slot, snapshot  # noqa: E402
 
@@ -124,8 +124,8 @@ COLUMNS = [
     ("mine:minecraft:cobblestone", {"bag_free": 1, actions.at_dim("stone"): 1},
      {"minecraft:cobblestone": 1, "stone": 1}),
     ("mine:minecraft:raw_iron", {actions.tool_dim("pickaxe", 1): 1}, {actions.uses_dim("pickaxe"): -1}),
-    ("craft:minecraft:stone_pickaxe", {}, {actions.uses_dim("pickaxe"): data.TOOL_USES["stone"]}),
-    ("craft:minecraft:iron_pickaxe", {}, {actions.uses_dim("pickaxe"): data.TOOL_USES["iron"]}),
+    ("craft:minecraft:stone_pickaxe", {}, {actions.uses_dim("pickaxe"): knowledge.spare_uses(data.TOOL_USES["stone"])}),
+    ("craft:minecraft:iron_pickaxe", {}, {actions.uses_dim("pickaxe"): knowledge.spare_uses(data.TOOL_USES["iron"])}),
     ("gather:log", {actions.DAY_DIM: 1, "hands_free": 1}, {}),
     ("take:bed", {}, {"bed": 1}),
 ]
@@ -159,10 +159,12 @@ class TheColumns(unittest.TestCase):
 
 
 # (bag) → the pickaxe uses the state vector carries (usable ones only: 3 or more left)
-USES = [("must fail: none", inventory(), 0), ("a fresh iron pickaxe", inventory(("iron_pickaxe", 1)), 250),
-        ("a worn one, 10 left", inventory(slot("iron_pickaxe", 1, 240)), 10),
-        ("two, added up", inventory(("stone_pickaxe", 1), slot("iron_pickaxe", 1, 200)), 131 + 50),
-        ("one about to break (2 left) does not count", inventory(slot("iron_pickaxe", 1, 248)), 0)]
+# the uses a tool spends before it stops working: what is left less knowledge.TOOL_WORKING
+_IRON, _STONE, _W = data.TOOL_USES["iron"], data.TOOL_USES["stone"], knowledge.TOOL_WORKING
+USES = [("must fail: none", inventory(), 0), ("a fresh iron pickaxe", inventory(("iron_pickaxe", 1)), _IRON - _W),
+        ("a worn one, 10 left", inventory(slot("iron_pickaxe", 1, _IRON - 10)), 10 - _W),
+        ("two, added up", inventory(("stone_pickaxe", 1), slot("iron_pickaxe", 1, _IRON - 50)), _STONE - _W + 50 - _W),
+        ("one about to break (2 left) does not count", inventory(slot("iron_pickaxe", 1, _IRON - 2)), 0)]
 
 
 class ToolsWear(unittest.TestCase):
