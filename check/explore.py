@@ -98,9 +98,10 @@ def states():
 
 
 def made_progress(f, d, ctx):
-    """An edge D7 does not hold against: a step that leaves something in the world, a danger answer, or a round
-    while the player holds the body — what happens next is the player's move (S6), not a decision's."""
-    return ctx.get("step_kind") in PROGRESS or d.layer in oracle.DANGER_LAYERS or bool(f["takeover"])
+    """An edge D7 does not hold against: a step that leaves something in the world, a seek (it ends with the sought
+    thing seen and noted: memory, which no fact here reads), a danger answer, or a round while the player holds the
+    body — what happens next is the player's move (S6), not a decision's."""
+    return ctx.get("step_kind") in PROGRESS + ("seek",) or d.layer in oracle.DANGER_LAYERS or bool(f["takeover"])
 
 
 def judge(f):

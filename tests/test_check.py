@@ -117,6 +117,9 @@ class Model(unittest.TestCase):
     def test_progress(self):
         rows = [("a gather leaves logs", of(), dec(), {"step_kind": "gather"}, True),
                 ("must fail: a reach changes nothing", of(), dec(), {"step_kind": "reach"}, False),
+                ("a seek ends with the thing seen", of(), dec(), {"step_kind": "seek"}, True),
+                ("must fail: waiting for a day that does not come", of(dimension="minecraft:the_nether"), dec(),
+                 {"step_kind": "wait"}, False),
                 ("the player holds the body: the next move is theirs", of(takeover=True), dec(),
                  {"step_kind": "reach"}, True)]
         for name, facts, d, ctx, want in rows:

@@ -20,13 +20,16 @@ def domain():
 
 
 def alpha(a):
+    """The first live task that is one of this fact's (another dimension's task — a quarry's hunt — is its own)."""
     from bonobo import tasks
-    head = tasks.head(tasks.load())
-    if head is None:
-        return "none"
-    if head["goal"] == "have":
-        return "tool" if head["args"]["needs"][0][0] == "tool" else "none"
-    return head["goal"]
+    for t in tasks.load():
+        if t["state"] not in tasks.LIVE:
+            continue
+        if t["goal"] == "have" and t["args"]["needs"][0][0] == "tool":
+            return "tool"
+        if t["goal"] in VALUES:
+            return t["goal"]
+    return "none"
 
 
 def gamma(value, facts, g):
