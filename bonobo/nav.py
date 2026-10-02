@@ -181,7 +181,7 @@ def mod_features():
     global _features
     if _features is None:
         try:
-            v = tuple(int(x) for x in re.findall(r"\d+", str(api.status().get("version", "0")))[:3])
+            v = tuple(int(x) for x in re.findall(r"\d+", str(api.game_status().get("version", "0")))[:3])
         except McError:
             return set()
         # "ladder_in_cell" off: the server rejects the plate 0.02 off-centre; climb by pillaring

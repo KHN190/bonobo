@@ -34,7 +34,7 @@ def plan(t, range_=8):
     return {"target": t, "found": r["found"], "expanded": r["expanded"], "est_s": r.get("seconds"),
             "plan_ms": round((time.time() - t0) * 1000), "steps": len(r["steps"]), "actions": kinds}
 
-def log(row):
+def _say(row):
     with open(OUT, "a") as f:
         f.write(json.dumps({"t": int(time.time()), **row}) + "\n")
 
@@ -59,7 +59,7 @@ def main():
             row["s_per_100"] = round(row["real_s"] / max(row["dist"], 1) * 100, 1)
             here = (end["blockX"], end["blockY"], end["blockZ"])
         rows.append(row)
-        log(row)
+        _say(row)
         print(json.dumps(row))
     found = [r for r in rows if r["found"]]
     print(f"\n{len(found)}/{len(rows)} planned; mean plan {sum(r['plan_ms'] for r in rows) / len(rows):.0f} ms")

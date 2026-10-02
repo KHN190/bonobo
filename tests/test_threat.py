@@ -710,7 +710,7 @@ class Kit(unittest.TestCase):
                 ("must fail: the held slot moved", base, 10.0, {**base, "selectedSlot": 3}, 10.1, False),
                 ("armour put on", base, 10.0, {**base, "armor": 15}, 10.1, False),
                 ("a chest screen closed", {**base, "screen": "GenericContainerScreen"}, 10.0, base, 10.1, False),
-                ("KIT_TTL_S passed (a sword given by command)", base, 10.0, base, 10.0 + perception.KIT_TTL_S, False)]
+                ("READ_TTL_S passed (a sword given by command)", base, 10.0, base, 10.0 + perception.READ_TTL_S, False)]
         for name, a, ta, b, tb, same in rows:
             with self.subTest(name):
                 self.assertEqual(sig(a, ta) == sig(b, tb), same)

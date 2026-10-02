@@ -8,6 +8,7 @@ import time
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import knowledge as K
 from . import api, jobs, nav, skillcore
+from . import world
 from .api import McError, NotAvailable, log
 from .data import BAN_MAX_S, EYE_HEIGHT, bare
 from .skill import skill
@@ -255,10 +256,10 @@ def farm_done(result, base, held, growing):
 def plant_farm(ctx):
     """Wheat: reap a grown crop nearby first, else make a 3×3 plot (dig, water, till, sow) and start a crop job."""
 
-    ripe = ripe_near(skillcore.feet(), RIPE_LOOK)
+    ripe = ripe_near(world.feet(), RIPE_LOOK)
     if ripe and _reap(ripe) > 0:
         return REAPED
-    here = skillcore.feet()
+    here = world.feet()
     state = body_state(ctx, Region(add(here, (-9, -3, -9)), add(here, (9, 3, 9))))
     region = state["region"]
     centre = started_plot(region, here) or farm_plot(region, here, ctx.policy.protected)
@@ -305,7 +306,7 @@ def plant_farm(ctx):
         raise api.NavFailed(f"the plot's stand {stand} not reachable")
     seen = Region(add(centre, (-3, -1, -2)), add(centre, (2, 3, 2)))
     finish = finish_commands(centre, stand, seen)
-    api.detail(f"  plot finish: stand {stand}, feet {skillcore.feet()}, {column()}")
+    api.detail(f"  plot finish: stand {stand}, feet {world.feet()}, {column()}")
     done += api.run_chain(finish, stop_on_failure=False) if finish else []
     tasks = ring + finish
 

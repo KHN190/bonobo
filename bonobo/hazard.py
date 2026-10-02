@@ -123,22 +123,22 @@ def extinguish_commands(s, has_bucket, water):
         raise api.NotAvailable("on fire with no water to put it out")
     return [{"type": "goto", "x": water["x"], "y": water["y"], "z": water["z"], "range": 0.5, "partial": True}]
 
-def _eat(ctx, s):
+def _meal(ctx, s):
     """Critical health with food carried: eat (healing needs a full bar); full already, it heals nothing more here."""
     if not SKILLS["eat"](ctx):
         raise api.NotAvailable("full: eating heals nothing more")
 
-def _cover(ctx, s):
+def _into_cover(ctx, s):
     """Into cover: the cheapest shelter that can run here now (needs.cover, lent like the other rescues)."""
     SKILLS["cover"](ctx, s)
 
 # each hazard's recovery, in order (S1): its rescue first, then the next way that answers the same hazard when one
 # is spent (over its budget, or refused); the list spent → the reasons. The suffocation rescue may break a home block
 # at critical hp (survive.unbury): a life before a build. Water poured on lava sets it: the lava's second way.
-RECOVERY = {"lava": [_leave_lava, _extinguish], "drowning": [_surface, _cover], "suffocating": [_unbury],
-            "burning": [_extinguish, _cover],
+RECOVERY = {"lava": [_leave_lava, _extinguish], "drowning": [_surface, _into_cover], "suffocating": [_unbury],
+            "burning": [_extinguish, _into_cover],
             # critical health: under a threat out of its reach first (a meal under blows is never finished); calm, eat
-            "critical": {"threatened": [_cover, _eat], "calm": [_eat, _cover]}}
+            "critical": {"threatened": [_into_cover, _meal], "calm": [_meal, _into_cover]}}
 
 
 def ways(k, threatened=False):
@@ -164,7 +164,7 @@ def recover(ctx, k, state, threatened=False):
 STOP_ONLY = ("falling",)
 assert set(RECOVERY) | set(STOP_ONLY) == set(KINDS), "every hazard kind is recovered or declared stop-only"
 
-def due(state, buried=None):
+def rescue_due(state, buried=None):
     """The hazard the brain must answer before anything else this round, or None."""
 
     if state.get("inWater") and drowning_in(state) <= REFLEX_SLACK_S:
@@ -180,7 +180,7 @@ def due(state, buried=None):
 def handle(ctx, state, attempt, ready, threatened=False):
     """Run the rescue for the hazard on the body, if there is one."""
 
-    k = due(state)
+    k = rescue_due(state)
     if k is None or not ready(f"rescue {k}"):
         return False
     log(f"L0: {k} → rescue")

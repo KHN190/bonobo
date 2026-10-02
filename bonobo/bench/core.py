@@ -5,6 +5,7 @@ import os
 import time
 
 from .. import lifecycle, paths
+from ..api import READ_EVERY_S
 from ..data import CRITICAL_HP
 
 SCENARIOS = {}
@@ -36,7 +37,7 @@ def fight_line_hp(mob, sword, armor=0, shield=False):
     at this sword tier and armour: the production line (estimate.fight_line_ok), never a typed hp."""
     from .. import beliefs, estimate
     from ..data import critical_hp
-    mean, hit = estimate.fight_loss([mob], sword, beliefs.protection(armor, shield))
+    mean, hit = estimate.melee_loss([mob], sword, beliefs.protection(armor, shield))
     return critical_hp({}) + estimate.loss_q(mean, hit)
 
 
@@ -202,7 +203,6 @@ def summoned(cmds):
     return out
 
 
-CELL_POLL_S = 0.1
 CELL_CAP_S = 2.0        # a cell's summons counted on the server by then, or the row records what is there
 
 
@@ -214,7 +214,7 @@ def _cell_ready(cmds, feedback):
         if all(server_count(_command(f"execute as @p at @s if entity @e[type={t},distance=..40]", feedback)) >= n
                for t, n in want.items()):
             return
-        time.sleep(CELL_POLL_S)
+        time.sleep(READ_EVERY_S)
 
 
 def _sweep(name, cells, build, record, path, settle=CELL_CAP_S):

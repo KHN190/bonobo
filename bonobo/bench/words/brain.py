@@ -28,10 +28,11 @@ from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve,
                          _command, _count_blocks, _drain, at, server_count, set_brain)
 from ..runner import *        # noqa: F403
 from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
-                           module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
+                           module_deps, record, run_named, save_table, setup_mismatches, silent_failure, status)
 from ..bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
 from ..core import SWEEP, _platform  # noqa: F401
 from ...api import McError
+from ...skillcore import SETTLE_POLL_S
 from .scene import *  # noqa: F401,F403
 from .checks import *  # noqa: F401,F403
 from .runs import *  # noqa: F401,F403
@@ -267,7 +268,6 @@ def gamerule_value(lines):
 
 FOOD_KEYS = ("foodLevel", "foodSaturationLevel", "foodExhaustionLevel")    # the server's bar (the client's lags)
 DRAIN_TRIES = 3             # re-planned from fresh server reads while short, at most this often
-DRAIN_POLL_S = 0.25         # how often the effect's end is looked for
 HUNGER_ON = 'execute if entity @p[nbt={active_effects:[{id:"minecraft:hunger"}]}]'
 
 
@@ -318,7 +318,7 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
                 end = time.time() + secs + max_s          # the server's clock may lag the wall's
                 time.sleep(secs)
                 while _hunger_on() and time.time() < end:
-                    time.sleep(DRAIN_POLL_S)
+                    time.sleep(SETTLE_POLL_S)
             last = server_food()["foodLevel"]
             reads.append({"final": last})
             if last is None:

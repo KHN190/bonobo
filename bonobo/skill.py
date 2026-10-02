@@ -372,7 +372,7 @@ def skill(name=None, **options):
                 RESUME[key] = (time.time(), c.base, c.want, c.keep)
                 raise
             except McError as e:
-                why = bag_full_reason(str(e), _free_slots()) if contract.fills_bag else None
+                why = bag_full_reason(str(e), _bag_slots_free()) if contract.fills_bag else None
                 if why is None:
                     raise
                 raise (type(e)(why) if _same_shape(e) else McError(why)) from e
@@ -396,12 +396,13 @@ def skill(name=None, **options):
             api.detail(skill_line(contract.name, c.times))
             if not verified:
                 msg = f"{contract.name}: finished without reaching its goal"
-                raise McError((bag_full_reason(msg, _free_slots()) if contract.fills_bag else None) or msg)
+                raise McError((bag_full_reason(msg, _bag_slots_free()) if contract.fills_bag else None) or msg)
             LAST_S[contract.name] = time.time() - t0
             if STATS is not None:
                 try:
                     STATS.record_duration(contract.key(c), time.time() - t0, max(1, contract.units(c)))
-                except (IndexError, KeyError, TypeError):
+                except (IndexError, KeyError, TypeError) as e:
+                    api.swallowed("skill.once", e)
                     pass
             return out
 
@@ -447,25 +448,28 @@ def bag_check(contract, c):
     ids = () if isinstance(contract.fills_bag, bool) else contract.fills_bag(c)     # True: any item
     try:
         inv = skillcore.Inventory()
-    except McError:
+    except McError as e:
+        api.swallowed("skill.bag_check", e)
         return
     if not has_room(inv.slots, inv.free_slots(), set(ids)):
         what = ", ".join(sorted(i.split(":")[-1] for i in ids)[:3]) or "anything"
         raise McError(bag_full_reason(f"{contract.name}: no room for {what}", 0))
 
-def _free_slots():
+def _bag_slots_free():
     try:
         return skillcore.Inventory().free_slots()
-    except McError:
+    except McError as e:
+        api.swallowed("skill._bag_slots_free", e)
         return None
 
 def _same_shape(e):
     """The failure's own type can carry the new message (a one-argument McError subclass)."""
     try:
         type(e)("")
-        return True
-    except TypeError:
+    except TypeError as wrong:
+        api.detail(f"   {type(e).__name__} takes more than a message ({wrong}): raised as it was")
         return False
+    return True
 
 HEARTBEAT = paths.data("skill-heartbeat")
 
@@ -474,7 +478,8 @@ def _heartbeat(name):
     try:
         with open(HEARTBEAT, "w") as f:
             f.write(f"{time.time():.0f} {name}\n")
-    except OSError:
+    except OSError as e:
+        api.swallowed("skill._heartbeat", e)
         pass
 
 def _drive(contract, c, gen):
@@ -517,7 +522,7 @@ def _drive_checks(contract, c, marker, t0, dim0, last, since):
     _heartbeat(contract.name)
     api.check_interrupt(t0, contract.soft)   # Python-side loops stop too, not only mod tasks
     s = body_now()
-    if skillcore.dead(s):
+    if skillcore.really_dead(s):
         # dead ends every skill (a dragon fight kept travelling after dying); an interruption, not a failure
         raise api.Died(f"{contract.name}: died")
     if contract.done and contract.done(c):

@@ -11,7 +11,7 @@ import threading as _threading
 import time
 from typing import Any
 
-from ... import estimate, paths  # noqa: F401
+from ... import beliefs, estimate, paths  # noqa: F401
 from ..core import bag_now
 from ...data import MAX_HP
 import importlib
@@ -29,10 +29,10 @@ from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve,
                          _command, _count_blocks, _drain, at, server_count, set_brain)
 from ..runner import *        # noqa: F403
 from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
-                           module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
+                           module_deps, record, run_named, save_table, setup_mismatches, silent_failure, status)
 from ..bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
 from ..core import SWEEP, _platform  # noqa: F401
-from ...api import McError
+from ...api import McError, READ_EVERY_S
 from .scene import *  # noqa: F401,F403
 from .checks import *  # noqa: F401,F403
 from .runs import *  # noqa: F401,F403
@@ -155,7 +155,7 @@ def _combat_intent(state: dict[str, Any]):
     if not rows:
         return {"rows": 0, "held": "ignore", "worth_s": 0.0, "options": {}, "state": None}
     try:
-        state = dict(state, field=perception.ground(state),
+        state = dict(state, field=perception.field_around(state),
                      **perception.kit(str(state.get("selected", "")) + str(state.get("screen"))))
         state["dig_ok"] = perception.dig_ok(state["field"], state.get("pick_tier"))     # as the live answer reads it
     except McError:
@@ -639,7 +639,7 @@ def _record_with_start(record):
         return dict(record(cell), trace_start_y=y)
     return rec
 
-# -- CT3: fights on a walled platform, the whole agent running; judged by the world and the decision rhythm (no bid gap over 1.5 × FIGHT_POLL_S)
+# -- CT3: fights on a walled platform, the whole agent running; judged by the world and the decision rhythm (no bid gap over 1.5 × api.READ_EVERY_S)
 FIGHT_LOG: dict = {"bids": []}        # also keeps the real fight_loop.bid
 from ... import lifecycle as _lifecycle  # noqa: E402
 _lifecycle.in_place(__name__, "FIGHT_LOG", "ENGAGED_INTENT", "WINDOW_PROBE")     # a row's own record
@@ -851,7 +851,7 @@ def _decision_gaps_ok(factor=1.5):
         from ... import fight_loop
         bids = FIGHT_LOG["bids"]
         return any(b[1] for b in bids) and \
-            max(engaged_gaps(bids), default=0.0) <= fight_loop.FIGHT_POLL_S * factor
+            max(engaged_gaps(bids), default=0.0) <= READ_EVERY_S * factor
     return check
 
 def _gone(kinds):
@@ -1125,7 +1125,7 @@ SPOTS = {"creeper": [(7, 0, 0)], "skeleton": [(7, 0, 7)], None: [(4, 0, 0), (-3,
 def fight_est_s(mobs, n, sword=2):
     """Pure: the production estimate of the fight (estimate.fight_cost: walks and kills, nearest first) of `n` of each
     of `mobs` placed at SPOTS, the iron sword's tier."""
-    hazards = [estimate.row(spot, float(estimate.MOBS[f"minecraft:{m}"].get("reach", 3.0)), (0.0, 0.0, 0.0),
+    hazards = [estimate.row(spot, float(beliefs.MOBS[f"minecraft:{m}"].get("reach", 3.0)), (0.0, 0.0, 0.0),
                             f"minecraft:{m}") for m in mobs for spot in SPOTS.get(m, SPOTS[None])[:n]]
     return estimate.fight_cost((0.0, 0.0, 0.0), hazards, sword, 0.0)[0]
 

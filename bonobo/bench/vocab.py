@@ -40,7 +40,7 @@ from .core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, 
                          _command, _count_blocks, _drain, at, server_count, set_brain)
 from .runner import *        # noqa: F403
 from .runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
-                           module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
+                           module_deps, record, run_named, save_table, setup_mismatches, silent_failure, status)
 from .bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
 from .words import brain, checks, door, fight, runs, ways, scene as _scene_words
 from .words.scene import *  # noqa: F401,F403
@@ -733,7 +733,7 @@ merged([dict.fromkeys(m.__all__) for m in WORD_MODULES] + [dict.fromkeys(_OWN)],
 __all__ = ["BASES", "FLAG", "MAX_RUNS", "NEXT_ROW", "NOTES", "PORTAL_8_OF_10", "ROAD_TIMES", "SCENARIOS", "_achieve", "_c",
            "_chat", "_count_blocks", "_drain", "_queue", "_road_reuse", "_worn_head", "at", "base_row",
            "cached_timeout", "code_for", "core", "diff_hunks", "failed_last", "jar_matches_source", "load_table",
-           "one_row", "pending", "real_row", "fresh_row", "reset_brain", "run", "save_table", "select", "set_brain", "skill_spans",
+           "one_row", "pending", "real_row", "fresh_row", "reset_brain", "run_named", "save_table", "select", "set_brain", "skill_spans",
            "status", "tier_of", "time", "touched_skills", "verdict"]
 __all__ += _scene_words.__all__
 __all__ += checks.__all__

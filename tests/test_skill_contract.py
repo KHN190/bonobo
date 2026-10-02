@@ -20,7 +20,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, arbiter, blueprints, brain, gather, nav, retry, skillcore, survive, tape  # noqa: E402,F401  (brain: every skill module)
+from bonobo import api, arbiter, beliefs, blueprints, brain, gather, nav, retry, skillcore, survive, tape  # noqa: E402,F401  (brain: every skill module)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
 from bonobo.knowledge import members  # noqa: E402
@@ -152,8 +152,8 @@ class Settle(_Clean):
         and asks nothing more of the world.)"""
         rows = [("gained", lambda: skillcore.gained(reader([3, 5]), BEFORE, timeout=0.2, stable_s=0.01), 5),
                 ("lost", lambda: skillcore.lost(reader([3, 1]), BEFORE, timeout=0.2, stable_s=0.01), 1),
-                ("must fail: dead: alive reading", lambda: skillcore.dead(state(dead=False)), False),
-                ("dead: no dead field at all", lambda: skillcore.dead({k: v for k, v in state().items() if k != "dead"}),
+                ("must fail: dead: alive reading", lambda: skillcore.really_dead(state(dead=False)), False),
+                ("dead: no dead field at all", lambda: skillcore.really_dead({k: v for k, v in state().items() if k != "dead"}),
                  False)]
         with mock.patch.object(api, "api", side_effect=AssertionError("judged an alive reading by asking again")):
             for name, call, want in rows[2:]:
@@ -184,7 +184,7 @@ class Confirmed(unittest.TestCase):
             for name, readings, want in CONFIRMED:
                 with self.subTest(name):
                     self.assertEqual(skillcore.confirmed(readings), want)
-                    self.assertEqual(skillcore.dead(readings=readings), want)
+                    self.assertEqual(skillcore.really_dead(readings=readings), want)
 
 
 # ------------------------------------------------------------------------------------------------------- arrive
@@ -364,7 +364,7 @@ class NothingQueued(unittest.TestCase):
                 body.engaged = engaged
                 with mock.patch.object(arbiter, "BODY", body):
                     try:
-                        api.refused(r, queued)
+                        api.refuse_unqueued(r, queued)
                         got = None
                     except api.McError as e:
                         got = retry.cause_of(e)
@@ -875,8 +875,6 @@ class FreeSpots(unittest.TestCase):
                 with self.subTest(name):
                     spots = skillcore.free_spots(region, st, **kw)
                     check(self, spots)
-                    self.assertEqual(skillcore.free_spot(region, st, **{k: v for k, v in kw.items() if k != "limit"}),
-                                     spots[0] if spots else None)
 
 
 # ------------------------------------------------------------------------------------------------ the runner
@@ -952,7 +950,7 @@ class Runner(unittest.TestCase):
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY), \
                     mock.patch.object(skillkit, "world_signature", lambda: None), \
                     mock.patch.object(skillkit, "_heartbeat", lambda n: None), \
-                    mock.patch.object(skillcore, "dead", lambda *a, **k: False), \
+                    mock.patch.object(skillcore, "really_dead", lambda *a, **k: False), \
                     mock.patch.object(skillkit, "body_now", lambda: {"dimension": "minecraft:overworld"}), \
                     mock.patch.object(skillkit, "STATS", None), mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01):
                 runner = skillkit.skill(needs={}, gives={}, remaining=NOTHING_LEFT, budget=budget, stall=stall)(body)
@@ -2182,7 +2180,7 @@ class BagRules(unittest.TestCase):
             @skillkit.skill(needs={}, gives={}, remaining=NOTHING_LEFT, name=f"bag_probe_{fills}", fills_bag=fills)
             def probe(ctx):
                 raise api.NotAvailable("nothing left to take")
-            with self.subTest(fills_bag=fills), mock.patch.object(skillkit, "_free_slots", return_value=0), \
+            with self.subTest(fills_bag=fills), mock.patch.object(skillkit, "_bag_slots_free", return_value=0), \
                     self.assertRaises(api.McError) as got:
                 probe(None)
             self.assertEqual(str(got.exception), want)
@@ -2350,7 +2348,7 @@ class PureHelpers(unittest.TestCase):
 
     def test_incoming_cap(self):
         from bonobo import estimate
-        imm = float(estimate.PLAYER["hurt_immunity_s"])
+        imm = float(beliefs.PLAYER["hurt_immunity_s"])
         for name, hit, want in [("one zombie's hit", 3.0, 3.0 / imm), ("a harder hit", 9.0, 9.0 / imm),
                                 ("nothing lands: no ceiling", 0.0, float("inf")),
                                 ("negative (a heal) is no hit", -1.0, float("inf"))]:

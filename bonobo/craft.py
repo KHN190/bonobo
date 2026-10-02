@@ -12,7 +12,8 @@ from .data import HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, GROUPS, LOG_TO_
 from .knowledge import GROUP_RECIPES, members
 from .world import BAG_SLOTS, Inventory, Region, screen_slot, add, find
 from .bag import free_slots_plan
-from .skillcore import StationMissing, feet, close_screen, free_spots_here, place, mine_cell, gained, opened
+from .skillcore import StationMissing, close_screen, free_spots_here, place, mine_cell, gained, opened
+from .world import feet
 from .building import _open_container, _empty_container_slot, _machine_roles, _go_to_machine
 
 # -- placing things near us

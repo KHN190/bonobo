@@ -41,7 +41,7 @@ class Ground(unittest.TestCase):
         for why, blocks, bucket in self.ROWS:
             with self.subTest(why):
                 fresh()
-                got = perception.ground(HERE, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, blocks))
+                got = perception.field_around(HERE, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, blocks))
                 # plugs: the blocks already in our passage, per side (a pod walls it both ways: 2 each side)
                 walled = 2 if bucket == "enclosed" else 0
                 self.assertEqual((type(got), got.bucket, got.blocks, max(got.plugs.values(), default=0)),
@@ -67,7 +67,7 @@ class Seal(unittest.TestCase):
         for why, blocks, seal in self.ROWS:
             with self.subTest(why):
                 fresh()
-                got = perception.ground(HERE, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, blocks))
+                got = perception.field_around(HERE, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, blocks))
                 self.assertEqual(got.seal, seal)
 
 
@@ -78,11 +78,11 @@ class Perceived(unittest.TestCase):
         kit = {"sword_tier": 2, "armor": 7}
         flat = floor(R, R)
         rows = [  # (why, ground read, kit read) → (sword tier, the field's bucket or None)
-            ("both read", lambda st: perception.ground(st, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, flat)),
+            ("both read", lambda st: perception.field_around(st, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, flat)),
              lambda st: kit, (2, "open")),
             ("the ground raises: the kit is still merged", boom, lambda st: kit, (2, None)),
             ("the kit raises: the ground is still read",
-             lambda st: perception.ground(st, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, flat)), boom,
+             lambda st: perception.field_around(st, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, flat)), boom,
              (None, "open")),
             ("must fail: both raise: the state as it came", boom, boom, (None, None)),
         ]

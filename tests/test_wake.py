@@ -97,8 +97,8 @@ class Wake(unittest.TestCase):
             said.append(" ".join(map(str, p)))
             if len([s for s in said if s.startswith("!! frozen")]) >= 1:
                 stop.set()
-        with mock.patch.object(api, "detail", detail), mock.patch.object(api, "status", lambda: {"paused": False}), \
-                mock.patch.object(api, "LAST_DETAIL", [0.0]):
+        with mock.patch.object(api, "detail", detail), mock.patch.object(api, "game_status", lambda: {"paused": False}), \
+                mock.patch.object(api, "LAST_DETAIL", 0.0):
             brain.watchdog(stop, limit)
         self.assertTrue(any(s.startswith("!! frozen") for s in said))
         self.assertTrue(any("stack of MainThread" in s for s in said), said[:2])

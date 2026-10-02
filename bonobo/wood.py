@@ -7,7 +7,8 @@ from .api import McError, NotAvailable, log
 from .data import GROUPS
 from .explore import seek_blocks
 from .skill import skill
-from .skillcore import feet, gained, settle
+from .skillcore import gained, settle
+from .world import feet
 from .world import Inventory, find
 
 TRUNK_REACH = 4        # logs this far above the base are in reach from beside the trunk (eye 1.62, reach 4.5)

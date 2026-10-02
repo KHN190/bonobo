@@ -15,7 +15,8 @@ from .world import Inventory, Region, add, dark_spots, entities, find
 from .bag import throw_direction
 from .terrain import (choose_burrow, choose_exit, air_route, is_enclosed, openings, find_open_spot, SOFT_RADIUS,
                       nearest_soft)
-from .skillcore import feet, free_spots_here, place, mine_cell, settle, body_state, head_buried, head_underwater
+from .skillcore import free_spots_here, place, mine_cell, settle, body_state, head_buried, head_underwater
+from .world import feet
 from .fluids import AIR_FULL, swimming
 from .craft import run_split
 from typing import TYPE_CHECKING, cast

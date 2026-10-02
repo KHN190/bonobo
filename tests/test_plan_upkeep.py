@@ -2086,7 +2086,7 @@ class OneArbiter(unittest.TestCase):
         b.mem, b.blacklist, b.policy_cache = None, {}, None
         b.prepare = lambda snap, ctx: brainmod.Act("idle", "prepare", None)
         snap = snapshot(state(timeOfDay=NIGHT), inventory())
-        with mock.patch.object(api.STATE, "mode", "normal"), mock.patch.object(brainmod.hazard, "due", return_value=None), \
+        with mock.patch.object(api.STATE, "mode", "normal"), mock.patch.object(brainmod.hazard, "rescue_due", return_value=None), \
                 mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "pending"}]), \
                 mock.patch.object(tasks, "expire", return_value=False):
             act = b.decide(snap, None)
@@ -2365,7 +2365,7 @@ class ModFeatures(unittest.TestCase):
         from bonobo import nav
         for name, version, want in self.ROWS:
             with self.subTest(name), mock.patch.object(nav, "_features", None), \
-                    mock.patch.object(api, "status", return_value={"version": version}):
+                    mock.patch.object(api, "game_status", return_value={"version": version}):
                 self.assertEqual(nav.mod_features(), want)
 
 
@@ -2416,7 +2416,7 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
             snap = snapshot(state(), inventory())
             with self.subTest(name), mock.patch.object(api.STATE, "mode", mode), \
                     mock.patch.object(arbiter.BODY, "holder", return_value=holder), \
-                    mock.patch.object(brainmod.hazard, "due", return_value=due), \
+                    mock.patch.object(brainmod.hazard, "rescue_due", return_value=due), \
                     mock.patch.object(tasks, "load", return_value=[]), mock.patch.object(tasks, "expire", return_value=False):
                 act = b.decide(snap, None)
                 self.assertEqual((act.layer if act else None, asked), (want, asked_want))

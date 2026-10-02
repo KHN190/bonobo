@@ -10,7 +10,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import estimate, field  # noqa: E402
+from bonobo import beliefs, estimate, field  # noqa: E402
 from tests.world import WALKS, dangers  # noqa: E402
 
 INF = float("inf")
@@ -117,7 +117,7 @@ class OneJourney(unittest.TestCase):
         for cell in dangers():
             ground = cell.ground()
             for hazard in cell.rows():
-                mob = estimate.MOBS[hazard[3]]
+                mob = beliefs.MOBS[hazard[3]]
                 gap = max(0.0, math.dist(cell.here, hazard[0]) - hazard[1])
                 walk = ground.arrival_s((gap, cell.here[1], 0.0), cell.here, speed=mob["speed"],
                                         squeezes=bool(mob.get("squeezes")))

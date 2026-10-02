@@ -700,7 +700,7 @@ def _waits(*chosen):
 def _refused_without_flag():
     with mock.patch.object(runner, "FLAG", os.path.join(tempfile.mkdtemp(prefix="noflag"), "test-world")):
         try:
-            SC.run("gather_logs", None)
+            SC.run_named("gather_logs", None)
         except RuntimeError:
             return True
     return False

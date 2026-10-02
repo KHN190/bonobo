@@ -11,7 +11,8 @@ from .api import McError, NotAvailable, log
 from .data import GROUPS, bare, mid
 from .knowledge import members
 from .skill import ANCHORS, skill
-from .skillcore import body_state, feet, snapshot, mine_cell, opened, place
+from .skillcore import body_state, snapshot, mine_cell, opened, place
+from .world import feet
 from .world import Inventory, Region, add
 from typing import TYPE_CHECKING
 
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
 
 def _mod_at_least(version):
     def check(c):
-        have = str(api.status().get("version", "0"))
+        have = str(api.game_status().get("version", "0"))
         if tuple(int(x) for x in re.findall(r"\d+", have)[:3]) < tuple(int(x) for x in version.split(".")):
             raise NotAvailable(f"machines need mod >= {version} (running {have}); restart the game to load it")
     return check

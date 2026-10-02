@@ -23,7 +23,7 @@ KEPT = {
     ("bonobo/bench/runner.py", "run_idle"): "a hook or check of ours that raised is recorded by the idle row",
     ("bonobo/perception.py", "Watcher.run"): "the only watcher for lava, drowning and mobs must not die (4 sites)",
     ("bonobo/perception.py", "perceived"): "a reading we cannot take never stops the threat answer",
-    ("bonobo/perception.py", "ground"): "a field we cannot build keeps the last one",
+    ("bonobo/perception.py", "field_around"): "a field we cannot build keeps the last one",
     ("bonobo/fight_loop.py", "_engagement"): "the engagement's thread: said, and the body handed back",
     ("bonobo/fight_loop.py", "lease_done"): "a release judgement we cannot make keeps the body",
     ("bonobo/fight_loop.py", "carry"): "a failed answer is decided again without it (_refail), not the fight's end",

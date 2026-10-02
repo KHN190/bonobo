@@ -5,6 +5,7 @@ import math
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import bag as _bag
 from . import api, nav, skillcore
+from . import world
 from .api import McError, NotAvailable, log
 from .beliefs import slot_cost_s
 from .skill import skill
@@ -29,7 +30,7 @@ def loot_plan(slots, prices, bag_free, stack=64):
     return [slot for _worth, slot in sorted(take)]
 
 def unlooted_chests(ctx, radius=32):
-    here = skillcore.feet()
+    here = world.feet()
     ours = [tuple(s["pos"]) for s in ctx.mem.sites(ctx.dimension)]
     looted = {tuple(p) for p in ctx.mem.data.get("looted", [])}
     out = []

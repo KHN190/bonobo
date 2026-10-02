@@ -4,6 +4,7 @@ from __future__ import annotations
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import bag as _bag
 from . import api, nav, skillcore, fluids
+from . import world
 from .api import NotAvailable, log
 from .skill import skill
 from .skillcore import settle
@@ -54,7 +55,7 @@ def bottle_commands(state, args) -> "list[Task]":
        provides={"fill:minecraft:potion": lambda ctx, s: (s.count,)})
 def fill_bottles(ctx, count=3):
     """Fill glass bottles at water (use the bottle while looking at a water source)."""
-    here = skillcore.feet()
+    here = world.feet()
     hits = sorted(find(["water"], radius=32, limit=30), key=lambda h: h["distance"])
     for h in hits[:4]:
         c = (h["x"], h["y"], h["z"])

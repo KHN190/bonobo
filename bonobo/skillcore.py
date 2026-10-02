@@ -7,7 +7,7 @@ from . import api, beliefs, knowledge as _know, lifecycle, tape
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import BAN_MAX_S, EYE_HEIGHT, REACH, bare
-from .world import BAG_SLOTS, Inventory, Region, add, bag, box, feet, screen_slot  # noqa: F401  (feet: read here by the skills)
+from .world import BAG_SLOTS, Inventory, Region, add, bag, box, screen_slot
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -21,17 +21,18 @@ def in_dimension(dimension):
             raise NotAvailable(f"not in {bare(dimension)}")
     return check
 
-def game_time():
+def game_tick():
     """The game's tick now (/state gameTime): what a look made outside a brain round is stamped with (brain wires
     it into memory.TICK_READER — memory stays below the skills)."""
     return api.get("/state").get("gameTime")
 
 def game_time_or_none():
-    """game_time, or None when there is no game to ask (an offline test): memory's TICK_READER — memory stays below
+    """game_tick, or None when there is no game to ask (an offline test): memory's TICK_READER — memory stays below
     the api and catches nothing itself."""
     try:
-        return game_time()
-    except McError:
+        return game_tick()
+    except McError as e:
+        api.swallowed("skillcore.game_time_or_none", e)
         return None
 
 def _collect_only(wanted):
@@ -147,7 +148,7 @@ def confirmed(readings, stable_s=0.5):
             return True
     return False
 
-def dead(state=None, readings=None):
+def really_dead(state=None, readings=None):
     """Is the body really dead? Confirmed by readings that agree for a moment, never one (a chunk load or respawn lies for a frame)."""
     if readings is not None:
         return confirmed(readings)
@@ -266,10 +267,6 @@ def free_spots(region, state, block_under=True, reach=4, avoid=(), limit=5):
                 scored.append(((abs(dy), enclosed, abs(max(abs(dx), abs(dz)) - 2)), p))
     scored.sort()
     return [p for _, p in scored[:limit]]
-
-def free_spot(region, state, block_under=True, reach=4, avoid=()):
-    spots = free_spots(region, state, block_under, reach, avoid, limit=1)
-    return spots[0] if spots else None
 
 def free_spots_here(block_under=True, reach=4, avoid=(), limit=5):
     """`free_spots` around the body now: one /state read and one region read."""

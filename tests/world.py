@@ -6,6 +6,7 @@ names (`FakeRegion`, the interface `world.Region` offers with nothing behind it)
 `fights`) are cross-products of such readings, so one relation is claimed over hundreds of situations.
 """
 from bonobo.data import FALLING, HAZARD, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX, UNBREAKABLE  # noqa: F401
+from bonobo import beliefs
 from bonobo.world import Region
 
 
@@ -269,7 +270,7 @@ class World:
         for kind, count in ENEMIES[self.dims["enemy"]]:
             for _ in range(count):
                 gap = RANGE[self.dims["distance"]] + i
-                out.append(estimate.row((gap, HERE[1], float(i)), estimate.MOBS[kind]["reach"],
+                out.append(estimate.row((gap, HERE[1], float(i)), beliefs.MOBS[kind]["reach"],
                                         (0.0, 0.0, 0.0), kind))
                 i += 1
         return out

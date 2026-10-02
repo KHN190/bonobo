@@ -4,21 +4,19 @@ import math
 
 from . import beliefs, combat_model
 
-MOBS = beliefs.MOBS
-PLAYER = beliefs.PLAYER
 ENGAGE = beliefs.CONFIG["engage"]
 
 def row(centre, reach, velocity, kind, aware=1.0, dps=None):
     """Build a threat row."""
 
     return (tuple(centre), float(reach), tuple(velocity), kind, float(aware),
-            float(MOBS.get(kind, {}).get("dps", 0.0) if dps is None else dps))
+            float(beliefs.MOBS.get(kind, {}).get("dps", 0.0) if dps is None else dps))
 
 def follows_to(spot, hazard):
     """Pure: would this threat still chase us at `spot` — inside its notice radius, or, ranged, inside its reach."""
 
     centre, reach, _vel, kind = hazard[:4]
-    mob = MOBS.get(kind, {})
+    mob = beliefs.MOBS.get(kind, {})
     d = math.dist(spot, centre)
     return d <= float(mob.get("notice_r", 16.0)) or (bool(mob.get("ranged")) and d <= float(reach))
 
@@ -30,7 +28,7 @@ def horizon_s(horizon=None):
 def arrival_s(here, hazard, ground=None, horizon=None):
     """Seconds until this threat's reach covers `here`, under its worst plausible future and over this ground."""
 
-    mob = MOBS.get(hazard[3], {})
+    mob = beliefs.MOBS.get(hazard[3], {})
     horizon = horizon_s(horizon)
     side = ground.side_of(here, hazard[0]) if ground is not None and hasattr(ground, "side_of") else None
     slower = 1.0 if ground is None else ground.slowdown(bool(mob.get("squeezes")), side)
@@ -72,7 +70,7 @@ def pressure_hp_s(here, hazards, prot=0.0, ground=None, horizon=None, shape=None
     shapes = ((shape,) if shape else ()) + tuple(getattr(ground, "shape_now", ()) or ())    # planned and current
     total, hardest = 0.0, 0.0
     for hazard in hazards:
-        mob = MOBS.get(hazard[3])
+        mob = beliefs.MOBS.get(hazard[3])
         if not mob or mob.get("burst"):
             continue
         when = arrival_s(here, hazard, ground, horizon)
@@ -86,14 +84,14 @@ def pressure_hp_s(here, hazards, prot=0.0, ground=None, horizon=None, shape=None
 def incoming_cap(hardest_hit):
     """The most health per second anything can take: hurt immunity means a crowd lands one hit per `hurt_immunity_s`."""
 
-    return float(hardest_hit) / float(PLAYER["hurt_immunity_s"]) if hardest_hit > 0 else float("inf")
+    return float(hardest_hit) / float(beliefs.PLAYER["hurt_immunity_s"]) if hardest_hit > 0 else float("inf")
 
 def burst_hp(spot, hazards, prot=0.0, fuse_s=None):
     """Damage from one-shot threats that can still reach `spot` before their fuse runs out."""
 
     fuse_s = float(ENGAGE["fuse_s"] if fuse_s is None else fuse_s)
-    total = sum(float(MOBS[h[3]]["dps"]) for h in hazards
-                if MOBS.get(h[3], {}).get("burst") and arrival_s(spot, h) <= fuse_s)
+    total = sum(float(beliefs.MOBS[h[3]]["dps"]) for h in hazards
+                if beliefs.MOBS.get(h[3], {}).get("burst") and arrival_s(spot, h) <= fuse_s)
     return total * (1.0 - prot)
 
 def fatal_chance(hp, damage, cap=1.0):
@@ -123,33 +121,33 @@ def leaving_hp(press, seconds):
 
 def _row_dps(row):
     """A threat row's damage rate: its own (`threat.row` puts it at [5]) where it carries one, else the table's."""
-    return float(row[5]) if len(row) > 5 and row[5] is not None else float(MOBS[row[3]]["dps"])
+    return float(row[5]) if len(row) > 5 and row[5] is not None else float(beliefs.MOBS[row[3]]["dps"])
 
 def melee_reachable(here, hazard, ground=None):
     """Pure: a sword fight with it is on from where we stand — its feet within reach of our eyes, and the shape we
     stand in now (a pillar, a hole: Field.shape_now) not keeping it off us: we don't step down to trade blows."""
-    mob = MOBS.get(hazard[3], {})
+    mob = beliefs.MOBS.get(hazard[3], {})
     if share_of(getattr(ground, "shape_now", ()), mob) <= 0.0:
         return False
     dy = float(hazard[0][1]) - float(here[1])
-    reach = float(PLAYER["melee_reach"])
-    return -reach <= dy <= reach + float(PLAYER["eye_height"])
+    reach = float(beliefs.PLAYER["melee_reach"])
+    return -reach <= dy <= reach + float(beliefs.PLAYER["eye_height"])
 
 def shoot_cost(here, hazards, prot, speed=None):
     """Pure: seconds to shoot `hazards` down with a bow."""
-    shots = sum(math.ceil(float(MOBS[h[3]]["hp"]) / float(ENGAGE["arrow_hp"])) / float(ENGAGE["bow_hit_p"])
-                for h in hazards if h[3] in MOBS)
+    shots = sum(math.ceil(float(beliefs.MOBS[h[3]]["hp"]) / float(ENGAGE["arrow_hp"])) / float(ENGAGE["bow_hit_p"])
+                for h in hazards if h[3] in beliefs.MOBS)
     return round(shots * float(ENGAGE["shot_s"]), 2)
 
 def keepoff_cost(here, hazard, sword, prot, speed=None):
     """(seconds, hp lost) to kill a creeper hit-and-back: swing, back past its blast before the fuse, repeat."""
 
-    speed = float(PLAYER["speed"]) if speed is None else float(speed)
-    mob = MOBS[hazard[3]]
+    speed = float(beliefs.PLAYER["speed"]) if speed is None else float(speed)
+    mob = beliefs.MOBS[hazard[3]]
     swing = float(ENGAGE["swing_s"])
-    per_hit = float(PLAYER["dps"][str(min(3, max(0, int(sword))))]) * swing
+    per_hit = float(beliefs.PLAYER["dps"][str(min(3, max(0, int(sword))))]) * swing
     hits = math.ceil(float(mob["hp"]) / per_hit)
-    walk = max(0.0, math.dist(here, hazard[0]) - float(PLAYER["melee_reach"])) / speed
+    walk = max(0.0, math.dist(here, hazard[0]) - float(beliefs.PLAYER["melee_reach"])) / speed
     cycle = 2.0 * float(mob.get("keep_out", 3.0)) / speed + swing
     lost = hits * float(ENGAGE["keepoff_risk"]) * float(mob["attack"]) * (1.0 - prot)
     return round(walk + hits * cycle, 2), round(lost, 2)
@@ -157,18 +155,18 @@ def keepoff_cost(here, hazard, sword, prot, speed=None):
 def fight_cost(here, hazards, sword, prot, speed=None):
     """(seconds, hp lost) to kill every threat in melee, nearest first, while the rest keep hitting."""
 
-    speed = float(PLAYER["speed"]) if speed is None else float(speed)
-    dps = float(PLAYER["dps"][str(min(3, max(0, int(sword))))])
-    order = sorted((h for h in hazards if h[3] in MOBS), key=lambda h: math.dist(here, h[0]))
+    speed = float(beliefs.PLAYER["speed"]) if speed is None else float(speed)
+    dps = float(beliefs.PLAYER["dps"][str(min(3, max(0, int(sword))))])
+    order = sorted((h for h in hazards if h[3] in beliefs.MOBS), key=lambda h: math.dist(here, h[0]))
     seconds = lost = 0.0
     pos = here
     for i, hazard in enumerate(order):
-        mob = MOBS[hazard[3]]
-        walk = max(0.0, math.dist(pos, hazard[0]) - float(PLAYER["melee_reach"])) / speed
+        mob = beliefs.MOBS[hazard[3]]
+        walk = max(0.0, math.dist(pos, hazard[0]) - float(beliefs.PLAYER["melee_reach"])) / speed
         kill = float(mob["hp"]) / dps
         # The row's own rate (what THIS one hits for, `threat.row`), as pressure reads it — not the table's.
-        cap = incoming_cap(max(float(MOBS[r[3]].get("attack", 0.0)) for r in order[i:]))
-        under_fire = min(cap, sum(_row_dps(r) for r in order[i:] if MOBS[r[3]].get("ranged")))
+        cap = incoming_cap(max(float(beliefs.MOBS[r[3]].get("attack", 0.0)) for r in order[i:]))
+        under_fire = min(cap, sum(_row_dps(r) for r in order[i:] if beliefs.MOBS[r[3]].get("ranged")))
         under_everything = min(cap, sum(_row_dps(r) for r in order[i:]))
         lost += (walk * under_fire + kill * under_everything) * (1.0 - prot)
         seconds += walk + kill
@@ -190,14 +188,14 @@ def loss_q(mean_hp, hit_hp, q=None):
         total += p
     return n * hit_hp
 
-def fight_loss(kinds, sword, prot):
+def melee_loss(kinds, sword, prot):
     """(mean health lost, the hardest hit) of fighting one each of `kinds` from melee reach: fight_cost's own rows."""
-    rows = [row((float(PLAYER["melee_reach"]), 0.0, 0.0), float(MOBS[k]["reach"]), (0.0, 0.0, 0.0), k)
-            for k in kinds if k in MOBS]
+    rows = [row((float(beliefs.PLAYER["melee_reach"]), 0.0, 0.0), float(beliefs.MOBS[k]["reach"]), (0.0, 0.0, 0.0), k)
+            for k in kinds if k in beliefs.MOBS]
     if not rows:
         return 0.0, 0.0
     _s, lost = fight_cost((0.0, 0.0, 0.0), rows, sword, prot)
-    return lost, max(float(MOBS[r[3]]["attack"]) * (1.0 - prot) for r in rows)
+    return lost, max(float(beliefs.MOBS[r[3]]["attack"]) * (1.0 - prot) for r in rows)
 
 def fight_line_ok(hp, floor, mean_hp, hit_hp, q=None):
     """Pure (S5): an optional fight starts only when the health above `floor` covers its loss's `q` quantile."""

@@ -157,7 +157,7 @@ class AStartTakesTheBody(unittest.TestCase):
                                     ["/control", "/resume", "/takeover"]),
                                    ("must fail: not paused, no toggle posted", False, ["/resume", "/takeover"])]:
             posted = []
-            with self.subTest(name), mock.patch.object(api, "status", return_value={"paused": paused}), \
+            with self.subTest(name), mock.patch.object(api, "game_status", return_value={"paused": paused}), \
                     mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(path)):
                 api.take_control()
                 self.assertEqual(posted, want)
@@ -217,4 +217,4 @@ class ACellWaitsOnItsSummons(unittest.TestCase):
         with mock.patch.object(core, "_command", return_value=["Test passed, count: 1"]):
             t0 = time.time()
             core._cell_ready(["summon zombie 0 0 0"], [])
-            self.assertLess(time.time() - t0, core.CELL_POLL_S)
+            self.assertLess(time.time() - t0, __import__("bonobo.api", fromlist=["READ_EVERY_S"]).READ_EVERY_S)

@@ -33,7 +33,7 @@ def leave_commands():
             + ["clear @p", "kill @p"])
 
 
-def run(cmds):
+def send(cmds):
     cmds = [f"execute in {DIMENSION} run {c}" for c in cmds]
     _send(cmds, replies(cmds), 1.0)
 
@@ -42,13 +42,13 @@ def main():
     if not os.path.exists(FLAG):
         return 0                    # the bench runs only in a test world: a real world's settings are the player's
     api.take_control()              # a script's start takes the body: a paused toggle refused every post
-    run(restore_commands())
+    send(restore_commands())
     print("world settings back to the game's normal: " + ", ".join(restore_commands()))
     s = api.get("/state")
     site = bench_site((s["x"], s["y"], s["z"]), s["dimension"])
     if site is None:
         return 0
-    run(leave_commands())
+    send(leave_commands())
     for _ in range(RESPAWN_POLLS):                    # the death screen comes a tick or two after the kill
         if api.get("/state").get("dead"):
             api.post("/respawn")

@@ -17,7 +17,6 @@ from .knowledge import ALL_FOOD, RAW_MEAT
 from .data import GROUPS, home_may_hold, placed_cell
 
 ANSWER = None          # (option) -> None | {"id": task}: carries out one answer with the agent's memory and policy
-POLL_S = 0.5           # how often a running engagement looks at what perception now wants
 
 
 @dataclass
@@ -182,7 +181,7 @@ def carry(want_of, answer, going, held, again=False, stale=None, failed=None):
                     raise
                 failed(want, e)
                 held["task_id"], held["done"] = None, None
-                time.sleep(FIGHT_POLL_S)         # a decision that fails at once is not a tight loop
+                time.sleep(api.READ_EVERY_S)         # a decision that fails at once is not a tight loop
                 yield want.kind
                 continue
             held["task_id"] = got.get("id") if isinstance(got, dict) else None
@@ -201,17 +200,17 @@ def carry(want_of, answer, going, held, again=False, stale=None, failed=None):
                     stale(want)          # the held choice is stale: decided again now, the next post carries it
                 if again and want.kind in CONTINUING:
                     held["done"] = None
-                    # posted again at once: the body never idles on the decision (a POLL_S sleep here left it
+                    # posted again at once: the body never idles on the decision (a poll's sleep here left it
                     # standing half a second after every attack ended); only a refusal backs off a poll, so a
                     # task the jar turns down at once is not a tight loop
                     if r.get("status") == "failed":
-                        time.sleep(FIGHT_POLL_S)
+                        time.sleep(api.READ_EVERY_S)
         else:
-            time.sleep(FIGHT_POLL_S)
+            time.sleep(api.READ_EVERY_S)
         yield want.kind
 
 def _engagement(intent, failure):
-    """The fight's own thread: carry out what perception wants, re-reading it every POLL_S, until the lease ends."""
+    """The fight's own thread: carry out what perception wants, re-reading it every poll, until the lease ends."""
     held = {"done": None, "task_id": None}
     try:
         if api.HOLD is not None and api.ARM is not None and STATE.want is not None:
@@ -253,7 +252,7 @@ def _mark_failed(option, now=None):
     STATE.held = None
 
 
-def refused(option, now=None):
+def refused_now(option, now=None):
     """Why `option` may not be chosen now (it failed within FAILED_S), or None."""
     until = STATE.failed.get(_failed_key(option))
     if until is not None and (now if now is not None else time.time()) < until:
@@ -288,14 +287,14 @@ def disengage(intent, stop=True):
     try:
         if stop and arbiter.BODY.holder() is intent:
             api.post("/stop")
-    except api.McError:
+    except api.McError as e:
+        api.swallowed("fight_loop.disengage", e)
         pass
     reflex(counter=False)
     arbiter.BODY.hand_back(intent)
 
 # -- the decision
 
-FIGHT_POLL_S = 0.1     # while a fight holds the body: a window is 0.4 s at worst, a 0.2 s poll sees half of it
 
 def active():
     """A fight is on: an engagement of ours is running, or a boss fight holds the body (`arbiter.BODY.engaged`)."""
@@ -348,7 +347,7 @@ def bid(state, rows, price, work_s=None, now=None, ids=()):
         return None
     STATE.last_bid.update(state=state, price=price)
     st = threat_state(state, rows, work_s, ids)
-    field_model = threat.Field(st, price, refused=refused)
+    field_model = threat.Field(st, price, refused=refused_now)
     with STATE.lock:
         if STATE.held is None:
             STATE.held = kernel.Held()
@@ -567,7 +566,8 @@ def still_to_mine(tasks, solid):
 def engage(decision, s, ctx):
     """Carry out one threat answer: its batch is posted, not awaited."""
 
-    from .skillcore import body_state, feet
+    from .skillcore import body_state
+    from .world import feet
     read = REGION.get(decision.kind)
     rows, ids = threat.threats_seen()
     state = body_state(ctx, read(feet()) if read else None, threats=rows, threat_ids=ids)

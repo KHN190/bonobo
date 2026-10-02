@@ -27,7 +27,7 @@ from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve,
                          _command, _count_blocks, _drain, at, server_count, set_brain)
 from ..runner import *        # noqa: F403
 from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
-                           module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
+                           module_deps, record, run_named, save_table, setup_mismatches, silent_failure, status)
 from ..bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
 from ..core import SWEEP, _platform  # noqa: F401
 from .scene import *  # noqa: F401,F403
@@ -412,7 +412,7 @@ def _after_l0(name, run, resume, tries=4):
             except api.INTERRUPTIONS:
                 INTERRUPTS[name] = INTERRUPTS.get(name, 0) + 1
                 t0 = time.time()
-                while time.time() - t0 < 20 and hazard.due(api.get("/state")) is not None:
+                while time.time() - t0 < 20 and hazard.rescue_due(api.get("/state")) is not None:
                     core.BRAIN.round()
                 fn = resume
         raise api.McError(f"still interrupted after {tries} tries")

@@ -16,7 +16,7 @@ from .combat_model import hazards, note_hazards  # noqa: F401  (the store lives 
 from .knowledge import food_count, sheltered, usable
 from .skill import HEARTBEAT
 
-POLL_S = 0.2
+WATCH_S = 0.2     # how often perception reads the world outside a fight (5 Hz)
 # the operator's interrupt ends the running skill (/stop only cancels the current mod task)
 FLAG = paths.data("interrupt")
 
@@ -115,13 +115,13 @@ def read_combat(near):
         d["reach_now"] = bool(e.get("in_reach"))
         d["busy"] = bool(e.get("shooting") or e.get("drawing") or e.get("charging"))
         if e.get("tti_ticks") is not None:
-            d["hit_s"] = float(e["tti_ticks"]) / 20.0
+            d["hit_s"] = float(e["tti_ticks"]) / TICKS_PER_S
         p = e.get("impact")
         if p is not None:
             d["impact_at"] = tuple(float(p[k]) for k in ("x", "y", "z")) if isinstance(p, dict) else tuple(map(float, p))
         v = e.get("velocity")
         if v is not None:
-            d["vel"] = tuple(float(c) * 20.0 for c in v)
+            d["vel"] = tuple(float(c) * TICKS_PER_S for c in v)
         out.append(d)
     return out
 
@@ -132,7 +132,7 @@ REACH_KEPT = 64          # (body, mob) answers kept at most
 def reaches_us(here, now):
     """(pos, reach, kind) → can a mob there get at us: a ranged one by an open line of fire (world.line_of_fire,
     eye to eye), any other by a walk that comes to us (nav.walks_to at the walk's own arrive margin — its attack
-    reach is no walk: within it, the walk "arrives" before it starts). Kept GRID_TTL_S per pair: this runs at 5 Hz."""
+    reach is no walk: within it, the walk "arrives" before it starts). Kept READ_TTL_S per pair: this runs at 5 Hz."""
     body = tuple(int(math.floor(c)) for c in here)
     eye = (here[0], here[1] + EYE_HEIGHT, here[2])
 
@@ -141,10 +141,10 @@ def reaches_us(here, now):
         if len(STATE.reach) > REACH_KEPT:
             STATE.reach.clear()          # the mobs round us change: old pairs are no answer to keep
         if threat.MOBS.get(kind, {}).get("ranged"):
-            return memo_ttl(STATE.reach, (body, cell), GRID_TTL_S,
+            return memo_ttl(STATE.reach, (body, cell), READ_TTL_S,
                             lambda: world.line_of_fire((pos[0], pos[1] + EYE_HEIGHT, pos[2]), eye), now)
         climber = kind in threat.CLIMBERS
-        return memo_ttl(STATE.reach, (body, cell), GRID_TTL_S, lambda: nav.walks_to(cell, None, climber, body[1]), now)
+        return memo_ttl(STATE.reach, (body, cell), READ_TTL_S, lambda: nav.walks_to(cell, None, climber, body[1]), now)
     return ask
 
 
@@ -185,8 +185,6 @@ def interrupt_within_s():
     return max(INTERRUPT_TTD_S, api.last_segment_s())
 REPEAT_S = 10         # the same danger interrupts at most once per 10 s (let the rescue work)
 
-HOSTILE = ("breath", "enderman", "hostiles")
-DANGERS = hazard.KINDS + HOSTILE
 
 NIGHTFALL = "night"
 
@@ -215,8 +213,8 @@ def _enclosed_now(state):
 
 
 def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=None, time_to_die=None,
-           buried=False, fallen=0.0):
-    """Pure: the danger kind to interrupt for (one of DANGERS), or None."""
+           buried=False, fallen=0.0, within_s=INTERRUPT_TTD_S):
+    """Pure: the danger kind to interrupt for (a hazard.KINDS one, or a hostile one: breath, enderman, hostiles), or None."""
 
     if state.get("dead") or state.get("control", {}).get("paused"):
         return None
@@ -240,7 +238,7 @@ def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=No
     if time_to_die is not None and not fighting:
         t = time_to_die()
         # only what would kill us before the planner next decides is worth an interrupt
-        if t is not None and t <= interrupt_within_s():
+        if t is not None and t <= within_s:
             return "hostiles"
     return None
 
@@ -249,7 +247,8 @@ def _running_skill():
         with open(HEARTBEAT) as f:
             t, name = f.read().split()[:2]
         return name if time.time() - float(t) < 5 else None
-    except (OSError, ValueError):
+    except (OSError, ValueError) as e:
+        api.swallowed("perception._running_skill", e)
         return None
 
 def _eating():
@@ -274,7 +273,8 @@ class Watcher(threading.Thread):
             here = STATE.last_here
             near = [math.dist(here, row[0]) for row in rows] if here else []
             near = [d for d in near if d <= radius]
-        except (TypeError, ValueError, IndexError):      # a row short of its centre: no distance this tick
+        except (TypeError, ValueError, IndexError) as e:      # a row short of its centre: no distance this tick
+            api.swallowed("perception._hostiles_within", e)
             return None
         return min(near, default=None)
 
@@ -305,7 +305,8 @@ class Watcher(threading.Thread):
 
         try:
             near = world.entities(24)
-        except (api.McError, KeyError):
+        except (api.McError, KeyError) as e:
+            api.swallowed("perception._look", e)
             return None
         note_hazards(read_combat(near), hostile=threat.aggro)    # a calm neutral is no hazard
         here = STATE.last_here = (s["x"], s["y"], s["z"])
@@ -360,7 +361,8 @@ class Watcher(threading.Thread):
         try:
             near = world.entities(int(radius))
             note_hazards(read_combat(near), hostile=threat.aggro)    # a calm neutral is no hazard
-        except api.McError:
+        except api.McError as e:
+            api.swallowed("perception._breath_within", e)
             return False
         self._breath_seen = any(e["type"] == "minecraft:area_effect_cloud" for e in near)
         return self._breath_seen
@@ -375,19 +377,21 @@ class Watcher(threading.Thread):
         try:
             near = world.entities(int(radius))
             note_hazards(read_combat(near), hostile=threat.aggro)    # a calm neutral is no hazard
-        except api.McError:
+        except api.McError as e:
+            api.swallowed("perception._enderman_after_us", e)
             return False
         self._ender_seen = any(e["type"] == "minecraft:enderman" and e.get("angry") for e in near)
         return self._ender_seen
 
     def run(self):
         while not self.stopped:
-            time.sleep(fight_loop.FIGHT_POLL_S if fight_loop.active() else POLL_S)
+            time.sleep(api.READ_EVERY_S if fight_loop.active() else WATCH_S)
             if api.mode() == "survival" or STATE.paused:
                 continue
             try:
                 s = api.get("/state")
-            except (api.McError, api.PlayerTookControl, ValueError):
+            except (api.McError, api.PlayerTookControl, ValueError) as e:
+                api.swallowed("perception.run", e)
                 continue        # game restarting, network hiccup, the player's turn: the main loop handles those
             except Exception as e:  # guard: the only watcher for lava, drowning and mobs: a read failure never kills it
                 api.unexpected("perception: /state", e, "this tick is skipped")
@@ -439,7 +443,7 @@ class Watcher(threading.Thread):
                             None if fighting else self._breath_within,
                             None if fighting else self._enderman_after_us,
                             None if fighting else (lambda: self._time_to_die(s)),
-                            buried=self.hazard.buried(s), fallen=self.hazard.fallen(s))
+                            buried=self.hazard.buried(s), fallen=self.hazard.fallen(s), within_s=interrupt_within_s())
             now = time.time()
             if reason is None or now - self.last.get(reason, 0) < REPEAT_S:
                 continue
@@ -489,7 +493,7 @@ def watching():
     return fight_loop.wired() and any(t.name == "perception" and t.is_alive()
                                       for t in threading.enumerate())
 GRID_R = 8
-GRID_TTL_S = 2.0
+READ_TTL_S = 2.0       # a ground or kit read is reused this long: the field and the bag move slower than 5 Hz
 
 def dig_ok(ground, pick_tier):
     """Pure: the floor under us digs as deep as a hole must be to keep a walker off (melee_stop_blocks), with what we
@@ -503,7 +507,7 @@ def dig_ok(ground, pick_tier):
 def perceived(state, now, ground_of=None, kit_of=None):
     """The state the threat model prices: kit, ground (`field`) and the footing evade walks on, each read on its own."""
 
-    ground_of = ground_of or ground
+    ground_of = ground_of or field_around
     kit_of = kit_of or (lambda st: kit(kit_signature(st, now)))
     out = dict(state)
     for name, read in (("kit", lambda: out.update(kit_of(state))),
@@ -519,8 +523,8 @@ def perceived(state, now, ground_of=None, kit_of=None):
                 api.detail("".join(traceback.format_exception(type(e), e, e.__traceback__)).rstrip())
     return out
 
-def ground(state, now=None, radius=GRID_R, region_of=None):
-    """The walkable field around us, re-read at most every GRID_TTL_S and only when we have moved."""
+def field_around(state, now=None, radius=GRID_R, region_of=None):
+    """The walkable field around us, re-read at most every READ_TTL_S and only when we have moved."""
 
     from .world import Region
     region_of = region_of or Region
@@ -531,7 +535,7 @@ def ground(state, now=None, radius=GRID_R, region_of=None):
         return _field.from_region(region, here, radius), region
     cache = STATE.ground              # one read: a reset may rebind it meanwhile
     try:
-        grid, region = memo_ttl(cache, here, GRID_TTL_S, read, now, one=True)
+        grid, region = memo_ttl(cache, here, READ_TTL_S, read, now, one=True)
     except (api.McError, api.PlayerTookControl, ValueError):
         return STATE.grid            # a failed read keeps the last field
     except Exception as e:  # guard: a field we cannot build keeps the last one (the answer runs at 5 Hz)
@@ -547,12 +551,11 @@ def footing(state):
     region, here = STATE.region, (state["x"], state["y"], state["z"])
     return None if region is None else (lambda spot: nav.landing(region, here, spot))
 
-KIT_TTL_S = 2.0      # the bag is re-read at least this often: /state says nothing of a sword given or picked up
 
 def kit_signature(state, now):
-    """Pure: when the kit must be read again — the held slot, a screen, the armour changed, or KIT_TTL_S passed."""
+    """Pure: when the kit must be read again — the held slot, a screen, the armour changed, or READ_TTL_S passed."""
 
-    return (state.get("selectedSlot"), state.get("screen"), state.get("armor"), int(now // KIT_TTL_S))
+    return (state.get("selectedSlot"), state.get("screen"), state.get("armor"), int(now // READ_TTL_S))
 
 def sword_level(tiers):
     """Pure: the dps table's sword level from working sword tiers: 0 = fist, wood/gold = 1, at most 3."""
@@ -578,7 +581,7 @@ def kit(signature):
         STATE.kit, STATE.kit_sig = got, signature
     return got
 
-def start():
+def start_watching():
     w = Watcher()
     w.start()
     return w

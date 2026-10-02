@@ -189,7 +189,7 @@ def cmd_scenario(a):
     api.take_control()       # the bench's start takes the body (the pause menu closed, the player's toggle lifted)
     brain = Brain()
     sheet.set_brain(brain)   # plan-driven scenarios execute steps the way the brain does
-    perception.start()   # same danger interrupts as a real run
+    perception.start_watching()   # same danger interrupts as a real run
     same, running, built = sheet.jar_matches_source()
     if not same:
         raise McError(f"game runs mod {running} but the sources are {built}: install the jar and restart first")
@@ -225,7 +225,7 @@ def cmd_scenario(a):
             # Without it the bench reproduced the live bug — "looted 0 stacks" — for the wrong reason.
             return skillcore.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist,
                                   prices=brain.price_table)
-        ok, seconds, note, cls, code = sheet.run(name, make_ctx)
+        ok, seconds, note, cls, code = sheet.run_named(name, make_ctx)
         print(f"{'PASS' if ok else 'FAIL'} {name} {seconds:.0f}s {note}")
 
 

@@ -12,7 +12,8 @@ from .data import STAIR_BELOW, BAN_MAX_S, TASK_WAIT_S, cannot_reach, bare, mid
 from .knowledge import FIND_AT, members, MINE_YIELD
 from .bag import mineable, opener, pickup_whitelist, refused
 from .world import Inventory, Region, add, connected, entities, find, region_around, ripe_near
-from .skillcore import ToolMissing, feet, mine_cell, gained
+from .skillcore import ToolMissing, mine_cell, gained
+from .world import feet
 from .explore import surface_first, explore_for, approach_policy
 from .fluids import CAVE_AIR, fluid_faces, seal_plan, swimming
 from typing import TYPE_CHECKING

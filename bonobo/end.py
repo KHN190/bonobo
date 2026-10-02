@@ -5,6 +5,7 @@ import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, nav, skillcore
+from . import world
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .world import Inventory, Region, cells_with, find
@@ -57,7 +58,7 @@ def activate_end_portal(ctx):
     if stand is None:
         return
     if floor is not None:
-        nav.arrived(outside_spot(min(frames, key=lambda f: math.dist(f, skillcore.feet())), centre), ctx.policy,
+        nav.arrived(outside_spot(min(frames, key=lambda f: math.dist(f, world.feet())), centre), ctx.policy,
                     range_=1.0, attempts=1)
         place(block, floor)
     if not nav.arrived(stand, ctx.policy, range_=0.5, attempts=1):
@@ -107,7 +108,7 @@ def find_portal_room(ctx):
     if not sites:
         raise NotAvailable("no stronghold estimate yet (locate_stronghold first)")
     # the nearest estimate, not the oldest: a stale one walked thousands of blocks back
-    _here = skillcore.feet()
+    _here = world.feet()
     sx, _, sz = min(sites, key=lambda s: math.dist(s["pos"], _here))["pos"]
     visited = []
     points = search_points((sx, sz))
@@ -119,11 +120,11 @@ def find_portal_room(ctx):
             log(f"end portal room found at {pos}")
             # seeing it is not reaching it: the scan sees 48 blocks, often from the surface, so dig down until within ROOM_REACH
             for _ in range(4):
-                if math.dist(skillcore.feet(), pos) <= ROOM_REACH:
+                if math.dist(world.feet(), pos) <= ROOM_REACH:
                     return True
                 nav.arrived(pos, ctx.policy, range_=ROOM_REACH - 4, attempts=1)
-                yield skillcore.feet()
-            if math.dist(skillcore.feet(), pos) > ROOM_REACH:
+                yield world.feet()
+            if math.dist(world.feet(), pos) > ROOM_REACH:
                 raise api.NavFailed(f"portal room at {pos} spotted but not reached", pos=pos)
             return True
         bricks = [(b["x"], b["y"], b["z"], b["distance"]) for b in find(BRICKS, SCAN, 40)]

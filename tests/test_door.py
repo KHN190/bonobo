@@ -293,7 +293,7 @@ class FightTrail(unittest.TestCase):
                 line = api.trail_line(7, samples, now)
                 self.assertTrue(line.endswith(verdict), line)
         line = api.trail_line(7, [seen(0, 20.0, 2.0), gone(1)], 1.5)
-        self.assertIn("last seen (3.0, 64.0, 0.0) hp 20.0 2.0 off, 1.5s (~30 ticks) ago", line)
+        self.assertIn("last seen (3.0, 64.0, 0.0) hp 20.0 2.0 off, 1.5s ago", line)
         self.assertIn("never seen", api.trail_line(7, [gone(0)], 1.0))
 
 

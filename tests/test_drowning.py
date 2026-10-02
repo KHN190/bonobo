@@ -7,7 +7,7 @@ nothing — and that state was classed as safe all the way to zero air. And 120 
 what matters is whether the air left covers getting out plus noticing in time.
 
 One table, swept through every reader of it: the clock (`drowning_in`), the verdict inside a task (`drowning`,
-`danger`), the verdict between tasks (`hazard.due`, which allows REFLEX_SLACK_S more) and the brain's first layer.
+`danger`), the verdict between tasks (`hazard.rescue_due`, which allows REFLEX_SLACK_S more) and the brain's first layer.
 """
 import os
 import sys
@@ -56,7 +56,7 @@ class TheClockAndTheFloor(unittest.TestCase):
                 self.assertEqual(P.drowning_in(st), slack)
                 self.assertEqual(P.drowning(st), leave)
                 self.assertEqual(P.danger(st), danger)
-                self.assertEqual(hazard.due(st, buried=False), due)
+                self.assertEqual(hazard.rescue_due(st, buried=False), due)
 
     def test_the_floor_catches_what_a_wrong_clock_would_miss(self):
         """With surface_s and reaction_s wrongly zero the clock says 5 s of slack at 100 ticks; the floor still fires."""
@@ -72,7 +72,7 @@ class TheClockAndTheFloor(unittest.TestCase):
 
 
 class TheBrainAsksTheSameTable(unittest.TestCase):
-    """The brain's first layer is `hazard.due`: every row that is due is a rescue before anything else, named by the
+    """The brain's first layer is `hazard.rescue_due`: every row that is due is a rescue before anything else, named by the
     same kind — no second air threshold above it decides first."""
 
     def test_due_rows_are_rescued_first(self):
@@ -179,7 +179,7 @@ class Surface(unittest.TestCase):
                     mock.patch.dict(hazard.SKILLS, find_air=lambda ctx: calls.append("find_air")), \
                     mock.patch.object(api, "post", side_effect=lambda path, body=None: calls.append(("post", path))), \
                     mock.patch.object(api, "run", side_effect=lambda t, wait=0, awaits=None: calls.append(("run", t["type"]))):
-                got = hazard.due(st, buried=False)
+                got = hazard.rescue_due(st, buried=False)
                 self.assertEqual(got, due)
                 if got:
                     hazard.RECOVERY[got][0](None, st)

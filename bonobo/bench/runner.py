@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 
-from ..api import McError
+from ..api import McError, READ_EVERY_S
 from .core import bag_now
 from .core import (BENCH, BENCH_WORLD, BOX, WORLD_NORMAL, body_reset, FLAG, PKG, SCENARIOS, TABLE, UNCOUNTED, SetupInvalid, _batch, _c, _checked,
                   _command, at, server_count)
@@ -213,7 +213,7 @@ def _mod_version():
 def jar_matches_source():
     """The running jar must be the one built from these sources, or results would be credited to the wrong code."""
     from .. import api
-    running = api.status()["version"].split("+")[0]
+    running = api.game_status()["version"].split("+")[0]
     with open(os.path.join(JAVA, "..", "..", "..", "..", "..", "gradle.properties")) as f:
         built = next(l.split("=", 1)[1].strip() for l in f if l.startswith("mod_version="))
     return running == built, running, built
@@ -643,7 +643,7 @@ def _setup_settled(sc, lo, hi, ex, feedback):
         bad = setup_mismatches(Region(lo, hi).blocks, sc.get("expect", [])) if sc.get("expect") else []
         if not bad:
             break
-        time.sleep(SETTLE_POLL_S)    # the client's copy lags the build: read again soon (the cap is unchanged)
+        time.sleep(READ_EVERY_S)    # the client's copy lags the build: read again soon (the cap is unchanged)
     for _ in range(SETTLE_TRIES):    # summoned mobs and the health effect land a few ticks later (a ghast took > 3 s)
         # count on the server: the client's entity list misses far summons
         ents = [m for t, want, *most in sc.get("expect_entities", [])
@@ -658,11 +658,10 @@ def _setup_settled(sc, lo, hi, ex, feedback):
             break
         if s.get("health", 0) < 18:
             _command(ex("effect give @p minecraft:instant_health 1 10 true"), feedback)
-        time.sleep(SETTLE_POLL_S)
+        time.sleep(READ_EVERY_S)
     return bad + ents, s
 
 
-SETTLE_POLL_S = 0.1     # the settled reads poll this often (were 0.5 / 0.25: a ready scene waited out the step)
 SETTLE_TRIES = 50       # ≤ 5 s, the old cap
 
 def _trace(stop, out):
@@ -740,7 +739,7 @@ def _run_row(sc, make_ctx, fired):
                 sc["before"](ctx)
                 ctx = make_ctx()      # the hook may move the player: rebuild policy/dimension there
             from .. import skillcore as _sc
-            if _sc.dead():
+            if _sc.really_dead():
                 # dead before the skill began: the setup is invalid, not the skill — with what the body read then
                 s = api.get("/state")
                 raise SetupInvalid("player dead before the skill started ("
@@ -918,7 +917,7 @@ def one_hp_damage(hp):
     """Pure: the damage that leaves 1 hp (never kills, never heals)."""
     return max(0.0, round(float(hp) - 1.0, 2))
 
-def run(name, make_ctx):
+def run_named(name, make_ctx):
     """Set up and run one scenario (test world only)."""
 
     from ..api import McError
@@ -961,7 +960,7 @@ def run(name, make_ctx):
                 # a death in the run fails it, whatever the world reads after the respawn
                 ok, exc, note = False, McError("died during the run"), "died during the run (respawned)"
             from .. import skillcore as _sc
-            if not ok and type(exc).__name__ != "SetupInvalid" and _sc.dead():
+            if not ok and type(exc).__name__ != "SetupInvalid" and _sc.really_dead():
                 # died is the result, whatever the skill did after
                 exc = McError("died")
                 note = "died" + (f" ({note})" if note else "")

@@ -301,7 +301,7 @@ class OneDecisionPoint(unittest.TestCase):
             b.mem, b.blacklist, b.policy_cache = None, {}, None
             b.prepare = layer("prepare", brain.Act("idle", "p", None))
             with self.subTest(busy=sorted(busy)), mock.patch.object(api.STATE, "mode", "normal"), \
-                    mock.patch.object(brain.hazard, "due", layer("hazard", "drowning")), \
+                    mock.patch.object(brain.hazard, "rescue_due", layer("hazard", "drowning")), \
                     mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "pending"}]), \
                     mock.patch.object(tasks, "expire", return_value=False):
                 act = b.decide(snap, None)

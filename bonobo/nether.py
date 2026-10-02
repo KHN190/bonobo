@@ -5,6 +5,7 @@ import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, bag as _bag, blueprints, nav, skillcore
+from . import world
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .world import Inventory, entities, find, container
@@ -106,7 +107,7 @@ def find_fortress(ctx, legs=8, leg=48):
         known = ctx.mem.sites(NETHER, kinds=[kind])
         if known:
             return tuple(known[0]["pos"])
-    x, y, z = skillcore.feet()
+    x, y, z = world.feet()
     for i in range(legs):
         hits = find(["nether_bricks", "nether_brick_fence"], radius=64, limit=3)
         if hits:
@@ -121,7 +122,7 @@ def find_fortress(ctx, legs=8, leg=48):
         # legs at y≈70: above the lava sea, below most ceilings
         nav.go_to((x + dx * length, EXPLORE_Y, z + dz * length), ctx.policy, range_=8, attempts=1,
                   purpose="explore_deep")          # a fortress sits in the netherrack: legs dig
-        x, y, z = skillcore.feet()
+        x, y, z = world.feet()
         yield (x, z)
     # out of legs or supplies: back to the arrival portal
     home = ctx.mem.sites(NETHER, kinds=["portal"])
@@ -253,7 +254,7 @@ def locate_stronghold(ctx):
     known = ctx.mem.sites(OVERWORLD, kinds=["stronghold"])
     if known:
         # the nearest estimate, not the oldest
-        here = skillcore.feet()
+        here = world.feet()
         return tuple(min(known, key=lambda s: math.dist(s["pos"], here))["pos"])
     if api.get("/state")["dimension"] != OVERWORLD:
         raise NotAvailable("strongholds are located from the Overworld")
@@ -261,7 +262,7 @@ def locate_stronghold(ctx):
     for leg in range(2):
         if Inventory().count("minecraft:ender_eye") < 1:
             raise NotAvailable("no eyes of ender left to throw")
-        here = skillcore.feet()
+        here = world.feet()
         api.run({"type": "use_item", "item": "minecraft:ender_eye", "yaw": 0, "pitch": -20}, wait=10, awaits="the eye's flight is read right after the throw")
         direction = _eye_direction()
         if direction is None:

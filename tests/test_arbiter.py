@@ -82,11 +82,11 @@ class Ordering(unittest.TestCase):
         self.assertTrue(arbiter.viable(wait, {"cooling": set()}))
 
     def test_critical_health_takes_the_body_from_any_work(self):
-        # S1: hp at the floor is SAFETY's (hazard.due), and SAFETY wins over every MAINTAIN/PLAN proposal
+        # S1: hp at the floor is SAFETY's (hazard.rescue_due), and SAFETY wins over every MAINTAIN/PLAN proposal
         from bonobo import hazard
         from bonobo.data import CRITICAL_HP
         from tests.world import state
-        k = hazard.due(state(health=float(CRITICAL_HP)), buried=False)
+        k = hazard.rescue_due(state(health=float(CRITICAL_HP)), buried=False)
         self.assertEqual(k, "critical", "must fail: critical health left to the work layers")
         work = [arbiter.Intent("maintain", lambda: None, "eat", key="eat", seq=0),
                 arbiter.Intent("plan", lambda: None, "task 1", key="task 1", kind="queue")]

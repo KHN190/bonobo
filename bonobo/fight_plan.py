@@ -338,7 +338,7 @@ class Fight:
             if slack is not None and slack < busy:
                 return False, f"committing {busy:.1f}s, first threat arrives in {slack + busy:.1f}s"
         expected = action.duration_s * self.dps_here(state)
-        hit = max((float(estimate.MOBS[t[3]]["attack"]) for t in state["threats"] if t[3] in estimate.MOBS),
+        hit = max((float(beliefs.MOBS[t[3]]["attack"]) for t in state["threats"] if t[3] in beliefs.MOBS),
                   default=expected)
         if expected > 0 and not estimate.fight_line_ok(me["hp"], me["hp_floor"], expected, hit):
             return False, (f"expects {estimate.loss_q(expected, hit):.0f} damage (its quantile), only "

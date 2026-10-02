@@ -84,6 +84,8 @@ def unexpected(where, err, why):
         detail("".join(traceback.format_exception(type(err), err, err.__traceback__)).rstrip())
     return None
 
+READ_EVERY_S = 0.1     # the fastest useful re-read of the game while waiting on it: two ticks
+
 class McError(Exception):
     """Something went wrong carrying out a goal; `pos`: the target cell it was about (a container, prey, a stand)."""
 
@@ -124,11 +126,6 @@ def interrupt_pending():
 def request_interrupt(reason):
     """Leave `reason` for the running work to take (the arbiter's preemption; perception to a soft skill)."""
     STATE.interrupt = reason
-
-
-def boundary_pending():
-    """The pending boundary request, or None."""
-    return STATE.at_boundary
 
 
 def request_boundary(reason):
@@ -184,7 +181,8 @@ def waiting_for_clock(seconds):
     if CLOCK_HOOK is not None and seconds > 0:
         try:
             CLOCK_HOOK(seconds)
-        except McError:
+        except McError as e:
+            swallowed("api.waiting_for_clock", e)
             pass
 
 
@@ -225,7 +223,7 @@ def check_interrupt(since, soft=False):
 class PlayerTookControl(Exception):
     """The player holds control. Automation must stop touching the game until handed back."""
 
-def refused(r, queued):
+def refuse_unqueued(r, queued):
     """A post that queued nothing: an interruption while a fight holds the body, else the world declining the work (NotAvailable)."""
 
     if queued:
@@ -265,7 +263,7 @@ DETAIL_MAX_BYTES = 2 << 20        # roll at 2 MB; the previous roll is kept as d
 # detail.log silent this long while the agent drives: the brain is stuck (supervise wakes "frozen", every thread's
 # stack is written); a task running longer says so every half of it (await_task), so only a stuck brain is silent
 FROZEN_S = 60.0
-LAST_DETAIL = [time.time()]       # when detail.log was last written: the process's liveness, never one life's
+LAST_DETAIL = time.time()       # when detail.log was last written: the process's liveness, never one life's
 
 def roll(path, max_bytes):
     """Keep one previous file and start a new one once `path` passes `max_bytes`."""
@@ -274,7 +272,8 @@ def roll(path, max_bytes):
         if os.path.exists(path) and os.path.getsize(path) > max_bytes:
             os.replace(path, path + ".1")
             return True
-    except OSError:
+    except OSError as e:
+        swallowed("api.roll", e)
         pass
     return False
 
@@ -282,13 +281,15 @@ def detail(*parts):
     """The working-out: plans, refusals, every task result, look-ahead."""
 
     line = time.strftime("%H:%M:%S") + " " + " ".join(str(p) for p in parts) + "\n"
-    LAST_DETAIL[0] = time.time()
+    global LAST_DETAIL
+    LAST_DETAIL = time.time()
     try:
         os.makedirs(os.path.dirname(DETAIL_FILE), exist_ok=True)
         roll(DETAIL_FILE, DETAIL_MAX_BYTES)
         with open(DETAIL_FILE, "a") as f:
             f.write(line)
-    except OSError:
+    except OSError as e:
+        swallowed("api.detail", e)
         pass          # losing the working-out must never stop the agent
 
 def _token():
@@ -298,11 +299,9 @@ def _token():
     names = ("anaka.json", "agent-bridge.json")  # current mod id first
     for name in names:
         path = os.path.join(INSTANCE, "config", name)
-        try:
+        if os.path.exists(path):        # the old mod id's file, or the new one's: whichever is there
             with open(path) as f:
                 return json.load(f)["token"]
-        except OSError:
-            continue
     raise McError(f"no token in {os.path.join(INSTANCE, 'config')} (looked for {' or '.join(names)}); "
                   "launch the game with the mod once, or point MC_INSTANCE at the right instance")
 
@@ -382,9 +381,10 @@ def _game_up(timeout=1.0):
     try:
         with _DIRECT.open(req, timeout=timeout):
             return True
-    except urllib.error.HTTPError:
-        return True                  # an answer, whatever it said: the game is there
-    except (urllib.error.URLError, ConnectionError, TimeoutError, OSError, ValueError):
+    except urllib.error.HTTPError as e:
+        return e.code is not None    # an answer, whatever it said: the game is there
+    except (urllib.error.URLError, ConnectionError, TimeoutError, OSError, ValueError) as e:
+        swallowed("api._game_up", e)
         return False
 
 def get(path) -> Any:
@@ -442,19 +442,20 @@ def post(path, body=None):
     STATE.posts += 1
     return api("POST", path, body or {})
 
-def status():
+def game_status():
     return get("/status")
 
 def wait_for_game(poll=10):
     announced = False
     while True:
         try:
-            s = status()
+            s = game_status()
             if s.get("inWorld"):
                 if announced:
                     log("game is back")
                 return s
-        except GameUnreachable:
+        except GameUnreachable as e:
+            swallowed("api.wait_for_game", e)
             pass
         if not announced:
             log("game unreachable — waiting for it")
@@ -474,7 +475,7 @@ def control_lost(state):
 def take_control():
     """A script's start takes the body: the player's toggle lifted, the pause menu closed, the agent driving. Only at
     a start (and between bench rows): mid-run a K press still wins (wait_for_handback)."""
-    if status().get("paused"):
+    if game_status().get("paused"):
         post("/control", {"paused": False})     # the one POST the jar takes while the player holds control
     post("/resume")
     post("/takeover")
@@ -484,11 +485,12 @@ def wait_for_handback(poll=3):
     announced = False
     while True:
         try:
-            if not status().get("paused"):
+            if not game_status().get("paused"):
                 if announced:
                     log("▶ player handed control back")
                 return
-        except GameUnreachable:
+        except GameUnreachable as e:
+            swallowed("api.wait_for_handback", e)
             pass
         if not announced:
             log("⏸ player has control — waiting")
@@ -532,7 +534,8 @@ def trail_sample(task, st=None):
     try:
         st = st or get("/state")
         found = get(f"/entities?radius={TRAIL_RADIUS}").get("entities") or []
-    except McError:
+    except McError as e:
+        swallowed("api.trail_sample", e)
         return
     e = next((x for x in found if x.get("id") == int(m.group(1))), None)
     TRAILS.setdefault(task["id"], []).append({
@@ -559,7 +562,7 @@ def trail_line(task_id, samples, now, radius=TRAIL_RADIUS):
     else:
         verdict = f"vanished ({'out of range' if (last['dist'] or 0) >= radius - 2 else 'unloaded or gone'})"
     return (f"   fight trail {task_id}: target {last['entity']} last seen {where(last['pos'])} hp {last['hp']} "
-            f"{last['dist']} off, {ago:.1f}s (~{round(ago * 20)} ticks) ago, {len(seen)}/{len(samples)} polls seen, "
+            f"{last['dist']} off, {ago:.1f}s ago, {len(seen)}/{len(samples)} polls seen, "
             f"body {where(last['body'])}: {verdict}")
 
 
@@ -640,7 +643,8 @@ def vet_aim(task):
         near = living(get("/entities?radius=32")["entities"])
         if combat_model.aim_hits_enderman((task["x"], task["y"], task["z"]), (st["x"], st["y"], st["z"]), near):
             return f"aim at {task['x']},{task['y']},{task['z']} crosses an enderman's head"
-    except (McError, PlayerTookControl, KeyError, TypeError, ValueError):
+    except (McError, PlayerTookControl, KeyError, TypeError, ValueError) as e:
+        swallowed("api.vet_aim", e)
         return None          # a failed read or a reading short of a field: best-effort, never breaks the task
     return None
 
@@ -693,7 +697,7 @@ def run(task, *, awaits, wait=TASK_WAIT_S):
         HOLD([task])
     began = time.time()
     r = post("/task?wait=0", task)
-    refused(r, queued=r.get("id") is not None or r.get("status") != "failed")
+    refuse_unqueued(r, queued=r.get("id") is not None or r.get("status") != "failed")
     if r["status"] == "running":
         r = await_task(r["id"], wait)
     # surface a sequence's first step failure so it classifies (no path → nav)
@@ -801,7 +805,7 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
         else:
             r = post("/task?wait=0", {"tasks": part, "stopOnFailure": stop_on_failure})
             queued = r.get("tasks") or []
-            refused(r, queued=bool(queued))
+            refuse_unqueued(r, queued=bool(queued))
             STATE.last_posted = (chain_signature(part), queued[-1]["id"])
             await_task(queued[-1]["id"], wait)
             done = [get(f"/task?id={t['id']}") for t in queued]
@@ -829,7 +833,8 @@ def _stop_quietly():
     """A preemption's /stop: a game that cannot hear it has nothing running to stop."""
     try:
         post("/stop")
-    except McError:
+    except McError as e:
+        swallowed("api._stop_quietly", e)
         pass
 
 

@@ -21,6 +21,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from bonobo import world  # noqa: E402
 from bonobo import actions, brain, knowledge, loot, memory, nav, skillcore  # noqa: E402
 from bonobo.solve import solve  # noqa: E402
 from tests.world import FakeRegion, bag, flat, inventory, places, places_by  # noqa: E402
@@ -111,7 +112,7 @@ class WhatWasWrittenDownIsReadBack(unittest.TestCase):
                 def arrived(pos, policy, range_=1.5, **kw):
                     walks.append(tuple(pos))
                     return arrives
-                with mock.patch.object(skillcore, "feet", return_value=(0, 64, 0)), \
+                with mock.patch.object(world, "feet", return_value=(0, 64, 0)), \
                         mock.patch.object(dispatch.nav, "arrived", side_effect=arrived), \
                         mock.patch.object(dispatch, "still_there", return_value=bool(there)), \
                         mock.patch.object(dispatch.explore, "seek_blocks", return_value=[(5, 64, 5)]) as explore:

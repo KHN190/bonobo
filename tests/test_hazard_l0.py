@@ -1,7 +1,7 @@
 """Test point B — L0, offline: what the environment does to the body, judged from `/state` readings.
 
   HAZARDS   a /state (plus the two readings the caller makes: head in a block, blocks fallen) → hazard.kind, and
-            whether the brain must rescue before anything else this round (hazard.due)
+            whether the brain must rescue before anything else this round (hazard.rescue_due)
   DANGERS   the same readings with hostiles about → perception.danger: environment first, hostiles never reach L0
   FALLS     a sequence of /state readings → how far `Watch` says we have fallen (the one stateful reading)
 
@@ -17,6 +17,7 @@ import tempfile  # noqa: E402
 import time  # noqa: E402
 from unittest import mock  # noqa: E402
 
+from bonobo import world  # noqa: E402
 from bonobo import api, hazard, needs, perception, reflexes, retry, skillcore, skills, threat  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
@@ -77,7 +78,7 @@ class Hazards(unittest.TestCase):
             s = state(**changes)
             with self.subTest(name):
                 self.assertEqual(hazard.kind(s, buried=buried, fallen=fallen), kind)
-                self.assertEqual(hazard.due(s, buried=buried), due)
+                self.assertEqual(hazard.rescue_due(s, buried=buried), due)
                 if kind is not None:
                     self.assertIn(kind, hazard.KINDS)
                 # What perception interrupts for is the same judgment, environment first.
@@ -107,10 +108,11 @@ class HostilesAreNotL0(unittest.TestCase):
               "critical": "L0", "breath": "fight", "enderman": "fight", "hostiles": "fight"}
 
     def test_each_danger_has_exactly_one_family(self):
-        self.assertEqual(set(perception.DANGERS), set(self.FAMILY), "a danger kind without a family row")
+        self.assertEqual(set(hazard.KINDS) | {k for k, f in self.FAMILY.items() if f == "fight"}, set(self.FAMILY),
+                         "a danger kind without a family row")
         for kind, family in self.FAMILY.items():
             with self.subTest(kind):
-                self.assertEqual(("L0" if kind in hazard.KINDS else "") + ("fight" if kind in perception.HOSTILE
+                self.assertEqual(("L0" if kind in hazard.KINDS else "") + ("fight" if kind not in hazard.KINDS
                                                                              else ""), family)
 
     def test_hostile_situations_reach_the_fight_not_the_rescue(self):
@@ -118,10 +120,10 @@ class HostilesAreNotL0(unittest.TestCase):
             s = state(**changes)
             with self.subTest(name):
                 self.assertIsNone(hazard.kind(s), "a mob is not an environmental hazard")
-                self.assertIsNone(hazard.due(s, buried=False))
+                self.assertIsNone(hazard.rescue_due(s, buried=False))
                 got = perception.danger(s, **callbacks)
                 self.assertEqual(got, want)
-                self.assertTrue(got is None or got in perception.HOSTILE)
+                self.assertTrue(got is None or got not in hazard.KINDS)
 
 
 # (situation, [(y, onGround, inWater, inLava)], fallen after each reading)
@@ -250,17 +252,17 @@ class Recovery(unittest.TestCase):
 
     def test_critical_by_situation(self):
         # (situation, threatened) → the first way: out of reach under a threat, a meal when calm
-        rows = [("critical, a mob on us: cover first", True, "_cover"),
-                ("critical, nothing about, food carried: eat", False, "_eat")]
+        rows = [("critical, a mob on us: cover first", True, "_into_cover"),
+                ("critical, nothing about, food carried: eat", False, "_meal")]
         for name, threatened, first in rows:
             with self.subTest(name):
                 self.assertEqual(hazard.ways("critical", threatened)[0].__name__, first)
-        self.assertNotEqual(hazard.ways("critical", True)[0].__name__, "_eat",
+        self.assertNotEqual(hazard.ways("critical", True)[0].__name__, "_meal",
                             "must fail: eating under blows (never finished)")
 
     def test_every_rescued_kind_has_a_next_way_or_says_why(self):
         # the lists themselves: drowning and burning turn to cover, lava pours water (it sets the lava)
-        self.assertEqual([w.__name__ for w in hazard.RECOVERY["drowning"]], ["_surface", "_cover"])
+        self.assertEqual([w.__name__ for w in hazard.RECOVERY["drowning"]], ["_surface", "_into_cover"])
         self.assertEqual([w.__name__ for w in hazard.RECOVERY["lava"]], ["_leave_lava", "_extinguish"])
 
 
@@ -373,7 +375,7 @@ class FightBatches(unittest.TestCase):
         for name, option, queued, want in self.ENGAGE:
             posted = []
             with self.subTest(name), \
-                    mock.patch.object(skillcore, "feet", lambda: (0, 64, 0)), \
+                    mock.patch.object(world, "feet", lambda: (0, 64, 0)), \
                     mock.patch.object(skillcore, "body_state", lambda ctx, region=None, **k: dict(
                         fight_body(_inv(cobblestone=4)), **k)), \
                     mock.patch.object(threat, "threats_seen", lambda: ([], None)), \
@@ -401,7 +403,7 @@ def _until(cond, s=2.0):
 
 class Engagement(unittest.TestCase):
     def test_the_decision_rhythm(self):
-        """Perception decides every FIGHT_POLL_S while a fight is on, every POLL_S otherwise (fight_loop.active)."""
+        """Perception decides every api.READ_EVERY_S while a fight is on, every WATCH_S otherwise."""
         from bonobo import arbiter, fight_loop
         rows = [("must fail: nothing engaged", None, False, False), ("our engagement running", "intent", False, True),
                 ("a boss fight holds the body", None, True, True), ("both", "intent", True, True)]
@@ -411,7 +413,7 @@ class Engagement(unittest.TestCase):
             with self.subTest(name), mock.patch.object(fight_loop.arbiter, "BODY", body), \
                     mock.patch.object(fight_loop, "engaged", lambda e=eng: e):
                 self.assertEqual(fight_loop.active(), want)
-        self.assertEqual(fight_loop.FIGHT_POLL_S < __import__("bonobo.perception", fromlist=["POLL_S"]).POLL_S, True)
+        self.assertEqual(api.READ_EVERY_S < __import__("bonobo.perception", fromlist=["WATCH_S"]).WATCH_S, True)
 
 
 class Disengage(unittest.TestCase):

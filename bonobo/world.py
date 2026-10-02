@@ -201,7 +201,7 @@ def _per_block_ok():
     if not _PER_BLOCK:
         import re
         try:
-            v = tuple(int(x) for x in re.findall(r"\d+", str(api.status().get("version", "0")))[:3])
+            v = tuple(int(x) for x in re.findall(r"\d+", str(api.game_status().get("version", "0")))[:3])
         except api.McError:
             return False
         _PER_BLOCK.append(v >= (0, 1, 55))

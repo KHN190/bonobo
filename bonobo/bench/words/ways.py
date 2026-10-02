@@ -204,12 +204,12 @@ def place_into(pos, item):
     return run
 
 
-FALL_BLOCKS = 15          # the drop: past nav.SAFE_DROP, so a landing without the clutch hurts
+DROP_HEIGHT = 15          # the drop: past nav.SAFE_DROP, so a landing without the clutch hurts
 FALL_WATCH_S = 8.0
 
 
 def fall(taken):
-    """run: the body sent FALL_BLOCKS up into the air — the player holding it first when `taken` (the jar's /control,
+    """run: the body sent DROP_HEIGHT up into the air — the player holding it first when `taken` (the jar's /control,
     as the key does) — and watched until it stands again."""
     def run(ctx):
         import time
@@ -218,7 +218,7 @@ def fall(taken):
         if taken:
             api.api("POST", "/control", {"paused": True})
         try:
-            _chat(f"tp @p ~ ~{FALL_BLOCKS} ~")
+            _chat(f"tp @p ~ ~{DROP_HEIGHT} ~")
             t0 = time.time()
             time.sleep(1.0)
             while time.time() - t0 < FALL_WATCH_S and not api.get("/state").get("onGround"):
@@ -231,14 +231,14 @@ def fall(taken):
 
 
 def fall_row(name, taken):
-    """S6: a fall of FALL_BLOCKS with a water bucket carried (not in hand). The player holding the body: nothing of
+    """S6: a fall of DROP_HEIGHT with a water bucket carried (not in hand). The player holding the body: nothing of
     the agent runs — no clutch, no swap: hurt, the hand unchanged. Its twin, the agent driving: the clutch lands it
     unhurt (must fail of the first: the reflex ran under the player)."""
     from ...data import MAX_HP
     scene = [("floor",), ("stand",), ("cmd", "clear @p"), ("give", "cobblestone", 1), ("give", "water_bucket")]
     check = ([("state", "health", "<", MAX_HP), ("held", "minecraft:cobblestone")] if taken
              else [("state", "health", ">=", MAX_HP)])
-    doc = (f"A {FALL_BLOCKS}-block fall, a water bucket carried, "
+    doc = (f"A {DROP_HEIGHT}-block fall, a water bucket carried, "
            + ("the player holding the body → no clutch, no swap: hurt, cobblestone still in hand" if taken
               else "the agent driving → the clutch lands it unhurt"))
     return _row(name, doc, "skills", scene, ("fall", taken), check, budget=25, skills=[], tier_fixed="exception", variant=(taken,),
@@ -248,6 +248,6 @@ def fall_row(name, taken):
 TEMPLATES = {"way": way_row, "dirt_tool": dirt_tool_row, "home_night": home_night_row, "fall": fall_row}
 NAMES = {t: (lambda name, *p: name) for t in TEMPLATES}
 
-__all__ = ["EST", "sleep_est", "SPECS", "SHOVEL_KIT", "PICK", "budget", "dirt_counts", "dirt_tool_row", "home_box", "home_night_row", "place_into", "FALL_BLOCKS",
+__all__ = ["EST", "sleep_est", "SPECS", "SHOVEL_KIT", "PICK", "budget", "dirt_counts", "dirt_tool_row", "home_box", "home_night_row", "place_into", "DROP_HEIGHT",
            "FALL_WATCH_S", "fall", "fall_row",
            "shovel_break_even", "spec_blocks", "spec_scene", "way_est_s", "way_row"]

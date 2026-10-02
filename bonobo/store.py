@@ -10,7 +10,8 @@ from .data import BASE_MARKERS, GROUPS, MARKER_WEIGHT, PLACEABLE_AS, bare, mid
 from .world import BAG_SLOTS, Inventory, Region, add, find
 from .bag import let_go, FREE_SLOTS_TARGET, throw_direction, store_plan
 from .terrain import chest_spot_ok
-from .skillcore import feet, close_screen, free_spots_here, opened, place, lost
+from .skillcore import close_screen, free_spots_here, opened, place, lost
+from .world import feet
 from .craft import craft, make_bag_room, make_room
 
 def openable_container(pos):

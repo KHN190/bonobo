@@ -4,12 +4,14 @@ from __future__ import annotations
 import math
 
 from . import knowledge as K
+from . import world
 from . import knowledge as _k
 from . import api, blueprints, nav, skillcore
 from .api import McError, NotAvailable, log
 from .data import EYE_HEIGHT, GROUPS, bare
 from .skill import skill
-from .skillcore import body_state, feet, gained
+from .skillcore import body_state, gained
+from .world import feet
 from .world import Inventory, Region, add, find
 from typing import TYPE_CHECKING
 
@@ -122,7 +124,7 @@ def _use(item, aim, on_block):
        budget=300, stall=120, provides={"fill": lambda ctx, s: ()})
 def fill_water_bucket(ctx):
     """Fill an empty bucket at the nearest reachable still water."""
-    here = skillcore.feet()
+    here = world.feet()
     hits = sorted((h for h in find(["water"], radius=48, limit=60) if not ctx.blocked((h["x"], h["y"], h["z"]))),
                   key=lambda h: h["distance"])
     for h in hits[:6]:

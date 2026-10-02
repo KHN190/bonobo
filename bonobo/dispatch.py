@@ -3,6 +3,7 @@
 import math
 
 from . import api, explore, gather, nav, retry, skillcore
+from . import world
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, log
 from .data import GROUPS, bare, mid, seen_class
@@ -73,7 +74,7 @@ def run_step(ctx, step, night, seek=True):
 def go_find(ctx, step):
     """Where to look when nothing is in range: memory's sightings, then the kind's richest depth, then a spiral."""
 
-    here, dim, mem = skillcore.feet(), ctx.dimension, ctx.mem
+    here, dim, mem = world.feet(), ctx.dimension, ctx.mem
     blocks = list(step.detail.get("blocks", ()))
     names = {"gather": ["tree"], "mine": blocks, "hunt": list(step.detail.get("types", ()))}.get(step.kind, [])
     notes = sorted(((r["kind"], tuple(r["pos"])) for n in names for r in mem.seen(n, dim)),

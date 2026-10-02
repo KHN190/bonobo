@@ -61,7 +61,7 @@ def fight_line_holds(contract, args, state, inv):
     if not kinds:
         return True, None
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
-    mean, hit = estimate.fight_loss(kinds, _k.held_tiers(inv).get("sword", 0),
+    mean, hit = estimate.melee_loss(kinds, _k.held_tiers(inv).get("sword", 0),
                                     beliefs.protection(state.get("armor", 0), shield))
     hp, floor = float(state.get("health", 0.0)), critical_hp(state)
     if estimate.fight_line_ok(hp, floor, mean, hit):
@@ -219,7 +219,7 @@ class Brain:
         if s["control"].get("paused"):
             self._running(api.wait_for_handback)
             s = api.get("/state")
-        if skillcore.dead(s):
+        if skillcore.really_dead(s):
             # the carried items are unknowable after the respawn
             self.mem.log_death((s["blockX"], s["blockY"], s["blockZ"]), s["dimension"],
                                carried=[(x["id"], x.get("count", 1)) for x in Inventory().slots])
@@ -261,7 +261,8 @@ class Brain:
                                                              survive.LIGHT_FIRST if first else 1, spots=spots))
             except api.INTERRUPTIONS:
                 raise
-            except McError:
+            except McError as e:
+                api.swallowed("brain.invariants", e)
                 pass
 
     # -- failure policy (retry.py)
@@ -339,7 +340,8 @@ class Brain:
                 self.failed(key, err, quiet=True)
             try:
                 api.post("/stop")
-            except McError:
+            except McError as e:
+                api.swallowed("brain.attempt", e)
                 pass
         else:
             log("!! crash in " + name + "\n" + trace)
@@ -459,8 +461,9 @@ class Brain:
                 break
             try:
                 api.run({"type": "wait", "ticks": IDLE_SLICE_TICKS}, wait=15, awaits="one task: a slice of the idle round's wait")
-            except api.FightHolds:
-                break                            # a faster layer drives: no idling over it
+            except api.FightHolds as e:
+                api.detail(f"  idle: {e} — no idling over it")
+                break                            # a faster layer drives
             slices += 1
             if work_queued():
                 break
@@ -473,7 +476,7 @@ class Brain:
             out = []
             if arbiter.BODY.holder() is not None or api.mode() == "survival":
                 out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
-            k = hazard.due(snap.state)
+            k = hazard.rescue_due(snap.state)
             if k is not None and self.ready(f"rescue {k}"):
                 out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
                     ctx, snap.state, self.attempt, self.ready, threatened=bool(threat.threats_seen()[0]))),
@@ -553,7 +556,8 @@ class Brain:
         cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED)
         try:
             steps = decompose.decompose(snap.inv, goal, cost, pending=self.mem.pending_outputs(snap.dimension))
-        except Unplannable:
+        except Unplannable as e:
+            self.__dict__.setdefault("unplannable", {})[name] = str(e)     # why this need offers no step (readout)
             return None
         closed = surface_closed(snap.night, snap.dimension)
         step = next((st for st in steps if self.valid(st, snap, ctx) and not (closed and arbiter.on_surface(st.kind))),
@@ -719,7 +723,8 @@ class Brain:
         """{item: seconds to get one another way}, for skills that ask what a thing is worth."""
         try:
             snap = snap or Snapshot.from_readings(api.get("/state"), Inventory())
-        except McError:
+        except McError as e:
+            api.swallowed("brain.price_table", e)
             return {}
         return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache), snap.inv)
 
@@ -734,7 +739,8 @@ class Brain:
             with open(TRACK_FILE, "a") as f:
                 f.write(json.dumps({"t": int(now), "pos": list(snap.feet), "tasks": live,
                                     "cooling": self.retry.cooling_now(now)[:12]}) + "\n")
-        except OSError:
+        except OSError as e:
+            api.swallowed("brain.track", e)
             pass
 
     def hold_log(self, text):
@@ -845,13 +851,14 @@ def watchdog(stop, limit_s=api.FROZEN_S):
     """A thread: detail.log silent past `limit_s` while the agent drives (control not paused) → every thread's stack
     written once per silence (stack_dump)."""
     while not stop.wait(limit_s / 4):
-        silent = time.time() - api.LAST_DETAIL[0]
+        silent = time.time() - api.LAST_DETAIL
         if silent < limit_s:
             continue
         try:
-            if api.status().get("paused"):
+            if api.game_status().get("paused"):
                 continue
-        except McError:
+        except McError as e:
+            api.swallowed("brain.watchdog", e)
             continue                    # no game to ask: not the brain's freeze
         api.detail(f"!! frozen: detail.log silent {silent:.0f}s (over {limit_s:.0f}s); every thread's stack:")
         stack_dump()
@@ -874,7 +881,7 @@ def autoplay(hours):
     except GameUnreachable:
         api.wait_for_game()
         api.take_control()
-    perception.start()  # ~5 Hz
+    perception.start_watching()  # ~5 Hz
     brain = Brain()
     say_registrations(brain)
     threading.Thread(target=watchdog, args=(threading.Event(),), daemon=True, name="watchdog").start()
@@ -894,5 +901,6 @@ def autoplay(hours):
             time.sleep(10)
     try:
         api.post("/release")
-    except McError:
+    except McError as e:
+        api.swallowed("brain.autoplay", e)
         pass

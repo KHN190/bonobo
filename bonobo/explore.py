@@ -6,7 +6,7 @@ from . import api, nav
 from .api import NotAvailable, log
 from .data import RARE_SIGHTINGS, SEARCH_LEGS, SEARCH_LOOK_R, bare
 from .skill import skill
-from .skillcore import feet
+from .world import feet
 from .knowledge import FIND_AT, MINE, takeable_blocks
 
 def _searched(c):
