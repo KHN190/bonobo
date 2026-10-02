@@ -290,6 +290,13 @@ PLACEABLE_AS = {"grass_block": "dirt", "dirt_path": "dirt", "farmland": "dirt", 
 
 ARMOR_SLOTS = {"helmet": "head", "chestplate": "chest", "leggings": "legs", "boots": "feet"}
 ARMOR_RANK = {"leather": 0, "golden": 1, "chainmail": 2, "iron": 3, "diamond": 4, "netherite": 5}
+# armour points each piece gives (Minecraft Wiki, Armor: defense points), as /state's "armor" sums the worn ones
+ARMOR_POINTS = {"leather": {"helmet": 1, "chestplate": 3, "leggings": 2, "boots": 1},
+                "golden": {"helmet": 2, "chestplate": 5, "leggings": 3, "boots": 1},
+                "chainmail": {"helmet": 2, "chestplate": 5, "leggings": 4, "boots": 1},
+                "iron": {"helmet": 2, "chestplate": 6, "leggings": 5, "boots": 2},
+                "diamond": {"helmet": 3, "chestplate": 8, "leggings": 6, "boots": 3},
+                "netherite": {"helmet": 3, "chestplate": 8, "leggings": 6, "boots": 3}}
 
 BASE_MARKERS = {
     "bed": [f"{c}_bed" for c in COLORS],
