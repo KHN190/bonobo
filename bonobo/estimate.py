@@ -158,12 +158,13 @@ def keepoff_cost(here, hazard, sword, prot, speed=None):
     lost = hits * float(ENGAGE["keepoff_risk"]) * blast * (1.0 - prot)
     return round(walk + hits * cycle, 2), round(lost, 2)
 
-def _ranged_dps(rows):
+def _ranged_dps(rows, shapes=()):
     """What the ranged ones among `rows` put on us while we are not trading blows, capped by hurt immunity."""
     if not rows:
         return 0.0
     cap = incoming_cap(max(float(beliefs.MOBS[r[3]].get("attack", 0.0)) for r in rows))
-    return min(cap, sum(_row_dps(r) for r in rows if beliefs.MOBS[r[3]].get("ranged")))
+    return min(cap, sum(_row_dps(r) * share_of(shapes, beliefs.MOBS[r[3]]) for r in rows
+                        if beliefs.MOBS[r[3]].get("ranged")))
 
 def _knocked_off(mob, hits_s):
     """Share of the time the mob we hit is pushed out of its own reach (a ranged one shoots on)."""
@@ -172,7 +173,7 @@ def _knocked_off(mob, hits_s):
     push = game.HIT_KNOCKBACK / (1.0 - game.GROUND_DRAG)
     return min(1.0, push / float(mob["speed"]) * hits_s)
 
-def fight_cost(here, hazards, sword, prot, speed=None):
+def fight_cost(here, hazards, sword, prot, speed=None, shapes=()):
     """(seconds, hp lost) to kill every threat in melee, nearest first, while the rest keep hitting. Each kill is the
     whole of what the fight loop does for it: see it (one read of the game, `api.READ_EVERY_S`), walk into reach,
     swing it dead, walk onto its drops (they lie where it died, `pickup_r` short of it) — no hidden work (D6).
@@ -191,9 +192,11 @@ def fight_cost(here, hazards, sword, prot, speed=None):
         kill = math.ceil(float(mob["hp"]) / per_hit) / rate
         # The row's own rate (what THIS one hits for, `threat.row`), as pressure reads it — not the table's.
         cap = incoming_cap(max(float(beliefs.MOBS[r[3]].get("attack", 0.0)) for r in order[i:]))
-        under_everything = min(cap, sum(_row_dps(r) for r in order[i + 1:]) + _row_dps(hazard) * (1.0 - _knocked_off(mob, rate)))
-        lost += ((READ_EVERY_S + walk) * _ranged_dps(order[i:]) + kill * under_everything
-                 + pickup * _ranged_dps(order[i + 1:])) * (1.0 - prot)
+        reaches = {id(r): _row_dps(r) * share_of(shapes, beliefs.MOBS[r[3]]) for r in order[i:]}
+        under_everything = min(cap, sum(reaches[id(r)] for r in order[i + 1:])
+                               + reaches[id(hazard)] * (1.0 - _knocked_off(mob, rate)))
+        lost += ((READ_EVERY_S + walk) * _ranged_dps(order[i:], shapes) + kill * under_everything
+                 + pickup * _ranged_dps(order[i + 1:], shapes)) * (1.0 - prot)
         seconds += READ_EVERY_S + walk + kill + pickup
         pos = hazard[0]
     return round(seconds, 2), round(lost, 2)
@@ -213,13 +216,13 @@ def loss_q(mean_hp, hit_hp, q=None):
         total += p
     return n * hit_hp
 
-def melee_loss(kinds, sword, prot):
-    """(mean health lost, the hardest hit) of fighting one each of `kinds` from melee reach: fight_cost's own rows."""
+def melee_loss(kinds, sword, prot, shapes=()):
+    """(mean health lost, the hardest hit) of fighting one each of `kinds` from melee reach, standing in `shapes`."""
     rows = [row((float(beliefs.PLAYER["melee_reach"]), 0.0, 0.0), float(beliefs.MOBS[k]["reach"]), (0.0, 0.0, 0.0), k)
             for k in kinds if k in beliefs.MOBS]
     if not rows:
         return 0.0, 0.0
-    _s, lost = fight_cost((0.0, 0.0, 0.0), rows, sword, prot)
+    _s, lost = fight_cost((0.0, 0.0, 0.0), rows, sword, prot, shapes=shapes)
     return lost, max(float(beliefs.MOBS[r[3]]["attack"]) * (1.0 - prot) for r in rows)
 
 def fight_line_ok(hp, floor, mean_hp, hit_hp, q=None):

@@ -63,8 +63,12 @@ def fight_line_holds(contract, args, state, inv):
     if not kinds:
         return True, None
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
-    mean, hit = estimate.melee_loss(kinds, _k.attack_weapon(inv, beliefs.COMMON_FOE_HP),
-                                    beliefs.protection(state.get("armor", 0), shield, hit=beliefs.hardest_hit(kinds)))
+    weapon = _k.attack_weapon(inv, beliefs.COMMON_FOE_HP)
+    prot = beliefs.protection(state.get("armor", 0), shield, hit=beliefs.hardest_hit(kinds))
+    # the cheapest way to stand: in the open, or under a 2-high lid built from the blocks carried
+    tactics = [()] + ([(("roof", threat.ROOF_BLOCKS),)] if inv.count("building") >= threat.ROOF_BLOCKS else [])
+    mean, hit = min((estimate.melee_loss(kinds, weapon, prot, shapes=t) for t in tactics),
+                    key=lambda mh: estimate.loss_q(*mh))
     hp, floor = float(state.get("health", 0.0)), critical_hp(state)
     if estimate.fight_line_ok(hp, floor, mean, hit):
         return True, None

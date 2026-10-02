@@ -52,7 +52,7 @@ class SwordPrice(unittest.TestCase):
                 seen = []
                 real = estimate.melee_loss
                 with mock.patch.object(estimate, "melee_loss",
-                                       lambda kinds, sword, prot: seen.append(sword) or real(kinds, sword, prot)):
+                                       lambda kinds, sword, prot, **kw: seen.append(sword) or real(kinds, sword, prot, **kw)):
                     brain.fight_line_holds(gather.hunt.contract, args, state(health=20.0), bag(inv))
                 self.assertEqual(seen, [want])
 

@@ -1463,6 +1463,20 @@ class FightsAPlayerWins(unittest.TestCase):
                 fights = [o for o in threat.options(st) if o.kind.startswith("fight")]
                 self.assertTrue(fights and threat.survivable(fights[0], 20.0), [o.hp for o in fights])
 
+    def test_hunting_an_enderman(self):
+        from bonobo import brain, gather
+        from tests.world import bag, inventory, state
+        args = (None, "minecraft:ender_pearl", 1, ["minecraft:enderman"], False)
+        kit = [("iron_sword", 1), ("iron_helmet", 1), ("iron_chestplate", 1), ("iron_leggings", 1), ("iron_boots", 1)]
+        # (situation, bag) → the optional fight's line holds at full health with iron armour (15 points)
+        rows = [("blocks for a 2-high lid: fought under it", kit + [("cobblestone", 16)], True),
+                ("must fail: in the open, nothing to build with", kit, False)]
+        for name, items, want in rows:
+            with self.subTest(name):
+                ok, why = brain.fight_line_holds(gather.hunt.contract, args, state(health=20.0, armor=15),
+                                                 bag(inventory(*items)))
+                self.assertIs(ok, want, why)
+
 
 class NoAnswerGoesToSafety(unittest.TestCase):
     """threat.unanswered: carrying on still hurts and the fallback has nothing — the fact handed to SAFETY (hazard

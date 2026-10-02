@@ -418,7 +418,8 @@ def options(state):
         first = min(creepers, key=lambda i: math.dist(here, hazards[i][0]))
         t_c, lost_c = estimate.keepoff_cost(here, hazards[first], sword, prot)
         rest = [h for i, h in enumerate(hazards) if i != first]
-        t_r, lost_r = estimate.fight_cost(hazards[first][0], rest, sword, prot) if rest else (0.0, 0.0)
+        t_r, lost_r = estimate.fight_cost(hazards[first][0], rest, sword, prot,
+                                          shapes=getattr(grid, "shape_now", ())) if rest else (0.0, 0.0)
         out.append(Option("fight", ids[first], round(lost_c + lost_r, 2), round(t_c + t_r, 2),
                           f"kill the creeper hit-and-back in ~{t_c}s"
                           + (f", then {len(rest)} more" if rest else "")))
@@ -430,7 +431,8 @@ def options(state):
     reach = [i for i, h in enumerate(hazards) if estimate.melee_reachable(here, h, ground=grid)]
     above = [hazards[i] for i in range(len(hazards)) if i not in reach]
     if reach and not any(MOBS[h[3]].get("burst") for h in hazards):
-        t_fight, lost = estimate.fight_cost(here, [hazards[i] for i in reach], sword, prot)
+        t_fight, lost = estimate.fight_cost(here, [hazards[i] for i in reach], sword, prot,
+                                            shapes=getattr(grid, "shape_now", ()))
         nearest = min(reach, key=lambda i: math.dist(here, hazards[i][0]))
         out.append(Option("fight", ids[nearest], lost + blast_here, t_fight,
                           f"kill {len(reach)} in ~{t_fight}s for ~{lost} hp",
