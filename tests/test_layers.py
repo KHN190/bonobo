@@ -82,7 +82,7 @@ CLOSURE = {
     "skill": 14,
     "skillcore": 13,
     "skills": 28,
-    "solve": 1,
+    "solve": 2,              # + lifecycle (its memos registered for reset)
     "store": 23,
     "survive": 24,
     "tape": 2,

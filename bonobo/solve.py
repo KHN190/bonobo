@@ -1,4 +1,6 @@
 """The planner's solver: what to do, as an integer program. Pure, exact, no dependencies. The old planner resolved a goal by recursive descent — need(bed) → need(wool) → need(planks) → … — which is a depth-first walk of the recipe graph, not a plan. Three consequences, all of them visible in play: * it could only reason about ITEMS, because "recursive descent on a requirement" has nothing to say about being somewhere, having dug something, or being sheltered; * it produced ONE decomposition, so a goal had exactly one way to be achieved and one step's failure cooled the whole goal (dig_in → burrow → pod was an if-chain inside a skill, invisible to the planner); * shared intermediates were merged AFTERWARDS (`merged()`), so the cost it reported was not the cost of the plan it had chosen — 16 planks for a door and a table were planned twice and merged once. Here the world is a vector, an action is a column, and a plan is the integer combination of columns that reaches the target for the fewest seconds: minimise   cᵀn                     n_j = how many times action j runs, integer ≥ 0 subject to x₀ + A·n ≥ b            A's column j is action j's effect on the state vector Everything follows from that. Several ways to reach the same state are several columns and the solver picks the cheap one; a place, a dug hole or a night's shelter is another row; sharing is exact because the same column serves every row that needs it. Solved with a two-phase simplex over exact rationals (matrices are small and their entries are recipe counts, so double precision with an explicit tolerance is exact in practice and about fifty times faster than rationals — which matters, because the search below calls it hundreds of times), then branch and bound for integrality. Requirements that are needed but not consumed — a pickaxe to mine, a table to craft, standing at the vein — sit around the matrix rather than in it (see `solve`), because as rows they destroy the linear relaxation and the search explodes. When one cannot be met, the action that asked for it is banned and the solver finds another column to the same state: that is what makes "dig in needs a pickaxe, wall in does not" a choice and not a dead end."""
+from . import lifecycle
+
 
 EPS = 1e-9               # zero tolerance: these matrices are small integers, so anything smaller is noise
 
@@ -90,7 +92,7 @@ class Plan:
 _PRICES = {}
 
 def reach_cost(cols, state):
-    """Pure: {dimension: cheapest seconds to obtain one unit}, ignoring how much is needed."""
+    """{dimension: cheapest seconds to obtain one unit}, ignoring how much is needed (memoised in _PRICES)."""
 
     return reach_tree(cols, state)[0]
 
@@ -143,6 +145,7 @@ def reach_tree(cols, state):
 
 _MEMO = {}            # (columns, state, target) -> Plan. Bounded; cleared when it grows past MEMO_MAX.
 MEMO_MAX = 4000
+lifecycle.in_place(__name__, "_MEMO", "_PRICES")
 
 def _memo_key(actions, state, target, integral):
     """What makes two solves the same question: the columns offered, what we hold, what is wanted."""
@@ -150,7 +153,7 @@ def _memo_key(actions, state, target, integral):
     return (_columns_key(actions), _state_key(state), tuple(sorted(target.items())), integral)
 
 def solve(actions, state, target, integral=True):
-    """Pure: the cheapest plan from `state` reaching `target` ({dimension: minimum}), or raise Unsolvable."""
+    """The cheapest plan from `state` reaching `target` ({dimension: minimum}), or raise Unsolvable (memoised in _MEMO)."""
 
     need = {d: v for d, v in target.items() if state.get(d, 0) < v}
     if not need:
