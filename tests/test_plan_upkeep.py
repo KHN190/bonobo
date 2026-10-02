@@ -116,8 +116,9 @@ FALLBACK = [
     ("a milestone asks solve first; without a memory it cannot, the planner can",
      goals.make("milestone", name="stone tools"), None, ("craft", "minecraft:stone_pickaxe")),
     ("an unknown solver named on the task", goals.have(("log", 4)), "zzz", ("gather", "log")),
+    # the meat that costs least by the plan's own prices (planner.cheapest_food, M3/B2), not the list's first
     ("the food milestone: solve cannot without a memory, the planner hunts", goals.make("milestone", name="food"),
-     None, ("hunt", "minecraft:porkchop")),
+     None, ("hunt", "minecraft:beef")),
     ("a task naming solve for sticks, no memory: the planner crafts", goals.have(("minecraft:stick", 4)), "solve",
      ("craft", "minecraft:stick")),
     ("must fail: bedrock, whatever the solver: unplannable, and says why", goals.have(("minecraft:bedrock", 1)), "zzz",
@@ -1573,13 +1574,14 @@ WITHDRAW_GOALS = [
     ("sticks in the chest, sticks asked: fetched", goals.have(("minecraft:stick", 4)), {"minecraft:stick": 8}, True),
     ("must fail: a pickaxe in the chest: tools are not withdrawn", PICK1, {"minecraft:stone_pickaxe": 1}, False),
     ("logs in the chest, logs asked, trees far: fetched", goals.have(("log", 4)), {"minecraft:oak_log": 8}, True),
-    ("cobblestone in the chest, a pickaxe asked: an intermediate, mined not fetched", PICK1,
-     {"minecraft:cobblestone": 16}, False),
+    # M3/B1: an intermediate the chest holds is taken when taking costs less than mining it (decompose.take_stored)
+    ("cobblestone in the chest, a pickaxe asked: an intermediate, fetched", PICK1,
+     {"minecraft:cobblestone": 16}, True),
 ]
 
 
 class Withdraw(unittest.TestCase):
-    def test_top_level_only(self):
+    def test_every_level(self):
         for name, goal, items, want in WITHDRAW_GOALS:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 m = Memory(os.path.join(tmp, "notes.json"))

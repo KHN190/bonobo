@@ -66,6 +66,54 @@ def container_p(record, ids, age_s, rate):
     held = any(record["items"].get(i, 0) > 0 for i in ids)
     return math.exp(-rate * age_s) if held else 1.0 - math.exp(-rate * age_s)
 
+MATERIAL_STEPS = ("gather", "mine", "hunt")      # steps that make a material a container may already hold
+
+
+def take_stored(steps, cost, already=()):
+    """M3/B1: a material a container here holds is taken rather than made at every level of the plan, not only for
+    the goal's own needs (from_containers): each gather, mine or hunt step whose output a remembered container holds
+    gives way — wholly or in part — to withdrawing it where the withdraw (its walk and take, priced by the cost model,
+    over the chance the container still holds it: container_p) costs less than making that many (the step's own
+    price per unit). `already`: withdraw steps the plan has, whose items are no longer there to take."""
+    import copy
+    mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
+    if mem is None or snap is None:
+        return steps
+    taken = {}
+    for w in already:
+        if w.kind == "withdraw":
+            key = (tuple(w.detail.get("pos") or ()), mid(w.token))
+            taken[key] = taken.get(key, 0) + int(w.count)
+    rate, now, out = mem.container_change_rate(), time.time(), []
+    for st in steps:
+        stored = mem.stored(st.token, snap.dimension) if st.kind in MATERIAL_STEPS and st.count > 0 else []
+        left, per = int(st.count), (st.est / st.count if st.count else 0)
+        for pos, item, have in sorted(stored, key=lambda r: math.dist(r[0], snap.feet)):
+            free = have - taken.get((tuple(pos), mid(item)), 0)
+            if left <= 0 or free <= 0:
+                continue
+            take = _action("withdraw", item, cost, pos=list(pos))
+            take.count = min(left, free)
+            rec = mem.container_record(pos)
+            p = container_p(rec, set(members(st.token)), now - rec.get("at", now), rate) if rec else 1.0
+            if p > 0 and take.est / p < per * take.count:
+                out.append(take)
+                taken[(tuple(pos), mid(item))] = taken.get((tuple(pos), mid(item)), 0) + take.count
+                left -= take.count
+        if left == st.count:
+            out.append(st)
+        elif left > 0:
+            rest = copy.deepcopy(st)
+            scale = left / st.count
+            rest.count = left
+            for key in ("breaks", "kills"):
+                if key in rest.detail:
+                    rest.detail[key] = max(1, math.ceil(rest.detail[key] * scale))
+            rest.est = cost.estimate(rest)
+            out.append(rest)
+    return out
+
+
 def p_unknown(k, n):
     """Pure: the chance an unopened container holds the item, from what the opened ones held: k of n (the rule of
     succession: 1/2 before any is opened)."""
@@ -338,7 +386,8 @@ def _decompose(inv, goal, cost, solver, pending) -> list[Step]:
         then = [_action(k, t, cost, **d) for k, t, d in (THEN.get(args.get("name"), ()) if template == "milestone"
                                                          else ())
                 if not (k == "seek" and mem is not None and mem.sites(None, kinds=[t]))]    # already found
-        return where_it_lives(taken + sourced + solve_needs(inv, needs, cost, solver, pending, jobs) + then, cost)
+        made = take_stored(solve_needs(inv, needs, cost, solver, pending, jobs), cost, taken)
+        return where_it_lives(taken + sourced + made + then, cost)
     if template == "goto":
         return [_action("goto", "pos", cost, pos=list(args["pos"]), range=float(args.get("range", 2)))]
     if template == "road":

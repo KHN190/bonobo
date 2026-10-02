@@ -164,12 +164,6 @@ class Cost:
             return True
         return self.distance([block], 6) is not None and self.distance([block], 6) <= 6
 
-    def cheapest_food(self, options):
-        raw = {c: c.replace("cooked_", "") for c in options}
-        dist = {c: self._entity(HUNT[raw[c]]) for c in options if raw[c] in HUNT}
-        known = [c for c, d in dist.items() if d is not None]
-        return min(known, key=lambda c: dist[c]) if known else options[0]
-
     def measured(self, step):
         """Ticks the skill runner has measured for this step, or None until enough runs exist."""
         if self.mem is None or step.kind not in STAT_KEYS:
