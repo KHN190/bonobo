@@ -2196,8 +2196,8 @@ class Overnight(unittest.TestCase):
                     fired["shelter"]()
                 self.assertEqual(ran, [steps[0] if len(steps) > 1 else "shelter"])
 
-    def test_every_way_cooled_no_shelter_row(self):
-        """Every night way cooled: no shelter row (D5)."""
+    def test_every_way_cooled_still_covers_the_night(self):
+        """Every night way cooled here: the shelter row still takes the cheapest (S1 over D5), never the open night."""
         from bonobo import decompose
         with tempfile.TemporaryDirectory() as tmp:
             b = brainmod.Brain.__new__(brainmod.Brain)
@@ -2214,7 +2214,7 @@ class Overnight(unittest.TestCase):
             reads = {"enclosed": False, "bed_near": False, "soft_ground": False, "in_pit": False}
             with mock.patch.object(api, "api", side_effect=AssertionError("read the world beyond the row")):
                 fired = [n for _s, n, _r in b.reflexes.proposals(snap, None, reads)]
-            self.assertNotIn("shelter", fired)
+            self.assertIn("shelter", fired)        # must fail: every way cooled left the body in the open
 
     def test_a_way_that_failed_here_gives_way_to_the_next(self):
         """A night way that failed here (cooling under needs.way_key) drops out of the pricing: the next way is

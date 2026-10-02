@@ -32,10 +32,11 @@ class Generated(unittest.TestCase):
         self.assertEqual(found - known(), set(), (dict(f), d.name))           # must fail: a new kind of violation
 
     def test_the_property_can_fail(self):
-        """A state the oracle flags (S4: waiting in the open at night) is caught when its invariant is not known."""
-        f = of(night=True)
-        d, _got, ctx = rnd.decide(f)
-        self.assertIn("S4", {inv for inv, _ in oracle.violations(f, d, f, ctx)} - (known() - {"S4"}))
+        """A decision the oracle flags (S4: waiting in the open at night) is caught when its invariant is not known —
+        the decision built here, not left to a production fault that a fix removes."""
+        f = of(night=True, place="open")
+        d = rnd.Decision("plan", "wait", "day", None, (), None, "wait for day", ())
+        self.assertIn("S4", {inv for inv, _ in oracle.violations(f, d, f, {})} - (known() - {"S4"}))
 
 
 class Fuzz(unittest.TestCase):

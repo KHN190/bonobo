@@ -295,7 +295,8 @@ class OneDecisionPoint(unittest.TestCase):
             ask_upkeep = layer("upkeep", [(0, "u", None)])
             b.needs = type("Needs", (), {"working": {}, "needs_now": [], "round": {},
                                          "propose": lambda self, *a, **k: None})()
-            b.reflexes = type("Reflexes", (), {"proposals": lambda self, *a, **k: ask_upkeep() or []})()
+            b.reflexes = type("Reflexes", (), {"afloat": False,
+                                               "proposals": lambda self, *a, **k: ask_upkeep() or []})()
             ask_queue = layer("queue", brain.Act("task", "t", None))
             b.task_act = lambda *a: (ask_queue(*a), {})
             b.mem, b.blacklist, b.policy_cache = None, {}, None
