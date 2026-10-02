@@ -1,9 +1,11 @@
 """What the body carries to fight with (perception.kit's readings), threat or not (a goal fight reads it too): the hand,
-a sword, a bow with arrows, a shield in the offhand."""
+a sword, a bow with arrows, a shield in the offhand, gold worn (a piglin leaves it alone), armour worn (/state armor:
+threat.protection), a golden apple (the fight's eat answer)."""
 from bonobo import knowledge
 
 NAME = "kit"
-VALUES = ("hand", "sword", "bow", "shield")
+VALUES = ("hand", "sword", "bow", "shield", "gold", "armor", "apple")
+ARMOR_POINTS = 6                    # an iron chestplate (Minecraft Wiki, Armor: iron chestplate 6)
 
 
 def domain():
@@ -16,7 +18,14 @@ def alpha(a):
         return "sword"
     if inv.count("minecraft:bow") and inv.count("minecraft:arrow"):
         return "bow"
-    return "shield" if inv.offhand() == "minecraft:shield" else "hand"
+    if inv.offhand() == "minecraft:shield":
+        return "shield"
+    if any(str((inv.equipment.get(k) or {}).get("id", "")).startswith("minecraft:golden_")
+           for k in ("head", "chest", "legs", "feet")):
+        return "gold"
+    if float(a.snap.state.get("armor", 0) or 0) > 0:
+        return "armor"
+    return "apple" if inv.count("minecraft:golden_apple") else "hand"
 
 
 def gamma(value, f, g):
@@ -27,5 +36,12 @@ def gamma(value, f, g):
     elif value == "bow":
         g.give("bow")
         g.give("arrow", 16)
-    else:
+    elif value == "shield":
         g.equipment["offhand"] = {"id": "minecraft:shield", "count": 1}
+    elif value == "gold":
+        g.equipment["head"] = {"id": "minecraft:golden_helmet", "count": 1}
+    elif value == "armor":
+        g.equipment["chest"] = {"id": "minecraft:iron_chestplate", "count": 1}
+        g.state["armor"] = ARMOR_POINTS
+    else:
+        g.give("golden_apple", 2)

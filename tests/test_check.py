@@ -109,7 +109,9 @@ class Model(unittest.TestCase):
                 (of(night=True), dec(name="shelter: dig in"), {}, "place", "enclosed"),
                 (of(), dec(name="idle: have food"), {}, "night", False),   # must fail would be: food sets night
                 # a dimension's declared effect (check/dims/ground.step): must fail — the pit left, still in it (D7)
-                (of(ground="hole"), dec(layer="maintain", name="leave the pit"), {}, "ground", "open")]
+                (of(ground="hole"), dec(layer="maintain", name="leave the pit"), {}, "ground", "open"),
+                (of(job="due"), dec(layer="maintain", name="collect job"), {}, "job", "none"),
+                (of(bag="full"), dec(layer="maintain", name="empty the bag"), {}, "bag", "room")]
         for facts, d, ctx, k, want in rows:
             with self.subTest(d=d.name):
                 self.assertEqual(explore.step(facts, d, ctx)[k], want)
