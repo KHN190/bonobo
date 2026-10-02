@@ -120,18 +120,38 @@ def decide(facts, fail_then_again=True):
                          alternatives=(("tactic", option.kind, worth),))
             return d, got, {"step_kind": "threat", "switches": weighed, "holds": held_log}
         d = _decision(act, seen.get("chosen"), seen.get("intents", ()), world)
+        if act is None:
+            # D1: why nothing was proposed, where production records it — on the task (brain.finish: tasks.marked),
+            # or the need no step could be planned for (brain.unplannable)
+            from bonobo import tasks as tasklist
+            why = [t.get("reason") for t in tasklist.load()] + list(getattr(b, "unplannable", {}).values())
+            d = d._replace(reason=next((w for w in why if w), None))
         step = getattr(act, "step", None)
         boxes = [tuple(map(tuple, bx)) for h in mem.homes(snap.dimension) for bx in h.get("boxes", ())]
         ctx["step_kind"] = step.kind if step is not None else None
         ctx["target_in_home"] = d.target is not None and home_box_of(boxes, d.target) is not None
         found = dispatch.runner_for(bctx, step) if step is not None else None
+        if found is not None and found[0].contract.commands is not None:
+            # E1/E3 (check/inv/effects.py): the open-loop skill's batch as the door sends it (api.walk_only), built,
+            # never posted; a closed-loop skill decides its tasks while it runs — no batch to judge (Unchecked)
+            # (skillcore.body_state: what a runner builds them from; one needing a region read it runs itself)
+            from bonobo.skillcore import body_state
+            try:
+                ctx["tasks"] = [api.walk_only(t) for t in found[0].contract.commands(body_state(bctx), tuple(found[1]))]
+            except (KeyError, TypeError, AttributeError, api.McError) as e:     # McError: a station the batch needs is missing
+                ctx["tasks_unbuilt"] = f"{type(e).__name__}: {e}"      # E1/E3 stay Unchecked for it, named
         if found is not None:
             # S5: the step's skill offered under production's fight line (an optional fight below it: why)
             ok, why = brain.fight_line_holds(found[0].contract, (bctx,) + tuple(found[1]), snap.state, snap.inv)
             if not ok:
                 ctx["fight_line"] = why
         if snap.night:
-            ctx["night_way"] = b.needs.overnight(snap)[0]
+            # the night's way as production asks it (needs.propose): the ground's readings, what cools, the night left
+            from bonobo.decompose import cooled_ways, night_facts, night_left_s
+            from bonobo.reflexes import ground
+            _enclosed, soft, site = ground(None)
+            ctx["night_way"] = b.needs.overnight(snap, night_facts(soft(), cooled_ways(b.ready), site(),
+                                                                   night_left_s=night_left_s(snap)), bed_too=False)[0]
         ctx.update(plan_ctx(b, act, snap, mem, world), switches=weighed, holds=held_log)
         chosen = seen.get("chosen")
         if fail_then_again and act is not None and chosen is not None:
