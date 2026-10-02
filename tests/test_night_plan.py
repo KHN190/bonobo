@@ -152,6 +152,18 @@ class OpenAirAtNight(unittest.TestCase):
             ("walled in, the same: the craft goes on under cover", dict(night=True, hunger="starve", queued="stick",
              station="crafting_table", pickaxe=-1, ore="buried", cooled=True, place="enclosed"), True)]
 
+    def test_night_prep_is_the_shelter_rows(self):
+        import contextlib
+        import io
+        from unittest import mock
+        from bonobo import reflexes
+        from check import round as rnd
+        from check.facts import of
+        with mock.patch.object(reflexes.Maintain, "proposals", lambda self, *a, **k: []), \
+                contextlib.redirect_stdout(io.StringIO()):
+            d, _got, ctx = rnd.decide(of(night=True, queued="stick"), fail_then_again=False)
+        self.assertFalse((d.name or "").startswith("night prep"), d.name)   # must fail: the plan's prep in the open
+
     def test_rows(self):
         import contextlib
         import io

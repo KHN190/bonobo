@@ -606,10 +606,9 @@ class Brain:
         except Unplannable as e:
             self.__dict__.setdefault("unplannable", {})[name] = str(e)     # why this need offers no step (readout)
             return None
-        # by night, a step out on the surface, or any step when the body stands under the open sky (S4: the sky over
-        # the site is what is open, not the step's kind) — the night's own preparation apart (its way out of the open)
+        # by night: no surface step, and no step at all under the open sky (the shelter row runs the night's prep)
         closed = snap.night
-        open_air = closed and kind != "night prep" and self.under_sky(snap)
+        open_air = closed and self.under_sky(snap)
         step = next((st for st in steps if self.valid(st, snap, ctx)
                      and not (closed and arbiter.on_surface(st.kind)) and not open_air), None)
         if step is None:
