@@ -184,7 +184,8 @@ def mod_features():
     if _features is None:
         try:
             v = tuple(int(x) for x in re.findall(r"\d+", str(api.game_status().get("version", "0")))[:3])
-        except McError:
+        except McError as e:
+            api.swallowed("nav.mod_features", e)
             return set()
         # "ladder_in_cell" off: the server rejects the plate 0.02 off-centre; climb by pillaring
         _features = {"pillar"} if v >= (0, 1, 15) else set()
@@ -256,8 +257,8 @@ def _arrived(start, target, began, ok, closer=False):
         if ok and straight > 0.5:
             state = api.get("/state")
             field.TERRAIN.observed(field.bucket_of(state), straight, time.time() - began)
-    except api.McError:
-        pass                # the one read failed (the game away): the estimate waits for the next walk
+    except api.McError as e:
+        api.swallowed("nav.terrain_observed", e)      # the estimate waits for the next walk
     if ok:
         return True
     return Walked(math.dist(start, target) - math.dist(feet(), target)) if closer else False
@@ -611,8 +612,8 @@ def standable_in(pos, r=6):
     x, y, z = (int(math.floor(v)) for v in pos)
     try:
         region = Region((x - r, y - 1, z - r), (x + r, y + 2, z + r))
-    except McError:
-        return None
+    except McError as e:
+        return api.swallowed("nav.standable_in", e)
     return lambda p: standable_at(region.solid, p)
 
 def standable_at(solid, p):
@@ -819,7 +820,8 @@ def arrived_near(pos, policy, range_=ARRIVE_RANGE, **kw):
 
     try:
         return arrive(pos, policy, range_=range_, **kw)
-    except api.NavFailed:
+    except api.NavFailed as e:
+        log(f"   not arrived: {e}")
         return False
 
 def dig_down_region(feet, depth):
@@ -959,8 +961,8 @@ def walks_to(cell, range_=None, climber=False, start_y=None):
     taken back — so no drop on it a walker cannot climb (a climber climbs any). None when it cannot be asked."""
     try:
         r = _plan_reply(cell, False, False, ARRIVE_RANGE if range_ is None else range_)
-    except tape.ReplayMiss:
-        return None
+    except tape.ReplayMiss as e:
+        return api.swallowed("nav.walks_to", e)
     if r is None or r.get("found") is None:
         return None
     if not r["found"]:

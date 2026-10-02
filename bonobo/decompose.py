@@ -204,14 +204,21 @@ def missing_detail(step):
     missing = None
     for effect in skill.step_keys(step):
         for contract in skill.providers(effect):
-            try:
-                contract.provides[effect](None, probe)
-                return None                  # one provider can serve it from what the step carries
-            except LookupError as e:
-                missing = missing or str(e.args[0])
-            except (AttributeError, TypeError, McError):
-                return None                  # it needs the world (ctx) to say: not refusable offline
+            said = _offline(contract.provides[effect], probe)
+            if said[0] != "missing":
+                return None                  # served from the step, or the world must say: not refusable offline
+            missing = missing or said[1]
     return missing
+
+def _offline(provide, probe):
+    """What a provider says with no world: ("served",), ("missing", key) or ("world", why)."""
+    try:
+        provide(None, probe)
+        return ("served",)
+    except LookupError as e:
+        return ("missing", str(e.args[0]))
+    except (AttributeError, TypeError, McError) as e:
+        return ("world", type(e).__name__)
 
 # things found in one place: (kind, token) → the steps to get there first, unless already there
 LIVES_IN = {("hunt", "minecraft:blaze_rod"): [("portal", "minecraft:the_nether", {}), ("seek", "fortress", {})],

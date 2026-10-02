@@ -406,7 +406,7 @@ def set_brain(brain):
     _wire_farm_probe()                 # the bench's server-side reads for the farm's instrumentation
 
 
-PROBE_SEQ = [0]
+PROBE_SEQ = paths.session("bench.core.PROBE_SEQ", lambda: [0])
 
 def _probe(cmd):
     """One test command's own reply: sent with a numbered `say` after it, the reply is the chat line before that

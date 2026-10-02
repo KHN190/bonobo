@@ -121,7 +121,7 @@ def silent_failure(lines, result):
         return NavFailed(last)
     return McError(last or f"skill returned {result!r} without the outcome")
 
-_IMPORTS = {}
+_IMPORTS = paths.session("bench.runner._IMPORTS", dict)
 
 def _imports_of(module, pkg_dir):
     """What one module imports from the package."""
@@ -220,7 +220,7 @@ def jar_matches_source():
         built = next(l.split("=", 1)[1].strip() for l in f if l.startswith("mod_version="))
     return running == built, running, built
 
-_CODE = {}
+_CODE = paths.session("bench.runner._CODE", dict)
 
 def code_for(name):
     """Readiness key: the skill's Python modules, the scenario's own layout and the Java sources it uses."""
@@ -394,7 +394,7 @@ class _Console(io.TextIOBase):
 # the next row's world, prebuilt at site B while this one runs; mc.py sets it before each run
 NEXT_ROW = [None]
 SETUP_S = {}          # the last setup's seconds: world (built here, or cloned from B) and body, for the report
-PREBUILT = {"name": None, "done": None, "ok": False, "why": ""}
+PREBUILT = paths.session("bench.runner.PREBUILT", lambda: {"name": None, "done": None, "ok": False, "why": ""})
 
 def prebuildable(sc):
     """Pure: a row whose world can be built ahead at site B — boxed (not raw), in the Overworld, not a sweep."""
@@ -661,7 +661,7 @@ def _trace(stop, out):
             out.append({"t": round(time.time(), 1), "error": str(e)})
         stop.wait(0.2)
 
-REPORTING = []          # the failure report still being written (a thread): the next row's setup waits on it
+REPORTING = paths.session("bench.runner.REPORTING", list)          # the failure report still being written (a thread): the next row's setup waits on it
 
 
 def _report(name, data):

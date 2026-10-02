@@ -40,11 +40,6 @@ ALLOW = {
     ("bonobo.skill", "REGISTRY"): "import-time registry",
     ("bonobo.skill", "CALLS"): "the live call stack: popped by each call's own finally; clearing it mid-call breaks it",
     ("bonobo.skill", "LAST_S"): "measured skill durations (like LAST_SEGMENT_S), not world state",
-    ("bonobo.bench.core", "PROBE_SEQ"): "monotonic probe number: a reset would match an old reply",
-    ("bonobo.bench.runner", "PREBUILT"): "the NEXT row's world, built while this one runs: cross-row by design",
-    ("bonobo.bench.runner", "_IMPORTS"): "cache keyed by source files",
-    ("bonobo.bench.runner", "_CODE"): "cache keyed by source files",
-    ("bonobo.bench.runner", "REPORTING"): "the last failure report's thread: joined by the next row, never dropped",
 }
 
 
