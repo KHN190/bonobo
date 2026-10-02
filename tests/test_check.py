@@ -190,15 +190,30 @@ class NightWayOnlyUnsheltered(unittest.TestCase):
                     self.assertTrue(ctx["night_steps"])
 
 
+def alone(k, v):
+    """The fact `k` at `v` with its condition on (DEPENDS), the rest at their first values."""
+    return of(**{k: v}, **(DEPENDS[k][1] if k in DEPENDS else {}))
+
+
+def every_value():
+    """The fewest states with each fact's every value at least once: the i-th value of every fact together, then
+    alone each value those leave out. The whole corpus is check.run's."""
+    m = max(len(v) for v in DOMAINS.values())
+    out = [of(**{k: v[i % len(v)] for k, v in DOMAINS.items()}) for i in range(m)]
+    seen = {(k, f[k]) for f in out for k in f}
+    return out + [alone(k, v) for k, vs in DOMAINS.items() for v in vs if (k, v) not in seen]
+
+
 class GammaRoundTrip(unittest.TestCase):
     def test_every_value_of_every_fact(self):
         from check import round as rnd
-        for k, values in DOMAINS.items():
-            for v in values:
-                f = of(**{k: v}, **(DEPENDS[k][1] if k in DEPENDS else {}))
-                with self.subTest(fact=k, value=v):
-                    _d, got, _ctx = rnd.decide(f, fail_then_again=False)
-                    self.assertEqual(dict(got), dict(f))
+        states = every_value()
+        reached = {(k, alone(k, v)[k]) for k, vs in DOMAINS.items() for v in vs}
+        self.assertEqual(reached - {(k, f[k]) for f in states for k in f}, set())    # must fail: a value dropped
+        for f in states:
+            with self.subTest(facts={k: f[k] for k in DOMAINS}):
+                _d, got, _ctx = rnd.decide(f, fail_then_again=False)
+                self.assertEqual(dict(got), dict(f))
 
     # (situation, facts) found apart: each round-trips
     FOUND = [("must fail: C14 a piglin by gold armour is no threat row from the first look (the kit read first)",
@@ -285,15 +300,13 @@ class Ungated(unittest.TestCase):
     and comes back — γ builds it whenever α reads it (kit: a sword carried with no threat about)."""
 
     def test_rows(self):
-        from check import round as rnd
         from check.facts import DIMS
         # a value its own `valid` refuses alone (a piglin calm only beside gold worn) needs other facts: not alone
         rows = [(d.NAME, v) for d in DIMS if getattr(d, "DEPENDS", None) is None for v in d.domain()
                 if of(**{d.NAME: v})[d.NAME] == v]
         self.assertIn(("kit", "sword"), rows)             # must fail: kit gated on a threat again
-        for name, v in rows:
-            with self.subTest(fact=name, value=v):
-                self.assertEqual(rnd.decide(of(**{name: v}), fail_then_again=False)[1][name], v)
+        # each round-trips in GammaRoundTrip's states (one decide per state there, none twice here)
+        self.assertEqual(set(rows) - {(k, f[k]) for f in every_value() for k in f}, set())
 
 
 class Queued(unittest.TestCase):
