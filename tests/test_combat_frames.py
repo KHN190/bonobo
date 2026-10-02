@@ -51,7 +51,8 @@ ROWS = [
     ("a skeleton close, full health: close in and kill it", lambda: frame("archer"), "fight"),
     ("a creeper close, a sword: hit it and keep out of its blast", lambda: frame("bomb"), "fight"),
     ("a creeper close at 2 hp: get out, no question", lambda: frame("bomb", hp=2), "evade"),
-    ("three zombies, full health and kit: fight", lambda: frame("pack", more=2), "fight"),
+    # bench/combat.jsonl pack run 792679999: 20 hp lost in 11.8 s at 6.88 hp/s, the hurt-immunity cap; priced 19.29 > 19
+    ("three zombies, full health, an iron sword, chest and helmet only: leave", lambda: frame("pack", more=2), "evade"),
     ("three zombies at 4 hp: give it up and leave", lambda: frame("pack", hp=4, more=2), "evade"),
     ("the nearest of a mixed group, full health: fight", lambda: frame("mixed"), "fight"),
     ("zombies close at 3 hp: give it up and leave", lambda: frame("mixed", hp=3, more=2), "evade"),
