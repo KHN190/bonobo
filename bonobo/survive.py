@@ -8,9 +8,8 @@ from . import events
 from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import ANCHORS, skill, current as current_call
-from .data import (BED_BOX, BED_REACH, SLEEP_BLOCKERS, SLEEP_BLOCKERS_ANGRY, TORCH_LIGHT, BASE_MARKERS, FULL_BAR, GROUPS, NUTRITION, PLACEABLE_AS, POD_BLOCKS, bare, mid, DAY_END, NIGHT_END,
+from .data import (BED_BOX, BED_REACH, SLEEP_BLOCKERS, SLEEP_BLOCKERS_ANGRY, TORCH_LIGHT, BASE_MARKERS, FULL_BAR, GROUPS, NUTRITION, PLACEABLE_AS, POD_BLOCKS, bare, mid, NIGHT_END, is_night,
                    DAY_TICKS, EYE_HEIGHT, WALK_BLOCKS_PER_S, MAX_HP, critical_hp)
-from .game import DAYLIT_SKY, SPAWN_BLOCK_LIGHT
 from .knowledge import RAW_MEAT, ALL_FOOD
 from .world import Inventory, Region, add, dark_spots, entities, find
 from .bag import throw_direction
@@ -52,11 +51,6 @@ def require_pickaxe_ok():
 
 # -- light, food, night
 
-def dark_here(s):
-    """Pure over /state: standing where mobs spawn — block light 0, and not under open sky by day."""
-    return "blockLight" in s and s["blockLight"] <= SPAWN_BLOCK_LIGHT and \
-        not (s["skyLight"] > DAYLIT_SKY and 0 < s["timeOfDay"] < DAY_END)
-
 LIGHT_R = 4                # blocks round the feet a lighting looks over
 LIGHT_FIRST = 4            # torches placed where we start work in the dark: lit first, then one a segment
 OPEN_DARK_SPOTS = 4        # dark floor cells within LIGHT_R that make an open dark area: a 1-wide shaft's floor is
@@ -65,7 +59,7 @@ OPEN_DARK_SPOTS = 4        # dark floor cells within LIGHT_R that make an open d
 def light_due(s, sealed, dark_spots_near):
     """Pure: light before working here — under rock, standing dark, not sealed in (a night hole), and open (a tunnel,
     a cave, a vein, a base; not a short shaft). Upkeep, not danger: darkness alone never raises a threat."""
-    return (_k.under_rock(s.get("skyLight", 15)) and dark_here(s) and not sealed
+    return (_k.under_rock(s.get("skyLight", 15)) and _k.dark_here(s) and not sealed
             and dark_spots_near >= OPEN_DARK_SPOTS)
 
 def torch_commands(state: "BodyState", args=(4, 1)) -> "list[PlaceTask]":
@@ -493,7 +487,7 @@ MORNING_S = 7.0          # how long a lain-in bed is read for the morning (the n
 
 def _morning(timeout=MORNING_S):
     """Lain in a bed: read the clock until it is morning (the night skipped, ~5 s), at most `timeout` s."""
-    day = lambda t: int(t) % DAY_TICKS < 12500      # noqa: E731
+    day = lambda t: not is_night(int(t))      # noqa: E731
     return day(settle(lambda: api.get("/state")["timeOfDay"], day, timeout=timeout, stable_s=0.0, soft=True))
 
 def can_sleep(state):
@@ -509,8 +503,8 @@ def can_sleep(state):
     return "a bed only works at night (or in a thunderstorm)"
 
 def _day_now():
-    t = int(api.get("/state")["timeOfDay"]) % DAY_TICKS
-    return not DAY_END <= t <= NIGHT_END
+    s = api.get("/state")
+    return not is_night(int(s["timeOfDay"]), s.get("dimension", "minecraft:overworld"))
 
 DAY_WAIT_TICKS = 200      # one wait while sitting the night out
 

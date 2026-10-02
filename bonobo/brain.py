@@ -243,7 +243,7 @@ class Brain:
             craft.shield_to_offhand()
         # an open dark area underground: lit first where work starts, then a torch a segment (never the surface,
         # a short shaft or a sealed night hole)
-        if time.time() - self.last_light > 5 and _k.under_rock(s.get("skyLight", 15)) and survive.dark_here(s) \
+        if time.time() - self.last_light > 5 and _k.under_rock(s.get("skyLight", 15)) and _k.dark_here(s) \
                 and not survive.enclosed():
             self.last_light = time.time()
             try:

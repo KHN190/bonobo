@@ -1,7 +1,7 @@
 """Where things come from: the requirement graph the planner resolves (recipes, smelting, mining, hunting)."""
 import math
 
-from .game import COVERED_SKY
+from .game import COVERED_SKY, DAYLIT_SKY, SPAWN_BLOCK_LIGHT
 from .data import (ANIMAL_HP, BASE_MARKERS, COLORS, DAY_END, DAY_TICKS, EYE_HEIGHT, SOIL_DEPTH, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS,
                    HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, ATTACKS_PER_S, BREAK_DIVISOR,
                    DEEPSLATE_ORE_HARDNESS, HAND_ATTACKS_PER_S, HAND_DAMAGE, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS,
@@ -740,6 +740,12 @@ def under_rock(sky_light):
     """Pure: rock over the feet (sky light at most COVERED_SKY) — underground: no surface work at night, a surface
     trip starts with the climb. The one reading of it."""
     return sky_light <= COVERED_SKY
+
+
+def dark_here(s):
+    """Pure over /state: standing where mobs spawn — block light 0, and not under open sky by day."""
+    return "blockLight" in s and s["blockLight"] <= SPAWN_BLOCK_LIGHT and \
+        not (s["skyLight"] > DAYLIT_SKY and 0 < s["timeOfDay"] < DAY_END)
 
 
 def sheltered(sky_light, enclosed, in_site=lambda: False):
