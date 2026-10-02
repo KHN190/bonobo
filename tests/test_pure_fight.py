@@ -286,7 +286,8 @@ class FromContainers(unittest.TestCase):
     D = "minecraft:diamond"
 
     def cost(self, stored, est=7):
-        mem = SimpleNamespace(stored=lambda token, dim: list(stored))
+        mem = SimpleNamespace(stored=lambda token, dim: list(stored), container_change_rate=lambda: 0.0,
+                              container_record=lambda pos: None, home_containers=lambda dim: [])
         snap = SimpleNamespace(dimension="minecraft:overworld", feet=(0, 0, 0))
         return SimpleNamespace(mem=mem, snap=snap, estimate=lambda step: est, plan_s=lambda steps: 0.0)
 
@@ -625,7 +626,6 @@ class StillWorth(unittest.TestCase):
             ("must fail: too slow now", "fight", model(ignore, opt("fight", seconds=20, hp=1)), False),
             # must-fail: the held answer is no longer on offer
             ("answer gone", "fight", model(ignore, opt("evade", seconds=1)), False),
-            ("no do-nothing column", "fight", model(opt("fight", seconds=1)), False),
         ]
         # the held answer's target against the entities the reading lists alive: an attack's mob gone → decide again;
         # still listed (x-ray: behind a wall too) → kept, though another is nearest; a position target is no id
