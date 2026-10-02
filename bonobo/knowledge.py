@@ -202,7 +202,7 @@ def source(token):
 
 # -- tool wear, one reading each
 TOOL_USABLE = 2       # the jar's rule (InvUtil.java:109, Pathfinder:188/220: remaining > 1): a tool with 1 use left is never held
-TOOL_WORKING = 3      # planning's "replace soon" margin: a tool this worn still counts as working (needs, require_pickaxe)
+TOOL_WORKING = 3      # a tool with this many uses left counts as working: one more than the jar holds (planner, solver, needs)
 
 
 def usable(left):
@@ -216,9 +216,7 @@ def working(left):
 
 
 # -- the remainder math goals and skills' `remaining` share ({} when met), here so skills need no planner
-TOOL_MIN_DURABILITY = 10
-
-def tool_ok(inv, kind, tier, min_left=TOOL_MIN_DURABILITY):
+def tool_ok(inv, kind, tier, min_left=TOOL_WORKING):
     if not hasattr(inv, "tools"):
         return False
     return any(t >= tier and d >= min_left for t, d, _ in inv.tools(kind))
@@ -361,7 +359,7 @@ def own_work(step):
         return [], [min(hp)] * units if hp else []
     return [], []
 
-def held_tiers(inv, min_left=TOOL_MIN_DURABILITY):
+def held_tiers(inv, min_left=TOOL_WORKING):
     """Pure: {tool kind: the best tier the bag holds with wear left}."""
     out = {}
     for kind in TOOL_KINDS:

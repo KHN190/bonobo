@@ -103,6 +103,13 @@ class Plan(unittest.TestCase):
         # must fail: the two smelts merged before the hunt that feeds them (night_first__low 055858)
         ("P2", {"plan": BEEF_MERGED, "inv": Bag(items=TWO_BEEF), "mem": Mem(stations=["furnace"]),
                 "dimension": "minecraft:overworld"}, True),
+        # the plan_held dimension's hand-made plan (craft_run: short by design): not the planner's, not judged
+        ("P2", {"plan": BEEF_MERGED, "inv": Bag(items=TWO_BEEF), "mem": Mem(stations=["furnace"]),
+                "dimension": "minecraft:overworld", "plan_hand_made": True}, False),
+        # must fail: a seek finds the stone, it does not add one (7 carried, the furnace wants 8)
+        ("P2", {"plan": [step("seek", "stone", 600), step("craft", "minecraft:furnace", 60, inputs={"stone": 8})],
+                "inv": Bag(items={"stone": 7}), "mem": Mem(stations=["crafting_table"]),
+                "dimension": "minecraft:overworld"}, True),
         # must fail: a smelt with no furnace held, made or remembered
         ("P2", {"plan": BEEF_IN_ORDER[:1], "inv": Bag(items=TWO_BEEF), "mem": Mem(),
                 "dimension": "minecraft:overworld"}, True),

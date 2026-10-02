@@ -1,4 +1,6 @@
 """The planner's solver: what to do, as an integer program. Pure, exact, no dependencies. The old planner resolved a goal by recursive descent — need(bed) → need(wool) → need(planks) → … — which is a depth-first walk of the recipe graph, not a plan. Three consequences, all of them visible in play: * it could only reason about ITEMS, because "recursive descent on a requirement" has nothing to say about being somewhere, having dug something, or being sheltered; * it produced ONE decomposition, so a goal had exactly one way to be achieved and one step's failure cooled the whole goal (dig_in → burrow → pod was an if-chain inside a skill, invisible to the planner); * shared intermediates were merged AFTERWARDS (`merged()`), so the cost it reported was not the cost of the plan it had chosen — 16 planks for a door and a table were planned twice and merged once. Here the world is a vector, an action is a column, and a plan is the integer combination of columns that reaches the target for the fewest seconds: minimise   cᵀn                     n_j = how many times action j runs, integer ≥ 0 subject to x₀ + A·n ≥ b            A's column j is action j's effect on the state vector Everything follows from that. Several ways to reach the same state are several columns and the solver picks the cheap one; a place, a dug hole or a night's shelter is another row; sharing is exact because the same column serves every row that needs it. Solved with a two-phase simplex over exact rationals (matrices are small and their entries are recipe counts, so double precision with an explicit tolerance is exact in practice and about fifty times faster than rationals — which matters, because the search below calls it hundreds of times), then branch and bound for integrality. Requirements that are needed but not consumed — a pickaxe to mine, a table to craft, standing at the vein — sit around the matrix rather than in it (see `solve`), because as rows they destroy the linear relaxation and the search explodes. When one cannot be met, the action that asked for it is banned and the solver finds another column to the same state: that is what makes "dig in needs a pickaxe, wall in does not" a choice and not a dead end."""
+import math
+
 from . import lifecycle
 
 
@@ -190,7 +192,7 @@ def _expand(actions, have, need, price, integral, depth):
     for dim, amount in layer["buy"]:
         out += _expand(actions, have, {dim: have.get(dim, 0) + amount}, price, integral, depth + 1)
     for action, n in layer["run"]:
-        short = {d: -v * n for d, v in action.effect.items() if v < 0 and have.get(d, 0) < -v * n}
+        short = {d: _spent(v, n) for d, v in action.effect.items() if v < 0 and have.get(d, 0) < _spent(v, n)}
         for dim, amount in short.items():
             out += _expand(actions, have, {dim: amount}, price, integral, depth + 1)
         for dim, floor in action.requires.items():
@@ -198,8 +200,13 @@ def _expand(actions, have, need, price, integral, depth):
                 out += _expand(actions, have, {dim: floor}, price, integral, depth + 1)
         out.append((action, n))
         for d, delta in action.effect.items():
-            have[d] = have.get(d, 0) + delta * n
+            have[d] = have.get(d, 0) + (delta * n if delta >= 0 else -_spent(delta, n))
     return out
+
+def _spent(delta, n):
+    """Pure: the whole units `n` runs of a step spend of an input (a smelt burns a whole coal for up to 8 items)."""
+    used = -delta * n
+    return used if float(delta).is_integer() else math.ceil(used - 1e-9)
 
 def _layer(actions, have, need, price, integral):
     """One layer: which columns produce what this layer wants, and how many times."""

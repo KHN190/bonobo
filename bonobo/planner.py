@@ -8,7 +8,7 @@ from typing import Any
 from .api import McError
 from .data import GROUPS, MATERIAL_TOKEN, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
 from .beliefs import CONFIG, TICKS_PER_S, fights_back
-from .knowledge import (prior_ticks, COOKABLE_FOOD, TOOL_MIN_DURABILITY, have_remainder, members, needs_rows, own_work, source, step_call, tool_kind, work_s)
+from .knowledge import (prior_ticks, COOKABLE_FOOD, TOOL_WORKING, have_remainder, members, needs_rows, own_work, source, step_call, tool_kind, work_s)
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 
@@ -151,7 +151,7 @@ class Planner:
 
     # -- resolution
     def need_tool(self, kind, tier, depth=0):
-        if self.inv.has_tool(kind, tier, TOOL_MIN_DURABILITY):
+        if self.inv.has_tool(kind, tier, TOOL_WORKING):
             return
         # the best tier the bag makes outright, never below the need (a worn iron pickaxe was replaced with a wooden one)
         if not self.probing:
@@ -173,7 +173,7 @@ class Planner:
             held = probe.inv.available(token)
             taken = held if set(members(token)) & self.reserved else sum(
                 material_per_tool(k, tier) for k in used_before(kind)
-                if not self.inv.has_tool(k, tier, TOOL_MIN_DURABILITY))
+                if not self.inv.has_tool(k, tier, TOOL_WORKING))
             probe.inv.consume(token, min(held, taken), awaits=False)
             steps, _why = probe.attempt([("tool", kind, tier)])
             if steps is not None and all(s.kind == "craft" for s in steps):
@@ -199,7 +199,7 @@ class Planner:
         """{tool kind: the best tier planned or held, with wear left}."""
         out = {}
         for k, t, d in self.inv.tools:
-            if d >= TOOL_MIN_DURABILITY and t in TOOL_MATERIAL_FOR_TIER:
+            if d >= TOOL_WORKING and t in TOOL_MATERIAL_FOR_TIER:
                 out[k] = max(out.get(k, t), t)
         return out
 

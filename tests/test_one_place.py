@@ -207,6 +207,17 @@ class ToolWear(unittest.TestCase):
                 self.assertEqual((knowledge.usable(left), knowledge.working(left)), want)
         self.assertLess(knowledge.TOOL_USABLE, knowledge.TOOL_WORKING)
 
+    def test_planner_and_solver_read_one_margin(self):
+        from bonobo import knowledge
+        from bonobo.planner import NullCost, Planner
+        # (situation, uses left on an iron pickaxe) → kept by the planner, working for the solver (actions.state_of)
+        rows = [("nine left: working (P2: the planner replaced it, the solver mined with it)", 9, True),
+                ("must fail: two left: neither plans with it", knowledge.TOOL_WORKING - 1, False)]
+        for name, left, want in rows:
+            with self.subTest(name):
+                planned = Planner({}, [("pickaxe", 2, left)], NullCost()).plan([("tool", "pickaxe", 2)])
+                self.assertEqual((planned == [], knowledge.working(left)), (want, want))
+
 
 class Daytime(unittest.TestCase):
     """knowledge.daytime: the one "is it day" over the absolute clock (sleep's verify reads it)."""

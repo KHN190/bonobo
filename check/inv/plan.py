@@ -9,6 +9,7 @@ asked them). check/round.py puts them in ctx:
   way        (chosen_s, dug_s, walked_s) to the decision's mine target, or None
   switches   [(fresh, staying, lost, noise, switched)] every switch the kernel weighed this round
   holds      [(held name, chosen name, because)] every kernel.Held decision this round
+  plan_hand_made  the held plan is check/dims/plan_held's hand-made one (P2 does not judge it)
 An invariant whose ctx is missing is Unchecked, said why."""
 import math
 
@@ -17,6 +18,7 @@ from ..oracle import Unchecked
 TOL_TICKS = 1            # prices are whole ticks: one either way
 TOL_S = 0.05             # seconds compared after rounding
 MATERIAL = ("gather", "mine", "hunt")     # steps that make a material in the world (a container's alternative)
+MAKES = MATERIAL + ("craft", "smelt", "take", "withdraw", "await", "fill", "trade", "farm")   # steps whose token is gained
 
 
 def _plan(ctx):
@@ -148,6 +150,8 @@ def P2(b, d, a, ctx):
     plan, inv = _plan(ctx), ctx.get("inv")
     if plan is None or inv is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
+    if ctx.get("plan_hand_made"):
+        return Unchecked("the held plan is the plan_held dimension's hand-made one, not the planner's")
     from collections import Counter
     from bonobo.data import TIER_OF_MATERIAL, bare, mid
     from bonobo.knowledge import members, step_call, tool_ok
@@ -174,7 +178,8 @@ def P2(b, d, a, ctx):
         if station and have(station) <= 0 and (mem is None or not any(
                 s.get("block") in (station, bare(station)) for s in mem.stations(dim))):
             return f"step {i + 1} {st} works at a {bare(station)}, none held, made before it or remembered"
-        made[st.token] += int(st.count)
+        if st.kind in MAKES:
+            made[st.token] += int(st.count)
         material, _, kind = bare(st.token).rpartition("_")
         if st.kind == "craft" and material in TIER_OF_MATERIAL:
             tools[kind] = max(tools.get(kind, -1), TIER_OF_MATERIAL[material])

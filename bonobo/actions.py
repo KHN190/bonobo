@@ -243,8 +243,6 @@ def _mine(cost):
         if tier is not None:
             requires[tool_dim("pickaxe", tier)] = 1
             effect[uses_dim("pickaxe")] = effect.get(uses_dim("pickaxe"), 0) - 1
-        if token == "minecraft:cobblestone":
-            effect["stone"] = effect.get("stone", 0) + per     # what recipes and shelters ask for
         requires.update({"hands_free": 1, "footing": 1})
         out.append(priced(cost, f"mine:{token}", effect, ("mine", token, blocks, tier), requires=requires))
     return out

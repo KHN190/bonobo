@@ -63,7 +63,7 @@ def _held_for(value, goal, snap, mem):
     from bonobo import goals
     from bonobo.decompose import Step
     rest = goals.remainder(goal, snap, mem)
-    out = {"sig": None, "event": False, "dim": snap.dimension, "want": rest}
+    out = {"sig": None, "event": False, "dim": snap.dimension, "want": rest, "hand_made": True}
     if value == "event":
         return dict(out, steps=[_iron_pickaxe()], event=True)
     if value == "emptied":

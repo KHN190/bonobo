@@ -253,7 +253,7 @@ def plan_ctx(b, act, snap, mem, world):
     out = {"plan": list(held["steps"]) if held is not None else None, "price": cost.estimate, "inv": snap.inv,
            "mem": mem, "dimension": snap.dimension, "feet": snap.feet,
            "task_goal": task.get("goal") and {"goal": task["goal"], "args": task.get("args", {})} if task else None,
-           "way": None}
+           "way": None, "plan_hand_made": bool(held is not None and held.get("hand_made"))}
     step = getattr(act, "step", None)
     pos = step.detail.get("pos") if step is not None and step.kind == "mine" else None
     if pos is not None:

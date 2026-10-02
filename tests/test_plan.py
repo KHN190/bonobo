@@ -57,6 +57,16 @@ class TheSolver(unittest.TestCase):
                     continue
                 self.assertEqual(counts(solve(columns, start, target)), want)
 
+    def test_a_step_burns_whole_fuel(self):
+        smelt = [A("coal", {"coal": 1}, 5.0), A("smelt", {"ingot": 1, "ore": -1, "coal": -0.125}, 1.0)]
+        # (situation, ore held, ingots wanted, coal left after the plan)
+        rows = [("3 ingots: one coal burnt whole", 3, 3, 0),
+                ("8 ingots: one coal exactly", 8, 8, 0),
+                ("must fail: 9 ingots: two coals, not 1.125", 9, 9, 0)]
+        for name, ore, n, left in rows:
+            with self.subTest(name):
+                self.assertEqual(solve(smelt, {"ore": ore}, {"ingot": n}).final.get("coal", 0), left)
+
 
 # Real plans the order and seek rules are checked on: (situation, state, target)
 REAL = [
@@ -110,7 +120,9 @@ class RealPlans(unittest.TestCase):
 
 # (column name, part of what it requires, part of what it does): the real table, exactly
 COLUMNS = [
-    ("mine:minecraft:cobblestone", {"bag_free": 1, actions.at_dim("stone"): 1}, {}),
+    # must fail: a block mined counted twice as stone (P2: a furnace short of stone planned as covered)
+    ("mine:minecraft:cobblestone", {"bag_free": 1, actions.at_dim("stone"): 1},
+     {"minecraft:cobblestone": 1, "stone": 1}),
     ("mine:minecraft:raw_iron", {actions.tool_dim("pickaxe", 1): 1}, {actions.uses_dim("pickaxe"): -1}),
     ("craft:minecraft:stone_pickaxe", {}, {actions.uses_dim("pickaxe"): data.TOOL_USES["stone"]}),
     ("craft:minecraft:iron_pickaxe", {}, {actions.uses_dim("pickaxe"): data.TOOL_USES["iron"]}),
