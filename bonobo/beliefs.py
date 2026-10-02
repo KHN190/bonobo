@@ -17,6 +17,8 @@ def _with_dps(kind, row):
     out = dict(row)
     out.setdefault("hp", game.MOB_HP.get(kind))
     out.setdefault("attack", game.MOB_HIT.get(kind))
+    if kind in game.MOB_WIDTH:      # melee: centre to centre when the attack box meets ours
+        out.setdefault("reach", game.MOB_WIDTH[kind] / 2 + game.MELEE_INFLATE + game.PLAYER_WIDTH / 2)
     if kind in game.MOB_CADENCE_TICKS:
         out["attack_s"] = game.MOB_CADENCE_TICKS[kind] / TICKS_PER_S
     out["dps"] = out["attack"] / out["attack_s"]

@@ -43,3 +43,10 @@ HIT_KNOCKBACK = 0.4
 GROUND_DRAG = 0.6 * 0.91
 TICKS_PER_S = 20                 # the game clock: ticks in one second
 SWEEP_DAMAGE = 1.0              # a sword's sweep: each mob beside the one struck (on the ground, not sprinting)
+# Mob.isWithinMeleeAttackRange (Java 1.21): the attacker's box grown sqrt(2.04) − 0.6 a side must meet the target's
+MELEE_INFLATE = 2.04 ** 0.5 - 0.6
+PLAYER_WIDTH = 0.6
+MOB_WIDTH = {"minecraft:zombie": 0.6, "minecraft:husk": 0.6, "minecraft:zombie_villager": 0.6, "minecraft:drowned": 0.6,
+             "minecraft:spider": 1.4, "minecraft:cave_spider": 0.7, "minecraft:phantom": 0.9, "minecraft:vindicator": 0.6,
+             "minecraft:wither_skeleton": 0.7, "minecraft:piglin": 0.6, "minecraft:zombified_piglin": 0.6,
+             "minecraft:enderman": 0.6}
