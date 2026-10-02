@@ -135,6 +135,8 @@ def decide(facts, fail_then_again=True):
         # danger as production judges it (S1 = R5's threat): the threat model's own pressure and blast on the state the
         # threat layer was shown (threat.options' test, not its answer: a wrong "ignore" is not taken as no danger)
         ctx["pressed"] = any(pressed(fight_loop.threat_state(s, rows, ids=ids)) for s, rows, ids in bids)
+        from bonobo import tasks as tasklist
+        live_before = {t["id"] for t in tasklist.load() if t["state"] in tasklist.LIVE}     # D1: what this round finishes
         act = b.decide(snap, bctx)
         if offered:
             option, worth = offered[-1]
@@ -145,9 +147,11 @@ def decide(facts, fail_then_again=True):
         d = _decision(act, seen.get("chosen"), seen.get("intents", ()), world)
         if act is None:
             # D1: why nothing was proposed, where production records it — on the task (brain.finish: tasks.marked),
-            # or the need no step could be planned for (brain.unplannable)
-            from bonobo import tasks as tasklist
-            why = [t.get("reason") for t in tasklist.load()] + list(getattr(b, "unplannable", {}).values())
+            # or the need no step could be planned for (brain.unplannable); a task this round finished (live before
+            # it, done or failed after) is itself the round's reason (brain.py just_finished: that round proposes nothing)
+            why = [t.get("reason") or (f"task {t['id']} {t['state']} this round"
+                                       if t["id"] in live_before and t["state"] not in tasklist.LIVE else None)
+                   for t in tasklist.load()] + list(getattr(b, "unplannable", {}).values())
             d = d._replace(reason=next((w for w in why if w), None))
         step = getattr(act, "step", None)
         boxes = [tuple(map(tuple, bx)) for h in mem.homes(snap.dimension) for bx in h.get("boxes", ())]
