@@ -1,9 +1,9 @@
-"""What the fight carries (perception.kit's readings): the hand, a sword, a bow with arrows, a shield in the offhand."""
+"""What the body carries to fight with (perception.kit's readings), threat or not (a goal fight reads it too): the hand,
+a sword, a bow with arrows, a shield in the offhand."""
 from bonobo import knowledge
 
 NAME = "kit"
 VALUES = ("hand", "sword", "bow", "shield")
-DEPENDS = (lambda f: f["threat"], {"threat": True})
 
 
 def domain():
@@ -20,7 +20,7 @@ def alpha(a):
 
 
 def gamma(value, f, g):
-    if not f["threat"] or value == "hand":
+    if value == "hand":
         return
     if value == "sword":
         g.give("iron_sword")

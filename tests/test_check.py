@@ -144,6 +144,22 @@ class Dimensions(unittest.TestCase):
                     self.assertEqual(facts.of(threat=False)[dim.NAME], 0)   # its condition off: its first value
 
 
+class Ungated(unittest.TestCase):
+    """A dimension without DEPENDS is read in every state: each of its values stands alone (no threat, nothing cooled)
+    and comes back — γ builds it whenever α reads it (kit: a sword carried with no threat about)."""
+
+    def test_rows(self):
+        from check import round as rnd
+        from check.facts import DIMS
+        rows = [(d.NAME, v) for d in DIMS if getattr(d, "DEPENDS", None) is None for v in d.domain()]
+        self.assertIn(("kit", "sword"), rows)             # must fail: kit gated on a threat again
+        for name, v in rows:
+            with self.subTest(fact=name, value=v):
+                f = of(**{name: v})
+                self.assertEqual(f[name], v)
+                self.assertEqual(rnd.decide(f, fail_then_again=False)[1][name], v)
+
+
 class Queued(unittest.TestCase):
     def test_rows(self):
         from check.facts import _queued
