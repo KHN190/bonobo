@@ -1,39 +1,21 @@
 """Bench table, common tier: rows as data in `bench/vocab.py`'s words, built by `bench/table.py`.
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
-from .core import ORIGIN
-from ..survive import DIG_IN_DEPTH
 
 FAMILIES = [
     ('lava_strip', [('cross_lava_8', 8, 25, 'B')]),
-    ('base', [('nav', 'canopy'), ('loot', 'canopy'), ('mine_stone', 'cave'), ('chop', 'night'),
-         ('mine_stone', 'interrupt_mid_work'), ('mine_stone', 'full_bag'), ('mine_iron', None, 'ore_buried'),
-         ('chop', None, 'hand_spare_slot'), ('smelt', None, 'furnace_on_slab')]),
-    ('one', [('dig_in_night', ['shelter:dig in'], 'night on stone, a pickaxe → three down, sealed',
-          [('floor', 'stone', 8, 4), ('stand',), ('give', 'stone_pickaxe'), ('give', 'cobblestone', 8),
-           ('time', 18000)],
-          ('skill', 'dig_in'), ('all', ('!state', 'blockY', '<=', ORIGIN[1] - DIG_IN_DEPTH), ('!call', 'enclosed', [])), 25),
+    ('base', [('mine_stone', 'full_bag'), ('mine_iron', None, 'ore_buried'), ('smelt', None, 'furnace_on_slab')]),
+    ('one', [
          ('reach_land_swim', ['reach:land'], 'night, treading water 10 blocks from shore → on dry land',
           [('tank', -8, 9, -8, 8, 1, -1, -4, 'glass', 'east'), ('fill', ('@', 10, -3, -8), ('@', 14, -1, 8), 'stone'),
            ('stand',), ('time', 18000)],
           ('skill', 'reach_land'), ('all', ('!state', 'onGround'), ('!not', ('!state', 'inWater'))), 25)]),
-    ('place', [('place_furnace_north', 'minecraft:furnace', 'north', 'north', 'common'),
-         ('place_furnace_south', 'minecraft:furnace', 'south', 'south', 'common'),
-         ('place_furnace_east', 'minecraft:furnace', 'east', 'east', 'common'),
-         ('place_furnace_west', 'minecraft:furnace', 'west', 'west', 'common')]),
-    ('start', [('nav_from_stairs', 'a stair step', [('setblock', ('@', 0, 0, 0), 'oak_stairs[facing=east]')], (0, 0.5)),
-         ('nav_from_slab', 'a bottom slab', [('setblock', ('@', 0, 0, 0), 'stone_slab')], (0, 0.5)),
-         ('nav_from_farmland', 'farmland', [('setblock', ('@', 0, -1, 0), 'farmland')], ()),
-         ('nav_from_ladder', 'a ladder on a wall',
+    ('place', [('place_furnace_north', 'minecraft:furnace', 'north', 'north', 'common')]),
+    ('start', [('nav_from_ladder', 'a ladder on a wall',
           [('fill', ('@', 1, 0, 0), ('@', 1, 3, 0), 'stone'),
            ('fill', ('@', 0, 0, 0), ('@', 0, 3, 0), 'ladder[facing=west]')],
-          (0, 2)),
-         ('nav_from_water', 'a pool one deep', [('fill', ('@', -1, 0, -1), ('@', 1, 0, 1), 'water')], ())]),
-    ('door', [('press_door_to_chest', 'wall', 'iron', 2, False, True, 'outside', 'inside', False),
-         ('untaught_door_stays_shut', 'wall', 'iron', 2, False, False, 'outside', 'inside', False),
-         ('hatch_in_and_close', 'hatch', 'piston', 2, True, True, 'outside', 'inside', False),
-         ('hatch_out_and_close', 'hatch', 'piston', 2, True, True, 'inside', 'outside', False),
-         ('side_room_single_button', 'wall', 'piston', 1, False, True, 'outside', 'inside', True)]),
+          (0, 2))]),
+    ('door', [('press_door_to_chest', 'wall', 'iron', 2, False, True, 'outside', 'inside', False)]),
 ]
 ROWS = [
     dict(name='cave_escape', module='nav',
@@ -66,14 +48,6 @@ ROWS = [
          run=('&walk_once',), before=[('start', 'eat_while_walking'), ('&hunger_drained',)],
          check=[('call', 'walk_ate', [])], budget=25, skills=['goto'],
          tier_fixed='common', combat=False, stochastic=False, tags={'base': 'nav', 'state': 'hungry'}),
-    dict(name='mine_while_hungry', module='skills',
-         doc=('Hungry, cooked beef carried, 3 cobblestone to mine → mined without a pause to eat: no eat task, every '
-              "bite inside the running mine, the bar no lower at the end (worked_fed over the run's trace)"),
-         scene=[('floor',), ('stand',), ('give', 'wooden_pickaxe'), ('give', 'cooked_beef', 4)],
-         run=('&mine_hungry',), before=[('start', 'mine_while_hungry'), ('&hunger_drained',)],
-         check=[('gain', 'minecraft:cobblestone', 3), ('call', 'mine_fed', [])], budget=15,
-         skills=['mine'], tier_fixed='common', combat=False, stochastic=False,
-         tags={'base': 'mine_stone', 'state': 'hungry'}),
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 from . import core

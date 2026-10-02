@@ -74,7 +74,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 297)          # + no_bucket_for_a_shallow_dig (V11); + design V rows (6: takeover_no_clutch, clutch_breaks_the_fall, collect_unreachable_drop, home_place_refused, drowning_sealed_pit, hunt_hurt_spider); + design A rows (6: ore_buried, hand_spare_slot, furnace_on_slab, sealed_target, no_shield_behind_rock, fight_creeper_from_pickaxe); + design-bc §13 R1-R7 (9), − bed_obstructed; + look_in_chest; + fight_enderman_provoked; + the taught door and its untaught twin; + hatch in/out, side room; − chop_without_interrupt
+        self.assertEqual(len(rec), 243)          # − 54 rows (minimal bench: brain grid, variants, duplicates); + no_bucket_for_a_shallow_dig (V11); + design V rows (6: takeover_no_clutch, clutch_breaks_the_fall, collect_unreachable_drop, home_place_refused, drowning_sealed_pit, hunt_hurt_spider); + design A rows (6: ore_buried, hand_spare_slot, furnace_on_slab, sealed_target, no_shield_behind_rock, fight_creeper_from_pickaxe); + design-bc §13 R1-R7 (9), − bed_obstructed; + look_in_chest; + fight_enderman_provoked; + the taught door and its untaught twin; + hatch in/out, side room; − chop_without_interrupt
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
