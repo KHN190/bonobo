@@ -2197,6 +2197,27 @@ class Overnight(unittest.TestCase):
                     fired["shelter"]()
                 self.assertEqual(ran, [steps[0] if len(steps) > 1 else "shelter"])
 
+    def test_every_way_cooled_no_shelter_row(self):
+        """Every night way cooling after a failure here (needs.way_key): the shelter row does not take the night (D5:
+        a failed act is not reselected); the next layer has it (wait for day)."""
+        from bonobo import decompose
+        with tempfile.TemporaryDirectory() as tmp:
+            b = brainmod.Brain.__new__(brainmod.Brain)
+            b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
+            b.mem, b.retry, b.blacklist, b.place, b.held = Memory(os.path.join(tmp, "n.json")), retry.Retry(), \
+                {}, PLACE, {}
+            b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
+            now = time.time()
+            for w in [s["name"] for k in ("overnight bed", "overnight") for s in decompose.SOURCES[k]]:
+                b.retry.failed(needs.way_key(w), "error", "failed here", now, PLACE)
+            snap = snapshot(state(timeOfDay=NIGHT), inventory(("cooked_beef", 8), ("stone_pickaxe", 1)))
+            c = cost(snap)
+            b.needs.cost = lambda _snap: c
+            reads = {"enclosed": False, "bed_near": False, "soft_ground": False, "in_pit": False}
+            with mock.patch.object(api, "api", side_effect=AssertionError("read the world beyond the row")):
+                fired = [n for _s, n, _r in b.reflexes.proposals(snap, None, reads)]
+            self.assertNotIn("shelter", fired)
+
     def test_a_way_that_failed_here_gives_way_to_the_next(self):
         """A night way that failed here (cooling under needs.way_key) drops out of the pricing: the next way is
         chosen the same night (search_night_resume: dig in refused 'no lid below the ground line', then idling)."""
