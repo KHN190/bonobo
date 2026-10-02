@@ -695,7 +695,7 @@ class Losses(unittest.TestCase):
 class Kit(unittest.TestCase):
     """What the threat model believes we fight with: read from the bag, again whenever it may have changed."""
 
-    # (situation, sword items carried (id, damage)) → the sword the threat prices (knowledge.best_sword), None: fist
+    # (situation, sword items carried (id, damage)) → the weapon the threat prices (knowledge.attack_weapon), None: fist
     SWORDS = [("an iron sword in the bag", [("minecraft:iron_sword", 0)], "minecraft:iron_sword"),
               ("a diamond sword in hand (a hotbar slot)", [("minecraft:diamond_sword", 10)], "minecraft:diamond_sword"),
               ("must fail: no sword: the fist", [], None),

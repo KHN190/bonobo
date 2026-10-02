@@ -96,5 +96,42 @@ class Perceived(unittest.TestCase):
                 self.assertEqual((got.get("sword"), ground.bucket if ground is not None else None), want)
 
 
+class PriceInputs(unittest.TestCase):
+    """perception.price_inputs: the survival price reads every state it has a reading for (M3), not hp and armour
+    alone; night is data.is_night's."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import world
+        from bonobo.data import DAY_END, NIGHT_END, is_night
+        from bonobo.game import COVERED_SKY
+        from tests.world import state
+        midnight = (DAY_END + NIGHT_END) // 2
+        # (situation, perceived state changes, inside a site, key) → the value priced
+        rows = [("must fail: a bed carried is priced", {"bed": True}, False, "bed", True),
+                ("must fail: torches carried", {"torches": True}, False, "torches", True),
+                ("must fail: food carried", {"food_items": 5}, False, "food_items", 5),
+                ("must fail: a full bag", {"bag_free": 0}, False, "bag_free", 0),
+                ("must fail: hungry", {"food": 4}, False, "food", 4),
+                ("must fail: an iron pickaxe: the iron price", {"pick_tier": 2}, False, "pickaxe", 2),
+                ("a wooden pickaxe mines stone: the stone-class price", {"pick_tier": 0}, False, "pickaxe", 1),
+                ("no pickaxe", {}, False, "pickaxe", 0),
+                ("must fail: the Overworld's midnight", {"timeOfDay": midnight}, False, "night",
+                 is_night(midnight, "minecraft:overworld")),
+                ("must fail: the Nether at the Overworld's midnight", {"timeOfDay": midnight,
+                                                                       "dimension": "minecraft:the_nether"},
+                 False, "night", is_night(midnight, "minecraft:the_nether")),
+                ("must fail: dusk's distance from the clock", {"timeOfDay": 1000}, False, "ticks_until_dusk",
+                 world.ticks_until_dusk(1000)),
+                ("must fail: under rock: sheltered", {"skyLight": COVERED_SKY}, False, "sheltered", True),
+                ("must fail: inside a site: sheltered", {}, True, "sheltered", True),
+                ("open sky, outside: not sheltered", {}, False, "sheltered", False),
+                ("must fail: block light 0 at night: dark", {"timeOfDay": midnight, "blockLight": 0}, False, "dark",
+                 True)]
+        for name, changes, inside, key, want in rows:
+            with self.subTest(name), mock.patch.object(perception, "IN_SITE", lambda feet, dim, i=inside: i):
+                self.assertEqual(perception.price_inputs(state(**changes))[key], want)
+
+
 if __name__ == "__main__":
     unittest.main()
