@@ -128,7 +128,7 @@ class Blueprints(unittest.TestCase):
              {"stone": 4, "minecraft:obsidian": 10}),
             # real case 02:30: the goal still asked 10 obsidian and mined the frame it had started
             ("must fail: a started portal needs only its missing parts",
-             lambda: B.remaining(B.NETHER_PORTAL, (-367, 119, 191), 0, lambda p: frame.get(p, "air")),
+             lambda: B.missing_materials(B.NETHER_PORTAL, (-367, 119, 191), 0, lambda p: frame.get(p, "air")),
              {"minecraft:obsidian": 6, "stone": 2}),
             ("the portal's walk-in cell is inside the frame", lambda: NT.portal_cell((0, 64, 0), 0),
              lambda c: c in B.clear_cells(B.NETHER_PORTAL, (0, 64, 0), 0)),

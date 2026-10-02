@@ -26,8 +26,6 @@ def bow_aim(eye, target, height=1.0):
 
 # how far each danger reaches: one flat distance mistook the head sweep and take-off knockback
 
-ENDERMAN_HEAD = 2.55      # eye/head height of a 2.9-block enderman
-HEAD_BAND = 1.0           # how close to that height the aim may pass before it counts as "looking at it"
 
 def shoot_batch(entity, eye, hold_ticks=22):
     """Pure: the one task that draws fully and looses at `entity` from `eye` (arrow drop allowed for)."""

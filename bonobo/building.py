@@ -436,7 +436,7 @@ def _shelter_left(state, call=None):
     if state.get("spot") is None or state.get("region") is None:
         return {"shelter:hut": 1}
     origin, turns = state["spot"]
-    return blueprints.remaining(blueprints.SHELTER, tuple(origin), turns, lambda p: state["region"].name(p) or "air")
+    return blueprints.missing_materials(blueprints.SHELTER, tuple(origin), turns, lambda p: state["region"].name(p) or "air")
 
 def _shelter_commands_for(state, args):
     """`commands` for build_shelter: the batch at the spot `state["spot"]` = (origin, turns)."""

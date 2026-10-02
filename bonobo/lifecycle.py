@@ -61,11 +61,6 @@ def reset_all():
         fn()
 
 
-def covered():
-    """{(module, name)} every registered reset puts back."""
-    return {(mod, name) for mod, names, _fn in _RESETS for name in names}
-
-
 def registered():
     """[(module, names)] as registered."""
     return [(mod, names) for mod, names, _fn in _RESETS]

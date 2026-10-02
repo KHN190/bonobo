@@ -114,7 +114,7 @@ def placed(bp, origin, turns=0):
         out.append((pos, part, facing, against))
     return out
 
-def remaining(bp, origin, turns, name_at):
+def missing_materials(bp, origin, turns, name_at):
     """Pure: materials still missing from a started build, {item token: count}."""
 
     need = {}

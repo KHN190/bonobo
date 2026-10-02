@@ -53,6 +53,25 @@ def proven_by(entry):
     return ({entry} if entry in skillkit.REGISTRY else set()) | {c.name for c in skillkit.providers(entry)}
 
 
+
+def sheet_cover(conditions, bases, pinned=()):
+    """Pure: the (condition, base) pairs the sheet runs — coverage, not the full product."""
+    order = list(bases)
+    pairs = [(c, b) for c, v in conditions.items() for b in order if b in v["bases"]]
+    must = lambda c, b: {("must", b)} if conditions[c].get("fails") else set()     # noqa: E731
+    need = {("cond", c) for c, _b in pairs} | {("axis", conditions[c]["axis"], b) for c, b in pairs}
+    need |= {m for c, b in pairs for m in must(c, b)}
+    new = lambda p: ({("cond", p[0]), ("axis", conditions[p[0]]["axis"], p[1])} | must(*p)) & need   # noqa: E731
+    out = [p for p in pairs if p in set(pinned)]
+    for p in out:
+        need -= new(p)
+    while need:
+        best = max(pairs, key=lambda p: (len(new(p)), -pairs.index(p)))
+        out.append(best)
+        need -= new(best)
+    return sorted(out, key=pairs.index)
+
+
 class EveryRow(unittest.TestCase):
     def test_well_formed(self):
         for name, row in rows():
@@ -131,7 +150,7 @@ class TheCoverIsWhole(unittest.TestCase):
         for base in bench_bases.BASES:
             with self.subTest(base=base):
                 self.assertIn(f"{base}__base", sc.SCENARIOS)
-        pairs = vocab.cover(bench_bases.CONDITIONS, bench_bases.BASES, [("night", "chop")])
+        pairs = sheet_cover(bench_bases.CONDITIONS, bench_bases.BASES, [("night", "chop")])
         for cond, spec in bench_bases.CONDITIONS.items():
             self.assertEqual(set(spec["bases"]) - set(bench_bases.BASES), set(), cond)
             with self.subTest(condition=cond):
@@ -518,10 +537,10 @@ class Cover(unittest.TestCase):
     def test_cover(self):
         for name, conds, bases, pinned, want in self.ROWS:
             with self.subTest(name):
-                self.assertEqual(vocab.cover(conds, list(bases), pinned), want)
+                self.assertEqual(sheet_cover(conds, list(bases), pinned), want)
 
     def test_real_sheet_covers_every_condition_and_axis_base(self):
-        pairs = vocab.cover(bench_bases.CONDITIONS, bench_bases.BASES, [("night", "chop")])
+        pairs = sheet_cover(bench_bases.CONDITIONS, bench_bases.BASES, [("night", "chop")])
         self.assertEqual({c for c, _ in pairs}, set(bench_bases.CONDITIONS))
         self.assertEqual({(bench_bases.CONDITIONS[c]["axis"], b) for c, b in pairs},
                          {(v["axis"], b) for v in bench_bases.CONDITIONS.values() for b in v["bases"] if b in bench_bases.BASES})

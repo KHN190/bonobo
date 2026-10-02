@@ -102,7 +102,7 @@ def cmd_task(a):
         print("cancelled", a.args[0] if a.args else "every live task")
         return
     if a.action == "clear":
-        tasks.clear()
+        tasks.drop_done()
         print("finished tasks cleared")
         return
     if a.action == "milestones":
@@ -439,7 +439,7 @@ def cmd_mech(a):
     dim = api.get("/state")["dimension"] if a.action != "list" else None
     press = tuple(a.press) if a.press else None
     if a.action == "list":
-        for m in mech.load():
+        for m in mech.read_lessons():
             print(f"{m['dimension']} press {tuple(m['press'])} opens {[tuple(c) for c in m['opens']]}"
                   + (" (closed behind)" if m.get("close") else ""))
         return
@@ -451,7 +451,7 @@ def cmd_mech(a):
     opens = [tuple(a.opens[i:i + 3]) for i in range(0, len(a.opens or ()), 3)]
     if not opens or len(a.opens) % 3:
         raise SystemExit("--opens takes X Y Z triples")
-    print("taught:", mech.add(dim, press, opens, close=a.close))
+    print("taught:", mech.learn(dim, press, opens, close=a.close))
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)

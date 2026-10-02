@@ -26,14 +26,14 @@ def walk_s(d):
 def taught(tmp):
     path = os.path.join(tmp, "mechanisms.json")
     for press in (OUT_PRESS, IN_PRESS):
-        mech.add(DIM, press, DOOR, path=path)
+        mech.learn(DIM, press, DOOR, path=path)
     return path
 
 
 class Geometry(unittest.TestCase):
     def test_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
-            mechs = mech.load(taught(tmp))
+            mechs = mech.read_lessons(taught(tmp))
         door = tuple(DOOR)
         # (from, to) → the press used
         rows = [("from outside: the outside button", OUTSIDE, INSIDE, OUT_PRESS),
@@ -67,11 +67,11 @@ class Planning(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = taught(tmp)
             route = lambda here, there, w, dimension=None: mech.door_route_s(      # noqa: E731
-                [m for m in mech.load(path) if m["dimension"] == dimension], here, there, w)
+                [m for m in mech.read_lessons(path) if m["dimension"] == dimension], here, there, w)
             c = costmod.Cost(None)
             c.snap = type("Snap", (), {"feet": OUTSIDE, "dimension": DIM})()
             step = Step("withdraw", "minecraft:chest", 1, {"pos": list(INSIDE)})
-            through = mech.door_route_s(mech.load(path), OUTSIDE, INSIDE,
+            through = mech.door_route_s(mech.read_lessons(path), OUTSIDE, INSIDE,
                                         lambda d: costmod.walk_ticks(d) / costmod.TICKS_PER_S)
             with mock.patch.object(costmod, "DOOR_ROUTE", route):
                 got = c._walk(step)
@@ -85,7 +85,7 @@ class Planning(unittest.TestCase):
         # must fail: the game's plan sees the shut door as solid and says no way
         with tempfile.TemporaryDirectory() as tmp:
             path = taught(tmp)
-            route = lambda here, there, w, dimension=None: mech.door_route_s(mech.load(path), here, there, w)  # noqa: E731
+            route = lambda here, there, w, dimension=None: mech.door_route_s(mech.read_lessons(path), here, there, w)  # noqa: E731
             with mock.patch.object(nav, "DOOR_ROUTE", route), \
                     mock.patch.object(nav, "route_s", lambda *a, **k: (False, None)):
                 found, seconds = nav.reachable(INSIDE, nav.Policy(), feet=OUTSIDE)
@@ -233,8 +233,8 @@ class DoorwayIsNotInside(unittest.TestCase):
                 p = dw.door_parts(shape, kind, 1)
                 inside, door = pos(p["points"]["inside"]), pos(p["cells"][0])
                 # must fail: standing in the doorway counted arrived (025641: x 4.3, arrived by 1.5 + slack)
-                self.assertFalse(nav.there(at(door), inside, dw.REACH))
-                self.assertTrue(nav.there(at(inside), inside, dw.REACH))
+                self.assertFalse(nav.there(at(door), inside, dw.ARRIVE_RANGE))
+                self.assertTrue(nav.there(at(inside), inside, dw.ARRIVE_RANGE))
 
 
 HATCH_Y = 63                                           # a 2×2 hatch in the ground layer
@@ -275,7 +275,7 @@ class OpenAndClose(unittest.TestCase):
             if task["type"] == "use":
                 state["shut"] = not state["shut"]
             return {"status": "succeeded", "message": "ok"}
-        with mock.patch.object(mech, "load", lambda path=None: mechs), \
+        with mock.patch.object(mech, "read_lessons", lambda path=None: mechs), \
                 mock.patch.object(mech, "solid_map", lambda cells: {tuple(c): state["shut"] for c in cells}), \
                 mock.patch.object(mech.api, "run", run), mock.patch.object(mech.api, "detail", lambda *a: None):
             mech.doors_on_way(OUTSIDE, INSIDE, dimension=DIM)
@@ -319,7 +319,7 @@ class Store(unittest.TestCase):
             path = taught(tmp)
             self.assertEqual(len(mech.in_dimension(DIM, path)), 2)
             self.assertEqual(mech.remove(DIM, OUT_PRESS, path), 1)
-            self.assertEqual([tuple(m["press"]) for m in mech.load(path)], [IN_PRESS])
+            self.assertEqual([tuple(m["press"]) for m in mech.read_lessons(path)], [IN_PRESS])
 
 
 class HomeExit(unittest.TestCase):
@@ -354,7 +354,7 @@ class HomeExit(unittest.TestCase):
                 return {"found": True, "steps": [{"x": 20, "y": HATCH_Y + 1, "z": 0, "actions": ["MINE 20,64,0"]}]}
             return ({"found": True, "steps": [{"x": 4, "y": HATCH_Y - 3, "z": 2, "actions": ["MINE 4,60,2"]}]}
                     if brk else {"found": False})
-        with mock.patch.object(mech, "load", lambda path=None: mechs), \
+        with mock.patch.object(mech, "read_lessons", lambda path=None: mechs), \
                 mock.patch.object(mech, "solid_map", lambda cells: {tuple(c): state["shut"] for c in cells}), \
                 mock.patch.object(nav, "_plan_reply", plan), mock.patch.object(nav, "HOME_DOOR", mech.home_exit), \
                 mock.patch.object(mech.api, "get", lambda p: here()), \

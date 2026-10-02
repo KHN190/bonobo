@@ -1195,7 +1195,7 @@ class RoundLog(unittest.TestCase):
                 ("nothing since", "11:00:00", 0, {}, [])]
         for name, since, n, phases, gaps in rows:
             with self.subTest(name):
-                got = rounds.summarize(lines, since)
+                got = rounds.phases_of(lines, since)
                 self.assertEqual(got["rounds"], n)
                 if phases is not None:
                     self.assertEqual((got["phases"], got["gaps"]), (phases, gaps))

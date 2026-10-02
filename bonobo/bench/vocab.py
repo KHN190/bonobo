@@ -347,23 +347,6 @@ _lifecycle.in_place(__name__, "PORTAL_ROOM_OK", "FORTRESS_RUN", "TREK", "ROAD_TI
 
 ROAD_LEG = 10      # three legs of 10 blocks: the reuse is what is judged, not the distance
 
-def cover(conditions, bases, pinned=()):
-    """Pure: the (condition, base) pairs the sheet runs — coverage, not the full product."""
-    order = list(bases)
-    pairs = [(c, b) for c, v in conditions.items() for b in order if b in v["bases"]]
-    must = lambda c, b: {("must", b)} if conditions[c].get("fails") else set()     # noqa: E731
-    need = {("cond", c) for c, _b in pairs} | {("axis", conditions[c]["axis"], b) for c, b in pairs}
-    need |= {m for c, b in pairs for m in must(c, b)}
-    new = lambda p: ({("cond", p[0]), ("axis", conditions[p[0]]["axis"], p[1])} | must(*p)) & need   # noqa: E731
-    out = [p for p in pairs if p in set(pinned)]
-    for p in out:
-        need -= new(p)
-    while need:
-        best = max(pairs, key=lambda p: (len(new(p)), -pairs.index(p)))
-        out.append(best)
-        need -= new(best)
-    return sorted(out, key=pairs.index)
-
 def _broken_hut(ctx):
     """The hut in the arena as a remembered site whose snapshot is the whole wall (taken before it was broken)."""
     lo, hi = at(2, 0, -2), at(6, 2, 2)

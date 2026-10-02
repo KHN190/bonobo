@@ -22,7 +22,7 @@ def parse(line):
         fields[k] = None if v == "-" else float(v)
     return parts[0], fields
 
-def summarize(lines, since=None):
+def phases_of(lines, since=None):
     """Pure: {"rounds": n, "phases": {phase: (median, max)}, "gaps": [(ms, time), top 3]} over the round lines at or
     after `since` (HH:MM:SS)."""
     rows = [r for r in map(parse, lines) if r is not None and (since is None or r[0] >= since)]
@@ -40,7 +40,7 @@ def main(argv=None):
     since = argv[0] if argv else None
     try:
         with open(api.DETAIL_FILE) as f:
-            got = summarize(f, since)
+            got = phases_of(f, since)
     except OSError as e:
         print(f"no detail.log: {e}")
         return 1

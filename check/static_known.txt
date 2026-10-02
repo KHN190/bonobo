@@ -1,8 +1,8 @@
 # static_check.py known hits: "RULE COUNT"; counts only fall (gate.sh)
-R1 37
+R1 25
 R2 0
-R3 9
-R4 14
+R3 5
+R4 11
 R5 24
 R6 1
 R7 10

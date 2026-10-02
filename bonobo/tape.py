@@ -83,10 +83,10 @@ def event(name, outcome, detail=""):
 
 def reading(seq, verdict, label=None):
     """One post-action reading sequence [(seconds since the action, value)] and what it was judged to mean."""
-    _readings.append({"skill": label or SKILL, "seq": [[round(dt, 2), _plain(v)] for dt, v in seq],
-                      "verdict": _plain(verdict)})
+    _readings.append({"skill": label or SKILL, "seq": [[round(dt, 2), _jsonable(v)] for dt, v in seq],
+                      "verdict": _jsonable(verdict)})
 
-def _plain(v):
+def _jsonable(v):
     return v if isinstance(v, (int, float, str, bool, type(None))) else str(v)
 
 def row_for(brain, act, snap, now=None):

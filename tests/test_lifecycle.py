@@ -224,14 +224,14 @@ class Coverage(unittest.TestCase):
     def test_every_runtime_state_is_reset_or_allowed(self):
         sources = package_sources()
         _import_stateful(sources)
-        self.assertEqual(uncovered(sources, lifecycle.covered(), ALLOW), [])
+        self.assertEqual(uncovered(sources, {(m, n) for m, names in lifecycle.registered() for n in names}, ALLOW), [])
 
     def test_allow_names_real_state(self):
         """A stale allowlist entry (the state is gone, or now registered) is removed, not kept."""
         sources = package_sources()
         _import_stateful(sources)
         live = runtime_state(sources)
-        self.assertEqual(sorted(k for k in ALLOW if k not in live or k in lifecycle.covered()), [])
+        self.assertEqual(sorted(k for k in ALLOW if k not in live or k in {(m, n) for m, names in lifecycle.registered() for n in names}), [])
 
     def test_must_fail_unregistered_global(self):
         fake = {"bonobo.fake": "X = None\ndef f():\n    global X\n    X = 1\n"}
