@@ -178,6 +178,7 @@ class Brain:
         self.reflexes = reflexes.Maintain(self)
         perception.IN_SITE = self.reflexes.in_site      # nightfall asks the night way's judgement, every Brain built
         perception.COVER = self.reflexes.nearest_interior
+        perception.NIGHTS_MISSED = lambda: self.mem.nights_missed()
         reflexes.STEP_RUN = dispatch.execute
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.place = None  # what causes are cooled against

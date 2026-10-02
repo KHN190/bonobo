@@ -773,6 +773,9 @@ class Memory:
         n["phase"] = phase
         self.save()
 
+    def nights_missed(self):
+        return self.data["night"]["missed"]
+
     def slept(self):
         self.data["night"]["slept"] = True
         self.data["night"]["missed"] = 0

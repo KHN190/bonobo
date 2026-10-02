@@ -157,6 +157,9 @@ class PriceInputs(unittest.TestCase):
                 ("open sky, outside: not sheltered", {}, False, "sheltered", False),
                 ("must fail: block light 0 at night: dark", {"timeOfDay": midnight, "blockLight": 0}, False, "dark",
                  True)]
+        with self.subTest("must fail: three nights not slept (Memory.nights_missed)"), \
+                mock.patch.object(perception, "NIGHTS_MISSED", lambda: 3):
+            self.assertEqual(perception.price_inputs(state())["nights_missed"], 3)
         for name, changes, inside, key, want in rows:
             with self.subTest(name), mock.patch.object(perception, "IN_SITE", lambda feet, dim, i=inside: i):
                 self.assertEqual(perception.price_inputs(state(**changes))[key], want)
