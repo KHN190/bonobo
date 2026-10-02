@@ -512,8 +512,8 @@ def strip_mine_step(ctx, length=16):
         if tier <= best_tier and find(blocks, radius=5, limit=1):
             try:
                 mine(ctx, token, 1, blocks, tier)
-            except NotAvailable:
-                pass
+            except NotAvailable as e:
+                log(f"   strip mining: {token} left: {e}")
 
 def _hunt_seen(types):
     """The prey in sight as a detail line: id and distance each."""

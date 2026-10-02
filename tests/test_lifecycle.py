@@ -43,11 +43,6 @@ ALLOW = {
     ("bonobo.actions", "_GROUPS_OF"): "cache keyed by immutable data (item groups)",
     ("bonobo.solve", "_MEMO"): "memo keyed by (columns, state, target): the key is the whole input",
     ("bonobo.solve", "_PRICES"): "memo keyed by (columns, state): the key is the whole input",
-    ("bonobo.bench.core", "PROBE_SEQ"): "monotonic probe number: a reset would match an old reply",
-    ("bonobo.bench.runner", "PREBUILT"): "the NEXT row's world, built while this one runs: cross-row by design",
-    ("bonobo.bench.runner", "_IMPORTS"): "cache keyed by source files",
-    ("bonobo.bench.runner", "_CODE"): "cache keyed by source files",
-    ("bonobo.bench.runner", "REPORTING"): "the last failure report's thread: joined by the next row, never dropped",
 }
 
 

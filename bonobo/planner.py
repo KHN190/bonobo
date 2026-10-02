@@ -125,6 +125,13 @@ class Planner:
         return cls(counts, tools, cost, {mid(k): v for k, v in (pending or {}).items()}, reserved)
 
     # -- public
+    def attempt(self, needs):
+        """(steps, None), or (None, why) when unplannable."""
+        try:
+            return self.plan(needs), None
+        except Unplannable as e:
+            return None, str(e)
+
     def plan(self, needs):
         for need in needs:
             if need[0] == "tool":
@@ -168,11 +175,8 @@ class Planner:
                 material_per_tool(k, tier) for k in used_before(kind)
                 if not self.inv.has_tool(k, tier, TOOL_MIN_DURABILITY))
             probe.inv.consume(token, min(held, taken), awaits=False)
-            try:
-                steps = probe.plan([("tool", kind, tier)])
-            except Unplannable:
-                continue
-            if all(s.kind == "craft" for s in steps):
+            steps, _why = probe.attempt([("tool", kind, tier)])
+            if steps is not None and all(s.kind == "craft" for s in steps):
                 return tier
         return 0
 
@@ -219,11 +223,8 @@ class Planner:
             probe = Planner(self.inv.counts, [], self.cost)
             probe.inv.produced = Counter(self.inv.produced)
             probe.probing = True
-            try:
-                steps = probe.plan([("tool", kind, tier)])
-            except Unplannable:
-                continue
-            if any(s.kind == step.kind for s in steps):
+            steps, _why = probe.attempt([("tool", kind, tier)])
+            if steps is None or any(s.kind == step.kind for s in steps):
                 continue
             if saved > sum(s.est for s in steps) / TICKS_PER_S:
                 self.need_tool(kind, tier, depth)
