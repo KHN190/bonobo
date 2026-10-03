@@ -26,6 +26,7 @@ def alpha(a):
     if a.brain is not None:
         # the brain's own night table (needs.overnight, priced once for the round): not priced while a way needing
         # nothing already ends the night inside the light left
+        a.brain.needs.night_facts(snap)
         free = a.brain.needs.night_free_s(snap)
         if free is not None and dusk_s(snap) >= free * LEAD:
             return False

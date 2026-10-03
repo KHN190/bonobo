@@ -2032,12 +2032,16 @@ class OneArbiter(unittest.TestCase):
         b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
         b.reflexes = mock.Mock(proposals=lambda snap, ctx, reads=None: [])       # caught in the open, nothing due
         chop = brainmod.Act("task", "task t1", None, step=planner.Step("gather", "log", 2))
-        b.task_act = lambda task, snap, ctx, cost: (chop, {})
-        b.mem, b.blacklist, b.policy_cache = None, {}, None
+        # the round's one plan is the chop (brain.round_for), the task's act its step
+        b.round_for = lambda entries, snap, cost, old=None: {"steps": [chop.step], "sig": None, "event": False,
+                                                             "dim": snap.dimension, "want": ()}
+        b.task_act = lambda task, snap, ctx, cost, held=None: (chop, {})
+        b.mem, b.blacklist, b.policy_cache, b.held = None, {}, None, {}
         b.prepare = lambda snap, ctx: brainmod.Act("idle", "prepare", None)
         snap = snapshot(state(timeOfDay=NIGHT), inventory())
+        task = {"id": "t1", "state": "running", **goals.have(("log", 2))}
         with mock.patch.object(api.STATE, "mode", "normal"), mock.patch.object(brainmod.hazard, "rescue_due", return_value=None), \
-                mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "pending"}]), \
+                mock.patch.object(tasks, "load", return_value=[task]), \
                 mock.patch.object(tasks, "expire", return_value=False):
             act = b.decide(snap, None)
         self.assertEqual((act.layer, act.name), ("idle", "wait for day"))
@@ -2866,6 +2870,26 @@ class TheNightIsPricedOncePerBag(unittest.TestCase):
                 for items in bags:
                     table.overnight(snapshot(state(), inventory(*items)))
                 self.assertEqual(len(asked), want)
+
+    def test_the_night_is_one_of_in_one_plan(self):
+        """The night's ways are one one-of target of a single plan_round (planner.Target.options), the way taken the
+        cheapest whole plan (must fail: the ways priced one plan each)."""
+        calls = []
+        real = needs.plan_round
+
+        def spy(*a, **k):
+            calls.append(1)
+            return real(*a, **k)
+        rows = [("a pickaxe: dig in", [("stone_pickaxe", 1)], {"cow": 8}, "dig in"),
+                ("a bed carried: the bed", [("white_bed", 1)], {}, "bed"),
+                ("wool, planks, a table: the bed made", [("white_wool", 3), ("oak_planks", 3), ("crafting_table", 1)],
+                 {}, "bed")]
+        for name, items, seen, want in rows:
+            with self.subTest(name), mock.patch.object(needs, "plan_round", spy):
+                calls.clear()
+                snap = snapshot(state(), inventory(*items))
+                way, _secs, _steps = needs.overnight(snap.inv, cost(snap, **seen))
+                self.assertEqual((way, len(calls)), (want, 1))
 
 
 class RawOnlyWhenStarving(unittest.TestCase):

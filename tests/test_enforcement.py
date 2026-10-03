@@ -299,12 +299,16 @@ class OneDecisionPoint(unittest.TestCase):
             b.reflexes = type("Reflexes", (), {"afloat": False,
                                                "proposals": lambda self, *a, **k: ask_upkeep() or []})()
             ask_queue = layer("queue", brain.Act("task", "t", None))
+            # the round's one plan (brain.round_for) stands in; the task's act is asked of it
+            b.round_for = lambda entries, snap, cost, old=None: {"steps": [], "sig": None, "event": False,
+                                                                 "dim": snap.dimension, "want": ()}
             b.task_act = lambda *a: (ask_queue(*a), {})
-            b.mem, b.blacklist, b.policy_cache = None, {}, None
+            b.mem, b.blacklist, b.policy_cache, b.held = None, {}, None, {}
             b.prepare = layer("prepare", brain.Act("idle", "p", None))
             with self.subTest(busy=sorted(busy)), mock.patch.object(api.STATE, "mode", "normal"), \
                     mock.patch.object(brain.hazard, "rescue_due", layer("hazard", "drowning")), \
-                    mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "pending"}]), \
+                    mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "running", "goal": "have",
+                                                                    "args": {"needs": [["log", 2]]}}]), \
                     mock.patch.object(tasks, "expire", return_value=False):
                 act = b.decide(snap, None)
                 self.assertEqual(asked, want_asked)

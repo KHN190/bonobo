@@ -6,7 +6,8 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import brain, gather, knowledge, planner  # noqa: E402
+from bonobo import brain, gather, planner  # noqa: E402
+from bonobo import cost as cost_mod  # noqa: E402
 from bonobo.planner import Unplannable  # noqa: E402
 from tests.world import bag, cost, inventory, snapshot, state  # noqa: E402
 
@@ -48,7 +49,7 @@ class HuntAboveTheLine(unittest.TestCase):
 
 
 class PlannedBag(unittest.TestCase):
-    """knowledge.planned_bag: the plan's tools replace the bag's, the rest stays (what the judge reads)."""
+    """cost.planned_bag: the plan's tools replace the bag's, the rest stays (what the judge reads)."""
 
     def test_rows(self):
         rows = [("a planned iron sword over a stone one", [("stone_sword", 1), ("cobblestone", 4)], {"sword": 2},
@@ -59,7 +60,7 @@ class PlannedBag(unittest.TestCase):
                  {"minecraft:stone_pickaxe": 1})]
         for name, carried, held, want in rows:
             with self.subTest(name):
-                got = knowledge.planned_bag(bag(inventory(*carried)), held)
+                got = cost_mod.planned_bag(bag(inventory(*carried)), held)
                 self.assertEqual({k: got.count(k) for k in want}, want)
 
 
