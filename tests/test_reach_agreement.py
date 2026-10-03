@@ -150,25 +150,59 @@ def _mine_row(terrain):
         overhead = [(anchor[0], y, anchor[2]) for y in range(65, anchor[1] + 1)]
         included = {(t["x"], t["y"], t["z"]) for t in wood.trunk_batch(base, overhead, want=99)}
         plan = anchor in included or anchor == base
-        return region, feet, anchor, (lambda blocks: plan)
+        return region, feet, (lambda blocks: plan), (lambda blocks: _run_reachable(region, feet, anchor, "mine", _inv(blocks)))
     region = _with_anchor(region, anchor, "iron_ore")
 
     def plan_of(blocks):
-        # plan-side: cost.Cost.refused (cost.py:177), which wraps nav.known_refusal (nav.py:1322) over the round's read
+        # plan-side: gather._cheapest_seed (gather.py:187) picks among candidates by nav.plan_way's own price, but
+        # the boolean "is there a way at all" it and cost.Cost.refused (cost.py:177) both ask is nav.known_refusal
+        # (nav.py:1322/1328): same question the run side answers, asked over the SAME region (fed the round's read)
         snap = world.Snapshot.from_readings(state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5), _inv(blocks), {}, [], region)
         return _cost.Cost(snap, memory()).refused(anchor, "mine") is None
-    return region, feet, anchor, plan_of
+
+    def run_of(blocks):
+        return _run_reachable(region, feet, anchor, "mine", _inv(blocks))
+    return region, feet, plan_of, run_of
 
 
-def _place_row(terrain):
-    # place act never travels to a target (craft.Station.__enter__, craft.py:90): the comparison is local to feet.
+def _any_place_reachable(region, feet, inv, radius=4):
+    """Run-side when free_spots offered nothing: is ANY cell in its search box actually placeable (stands_for/
+    plan_way), so a no-offer is only agreement if nothing is really reachable either."""
+    for dx in range(-radius, radius + 1):
+        for dz in range(-radius, radius + 1):
+            for dy in (-1, 0, 1, 2, -2):
+                c = (feet[0] + dx, feet[1] + dy, feet[2] + dz)
+                if _run_reachable(region, feet, c, "place", inv):
+                    return True
+    return False
+
+
+def _place_row_for(terrain, limit):
+    # same cell compared both sides: free_spots' own first offer (or, offering none, any cell stands_for accepts).
     region, feet, _anchor = TERRAINS[terrain]()
     st = state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5)
 
     def plan_of(blocks):
-        # plan-side: skillcore.free_spots (skillcore.py:300), used via free_spots_here (skillcore.py:322)
-        return bool(free_spots(region, st, reach=4))
-    return region, feet, feet, plan_of
+        # plan-side: skillcore.free_spots (skillcore.py:300); limit distinguishes the two real call sites
+        return bool(free_spots(region, st, reach=4, limit=limit))
+
+    def run_of(blocks):
+        spots = free_spots(region, st, reach=4, limit=limit)
+        if spots:
+            return _run_reachable(region, feet, spots[0], "place", _inv(blocks))
+        return _any_place_reachable(region, feet, _inv(blocks))
+    return region, feet, plan_of, run_of
+
+
+def _place_row(terrain):
+    # plan-side: free_spots_here(limit=3) via craft.Station.__enter__ (craft.py:90), no travel (it places at feet)
+    return _place_row_for(terrain, limit=3)
+
+
+def _place_sitting_row(terrain):
+    # plan-side: free_spots_here(limit=1) via craft._sitting's keep_table branch (craft.py:376) -- a narrower
+    # candidate count than Station's own (craft.py:90, limit=3): the accept4-a06 "craft.py:78 vs :366 radius" note
+    return _place_row_for(terrain, limit=1)
 
 
 def _use_row(terrain):
@@ -176,42 +210,85 @@ def _use_row(terrain):
     region = _with_anchor(region, anchor, "crafting_table")
 
     def plan_of(blocks):
-        # plan-side: cost.Cost.station_near (cost.py:321), fed one sighting of the table at `anchor`
+        # plan-side: cost.Cost.station_near (cost.py:321), fed one sighting of the table at `anchor` -- it already
+        # travels (station_near -> distance -> ... -> nav.known_refusal), so this one is expected to mostly agree
         snap = world.Snapshot.from_readings(state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5), _inv(blocks),
                                             {"crafting_table": [{"x": anchor[0], "y": anchor[1], "z": anchor[2],
                                                                  "distance": float(sum(abs(anchor[i] - feet[i]) for i in range(3)))}]},
                                             [], region)
         return _cost.Cost(snap, memory()).station_near("minecraft:crafting_table")
-    return region, feet, anchor, plan_of
+
+    def run_of(blocks):
+        return _run_reachable(region, feet, anchor, "use", _inv(blocks))
+    return region, feet, plan_of, run_of
+
+
+def _crop(region, centre, pad=(5, 3, 5)):
+    """Pure: the small box fluids.py:127 actually reads around one water candidate -- not the full world. A cell
+    outside it is invisible to fill_spot, however far travel could still reach it (fix 1: the same question, not a
+    narrower one, on the plan side; this crop is where that narrowing genuinely lives in production)."""
+    lo = tuple(centre[i] - pad[i] for i in range(3))
+    hi = tuple(centre[i] + pad[i] for i in range(3))
+    return FakeRegion(lo, hi, {c: n for c, n in region.blocks.items() if all(lo[i] <= c[i] <= hi[i] for i in range(3))})
 
 
 def _use_item_row(terrain):
     region, feet, anchor = TERRAINS[terrain]()
     if terrain != "water_edge":
         region = _with_anchor(region, anchor, "water")
+    small = _crop(region, anchor)
 
     def plan_of(blocks):
-        # plan-side: fluids.fill_spot (fluids.py:69) -- its own standable()/clear_line(), never nav.plan_way
-        return fluids.fill_spot(region, feet) is not None
-    return region, feet, anchor, plan_of
+        # plan-side: fluids.fill_water_bucket's own region read (fluids.py:122-127) -- fill_spot (fluids.py:69) then
+        # only ever sees `small`, never a stand that needs building/bridging beyond that box
+        return fluids.fill_spot(small, feet) is not None
+
+    def run_of(blocks):
+        # run-side travels on the FULL region (gate re-reads the box live, nav.py:479), not the pre-cropped one
+        return _run_reachable(region, feet, anchor, "use", _inv(blocks))
+    return region, feet, plan_of, run_of
+
+
+def _no_dig_steps(region, feet, target, inv, protected=()):
+    """The way nav.chase would take (gather.py:586 'walk and bridge to animals, never tunnel'): plan_way's own
+    answer, discarded if it contains a mine step."""
+    steps, _why, _secs = nav.plan_way(region, feet, target, "mine", inv, protected)
+    if steps is None or any(t["type"] == "mine" for t in steps):
+        return None
+    return steps
+
+
+def _chase_reachable(region, feet, target, inv, protected=(), tries=None):
+    """Plan-side for attack: does nav.chase (nav.py:1381, never tunnelling) actually close to gather.HUNT_REACH
+    (gather.py:548) of the target -- the real decider gather.hunt uses before it attacks."""
+    tries = tries or nav.WAY_TRIES
+    feet = tuple(feet)
+    for _ in range(tries):
+        if math.dist(feet, target) <= gather.HUNT_REACH:
+            return True
+        steps = _no_dig_steps(region, feet, target, inv, protected)
+        if not steps:
+            return False
+        region, feet = _apply(region, steps, feet)
+    return math.dist(feet, target) <= gather.HUNT_REACH
 
 
 def _attack_row(terrain):
     region, feet, anchor = TERRAINS[terrain]()
 
     def plan_of(blocks):
-        # plan-side: gather.HUNT_REACH (gather.py:548), the distance nav.chase closes to before gather.hunt attacks
-        return math.dist(feet, anchor) <= gather.HUNT_REACH
-    return region, feet, anchor, plan_of
+        return _chase_reachable(region, feet, anchor, _inv(blocks))
+
+    def run_of(blocks):
+        # run-side: the invariant's oracle (attack isn't in nav.APPROACHING, nav.py:309 -- nothing gates it today)
+        return _run_reachable(region, feet, anchor, "use", _inv(blocks))
+    return region, feet, plan_of, run_of
 
 
 ROW_BUILDERS = {
-    "mine": _mine_row, "place": _place_row, "use": _use_row,
+    "mine": _mine_row, "place": _place_row, "place_sitting": _place_sitting_row, "use": _use_row,
     "use_item": _use_item_row, "attack": _attack_row,
 }
-# run-side kind per act: mine/place/use are nav.gate's own kinds (nav.py:309); use_item/attack have none today
-# (not in APPROACHING) so they borrow stands_for's "use" ray check as the invariant's substitute oracle.
-RUN_KIND = {"mine": "mine", "place": "place", "use": "use", "use_item": "use", "attack": "use"}
 
 
 class ReachAgreement(unittest.TestCase):
@@ -221,18 +298,77 @@ class ReachAgreement(unittest.TestCase):
         rows, red = 0, []
         for terrain in TERRAINS:
             for act, build in ROW_BUILDERS.items():
-                region, feet, target, plan_of = build(terrain)
+                region, feet, plan_of, run_of = build(terrain)
                 for blocks in BLOCKS:
                     rows += 1
                     name = f"{terrain} x {act} x blocks={blocks}"
                     with self.subTest(name):
                         plan = plan_of(blocks)
-                        run = _run_reachable(region, feet, target, RUN_KIND[act], _inv(blocks))
+                        run = run_of(blocks)
                         if plan != run:
                             red.append(name)
                         self.assertEqual(plan, run, f"{name}: plan={plan} run={run}")
         # not reached once a subTest fails the whole test, but kept for a future non-failing run of the sweep
         print(f"rows={rows} red={len(red)}: {red}")
+
+
+def _two_gaps(width=3, gap_z=(0, 30)):
+    """Two independent 3-wide chasms, each needing 3 way-blocks to bridge (place_budget(8) = 4, so EITHER alone
+    prices fine off a full 8; cumulatively 3+3=6 <= 8 carried, but place_budget(5) = 2 < 3 once 3 are already
+    spent -- D6's own point: a step prices off its OWN planned bag, not the trip's starting one)."""
+    blocks, lo, hi = _floor(hi=(10, 80, 40))
+    targets = []
+    for z in gap_z:
+        for x in range(1, 1 + width):
+            del blocks[(x, 63, z)]
+        blocks[(5, 64, z)] = "iron_ore"
+        targets.append((5, 64, z))
+    return FakeRegion(lo, hi, blocks), FEET, targets
+
+
+class CumulativeBudget(unittest.TestCase):
+    """D6: a plan's second step must be priced off the bag the FIRST step actually leaves, not the bag the plan
+    started with. gather._cheapest_seed/cost.Cost.refused re-derive a fresh Inventory(blocks=8) for every step they
+    price (gather.py:196 `inv, priced = Inventory(), []`; cost.py:188 `self.snap.inv`, never decremented across
+    steps in the same plan) -- expected red today."""
+
+    def test_second_step_sees_the_first_steps_spend(self):
+        region, feet, (a, b) = _two_gaps()
+        carried = 8
+        # plan-side: both steps priced independently off the SAME starting inv (what gather._cheapest_seed/
+        # cost.Cost.refused actually do -- neither is handed the other step's planned spend)
+        plan_a = _cost.Cost(world.Snapshot.from_readings(state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5),
+                                                         _inv(carried), {}, [], region), memory()).refused(a, "mine") is None
+        plan_b = _cost.Cost(world.Snapshot.from_readings(state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5),
+                                                         _inv(carried), {}, [], region), memory()).refused(b, "mine") is None
+        self.assertTrue(plan_a and plan_b, "both steps must look doable off the starting bag for this to be a real plan")
+        # run-side: step A actually runs first (spending its blocks out of the SAME inventory), then step B is
+        # priced/run off what is actually left -- the one true sequential execution nav.gate performs
+        inv = _inv(carried)
+        ok_a, region2, feet2, inv2 = self._run_and_spend(region, feet, a, inv)
+        self.assertTrue(ok_a)
+        ok_b, _region3, _feet3, _inv3 = self._run_and_spend(region2, feet2, b, inv2)
+        # must fail: plan said both reachable off 8; run finds the second starved by the first's actual spend
+        self.assertEqual((plan_a, plan_b), (True, ok_b), "D6: plan must price step 2 off step 1's leftover bag")
+
+    @staticmethod
+    def _run_and_spend(region, feet, target, inv):
+        """_run_reachable, but also returns the bag after the placed blocks it actually spent (nav.building_of/
+        place_budget, nav.py:233/256) -- what the NEXT step in the same plan should be priced with (D6)."""
+        tries, feet = nav.WAY_TRIES, tuple(feet)
+        for _ in range(tries):
+            if nav.stands_for("mine", region, feet, target):
+                return True, region, feet, inv
+            steps, why, _secs = nav.plan_way(region, feet, target, "mine", inv, ())
+            if steps is None:
+                return False, region, feet, inv
+            if not steps:
+                return True, region, feet, inv
+            spent_now = sum(1 for t in steps if t["type"] == "place")  # this way's own spend, not the running total
+            region, feet = _apply(region, steps, feet)
+            left = max(0, inv.count("minecraft:cobblestone") - spent_now)
+            inv = Inventory(inventory(("cobblestone", left))) if left else Inventory(inventory())
+        return nav.stands_for("mine", region, feet, target), region, feet, inv
 
 
 if __name__ == "__main__":
