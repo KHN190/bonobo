@@ -102,6 +102,14 @@ class Context:
         count = self.ban_counts.get(key, 0) + 1
         self.ban_counts[key] = count
         self.blacklist[key] = time.time() + min(seconds * (2 ** (count - 1)), BAN_MAX_S)
+        api.detail(f"   ban {key} ×{count} by {ban_caller()}")       # who banned it (a row starting banned: its writer)
+
+
+def ban_caller(depth=2):
+    """The function and line that asked for a ban (two frames up: past Context.ban)."""
+    import sys
+    f = sys._getframe(depth)
+    return f"{f.f_code.co_filename.rsplit('/', 1)[-1]}:{f.f_code.co_name}:{f.f_lineno}"
 
 SETTLE_POLL_S = 0.25
 

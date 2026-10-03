@@ -1402,3 +1402,51 @@ class RoundGroundKept(unittest.TestCase):
                 with self.subTest(name), mock.patch.object(api.STATE, "world_writes", writes + dug):
                     world.round_ground(at, survive.ROUND_GROUND, now=now)
                     self.assertEqual(len(reads), want)
+
+
+class EveryBanSaysWhoBannedIt(unittest.TestCase):
+    """mine_stone__base started with 88 stone cells banned and no writer known: each ban says its caller (detail)."""
+
+    def test_rows(self):
+        from bonobo import api, skillcore
+        said = []
+        ctx = skillcore.Context(None, None, "minecraft:overworld", {})
+
+        def mining_pass():
+            ctx.ban((1, 63, 0))
+        with mock.patch.object(api, "detail", lambda line: said.append(line)):
+            mining_pass()
+        self.assertEqual(len(said), 1)
+        self.assertIn("mining_pass", said[0])      # must fail: a ban with no caller named
+        self.assertIn("(1, 63, 0)", said[0])
+
+
+class AProvokedEndermanIsAThreat(unittest.TestCase):
+    """fight_enderman_provoked: the jar's `angry` (EndermanEntity.isAngry: its synced ANGRY, set with a target) is
+    carried from /entities into the threat rows (read_combat's provoked → threat.aggro); calm, no row."""
+
+    def test_rows(self):
+        from bonobo import perception, threat
+        here = (0.5, 64.0, 0.5)
+        rows = [("must fail: provoked (the jar's angry) is a threat row", {"angry": True}, 1),
+                ("calm: a neutral, no row", {"angry": False}, 0),
+                ("attacking (the jar's MobEntity.isAttacking) is provoked too", {"attacking": True}, 1)]
+        for name, flags, want in rows:
+            with self.subTest(name):
+                e = {"id": 7, "type": "minecraft:enderman", "x": 5.6, "y": 64.0, "z": 0.5, "health": 40.0,
+                     "distance": 5.1, **flags}
+                with mock.patch.object(perception, "reaches_us", lambda here, now: (lambda *a: True)):
+                    got = perception.note_threats([e], 1000.0, here=here, context=threat.context_of({}, None))
+                self.assertEqual(len(got), want)
+
+    def test_the_rounds_look_keeps_it(self):
+        from bonobo import api
+        from bonobo.world import Snapshot
+        from check.stub import StubWorld
+        st = {"x": 0.5, "y": 64.0, "z": 0.5, "blockX": 0, "blockY": 64, "blockZ": 0, "dimension": "minecraft:overworld",
+              "timeOfDay": 6000}
+        e = {"id": 7, "type": "minecraft:enderman", "x": 5.6, "y": 64.0, "z": 0.5, "health": 40.0, "angry": True}
+        w = StubWorld(st, [], {}, [e])
+        with mock.patch.object(api, "api", w.api):
+            snap = Snapshot.read(["stone"], (((-1, -1, -1), (1, 1, 1)), ((0, 0, 0), (0, 0, 0))))
+        self.assertTrue(any(m.get("angry") for m in snap.mobs))     # must fail: the look drops the jar's flag

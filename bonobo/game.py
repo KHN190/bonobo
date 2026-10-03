@@ -8,6 +8,7 @@ OPEN_SKY = 14                    # sky light at least this: open to the sky over
 # a projectile's radius (blocks): what a shot in flight keeps us out of
 ARROWS = {"minecraft:arrow": 1.0, "minecraft:spectral_arrow": 1.0, "minecraft:trident": 1.0}
 EYE_HEIGHT = 1.62                # the jar's WorldUtil.EYE_HEIGHT: eyes above the feet
+JUMP_BLOCKS = 1                  # a jump climbs one block (Minecraft Wiki, "Jumping": 1.25 blocks high)
 # mobs, Java 1.21 Normal difficulty (Minecraft Wiki infoboxes; /state does not report the difficulty)
 MELEE_TICKS = 20                 # MeleeAttackGoal's interval between hits
 CREEPER_FUSE_TICKS = 30          # lit at 3 blocks, defused past 7

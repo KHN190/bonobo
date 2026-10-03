@@ -10,7 +10,8 @@ from .api import McError, NotAvailable, log
 from .skill import skill
 from .data import LEVEL_SIGHT_DEPTH, BAN_MAX_S, TASK_WAIT_S, WORK_REACH, cannot_reach, bare, mid
 from .knowledge import FIND_AT, members
-from .data import MINE_YIELD
+from .data import GROUPS, MINE_YIELD, PLACEABLE_AS
+from .game import JUMP_BLOCKS
 from .bag import mineable, opener, pickup_whitelist, refused
 from .world import Inventory, Region, cell_add, connected, entities, find, region_around, ripe_near
 from .skillcore import ToolMissing, mine_cell, gained
@@ -93,7 +94,9 @@ def deep_below(cell: Cell, feet_at: Cell) -> bool:
 
 def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
     """Pure: (tasks, why not) for a straight shaft from the feet down to a buried `target`'s level: dug only as deep as
-    nav.dig_down_tasks finds safe (lava, water, a cave stop it) and the blocks carried can pillar back out of."""
+    nav.dig_down_tasks finds safe (lava, water, a cave stop it) and the blocks to pillar back out with — carried, and
+    what the shaft itself digs that places (stone → cobblestone, dirt: data.PLACEABLE_AS, the building group) — cover
+    (the last JUMP_BLOCKS jumped)."""
     depth = feet_at[1] - target[1]
     try:
         tasks, safe = nav.dig_down_tasks(region, feet_at, depth, protected)
@@ -101,9 +104,27 @@ def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
         return None, str(e)
     if safe < depth:
         return None, f"lava, water or a cave {safe + 1} down"
-    if carried < depth:
-        return None, f"{carried} blocks carried, {depth} to pillar back out"
+    x, y, z = feet_at
+    dug = sum(1 for i in range(1, depth + 1) if region.solid((x, y - i, z))
+              and mid(PLACEABLE_AS.get(bare(region.name((x, y - i, z))), bare(region.name((x, y - i, z)))))
+              in GROUPS["building"])
+    if carried + dug < depth - JUMP_BLOCKS:
+        return None, f"{carried} blocks carried, {dug} dug on the way, {depth - JUMP_BLOCKS} to pillar back out"
     return tasks, None
+
+def pass_cells(vein, open_set, start: Cell, n) -> list[Cell]:
+    """Pure: the `n` cells one pass sends — those with an open face in WORK_REACH of `start` first (one chain from
+    where the body stands), then the rest nearest first."""
+    return sorted(vein, key=lambda p: (not (p in open_set and math.dist(p, start) <= WORK_REACH),
+                                       math.dist(p, start), p))[:n]
+
+
+def approach_cell(vein, open_set, start: Cell) -> Cell:
+    """Pure: the vein cell a pass goes for first — an open-faced one within WORK_REACH of `start` (worked from where
+    the body stands), else the nearest: a shaft or a tunnel only for a vein with no open face in reach."""
+    here = [p for p in vein if p in open_set and math.dist(p, start) <= WORK_REACH]
+    return min(here or vein, key=lambda p: (math.dist(p, start), p))
+
 
 def stair_leg_end(start: Cell, target: Cell) -> Cell:
     """Pure: where one staircase segment from `start` toward `target` ends (nav.stair_dir, nav.STAIR_STEPS down)."""
@@ -207,6 +228,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     no_cell = set()      # seeds whose vein has no mineable cell from here: the next pass takes the next seed
     opened = set()       # cells the jar could not hold a stand at, given a side face once (then banned if refused again)
     sent = set()         # cells sent to the jar: their notes are retired once the count is met
+    shaftless = set()    # cells no shaft from here reaches: their vein is walked or tunnelled to instead (never banned)
     dug_out = False      # a batch that broke its cells but brought nothing in gets one dig-out and sweep
     for _ in range(10):
         have = Inventory().count(drop)
@@ -276,17 +298,18 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             continue
         # never open a block touching lava or water unless the goal wants the fluid; surface blocks keep 2 from any fluid
         want = breaks or max(1, target - have)
-        vein = set(sorted(vein, key=lambda p: math.dist(p, start))[: max(want, len(vein) if tier else want)])
+        vein = set(pass_cells(vein, open_set, start, max(want, len(vein) if tier else want)))
         # reach a vein by walking if there is a way, else by digging one: buried ore has no path, and banning it left coal inside a wall forever
-        near = min(vein, key=lambda p: math.dist(p, start))
+        near = approach_cell(vein, open_set, start)
         if (FIND_AT.get(mid(drop)) is None and near not in open_set and near[1] < start[1]
-                and ctx.policy.allow_dig):
+                and ctx.policy.allow_dig and near not in shaftless):
             # a buried surface kind (stone under the soil): straight down, with a way back out and no lava below
             shaft, why = shaft_plan(nav.dig_down_region(start, start[1] - near[1]), start, near,
                                     Inventory().count("building"), ctx.policy.protected)
             if shaft is None:
-                for p in whole:
-                    ctx.ban(p)
+                # this way in failed, not the vein: the next pass walks or tunnels to it (a ban here barred all of it)
+                api.detail(f"  mine {bare(drop)}: no shaft down to {near} from {start}: {why}")
+                shaftless.add(near)
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"no shaft down to the {blocks[0]} at {near}: {why}")
                 continue
