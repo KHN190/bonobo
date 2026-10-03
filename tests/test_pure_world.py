@@ -574,8 +574,7 @@ class Nav(unittest.TestCase):
             with self.subTest(why):
                 r = flat(lo=(-4, 60, -4), hi=(4, 70, 4), floor_y=63)
                 r.blocks.update(extra)
-                with self.assertRaises(NotAvailable):
-                    nav.dig_down_tasks(r, feet, 3, protected)
+                self.assertEqual(nav.dig_down_tasks(r, feet, 3, protected), ([], 0))     # pure: nothing safe, no raise
 
 
 # ---------------------------------------------------------------- perception (module memory reset per test)

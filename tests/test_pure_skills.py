@@ -136,28 +136,21 @@ def _hit(x, y, z):
 class SeekHits(unittest.TestCase):
     """Mining seeks sealed ore as readily as exposed: seeing through blocks is allowed, the approach digs to it."""
     SEALED, OPEN, OURS = _hit(10002, 200, 10000), _hit(10003, 201, 10000), _hit(10004, 200, 10000)
-    # (situation, (found, radius, banned, protected), hits | None (widen) | the NotAvailable message)
+    # (situation, (found, banned, protected), (hits, why none)); the miss's next ring or seek is the caller's (K8)
     TABLE = [
-        ("sealed ore in stone beside us: found", ([SEALED], 24, set(), set()), [SEALED]),
-        ("exposed and sealed alike, in /find's order", ([OPEN, SEALED], 24, set(), set()), [OPEN, SEALED]),
-        ("edge: nothing near yet: widen", ([], 24, set(), set()), None),
-        ("must fail: nothing at the widest radius", ([], 48, set(), set()), "no iron_ore within 48 blocks"),
+        ("sealed ore in stone beside us: found", ([SEALED], set(), set()), ([SEALED], "")),
+        ("exposed and sealed alike, in /find's order", ([OPEN, SEALED], set(), set()), ([OPEN, SEALED], "")),
+        ("must fail: nothing in range, and said so", ([], set(), set()), ([], "none in range")),
         ("must fail: excluded by bans and our builds, and said so",
-         ([SEALED, OURS], 48, {(10002, 200, 10000)}, {(10004, 200, 10000)}),
-         "no iron_ore within 48 blocks: 2 in range but 1 banned, 1 protected"),
-        ("a ban leaves the rest", ([SEALED, OPEN], 48, {(10002, 200, 10000)}, set()), [OPEN]),
+         ([SEALED, OURS], {(10002, 200, 10000)}, {(10004, 200, 10000)}),
+         ([], "2 in range but 1 banned, 1 protected")),
+        ("a ban leaves the rest", ([SEALED, OPEN], {(10002, 200, 10000)}, set()), ([OPEN], "")),
     ]
 
     def test_table(self):
-        for why, (found, radius, banned, protected), want in self.TABLE:
+        for why, (found, banned, protected), want in self.TABLE:
             with self.subTest(why):
-                args = (["iron_ore"], found, radius, banned.__contains__, protected)
-                if isinstance(want, str):
-                    with self.assertRaises(api.NotAvailable) as got:
-                        gather.seek_hits(*args)
-                    self.assertEqual(str(got.exception), want)
-                else:
-                    self.assertEqual(gather.seek_hits(*args), want)
+                self.assertEqual(gather.seek_hits(["iron_ore"], found, banned.__contains__, protected), want)
 
     # (situation, find kwargs) → the query's tail after the limit: exposure is never sent as false
     QUERY = [

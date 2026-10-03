@@ -2404,7 +2404,8 @@ class AttemptPolicy(unittest.TestCase):
                 br = brain.Brain()
                 got, posts = self.run_attempt(br, err)
                 ledgers = self.ledgers(br)
-                ledgers = (ledgers[0], [k.split("@")[0] + "@None" for k in ledgers[1]], ledgers[2], ledgers[3])
+                # the cause by its kind: one cooled by place cools at the round's place and where it failed (two cells)
+                ledgers = (ledgers[0], sorted({k.split("@")[0] + "@None" for k in ledgers[1]}), ledgers[2], ledgers[3])
                 self.assertEqual((got, posts, ledgers), (outcome, stops, after))
                 if message is not None:
                     self.assertEqual(br.retry.entries[ledgers[0][0]]["message"], message)

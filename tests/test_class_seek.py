@@ -19,6 +19,7 @@ from bonobo.world import Versioned  # noqa: E402
 from tests.world import inventory, memory, snapshot, state  # noqa: E402
 
 FOREVER = 1e18
+from bonobo.skillcore import Ban  # noqa: E402
 
 
 def sourced_ways():
@@ -36,9 +37,9 @@ def banned_everywhere(snap):
     bl = Versioned()
     for hits in snap.hits.values():
         for h in hits:
-            bl[(h["x"], h["y"], h["z"])] = FOREVER
+            bl[(h["x"], h["y"], h["z"])] = Ban(FOREVER)
     for m in snap.mobs:
-        bl[(m["id"], 0, 0)] = FOREVER
+        bl[(m["id"], 0, 0)] = Ban(FOREVER)
     return bl
 
 
