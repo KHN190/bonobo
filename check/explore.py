@@ -111,6 +111,7 @@ def judge(f):
     """One state: the production decision, its successor, the oracle's verdicts (picklable for the shards)."""
     d, got, ctx = rnd.decide(f)
     ctx["warm"] = rnd.warm_name(f, POLLUTE if key(f) != key(POLLUTE) else of())     # D8: caches filled by another
+    ctx["hazard"] = rnd.hazard_round(f) if ctx.get("search_steps") else None           # S7: a hazard mid-plan
     after = step(f, d, ctx)
     progress = made_progress(f, d, ctx)
     return key(f), key(after), d, progress, oracle.violations(f, d, after, ctx), dict(got) != dict(f), dict(got)

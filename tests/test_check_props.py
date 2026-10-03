@@ -49,6 +49,27 @@ class DuskByThePrep(unittest.TestCase):
                 self.assertAlmostEqual(got, want)
 
 
+class AHazardMidPlan(unittest.TestCase):
+    """S7: a danger written as the round plans stops the search at its next step and the round answers it."""
+
+    def test_rows(self):
+        from check.inv import safety
+        d = rnd.Decision("safety", "L0", None, None, (), None, "rescue drowning", ())
+        # (situation, the hazard round's reading) → flagged
+        rows = [("stopped at once, the rescue", ("safety", 0), False),
+                ("nothing planned: nothing to stop", None, False),
+                ("must fail: the search ran on", ("safety", 57), True),
+                ("must fail: the plan answered", ("plan", 0), True)]
+        for name, reading, flagged in rows:
+            with self.subTest(name):
+                got = safety.S7(of(), d, of(), {"hazard": reading})
+                self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), flagged)
+
+    def test_the_round(self):
+        f = of(hunger="starve", queued="cobblestone", place="home", bed="home")
+        self.assertEqual(rnd.hazard_round(f), ("safety", 0))
+
+
 class ColdIsWarm(unittest.TestCase):
     """D8: a decision is the inputs' pure function: the cold round's and the warm round's (the declared caches filled by
     another state) agree."""

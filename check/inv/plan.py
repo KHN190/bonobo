@@ -16,6 +16,7 @@ asked them). check/round.py puts them in ctx:
   exact_s    the unbudgeted search's cheapest seconds for the task's needs (P5: the chosen plan no slower)
   bound      check.round.plan_bound of the task's needs from this bag (P3: at most the plan's price)
   food_left_s  planner.food_left_s: seconds the bar lasts with nothing eaten (None: food carried or no body read)
+  withdraws  [(pos, item, the step's chance, production's chance now (Cost.stored), the world's block there)]
 An invariant whose ctx is missing is Unchecked, said why."""
 import math
 
@@ -23,6 +24,7 @@ from ..oracle import Unchecked
 
 TOL_TICKS = 1            # prices are whole ticks: one either way
 TOL_S = 0.05             # seconds compared after rounding
+P_TOL = 1e-3             # a chance read twice in one round (the record ages between)
 MATERIAL = ("gather", "mine", "hunt")     # steps that make a material in the world (a container's alternative)
 MAKES = MATERIAL + ("craft", "smelt", "take", "withdraw", "await", "fill", "trade", "farm")   # steps whose token is gained
 
@@ -298,4 +300,20 @@ def S8(b, d, a, ctx):
     return None
 
 
-CHECKS = {"S8": S8, "D4": D4, "D6": D6, "P2": P2, "P3": P3, "P4": P4, "P5": P5, "R1": R1, "R2": R2, "R4": R4}
+def M1(b, d, a, ctx):
+    """Memory is discounted before use and a reread overrules it: a withdrawal carries the chance production gives
+    that container now (container_p, never the record taken as certain), and none goes to a container the world no
+    longer shows."""
+    rows = ctx.get("withdraws")
+    if not rows:
+        return Unchecked("no withdrawal in the held plan this round")
+    from bonobo.data import HOME_CHESTS, bare
+    for pos, item, p, now, block in rows:
+        if not bare(block).endswith(HOME_CHESTS):
+            return f"withdraws {item} at {pos}, where the world now shows {block}: memory over the reread"
+        if p is None or now is None or abs(p - now) > P_TOL:
+            return f"withdraws {item} at {pos} at chance {p}, production gives it {now} now: memory not discounted"
+    return None
+
+
+CHECKS = {"M1": M1, "S8": S8, "D4": D4, "D6": D6, "P2": P2, "P3": P3, "P4": P4, "P5": P5, "R1": R1, "R2": R2, "R4": R4}

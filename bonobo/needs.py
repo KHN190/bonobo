@@ -55,7 +55,7 @@ def cover(ctx, state):
     from .perception import ground_read
     snap = Snapshot.from_readings(state, Inventory())
     cost = Cost(snap, getattr(ctx, "mem", None), getattr(ctx, "blacklist", None), policy=getattr(ctx, "policy", None),
-                region=ground_read(snap))
+                region=ground_read(snap), stop=api.stop_asked)
     ways = []
     for c in skillkit.REGISTRY.values():
         for effect in c.provides:

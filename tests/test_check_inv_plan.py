@@ -119,6 +119,10 @@ class Plan(unittest.TestCase):
         ("D6", {"candidates": [("stick", 3.0, [step("craft", "minecraft:stick", 60)])], "price": price}, False),
         # must fail: the chosen plan's seconds are not its steps' prices
         ("D6", {"candidates": [("stick", 1.0, [step("craft", "minecraft:stick", 60)])], "price": price}, True),
+        # M1: (pos, item, the step's chance, production's chance now, the world's block)
+        ("M1", {"withdraws": [((3, 64, 3), "minecraft:oak_log", 0.8, 0.8, "chest")]}, False),
+        ("M1", {"withdraws": [((3, 64, 3), "minecraft:oak_log", 1.0, 0.8, "chest")]}, True),   # must fail: undiscounted
+        ("M1", {"withdraws": [((3, 64, 3), "minecraft:oak_log", 0.8, 0.8, "air")]}, True),     # must fail: reread lost
         # S8: the bar against the plan's clock (est ticks)
         ("S8", {"plan": [step("mine", "minecraft:cobblestone", 400)], "food_left_s": 10.0}, True),   # must fail: starves
         ("S8", {"plan": [step("smelt", "minecraft:cooked_beef", 100), step("mine", "minecraft:cobblestone", 400)],
