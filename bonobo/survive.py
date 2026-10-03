@@ -776,8 +776,10 @@ def _pod_region(feet_at):
     x, y, z = feet_at
     return Region((x - 2, y - 3, z - 2), (x + 2, y + 2, z + 2))
 
-def pod_commands(state, args=()) -> "list[Task]":
-    """Pure: the tasks that wall the body in — feet level first, head level next, the roof last."""
+def pod_plan(state):
+    """Pure: (tasks, blocks they place, blocks carried) that wall the body in — feet level first, head level next, the
+    roof last, the supports a wall or the roof needs counted: the one count the plan needs (pod_needs) and the run
+    places (pod_commands)."""
 
     x, y, z = state["feet"]
     region, inv = state["region"], state["inv"]
@@ -831,12 +833,28 @@ def pod_commands(state, args=()) -> "list[Task]":
             for s_cell in reversed(stack):
                 put(s_cell)
         put(c)
-    placed_n = sum(1 for t in tasks if t["type"] == "place")
+    return tasks, sum(1 for t in tasks if t["type"] == "place"), carried
+
+
+def pod_commands(state, args=()) -> "list[Task]":
+    """Pure: pod_plan's tasks, or NotAvailable when its blocks are not carried."""
+    tasks, placed_n, carried = pod_plan(state)
     if placed_n > carried:
         raise NotAvailable(f"need {placed_n} blocks to wall in (supports included), {carried} carried")
     return tasks
 
-@skill(gives=["state:sheltered"], needs={"building": POD_BLOCKS}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40,
+
+def pod_needs(snap):
+    """The wall-in's needs on this snapshot: pod_plan's blocks round the feet over the read ground; POD_BLOCKS when
+    the ground there is not read (unknown: priced as before)."""
+    region = getattr(snap, "region", None)
+    feet = tuple(int(c) for c in snap.feet) if region is not None else None
+    if feet is None or not all(region.inside(c) for c in _pod_cells(feet)):
+        return [("building", POD_BLOCKS)]
+    _tasks, n, _carried = pod_plan({"feet": feet, "region": region, "inv": snap.inv, "protected": set()})
+    return [("building", n)] if n else []
+
+@skill(gives=["state:sheltered"], needs={}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40,
        provides={"state:sheltered": lambda ctx, s: (), "shelter:wall in": lambda ctx, s: ()}, prefer=-1, sets={"*": {"covered": True}})
 def pod(ctx):
     """Night fallback where digging in is unsafe (water/caves below): wall in the body — four sides at feet and head, a roof."""

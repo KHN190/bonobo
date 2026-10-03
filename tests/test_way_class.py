@@ -177,6 +177,26 @@ class ADigInThePlanIsTheRunsDigIn(unittest.TestCase):
                     self.assertIs(survive.dig_in_site(region, feet, inv=inv), runs)
 
 
+class AWallInThePlanIsTheRunsWallIn(unittest.TestCase):
+    """K1 for the night's pod: the plan's needs for it (survive.pod_needs on the snapshot) are its run's own count
+    (pod_plan: walls, roof and the supports they stand on), so the plan offers it exactly when the run builds it."""
+
+    def test_rows(self):
+        from bonobo import survive
+        from bonobo.data import POD_BLOCKS
+        for geo in ("flat", "hole", "overhang", "pillar"):
+            for carried in (0, POD_BLOCKS, CARRIED):
+                with self.subTest(geo=geo, carried=carried):
+                    blocks, _t = geometry(geo, "stone")
+                    region, feet = FakeRegion(LO, HI, blocks), feet_of(geo)
+                    inv = inventory_of(carried)
+                    snap = Snapshot.from_readings(state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5), inv, {}, [], region)
+                    _tasks, placed, have = survive.pod_plan({"feet": feet, "region": region, "inv": inv, "protected": set()})
+                    offered = all(inv.count(item) >= n for item, n in survive.pod_needs(snap))
+                    # must fail (pillar, POD_BLOCKS carried): offered by the static count, refused for its supports
+                    self.assertEqual(offered, placed <= have)
+
+
 def inventory_of(carried):
     from bonobo.world import Inventory
     return Inventory(inventory(("cobblestone", carried)) if carried else inventory())

@@ -194,7 +194,7 @@ class Needs:
         if shelter_due():
             way, _secs, steps = night_way()
             if way is not None and any(st.kind != "shelter" for st in steps):
-                self.prepare_night(way, steps)
+                self.prepare_night(way, steps, snap)
         # upkeep only replaces a tool that broke under a held plan still wanting it (a blanket "no pickaxe" put one before every task)
         wanted = tool_kinds([st for h in getattr(b, "held", {}).values() for st in h["steps"]])
         for kind in sorted(self.broken & wanted):
@@ -209,7 +209,7 @@ class Needs:
         if over and not snap.night and inv.count("bed") == 0:
             due = self.dusk_due(snap)
             if due is not None and not b.reflexes.sheltered(snap, enclosed):
-                self.prepare_night(*due)
+                self.prepare_night(*due, snap)
         return self.needs_now
 
     def dusk_due(self, snap):
@@ -275,7 +275,7 @@ class Needs:
         way, _secs, steps = self.overnight(snap)
         return way == "bed" and all(st.kind in NIGHT_WORK for st in steps)
 
-    def prepare_night(self, way, steps):
+    def prepare_night(self, way, steps, snap):
         """Dark comes before the chosen way could be had: its missing parts to the front."""
 
         if way == "bed":
@@ -283,7 +283,7 @@ class Needs:
             return
         src = next(s for k in ("overnight bed", "overnight") for s in decompose.SOURCES[k] if s["name"] == way)
         if any(st.kind != "shelter" for st in steps):
-            self.need("night prep", goals.have(*src["needs"]), f"dark before {way} could be had")
+            self.need("night prep", goals.have(*decompose.source_needs(src, snap)), f"dark before {way} could be had")
 
     def cost(self, snap):
         return Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache, reserved=bag.RESERVED,
