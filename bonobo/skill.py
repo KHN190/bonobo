@@ -88,8 +88,8 @@ def world_signature():
     return ((s["blockX"], s["blockY"], s["blockZ"]),
             tuple(sorted((x["id"], x.get("count", 1), x.get("damage", 0)) for x in inv.slots)))
 
-# E5: what follows a skill given up — "cover" (needs.cover: the cheapest shelter that runs here) or "replan" (the next
-# round plans again from the world: a skill whose own failure the plan answers, a shelter that would be its own cover)
+# E5: what follows a skill given up — "replan" (the next round plans again from the world: a tree not found costs no
+# walk to cover) or "cover" (needs.cover, the cheapest shelter that runs here: only a fight's soft skill, given up in danger)
 ABANDON_WAYS = ("cover", "replan")
 
 @dataclasses.dataclass(frozen=True)
@@ -103,7 +103,7 @@ class Spec:
     verify: Callable[[Call], bool] | None = None
     budget: float = 300
     stall: float = 45
-    abandon: str = "cover"          # E5: what follows once it is given up (budget or stall): ABANDON_WAYS
+    abandon: str = "replan"         # E5: what follows once it is given up (budget or stall): ABANDON_WAYS
     units: Callable[[Call], int] | None = None
     key: Callable[[Call], str] | None = None
     soft: bool = False

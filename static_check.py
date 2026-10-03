@@ -8,7 +8,7 @@ R6 no dead code (a module-level def or constant production never names); R7 no s
 only passes, continues or returns a value); R8 no module-level container changed in a function unless its module
 registers its reset (lifecycle.in_place / on_reset covers); R9 a "Pure" function reaches no api call, HTTP or
 module-state write; R10 no bench budget or estimate written as a number; R11 (E5) every skill bounded and never left
-hanging: its `budget` declared, its `abandon` one of skill.ABANDON_WAYS, a shelter's never "cover" (its own way back)."""
+hanging: its `budget` declared, its `abandon` one of skill.ABANDON_WAYS, "cover" only for a fight's soft skill."""
 import ast
 import os
 import re
@@ -570,8 +570,8 @@ ABANDON_WAYS = ("cover", "replan")      # skill.ABANDON_WAYS, read without impor
 
 def r11(trees):
     """[(path:line, what)]: a `@skill(...)` with no `budget=` (no time limit declared), an `abandon=` that is not a
-    string of ABANDON_WAYS (no next step), or a shelter way (provides "shelter:…") giving up into "cover" (its own
-    way out again)."""
+    string of ABANDON_WAYS (no next step), or "cover" for a skill neither soft nor fighting (seconds spent for no
+    danger; a shelter's would be its own way back)."""
     out = []
     for path, (tree, _src) in trees.items():
         for fn in ast.walk(tree):
@@ -588,11 +588,9 @@ def r11(trees):
                 given = way.value if isinstance(way, ast.Constant) else None if way is None else "?"
                 if given is not None and given not in ABANDON_WAYS:
                     out.append((where, f"abandon {given!r}: not one of {ABANDON_WAYS}"))
-                provides = kws.get("provides")
-                shelter = isinstance(provides, ast.Dict) and any(
-                    isinstance(k, ast.Constant) and str(k.value).startswith("shelter:") for k in provides.keys)
-                if shelter and (given or "cover") == "cover":
-                    out.append((where, "a shelter way gives up into cover: its own way back"))
+                soft = isinstance(kws.get("soft"), ast.Constant) and kws["soft"].value is True
+                if given == "cover" and not (soft or "fights" in kws):
+                    out.append((where, "cover after giving up, with no danger: replan"))
     return sorted(out)
 
 
@@ -690,11 +688,12 @@ ROWS = [
     ("R10", {"bench/a.py": "ROW = dict(name='x', budget=est('x') * TARGET_SLACK)"}, False),
     ("R10", {"bench/a.py": "def row(name, budget=30): pass"}, True),                # must fail: a default
     ("R10", {"a.py": "ROW = dict(name='x', budget=25)"}, False),                    # not the bench
-    ("R11", {"a.py": "@skill(budget=60)\ndef f(): pass"}, False),                  # bounded, cover after
+    ("R11", {"a.py": "@skill(budget=60)\ndef f(): pass"}, False),                  # bounded, replanned after
     ("R11", {"a.py": "@skill(needs={})\ndef f(): pass"}, True),                    # must fail: no time limit
     ("R11", {"a.py": "@skill(budget=60, abandon='wander')\ndef f(): pass"}, True),  # must fail: no next step
-    ("R11", {"a.py": "@skill(budget=60, provides={'shelter:pod': g})\ndef f(): pass"}, True),   # must fail: loops
-    ("R11", {"a.py": "@skill(budget=60, abandon='replan', provides={'shelter:pod': g})\ndef f(): pass"}, False),
+    ("R11", {"a.py": "@skill(budget=60, abandon='cover')\ndef f(): pass"}, True),  # must fail: cover for nothing
+    ("R11", {"a.py": "@skill(budget=60, soft=True, abandon='cover')\ndef f(): pass"}, False),   # a fight's
+    ("R11", {"a.py": "@skill(budget=60, fights=g, abandon='cover')\ndef f(): pass"}, False),
 ]
 
 

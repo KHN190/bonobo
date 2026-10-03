@@ -2462,6 +2462,15 @@ class GivenUpThenANextStep(unittest.TestCase):
                 got = [b.decide(snap, None).name for _ in range(2)]
                 self.assertEqual(got, want)
 
+    def test_what_follows_by_default(self):
+        # G3: a plain give-up (no tree found) replans — no walk to cover; a jar task's own stuck too, never None
+        rows = [("a skill declaring nothing", skillkit.Spec().abandon, "replan"),
+                ("a jar task stuck", api.TaskStuck("goto: no progress").then, "replan"),
+                ("must fail: a fight's soft skill: cover", skillkit.REGISTRY["slay_dragon"].abandon, "cover")]
+        for name, got, want in rows:
+            with self.subTest(name):
+                self.assertEqual(got, want)
+
     def test_a_skill_with_no_next_step_is_refused(self):
         # must fail: an abandon outside skill.ABANDON_WAYS is refused where it is declared
         with self.assertRaises(TypeError):

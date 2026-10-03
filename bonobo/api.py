@@ -104,9 +104,9 @@ class NavFailed(NotAvailable):
 
 class TaskStuck(McError):
     """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled. `then`: what its skill
-    declared follows (skill.ABANDON_WAYS), None for a jar task's own."""
+    declared follows (skill.ABANDON_WAYS); a jar task's own: the round plans again."""
 
-    def __init__(self, message="", then=None):
+    def __init__(self, message="", then="replan"):
         super().__init__(message)
         self.then = then
 
