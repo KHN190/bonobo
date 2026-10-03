@@ -6,7 +6,7 @@ import time
 from . import api, beliefs, knowledge as _know, lifecycle, tape
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
-from .data import BAN_MAX_S, REACH, bare, place_signature, state_signature
+from .data import BAN_MAX_S, GROUPS, REACH, TOOL_KINDS, bare, mid, place_signature, state_signature
 from .game import EYE_HEIGHT, SUFFOCATION
 from .world import BAG_SLOTS, Inventory, Region, Versioned, cell_add, inventory_now, box, screen_slot
 from typing import TYPE_CHECKING, NamedTuple, cast
@@ -78,10 +78,18 @@ class Ban(NamedTuple):
 
 
 def ban_state(feet, kinds):
-    """Pure: what a ban holds while (E5, data.state_signature): the place, the kinds carried; None when unread."""
+    """Pure: what a ban holds while (E5, data.state_signature): the place, and of the kinds carried those that change
+    a way (way_kinds: blocks to place, tools to break with); None when unread."""
     if feet is None or kinds is None:
         return None
-    return state_signature(place_signature(feet, False), kinds, True)
+    return state_signature(place_signature(feet, False), way_kinds(kinds), True)
+
+
+def way_kinds(kinds):
+    """Pure: of item ids carried, the ones a way is made with (nav.plan_way): building blocks and tools; planks or
+    sticks crafted change no way to a cell (accept3: a craft lifted a no-stand ban and the cell was asked again)."""
+    building = {mid(b) for b in GROUPS["building"]}
+    return frozenset(k for k in kinds if mid(k) in building or bare(k).rpartition("_")[2] in TOOL_KINDS)
 
 
 def banned(blacklist, pos, now=None, state=None):

@@ -42,6 +42,28 @@ class ARepeatIsNotANewSource(unittest.TestCase):
         self.assertFalse(r.ready("task t2", now + 1, place, state=made))
 
 
+class ACraftIsNoStateChange(unittest.TestCase):
+    """E5/K5: a cooling holds in the state of the kinds that change a way (skillcore.way_kinds), the same signature as
+    a ban's: planks or sticks crafted lift neither; a block to place or a tool does."""
+
+    def test_table(self):
+        from types import SimpleNamespace
+        from tests.world import snapshot, state
+        place = retry.place_signature((12987, 74, 12999), False)
+
+        def sig(*carried):
+            me = SimpleNamespace(round_snap=snapshot(state(), inventory(*carried)))
+            return brain.Brain.state_of(me, place, None)
+        base = sig(("oak_log", 1))
+        rows = [("must fail: planks crafted lift the cooling", sig(("oak_log", 1), ("oak_planks", 4)), True),
+                ("sticks crafted: the same state", sig(("oak_log", 1), ("stick", 4)), True),
+                ("a pickaxe made: a new state", sig(("oak_log", 1), ("wooden_pickaxe", 1)), False),
+                ("blocks to place: a new state", sig(("oak_log", 1), ("cobblestone", 8)), False)]
+        for name, got, same in rows:
+            with self.subTest(name):
+                self.assertEqual(got == base, same)
+
+
 class EveryStepCooledSeeks(unittest.TestCase):
     """D1/E5: when every step of the plan cools here, the round seeks the plan's first source elsewhere (a state
     change lifts the coolings), never "nothing to do; waiting" (21:22:21 on, trees in sight)."""
@@ -69,6 +91,12 @@ class APlacedTableIsMade(unittest.TestCase):
         for name, item, carried, tables, want in rows:
             with self.subTest(name):
                 self.assertEqual(craft.made_count(item, bag(carried), tables), want)
+
+    def test_a_table_standing_before_is_not_made(self):
+        # must fail (E2): a crafting table "made" by the one that stood there before the sitting, the bag holding none
+        near = [{"x": 12985, "y": 74, "z": 12998}]
+        before = craft.made_count(craft.TABLE, bag(inventory()), near)
+        self.assertLess(craft.made_count(craft.TABLE, bag(inventory()), near), before + 1)
 
 
 if __name__ == "__main__":
