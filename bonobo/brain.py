@@ -311,7 +311,7 @@ class Brain:
             region = world.region_around(dug, pad=0)
             needs_pick = region is None or any(not bare(region.name(c)).endswith(HAND_MINEABLE_SUFFIX) for c in dug)
             if needs_pick and not any(_k.working(d) for _, d, _ in Inventory().tools("pickaxe")):
-                raise skillcore.ToolMissing("pickaxe", 0)
+                raise api.ToolMissing("pickaxe", 0)
             fluids.contain_lava(self.context(s["dimension"]))     # the last segment may have broken into lava
         self.invariants()
 

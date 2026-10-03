@@ -4,7 +4,7 @@ import math
 import time
 
 from . import api, beliefs, knowledge as _know, lifecycle, tape
-from .api import McError, NotAvailable, ToolMissing  # noqa: F401  (ToolMissing: re-exported, the one class lives in api)
+from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import BAN_MAX_S, REACH, bare, place_signature, state_signature
 from .game import EYE_HEIGHT, SUFFOCATION

@@ -322,7 +322,7 @@ OUTCOMES = [
     (api.DimensionChanged("mine: now in the Nether"), "interrupt", "interrupted"),
     (api.CommitmentExpired("a faster layer took the body"), "replan", "interrupted"),
     (api.GameUnreachable("game not reachable (connection refused)"), "game", "waits"),
-    (skillcore.ToolMissing("pickaxe", 1), "tool", "failure"),
+    (api.ToolMissing("pickaxe", 1), "tool", "failure"),
     (skillcore.NeedMissing({"tool:pickaxe": 2}), "tool", "failure"),
     (skillcore.StationMissing("minecraft:crafting_table"), "replan", "repair"),
     (api.NavFailed("could not get to (1, 2, 3)"), "nav", "failure"),
@@ -890,12 +890,12 @@ class Stats:
 
 
 def _missing_pick(c):
-    raise skillcore.ToolMissing("pickaxe", 1)
+    raise api.ToolMissing("pickaxe", 1)
 
 
 # (situation, contract keywords, what the body does, expected: result or exception type, body ran?, stats recorded?)
 RUNS = [
-    ("must fail: a precondition fails: nothing runs", dict(pre=[_missing_pick]), lambda: 5, skillcore.ToolMissing, False, False),
+    ("must fail: a precondition fails: nothing runs", dict(pre=[_missing_pick]), lambda: 5, api.ToolMissing, False, False),
     ("already done: skipped, nothing runs", dict(done=lambda c: True), lambda: 5, None, False, False),
     ("done and verified: the result, timed", dict(verify=lambda c: c.result == 5, units=lambda c: 3, key=lambda c: "k"),
      lambda: 5, 5, True, [("k", 3)]),

@@ -132,7 +132,7 @@ def run_priced(dimension, step, night, run):
     except api.INTERRUPTIONS as e:
         trace(step, night, dimension, t0, f"interrupted: {type(e).__name__}", phases())
         raise
-    except (McError, skillcore.ToolMissing) as e:
+    except (McError, api.ToolMissing) as e:
         trace(step, night, dimension, t0, f"failed: {type(e).__name__}", phases())
         raise
     trace(step, night, dimension, t0, None, phases())
@@ -162,7 +162,7 @@ def execute(ctx, step, night):
         raise
     except api.INTERRUPTIONS:
         raise      # no statistics
-    except (McError, skillcore.ToolMissing) as e:
+    except (McError, api.ToolMissing) as e:
         ctx.mem.record_outcome(f"nav:{step.kind}" if retry.cause_of(e) == "nav" else key, False)
         raise
     if not (isinstance(out, dict) and "ordered" in out):

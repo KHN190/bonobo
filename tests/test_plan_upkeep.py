@@ -1654,7 +1654,7 @@ B, P = api.BodyContested("another commander"), api.PlayerTookControl()
 NAV = api.NavFailed("no path found", pos=(9, 64, 0))
 NAV_AT = lambda x: api.NavFailed("no path found", pos=(x, 64, 0))     # noqa: E731  (a source each)
 GONE = api.NotAvailable("no sheep in range")
-TOOL = skillcore.ToolMissing("pickaxe", 1)
+TOOL = api.ToolMissing("pickaxe", 1)
 STUCK = api.TaskStuck("no progress for 10s in mine")
 HERE, THERE = PLACE, retry.place_signature((400, 64, 0), False)
 
