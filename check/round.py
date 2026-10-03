@@ -30,11 +30,21 @@ def data_dirs():
 
 def fresh_round():
     """The round's one restore point: every runtime data dir emptied, every life's state (lifecycle.reset_all) and the
-    session's (paths.renew_session) back to their start."""
-    from bonobo import lifecycle, paths
+    session's (renew_session) back to their start."""
+    from bonobo import lifecycle
     clear_inputs()
     lifecycle.reset_all()
-    paths.renew_session()
+    renew_session()
+
+
+def renew_session() -> None:
+    """Every session state (paths.session) back to its factory's contents, in place: a holder keeps the same object.
+    Production never renews a session (it outlives every life); the checker's round and tests do."""
+    from bonobo import paths
+    for obj, factory in paths._SESSION.values():
+        fresh = factory()
+        obj.clear()
+        (obj.update if isinstance(obj, (dict, set)) else obj.extend)(fresh)
 
 
 def clear_inputs():
@@ -148,12 +158,12 @@ def decide(facts, fail_then_again=True):
 
 def warm_name(facts, other):
     """D8: the decision's name on `facts` with the declared caches warm from a round on `other`."""
-    from bonobo import lifecycle, paths
+    from bonobo import lifecycle
     try:
         _decide(other, False)
         clear_inputs()
         lifecycle.reset_all(caches=False)
-        paths.renew_session()
+        renew_session()
         return _decide(facts, False, fresh=False)[0].name
     finally:
         fresh_round()

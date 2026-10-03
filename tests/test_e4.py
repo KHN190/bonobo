@@ -78,13 +78,13 @@ class Fit(unittest.TestCase):
                'GROW_S = {"crop": 900, "animal": 1200}\n'
                'PRICE_SOURCE = {\n    "knowledge.PRIOR_TICKS": {\n        "craft": "prior", "smelt_each": "game", '
                '"gather_each": "prior"},\n    "knowledge.GROW_S": {"crop": "prior", "animal": "game"},\n'
-               '    "data.WALK_BLOCKS_PER_TICK": "prior",\n}\nPRIOR_ORIGIN = {}     # first priors\n')
+               '    "data.WALK_BLOCKS_PER_TICK": "mineflayer prior",\n}\nPRIOR_ORIGIN = {}     # first priors\n')
         values = {"PRIOR_TICKS.gather_each": (60, False), "PRIOR_TICKS.smelt_each": (200, False),
                   "knowledge.GROW_S.crop": (900, False), "data.WALK_BLOCKS_PER_TICK": (0.12, True)}
         report = {"PRIOR_TICKS.gather_each": {"tag": "prior", "n": 4, "gmean": 1.5},
                   "PRIOR_TICKS.smelt_each": {"tag": "game", "n": 9, "gmean": 1.6},
                   "knowledge.GROW_S.crop": {"tag": "prior", "n": 3, "gmean": 0.8},
-                  "data.WALK_BLOCKS_PER_TICK": {"tag": "prior", "n": 5, "gmean": 1.2}}
+                  "data.WALK_BLOCKS_PER_TICK": {"tag": "mineflayer prior", "n": 5, "gmean": 1.2}}  # must fail
         changes = fit_prices.fit_plan(report, values, {})
         self.assertEqual(changes, {"PRIOR_TICKS.gather_each": 90, "knowledge.GROW_S.crop": 720,
                                    "data.WALK_BLOCKS_PER_TICK": 0.1})          # must fail: the game price moved
@@ -103,6 +103,8 @@ class Fit(unittest.TestCase):
         self.assertEqual(ns2["PRIOR_ORIGIN"]["PRIOR_TICKS.gather_each"], 60)    # the first prior kept, not the fitted one
         self.assertIn("WALK_BLOCKS_PER_TICK = 0.1   #",
                       fit_prices.fitted_data("WALK_BLOCKS_PER_TICK = 0.12   # walk\n", changes))
+        self.assertEqual(fit_prices.fitted_data("WALK_BLOCKS_PER_TICK = PLAYER_SPRINT / TICKS_PER_S   # walk\n", changes),
+                         "WALK_BLOCKS_PER_TICK = 0.1   # walk\n")      # must fail: a derived prior is measured over
         toml = 'seek_prior_s = 300.0       # [prior] seconds to find one\n'
         self.assertEqual(fit_prices.fitted_play(toml, {"plan.seek_prior_s": 450.0}),
                          'seek_prior_s = 450.0       # [measured] seconds to find one\n')

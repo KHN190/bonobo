@@ -33,7 +33,7 @@ CHAIN_C = ("slice_start_tools", "iron_ingots", "slice_nether_kit")    # test poi
 # Skills without a real verify (the runner judges them by nothing). May only shrink.
 VERIFY_GAPS = {"await_perch", "bed_bomb_window", "build_bed_pit", "shake_enderman", "slay_dragon"}
 # Skills no scenario row proves in the world yet. May only shrink.
-SCENARIO_GAPS = {"await_perch", "bed_bomb_window", "build_bed_pit", "shake_enderman", "slay_dragon"}
+SCENARIO_GAPS = {"shake_enderman", "slay_dragon"}
 CEILING = 8        # neither list grows past this; lower it as they shrink
 
 COMMANDS = {"experience", "gamemode", "fill", "setblock", "tp", "give", "clear", "summon", "place", "time", "weather", "effect", "item", "kill",

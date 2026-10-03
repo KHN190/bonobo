@@ -16,6 +16,7 @@ from ..data import MEASURED_BAND
 MIN_N = 3
 MIN_CHANGE = 0.10
 FIT_STEP = 2.0
+FITTED_TAGS = ("prior", "mineflayer prior", "measured")     # a game or policy value is never fitted
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KNOWLEDGE, DATA, PLAY = (os.path.join(HERE, f) for f in ("knowledge.py", "data.py", "play.toml"))
 
@@ -23,7 +24,7 @@ KNOWLEDGE, DATA, PLAY = (os.path.join(HERE, f) for f in ("knowledge.py", "data.p
 def fitted(current, origin, gmean, n, tag, inverse=False):
     """Pure: the new value of one item, or None (not fitted: game/policy, too few samples, too small a change); a
     speed (`inverse`) moves against the time it took."""
-    if tag not in ("prior", "measured") or gmean is None or n < MIN_N or current <= 0:
+    if tag not in FITTED_TAGS or gmean is None or n < MIN_N or current <= 0:
         return None
     step = min(max(gmean, 1.0 / FIT_STEP), FIT_STEP)
     new = current / step if inverse else current * step
@@ -77,7 +78,7 @@ def _sub_in(src, start, key, value):
 
 
 def _scalar(src, name, value):
-    out, n = re.subn(rf"^({re.escape(name)}\s*=\s*)[0-9.]+", lambda m: m.group(1) + value, src, count=1, flags=re.M)
+    out, n = re.subn(rf"^({re.escape(name)}\s*=\s*)[^#\n]*?(?=\s*(?:#|$))", lambda m: m.group(1) + value, src, count=1, flags=re.M)
     if not n:
         raise KeyError(name)
     return out
@@ -96,7 +97,7 @@ def fitted_knowledge(src, changes, first):
             src = _sub_in(src, "GROW_S = {", key, str(new))
             src = _sub_in(src, '"knowledge.GROW_S": {', key, '"measured"')
         elif item in ("data.WALK_BLOCKS_PER_TICK", "data.ROUTE_FACTOR"):
-            src = src.replace(f'"{item}": "prior"', f'"{item}": "measured"')
+            src = re.sub(rf'"{re.escape(item)}": "[^"]*"', f'"{item}": "measured"', src, count=1)
         b, e = _block(src, "PRIOR_ORIGIN = {")
         if f'"{item}"' not in src[b:e]:
             src = src[:e - 1] + ("" if e - b == 2 else ", ") + f'"{item}": {first[item]}' + src[e - 1:]

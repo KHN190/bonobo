@@ -66,6 +66,8 @@ def price_line(step, night, dimension, actual_s, why=None, row=None, phases=None
         out["actual_parts"] = {"walk": walk, "seek": seek, "work": round(max(0.0, actual_s - walk - seek), 2)}
         out.update({k: round(phases[k], 2) for k in ("arrived_s", "game_s", "path_m", "straight_m", "bar_drop")
                     if phases.get(k) is not None})
+        if phases.get("ticks"):
+            out["ticks"] = phases["ticks"]
     return out
 
 
@@ -112,6 +114,7 @@ def run_priced(dimension, step, night, run):
     a reflex's shelter, a bench row's) goes through here, so each is priced and timed the same way."""
     t0, g0 = time.time(), _game_tick()
     PHASES.clear()
+    api.STATE.ticks.clear()
     PHASES.update(seek=0.0, walked=nav.WALKED["s"], arrived=nav.WALKED["arrived"], moved=api.STATE.moved_m,
                   feet=api.STATE.feet_seen, bar=api.STATE.bar_seen)
 
@@ -120,7 +123,8 @@ def run_priced(dimension, step, night, run):
         arrived = nav.WALKED["arrived"] if nav.WALKED["arrived"] != PHASES.get("arrived") else None
         return {"walk": max(0.0, nav.WALKED["s"] - PHASES.get("walked", 0.0) - PHASES.get("seek_walk", 0.0)),
                 "seek": PHASES.get("seek", 0.0), "arrived_s": None if arrived is None else arrived - t0,
-                "game_s": None if g1 is None else (g1 - g0) / TICKS_PER_S, **step_moved(PHASES, api.STATE)}
+                "game_s": None if g1 is None else (g1 - g0) / TICKS_PER_S, **step_moved(PHASES, api.STATE),
+                "ticks": [v for _k, v in sorted(api.STATE.ticks.items())]}
     try:
         out = run()
     except GameUnreachable:

@@ -733,7 +733,7 @@ PRICE_TABLES = ("knowledge.PRIOR_TICKS", "knowledge.SURFACE_Y", "data.MEASURED_B
                 "data.HARDNESS", "data.TOOL_SPEED", "data.BREAK_DIVISOR", "data.PASSIVE_WEIGHT", "data.SEARCH_LEGS",
                 "data.SEARCH_LOOK_R", "game.EAT_TICKS", "game.PLAYER_SPRINT")
 PRICE_TOML = {"play.toml": ("time", "water", "plan", "engage", "mobs")}
-LABELS = ("game", "measured", "prior", "policy")
+LABELS = ("game", "measured", "prior", "mineflayer prior", "policy")
 PRICED = ("cost.py",)
 TOML_TAG = re.compile(r"#\s*\[(\w+)")
 
@@ -930,6 +930,8 @@ ROWS = [
     ("R14", {"knowledge.py": "PRIOR_TICKS = {'a': 1}\nPRICE_SOURCE = {'knowledge.PRIOR_TICKS': {'a': 'guess'}}"},
      True),                                                                         # must fail: no such source
     ("R14", {"knowledge.py": "PRIOR_TICKS = {'a': 1, 'b': 2}\nPRICE_SOURCE = {'knowledge.PRIOR_TICKS': 'game'}"}, False),
+    ("R14", {"knowledge.py": "PRIOR_TICKS = {'a': 1}\nPRICE_SOURCE = {'knowledge.PRIOR_TICKS': {'a': 'mineflayer prior'}}"},
+     False),                                                                        # an outside prior is a source
     ("R14", {"play.toml": "[plan]\nseek_prior_s = 300.0   # seconds to find one"}, True),   # must fail: untagged
     ("R14", {"play.toml": "[plan]\nseek_prior_s = 300.0   # [prior] seconds to find one"}, False),
     ("R14", {"cost.py": "def f(d):\n return 200 + d"}, True),                     # must fail: a price written inline
