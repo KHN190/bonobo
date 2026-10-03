@@ -21,7 +21,7 @@ import re
 import sys
 import time
 from .. import core, runner
-from ...data import DAY_END, DAY_TICKS, POD_BLOCKS  # noqa: F401
+from ...data import DAY_END, DAY_TICKS, POD_BLOCKS, is_night  # noqa: F401
 from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
                          _command, _count_blocks, _drain, at, server_count, set_brain)
 from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
@@ -216,7 +216,7 @@ def _food_up():
     return check
 
 def _is_day():
-    return lambda api, inv: int(api.get("/state")["timeOfDay"]) % DAY_TICKS < DAY_END
+    return lambda api, inv: not is_night(int(api.get("/state")["timeOfDay"]))
 
 def _free_slots(n):
     return lambda api, inv: inv.free_slots() >= n
