@@ -103,7 +103,12 @@ class NavFailed(NotAvailable):
     """The body couldn't get where a skill needed it."""
 
 class TaskStuck(McError):
-    """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled."""
+    """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled. `then`: what its skill
+    declared follows (skill.ABANDON_WAYS), None for a jar task's own."""
+
+    def __init__(self, message="", then=None):
+        super().__init__(message)
+        self.then = then
 
 class CommitmentExpired(McError):
     """The running task outlived the commitment its plan was made under: the world owes the planner a new decision."""

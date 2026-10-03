@@ -495,7 +495,7 @@ def build_blueprint(ctx, name, near):
     log(f"built {machine}")
     return machine
 
-@skill(gives=["state:sheltered"], needs=blueprints.materials(blueprints.SHELTER), pre=[_mod_at_least("0.1.14")], remaining=_shelter_left,
+@skill(abandon="replan", gives=["state:sheltered"], needs=blueprints.materials(blueprints.SHELTER), pre=[_mod_at_least("0.1.14")], remaining=_shelter_left,
        verify=lambda c: c.result is not None and _shelter_built(c.args[0], c.result),
        commands=_shelter_commands_for, budget=360, stall=90,
        provides={"build:shelter": lambda ctx, s: (), "state:sheltered": lambda ctx, s: (),

@@ -262,7 +262,7 @@ def burrow_commands(state, args=()):
            if region is None or region.solid(c)]
     return dig + [{"type": "goto", "x": end[0], "y": end[1], "z": end[2], "range": 0.4, "partial": False}] + seal
 
-@skill(gives=["state:sheltered"], needs={"tool:pickaxe:0": 1}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), budget=90, stall=40, commands=lambda st, a: burrow_commands(st, a),
+@skill(abandon="replan", gives=["state:sheltered"], needs={"tool:pickaxe:0": 1}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), budget=90, stall=40, commands=lambda st, a: burrow_commands(st, a),
        provides={"state:sheltered": lambda ctx, s: () if _burrow_here(ctx) else None,
                  "shelter:burrow": lambda ctx, s: ()}, sets={"*": {"covered": True}})
 def burrow(ctx):
@@ -690,7 +690,7 @@ def night_ground():
     spot = nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
     return (None if spot is None else spot[1] / WALK_BLOCKS_PER_S), dig_in_site(region, (x, y, z))
 
-@skill(gives=["state:sheltered"], needs={}, remaining=lambda st, c: dug_in_left(st, c), start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
+@skill(abandon="replan", gives=["state:sheltered"], needs={}, remaining=lambda st, c: dug_in_left(st, c), start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
        provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None,
                  "shelter:dig in": lambda ctx, s: ()}, prefer=1,
        budget=60, stall=30, sets={"*": {"covered": True}})
@@ -820,7 +820,7 @@ def pod_commands(state, args=()) -> "list[Task]":
         raise NotAvailable(f"need {placed_n} blocks to wall in (supports included), {carried} carried")
     return tasks
 
-@skill(gives=["state:sheltered"], needs={"building": POD_BLOCKS}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40,
+@skill(abandon="replan", gives=["state:sheltered"], needs={"building": POD_BLOCKS}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40,
        provides={"state:sheltered": lambda ctx, s: (), "shelter:wall in": lambda ctx, s: ()}, prefer=-1, sets={"*": {"covered": True}})
 def pod(ctx):
     """Night fallback where digging in is unsafe (water/caves below): wall in the body — four sides at feet and head, a roof."""

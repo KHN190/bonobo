@@ -7,7 +7,8 @@ R5 game data only in data.py and game.py (ticks<->seconds by the tick rate, a li
 R6 no dead code (a module-level def or constant production never names); R7 no swallowed exception (a handler that
 only passes, continues or returns a value); R8 no module-level container changed in a function unless its module
 registers its reset (lifecycle.in_place / on_reset covers); R9 a "Pure" function reaches no api call, HTTP or
-module-state write; R10 no bench budget or estimate written as a number."""
+module-state write; R10 no bench budget or estimate written as a number; R11 (E5) every skill bounded and never left
+hanging: its `budget` declared, its `abandon` one of skill.ABANDON_WAYS, a shelter's never "cover" (its own way back)."""
 import ast
 import os
 import re
@@ -563,7 +564,40 @@ def r10(trees):
     return sorted(out)
 
 
-RULES = {"R1": r1, "R2": r2, "R3": r3, "R4": r4, "R5": r5, "R6": r6, "R7": r7, "R8": r8, "R9": r9, "R10": r10}
+# -- R11 (E5) every action bounded, and a next step after it is given up ---------------------------------------------
+ABANDON_WAYS = ("cover", "replan")      # skill.ABANDON_WAYS, read without importing the package's skills
+
+
+def r11(trees):
+    """[(path:line, what)]: a `@skill(...)` with no `budget=` (no time limit declared), an `abandon=` that is not a
+    string of ABANDON_WAYS (no next step), or a shelter way (provides "shelter:…") giving up into "cover" (its own
+    way out again)."""
+    out = []
+    for path, (tree, _src) in trees.items():
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for d in fn.decorator_list:
+                if not (isinstance(d, ast.Call) and getattr(d.func, "id", None) == "skill"):
+                    continue
+                kws = {k.arg: k.value for k in d.keywords}
+                where = f"{path}:{d.lineno} {fn.name}"
+                if "budget" not in kws:
+                    out.append((where, "no budget: no time limit"))
+                way = kws.get("abandon")
+                given = way.value if isinstance(way, ast.Constant) else None if way is None else "?"
+                if given is not None and given not in ABANDON_WAYS:
+                    out.append((where, f"abandon {given!r}: not one of {ABANDON_WAYS}"))
+                provides = kws.get("provides")
+                shelter = isinstance(provides, ast.Dict) and any(
+                    isinstance(k, ast.Constant) and str(k.value).startswith("shelter:") for k in provides.keys)
+                if shelter and (given or "cover") == "cover":
+                    out.append((where, "a shelter way gives up into cover: its own way back"))
+    return sorted(out)
+
+
+RULES = {"R1": r1, "R2": r2, "R3": r3, "R4": r4, "R5": r5, "R6": r6, "R7": r7, "R8": r8, "R9": r9, "R10": r10,
+         "R11": r11}
 ENTRY = "mc.py"         # production beside bonobo/: its uses keep code alive (R6)
 
 
@@ -656,6 +690,11 @@ ROWS = [
     ("R10", {"bench/a.py": "ROW = dict(name='x', budget=est('x') * TARGET_SLACK)"}, False),
     ("R10", {"bench/a.py": "def row(name, budget=30): pass"}, True),                # must fail: a default
     ("R10", {"a.py": "ROW = dict(name='x', budget=25)"}, False),                    # not the bench
+    ("R11", {"a.py": "@skill(budget=60)\ndef f(): pass"}, False),                  # bounded, cover after
+    ("R11", {"a.py": "@skill(needs={})\ndef f(): pass"}, True),                    # must fail: no time limit
+    ("R11", {"a.py": "@skill(budget=60, abandon='wander')\ndef f(): pass"}, True),  # must fail: no next step
+    ("R11", {"a.py": "@skill(budget=60, provides={'shelter:pod': g})\ndef f(): pass"}, True),   # must fail: loops
+    ("R11", {"a.py": "@skill(budget=60, abandon='replan', provides={'shelter:pod': g})\ndef f(): pass"}, False),
 ]
 
 

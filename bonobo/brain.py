@@ -202,6 +202,7 @@ class Brain:
         self.held = {}                # task id -> the round's plan it is in: {"steps", "sig", "event", "dim", "want", "ran"}
         self.needs_plan = None        # the round's plan when no task is queued (upkeep's needs alone)
         self.unplannable: dict[str, str] = {}     # target or need name -> why it could not be planned (readout)
+        self.abandoned: str | None = None         # E5: what the last skill given up declared follows (ABANDON_WAYS)
         self.plan_switch = None       # (held_s, chosen_s, lost_s, switched) of the round's replan over a held plan
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
@@ -385,6 +386,7 @@ class Brain:
                     cause=retry.cause_of(err) if outcome == "failed" else None)
         if isinstance(err, api.TaskStuck):
             events.anomaly("task stuck", f"{name}: {err}")
+            self.abandoned = err.then          # E5: the next round's first word is what the skill declared
         first = arbiter.resume_of(source)[1] if source is not None else None
         if outcome == "ok":
             self.retry.succeeded(name)
@@ -559,8 +561,13 @@ class Brain:
 
         def upkeep():
             self.needs.propose(snap, ctx)
-            return [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
-                    for seq, name, run in self.reflexes.proposals(snap, ctx)]
+            out = [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
+                   for seq, name, run in self.reflexes.proposals(snap, ctx)]
+            if self.abandoned == "cover":       # E5: a skill given up: into cover, once, before anything else
+                self.abandoned = None
+                cover = Act("upkeep", "abandoned: cover", lambda: needs.cover(ctx, snap.state))
+                out.insert(0, arbiter.Intent("maintain", cover, key=cover.name, seq=-1))
+            return out
 
         # the gate's facts: what is cooling, and whether the surface is closed (met and unplannable needs are judged
         # where proposed, never intents)
