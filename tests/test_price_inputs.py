@@ -40,6 +40,17 @@ class StepState(unittest.TestCase):
             with self.subTest(name):
                 self.assertNotEqual(price(*own), price(*snap))
 
+    def test_the_dig_to_a_seen_ore_starts_at_the_step(self):
+        import json
+        from bonobo.bench.words import est
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "bench_rows.json")) as fh:
+            setup = json.load(fh)["ore_buried"]["setup"]
+        c = est.scene_cost(est.scene_world(setup))           # the ore behind stone, 4 off
+        ore = c.snap.hits["iron_ore"][0]
+        beside = (ore["x"] - 1, ore["y"], ore["z"])
+        # must fail: the dig to the ore in sight planned from the snapshot's feet, the step standing beside it
+        self.assertLess(len(c.work_of(IRON, at=beside)[0]), len(c.work_of(IRON)[0]))
+
     def test_a_first_step_reads_the_snapshot(self):
         c = cost(snapshot(state(y=70.0), inventory(("stone_pickaxe", 1))))
         self.assertEqual(c.step_state(), (c.snap.feet, {"pickaxe": 1}))

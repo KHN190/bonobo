@@ -342,18 +342,18 @@ class Cost:
         """The soil under the feet (knowledge.soil_depth) in `region`, the blocks perception read (never read here);…"""
         return soil_depth(self.region, tuple(self.snap.feet))
 
-    def work_of(self, step, reach=True):
+    def work_of(self, step, reach=True, at=None):
         """(breaks, kills) a step is expected to make: its own work (knowledge.own_work) and (`reach`) the digging
-        to the nearest in sight (dug_way)."""
+        to the nearest in sight (dug_way) from the step's own place (`at`, step_state)."""
         breaks, kills = own_work(step)
         if reach and step.kind == "mine":
-            breaks = breaks + self._dug(step)
+            breaks = breaks + self._dug(step, at)
         return breaks, kills
 
-    def _dug(self, step):
+    def _dug(self, step, at=None):
         """The blocks the way to the nearest in sight breaks (dug_way), [] when none is in sight or no way is found."""
         blocks = step.detail.get("blocks") or ()
-        feet = tuple(int(c) for c in self.snap.feet)
+        feet = tuple(int(c) for c in self.step_state(at)[0])
         hit = seen_hit(self.snap.hits, blocks, self.not_there(True))
         if hit is None:
             return []
@@ -442,14 +442,14 @@ class Cost:
             if k in ("goto", "withdraw", "look"):
                 through = self.door_s(site, at)
                 out["walk"] = round(through * TICKS_PER_S) if through is not None else out["walk"]
-            out["dig"] = self.dig_to(step, held) if k == "mine" and dig else 0
+            out["dig"] = self.dig_to(step, held, at) if k == "mine" and dig else 0
         elif k in self.SOURCED:
             d = self._source(step)
             out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else self.find_ticks(step_kinds(step), held, at)
             if k != "mine":
                 out["surface"] = self._surface_trip(at)
             elif dig:
-                out["dig"] = self.dig_to(step, held)
+                out["dig"] = self.dig_to(step, held, at)
         elif k == "fill":
             d = self._known(["water"])
             out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else self.find_ticks(["water"], held, at)
@@ -459,11 +459,11 @@ class Cost:
                 walk_ticks(math.dist(self.snap.feet, tuple(step.detail["pos"])))
         return out
 
-    def dig_to(self, step, held=None):
+    def dig_to(self, step, held=None, at=None):
         """Ticks the digging to the nearest one in sight takes (work_of's breaks beyond the step's own), each break
         with the best of `held` ({tool kind: tier}; the bag's when None)."""
         held = self.step_state(None, held)[1]
-        return dig_to_ticks(self.work_of(step)[0], step, held, TICKS_PER_S)
+        return dig_to_ticks(self.work_of(step, at=at)[0], step, held, TICKS_PER_S)
 
     def door_s(self, where, at=None):
         """Seconds to `where` from `at` (the feet when None) through a taught door on the way, else None: the
