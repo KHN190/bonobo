@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from .game import TICKS_PER_S
 
 STATION_R = 8.0         # a station or machine of ours this near is one we have
+MECHANISMS_NAME = "mechanisms.json"     # the taught mechanisms (mechanisms.learn), beside the notes
 DOOR_NEAR = 2.0         # a door this near the straight way here → there is on the way
 
 if TYPE_CHECKING:

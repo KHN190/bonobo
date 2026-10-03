@@ -16,6 +16,8 @@ from .planner import Unplannable, plan_needs
 from .game import TICKS_PER_S
 
 WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~12.5 ticks a block, walking with detours
+DOOR_ROUTE = None      # (taught, here, there, walk_s) → seconds through a door, or None: mechanisms.door_route_s,
+#                        a pure function wired by the brain (no import: the cost prices, the mechanisms module acts)
 UNKNOWN_WALK_TICKS = PRIOR_TICKS["unknown_walk"]   # nothing known nearby: what a search usually costs
 # work per unit before anything is measured, in ticks, bare-handed: a held tool's declared speed is taken off (_sped_up)
 # step kind → (statistics key, units): the keys the skill runner records under
@@ -452,12 +454,11 @@ class Cost:
     def door_s(self, where, at=None):
         """Seconds to `where` from `at` (the feet when None) through a taught door on the way, else None: the
         mechanisms memory holds (Memory.taught), never a file or the world."""
-        from .mechanisms import door_route_s
         taught = self.mem.taught(self.snap.dimension)
-        if not taught:
+        if not taught or DOOR_ROUTE is None:
             return None
-        return door_route_s(taught, tuple(self.snap.feet if at is None else at), tuple(where),
-                            lambda d: walk_ticks(d) / TICKS_PER_S)
+        return DOOR_ROUTE(taught, tuple(self.snap.feet if at is None else at), tuple(where),
+                          lambda d: walk_ticks(d) / TICKS_PER_S)
 
     def plan_s(self, steps):
         """Seconds a whole plan takes: Σ Step.est."""
