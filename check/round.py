@@ -6,6 +6,7 @@ import time
 import shutil
 import tempfile
 from collections import namedtuple
+from typing import Any
 from unittest import mock
 
 from . import DATA as _DIR
@@ -275,7 +276,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False, kept=None):
     world = gamma(facts, mem) if kept is None else kept[0]
     failure = next((d.failure(facts) for d in DIMS if hasattr(d, "failure")), None) \
         or NotAvailable("check: the step failed here")
-    ctx = {"world": (world, mem)}
+    ctx: dict[str, Any] = {"world": (world, mem)}
     from bonobo import kernel
     weighed, held_log = [], []
     real_switches, real_held = kernel.switches, kernel.Held.decide
