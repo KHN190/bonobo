@@ -1530,6 +1530,18 @@ class Withdraw(unittest.TestCase):
                 steps = decompose.decompose(snap.inv, goal, cost(snap, mem=m, oak_log=30, stone=20))
                 self.assertEqual(any(st.kind == "withdraw" for st in steps), want, list(map(str, steps)))
 
+    def test_a_repeat_is_one_trip(self):
+        """The search prices a gather it repeats as forward runs it, merged into the first: one walk to the trees."""
+        name, goal, items, far, _want = WITHDRAW_GOALS[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            m = Memory(os.path.join(tmp, "notes.json"))
+            m.note_container((far, 64, 0), OVER, [{"id": i, "count": n} for i, n in items.items()])
+            snap = snapshot()
+            got = planner.plan_candidates(snap.inv, goals.needs(goal, snap.inv), cost(snap, mem=m, oak_log=30, stone=20),
+                                          exact=True)[0][2]
+        # must fail: the sticks fetched (67.7 s as run) over made (52.5 s), each gather of a log charged its own walk
+        self.assertFalse(any(st.kind == "withdraw" for st in got), list(map(str, got)))
+
     def test_chest_or_make(self):
         for name, (dist, items), seen, chosen, not_chosen in WITHDRAW:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
