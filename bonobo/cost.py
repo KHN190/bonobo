@@ -401,13 +401,13 @@ class Cost:
         """A site's kinds: a search has none, its place is what it finds."""
         return [] if step.kind == "seek" else step_kinds(step)
 
-    def walk_lb(self, step):
+    def walk_lb(self, step, held):
         """Ticks no walk to this step's site can beat (the digging to it aside: `dig_to`): from the nearest place a
         plan may stand before it (the feet, a remembered spot, a container, the round's look); the walk from here
-        when the site is unknown."""
+        when the site is unknown, its search with the tools `held` ({tool kind: tier}) then."""
         site = self.site(step)
         if site is None:
-            return self._walk(step, dig=False)
+            return self._walk(step, held=held, dig=False)
         key = ("walk_lb", tuple(site), step.kind, tuple(self._kinds_of(step) or ()))
         if key not in self.cache:
             # from every place a plan may stand before it: remembered, a container, the look's (site's own answers)

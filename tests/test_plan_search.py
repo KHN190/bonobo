@@ -376,7 +376,7 @@ class TheSearchPricesAtTheLeast(unittest.TestCase):
             c = Cost(snap, Memory(os.path.join(tmp, "notes.json")))
             step = planner.Step("mine", "minecraft:raw_iron", 1, {"blocks": ["iron_ore"], "tier": 1, "breaks": 1})
             # must fail: walked from the feet (30 blocks) though the coal the look saw a block away may come first
-            self.assertLessEqual(c.walk_lb(step), walk_ticks(1.0))
+            self.assertLessEqual(c.walk_lb(step, None), walk_ticks(1.0))
 
 
 class ASubPlanIsRememberedWithWhatItsPriceReads(unittest.TestCase):
@@ -414,7 +414,16 @@ class TheLeastWalkIsNoMoreThanFromHere(unittest.TestCase):
             c = Cost(snap, Memory(os.path.join(tmp, "notes.json")))
             step = planner.Step("gather", "log", 1, {})
             # must fail: the least walk (565 ticks, the cell's line) above the walk the model prices from here (250)
-            self.assertLessEqual(c.walk_lb(step), c.estimate(step) - c.work(step))
+            self.assertLessEqual(c.walk_lb(step, None), c.estimate(step) - c.work(step))
+
+    def test_a_search_with_the_tools_held_then(self):
+        from tests.world import cost
+        c = cost(snapshot())
+        ore = planner.Step("mine", "minecraft:raw_iron", 1, {"blocks": ["iron_ore"], "tier": 1})
+        stone = {"pickaxe": 1}
+        # must fail: an ore never seen sought with the bag's tools after a stone pickaxe is made (P3: g past as run)
+        self.assertEqual(c.walk_lb(ore, stone), c.estimate(ore, stone) - c.work(ore, stone) - c.dig_to(ore, stone))
+        self.assertLess(c.walk_lb(ore, stone), c.walk_lb(ore, {}))
 
 
 class TwoStepsAtOnePlace(unittest.TestCase):
