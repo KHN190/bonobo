@@ -436,10 +436,13 @@ def skill(name=None, **options):
         contract.needs = {} if callable(spec.needs) else dict(spec.needs or {})
         contract.gives = gives_of(spec.gives)
         contract.remaining = spec.remaining
-        from .knowledge import PRODUCERS
+        from .knowledge import CONTRACT_FACTS, PRODUCERS
         for g in contract.gives:
             if not isinstance(g, str) and g not in PRODUCERS:
                 PRODUCERS.append(g)
+        CONTRACT_FACTS.update(g for g in contract.gives if isinstance(g, str) and g.startswith("state:"))
+        for v in contract.sets.values():
+            CONTRACT_FACTS.update(v if isinstance(v, dict) else ())
         # a gatherer: True, or c → the item ids it gathers
         contract.fills_bag = spec.fills_bag
         REGISTRY[contract.name] = contract
