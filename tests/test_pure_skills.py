@@ -212,6 +212,44 @@ class NotedHits(unittest.TestCase):
                 self.assertEqual([(h["x"], h["y"], h["z"]) for h in got], want)
 
 
+class NotedIsACandidate(unittest.TestCase):
+    """Merged from test_fix7.py (design-f1 V1): a remembered ore stays a candidate beside what the look sees."""
+
+    def test_rows(self):
+        class Stop(Exception):
+            pass
+        ore = (4, 64, 0)
+        # (noted?) → (/find calls, the noted cell among the candidates)
+        for why, noted, finds, among in [("noted: a candidate beside what the look sees", True, 2, True),
+                                         ("nothing noted: the look alone", False, 2, False)]:
+            with self.subTest(why):
+                calls, asked = [], []
+                ctx = type("C", (), {"mem": type("M", (), {"seen": lambda s, b, d: []})(), "dimension": "o",
+                                     "blocked": lambda s, p: False,
+                                     "policy": type("P", (), {"protected": set()})()})()
+                hit = {"x": ore[0], "y": ore[1], "z": ore[2], "block": "minecraft:diamond_ore", "noted": True}
+
+                def find(*a, **k):
+                    calls.append(k.get("exposed", False))
+                    return []               # the look sees none: the noted vein is the only candidate
+
+                def stop(blocks, fresh, *a, **k):
+                    asked.extend((h["x"], h["y"], h["z"], h.get("noted")) for h in fresh)
+                    raise Stop()
+                with mock.patch.object(gather, "noted_hits", lambda *a: [hit] if noted else []), \
+                        mock.patch.object(gather, "find", find), mock.patch.object(gather, "seek_hits", stop), \
+                        mock.patch.object(gather, "require_pickaxe", lambda t: None), \
+                        mock.patch.object(gather, "Inventory", lambda: type("I", (), {"count": lambda s, t: 0})()), \
+                        mock.patch.object(gather.nav, "mod_features", lambda: {"travel"}):
+                    gen = gather.mine.__wrapped__(ctx, "minecraft:diamond", 1, ["diamond_ore"], 2)
+                    with self.assertRaises(Stop):
+                        for _ in gen:
+                            pass
+                self.assertEqual(len(calls), finds)
+                # must fail: the noted vein dropped because the look did not see it
+                self.assertEqual((*ore, True) in asked, among)
+
+
 class SealPlan(unittest.TestCase):
     """fluids_mod.seal_plan: before breaking a cell, a block into every fluid cell touching it face to face."""
 

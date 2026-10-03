@@ -349,6 +349,36 @@ class AWayPassesItsOwnGate(unittest.TestCase):
         self.assertIsNone(nav.unstandable(steps, region, feet))
 
 
+class TheChopChainHasAStand(unittest.TestCase):
+    """P2/K1 (merged from test_accept3.py, accept3 21:21): a trunk with a log the door can stand for is chopped —
+    the batch's order passes the door's own stand test (nav.standable_order: stands_for over what its earlier
+    mines dug), from inside the column or beside it."""
+
+    _X, _Z, _FLOOR_Y = 12986, 12999, 74
+
+    @property
+    def _LOGS(self):
+        return [(self._X, y, self._Z) for y in range(76, 80)]
+
+    def _scene(self):
+        lo = (self._X - 8, self._FLOOR_Y - 6, self._Z - 8)
+        hi = (self._X + 8, self._FLOOR_Y + 10, self._Z + 8)
+        blocks = {(x, y, z): "dirt" for x in range(lo[0], hi[0] + 1) for z in range(lo[2], hi[2] + 1)
+                  for y in range(lo[1], self._FLOOR_Y)}
+        blocks.update({c: "oak_log" for c in self._LOGS})
+        return FakeRegion(lo, hi, blocks)
+
+    def test_rows(self):
+        from bonobo import wood
+        region = self._scene()
+        for feet in ((self._X, self._FLOOR_Y, self._Z), (self._X + 1, self._FLOOR_Y, self._Z)):
+            for want in (2, len(self._LOGS)):
+                with self.subTest(feet=feet, want=want):
+                    chain = wood.trunk_batch(self._LOGS[0], self._LOGS[1:], want)
+                    # must fail (accept3): y77 sent before y76 from inside the column, no stand reached
+                    self.assertIsNone(nav.unstandable(nav.standable_order(chain, region, feet), region, feet))
+
+
 class NeverDigsItsFloor(unittest.TestCase):
     """bag.holds_up in a dug way: no step breaks the body's floor or own column (a staircase down: the column)."""
 
