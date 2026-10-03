@@ -323,7 +323,12 @@ class Bound:
                         _, kind, tier = dim.split(":")
                         need[kind] = max(need.get(kind, 0), int(tier))
                 ins = {t: c / out for t, c in inputs if step.kind != "farm"}
-                self.ways.setdefault(asked, []).append((self.per_run(cost, step) / out, ins, need))
+                per = self.per_run(cost, step) / out
+                if step.kind == "smelt":      # a smelt burns its fuel: one way per fuel, its share a unit
+                    for fuel, burns in FUELS:
+                        self.ways.setdefault(asked, []).append((per, {**ins, fuel: ins.get(fuel, 0) + 1 / burns}, need))
+                else:
+                    self.ways.setdefault(asked, []).append((per, ins, need))
                 self.shapes.setdefault(asked, []).append((step, _station, ins))
         self.scratch = least_prices(self.ways)
         self.reach = {}     # token → every token its derivation may use (its inputs, theirs, …)
@@ -535,12 +540,16 @@ class Search:
 
     # -- what is left: its bound
     def h(self, node, floor=0):
-        """The least what is left (above `floor`) can cost: its needs' least (what is held credited), or the dearest
-        tool it must still make — the larger."""
+        """The least what is left (above `floor`) can cost: its needs' least (what is held credited) and the walk to
+        their nearest known source, plus the dearest tool or station still to be had (not itself asked, not stored)."""
         units, tool = 0.0, 0.0
         inv = node.inv
         held = inv.available
         memo: dict = {"held": {k for k, v in inv.counts.items() if v > 0} | {k for k, v in inv.produced.items() if v > 0}}
+        asked = {mid(t[1]) for t in node.stack[floor:] if t[0] == "need"}
+
+        def fixed(item):          # a tool or station still to be had: its least, unless asked itself or stored
+            return 0.0 if mid(item) in asked or self.stored(item) else self.lb.least(item, 1, held, memo)
         for task in node.stack[floor:]:
             op = task[0]
             if op == "need":
@@ -550,20 +559,20 @@ class Search:
                 if not self.lb.reach.get(token, set()) & memo["held"]:     # nothing of its making held: a tool it
                     for kind, tier in self.lb.needed(token).items():       # must have is still to be had
                         if not inv.has_tool(kind, tier):
-                            tool = max(tool, self.lb.least(tool_item(kind, tier), 1, held, memo))
+                            tool = max(tool, fixed(tool_item(kind, tier)))
             elif op == "tool":
                 _op, kind, tier, uses, _depth = task
                 if not inv.has_tool(kind, tier, uses):
-                    tool = max(tool, self.lb.least(tool_item(kind, tier), 1, held, memo))
+                    tool = max(tool, fixed(tool_item(kind, tier)))
         station, walk = 0.0, 0.0
         for task in node.stack[floor:]:
             if task[0] != "need" or held(task[1]) >= task[2]:
                 continue
             for s in self.lb.tools_of(self.lb.stations, task[1]) or ():
-                if held(s) <= 0 and not self.near(s) and not self.stored(s):
-                    station = max(station, self.lb.least(s, 1, held, memo))
+                if held(s) <= 0 and not self.near(s):
+                    station = max(station, fixed(s))
             walk = max(walk, self.walk_to(task[1], held, memo["held"]))
-        return max(units + walk, tool, station)
+        return units + walk + max(tool, station)     # a tool or station made is work no unit's least counts
 
     def least(self, token, n, inv):
         """Bound.least of `n` token from `inv`, once a search per what of its derivation the bag holds."""
