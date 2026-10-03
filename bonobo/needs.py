@@ -1,5 +1,6 @@
 """Needs: what must be PLANNED to be had — a bed or the night's parts before dark, a tool that broke under a held plan, a water bucket before a fall, blocks where the path is blocked, the night's ore underground. Each is PROPOSED (`need` → `needs_now`), never queued: the brain plans it with the queue in the round's one plan (planner.plan_round, by seconds). The fixed maintenance reflexes (eat, land, the night's shelter, the bag…) are reflexes.py. Also the tool-repair skill and the one choice of how to get through a night (`overnight`). Pure `repair_pair`, `dusk_s`, `due_now`, `overnight` are offline-tested."""
 
+import copy
 import json
 import math
 import time
@@ -95,10 +96,11 @@ def overnight(inv, cost, facts=None, bed_too=True):
     options = night_options(inv, cost, facts, bed_too)
     if not options:
         return None, math.inf, []
-    chosen = {}
+    chosen, dusk = {}, copy.copy(cost)
+    dusk.facts = lambda: {**cost.facts(), "night": False}      # the preparation runs before dark (the dusk lead)
     try:
         night = Target("night", [], 0, options=tuple(o[:3] for o in options))
-        _first, steps, seconds = plan_round(inv, [night], cost, chosen=chosen)
+        _first, steps, seconds = plan_round(inv, [night], dusk, chosen=chosen)
     except Unplannable as e:
         log(f"upkeep: no way through the night ({e})")
         return None, math.inf, []

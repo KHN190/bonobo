@@ -678,7 +678,7 @@ class Brain:
         ran, no event, the same bag, place and targets: no planning at all), else made again from the world (K4) —
         taken over the held one for the same targets only when it pays the switch (D4). None: not plannable."""
         self.plan_switch = None
-        key = round_key(entries)
+        key = round_key(entries, snap, self.mem)
         if old is not None and not old["event"] and not old.get("ran") and old["sig"] == bag_signature(snap.inv) \
                 and old.get("want") == key and old["dim"] == snap.dimension:
             return old
@@ -688,6 +688,7 @@ class Brain:
         if held is None:
             self.unplannable["round"] = why or "unplannable"
             return None
+        held["want"] = key
         if old is not None and same and old["steps"] \
                 and [str(s) for s in old["steps"]] != [str(s) for s in held["steps"]]:
             held_s = repriced_s(old["steps"], cost, snap.inv)
@@ -1029,9 +1030,11 @@ def met(step, snap):
         return math.dist(snap.feet, tuple(step.detail["pos"])) <= float(step.detail.get("range", 2))
     return False
 
-def round_key(entries):
-    """Pure: what a round plans for — each target's name and goal; a held plan is reused only for the same."""
-    return tuple((name, json.dumps(goal, sort_keys=True)) for name, goal, _rank in entries)
+def round_key(entries, snap, mem):
+    """What a round plans for — each target's name, goal and what of it the world still lacks: a held plan is
+    reused, or weighed against a new one (D4), only for the same."""
+    return tuple((name, json.dumps(goal, sort_keys=True), json.dumps(goals.remainder(goal, snap, mem), sort_keys=True))
+                 for name, goal, _rank in entries)
 
 def replan(entries, snap, cost, pending=None, held=None):
     """Pure given the cost: the round's one plan (planner.plan_round) over `entries` [(name, goal, queue place)] —
@@ -1052,8 +1055,7 @@ def replan(entries, snap, cost, pending=None, held=None):
             raise Unplannable(f"no skill provides {missing[0].kind} {missing[0].token}")
     except Unplannable as e:
         return None, f"unplannable: {e}"
-    return {"steps": steps, "sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension,
-            "want": round_key(entries)}, None
+    return {"steps": steps, "sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension}, None
 
 def code_version():
     """Short hash of the package source, logged at start so a review can tell which code is running."""
