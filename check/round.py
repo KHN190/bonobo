@@ -178,7 +178,79 @@ def hazard_round(facts):
         fresh_round()
 
 
-def _decide(facts, fail_then_again, fresh=True, hazard=False):
+CHAIN_N = 10        # G-dev: decides a chain runs from its start
+
+
+def chain(facts, n=CHAIN_N):
+    """G-dev: `n` decides on one world from `facts`, the chosen step's outputs and inputs carried into the bag between
+    them (planner._After); each act against the task's direct plan, priced by production (plan_round, price_as_run on
+    a Cost of the round's snapshot): [{name, layer, step, forced, on_route, side_s, direct_s, after_s}]."""
+    from bonobo import arbiter, tasks
+    rows, kept = [], None
+    try:
+        for _ in range(n):
+            live = [t for t in tasks.load() if t["state"] in tasks.LIVE] if kept is not None else None
+            if live == []:
+                break
+            d, _got, ctx = _decide(facts, False, fresh=kept is None, kept=kept)
+            kept = ctx["world"]
+            live = [t for t in tasks.load() if t["state"] in tasks.LIVE]
+            if not live:
+                break
+            goal, step = tasks.goal_of(live[0]), ctx.get("step")
+            direct, steps, side = _direct(kept, goal, step)
+            if step is not None:
+                _carry(kept[0], step)
+            after = _direct(kept, goal, None)[0]
+            rows.append({"name": d.name, "layer": d.layer, "step": step.key() if step is not None else None,
+                         "forced": d.layer is not None and arbiter.SCALES[d.layer] < arbiter.SCALES["plan"],
+                         "on_route": step is not None and step.key() in {s.key() for s in steps},
+                         "side_s": side, "direct_s": direct, "after_s": after})
+    finally:
+        fresh_round()
+    return rows
+
+
+def _direct(kept, goal, step):
+    """(seconds of the task's plan from the world's bag now, its steps, seconds `step` takes as run from here): the
+    round's planner over the goal's needs (plan_round) on a Cost of this snapshot; None where nothing plans it."""
+    from bonobo import api, decompose, planner
+    from bonobo.cost import Cost
+    from bonobo.game import TICKS_PER_S
+    from bonobo.knowledge import SOURCE_BLOCKS
+    from bonobo.survive import ROUND_GROUND
+    from bonobo.world import Snapshot
+    world, mem = kept
+    with mock.patch.object(api, "api", world.api), mock.patch.object(api, "detail", lambda *a: None), \
+            mock.patch.object(api, "log", lambda *a: None), mock.patch.object(api.STATE, "feet_seen", None):
+        snap = Snapshot.read(SOURCE_BLOCKS, ROUND_GROUND)
+        cost = Cost(snap, mem)
+        tools = list(planner.from_bag(snap.inv, reserved=cost.reserved).tools)
+        side = sum(planner.price_as_run([step], tools, cost)) / TICKS_PER_S if step is not None else 0.0
+        try:
+            _f, steps, secs = planner.plan_round(snap.inv, [planner.Target("task", decompose.round_needs(
+                goal, snap.inv, cost))], cost)
+        except planner.Unplannable:
+            return None, [], side
+    return secs, steps, side
+
+
+def _carry(world, step):
+    """The stub's bag as `step` leaves it (planner._After): its inputs out, its outputs in, a tool made carried."""
+    from bonobo import planner
+    from bonobo.data import TOOL_KINDS
+    from bonobo.world import Inventory
+    inv = Inventory({"slots": world.slots, "equipment": dict(world.equipment)})
+    after = planner._After(inv, [step])
+    tools = [s for s in world.slots if s.get("maxDamage")]
+    held = {s["id"] for s in tools}
+    slots = tools + [{"id": s["id"], "count": s["count"], "damage": 0} for s in after.slots if s["id"] not in held]
+    slots += [{"id": item, "count": 1, "damage": 0, "maxDamage": uses}
+              for kind in TOOL_KINDS for _t, uses, item in after.tools(kind)[len(inv.tools(kind)):]]
+    world.slots = [dict(s, slot=i) for i, s in enumerate(slots)]
+
+
+def _decide(facts, fail_then_again, fresh=True, hazard=False, kept=None):
     from bonobo import api, arbiter, brain, fight_loop, perception, planner, tape
     from bonobo.api import NotAvailable
     from bonobo import dispatch
@@ -199,11 +271,11 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
         seen["intents"], seen["chosen"] = list(intents), chosen
         return chosen
     from .facts import DIMS
-    mem = Memory()
-    world = gamma(facts, mem)
+    mem = Memory() if kept is None else kept[1]
+    world = gamma(facts, mem) if kept is None else kept[0]
     failure = next((d.failure(facts) for d in DIMS if hasattr(d, "failure")), None) \
         or NotAvailable("check: the step failed here")
-    ctx = {}
+    ctx = {"world": (world, mem)}
     from bonobo import kernel
     weighed, held_log = [], []
     real_switches, real_held = kernel.switches, kernel.Held.decide
@@ -296,7 +368,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
             d = d._replace(reason=next((w for w in why if w), None))
         step = getattr(act, "step", None)
         boxes = [tuple(map(tuple, bx)) for h in mem.homes(snap.dimension) for bx in h.get("boxes", ())]
-        ctx["step_kind"] = step.kind if step is not None else None
+        ctx["step_kind"], ctx["step"] = (step.kind if step is not None else None), step
         ctx["target_in_home"] = d.target is not None and home_box_of(boxes, d.target) is not None
         found = dispatch.runner_for(bctx, step) if step is not None else None
         if found is not None and found[0].contract.commands is not None:

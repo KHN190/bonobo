@@ -330,6 +330,37 @@ class FactValuesOfOneType(unittest.TestCase):
                 sorted(vs)
 
 
+class ASideActPaysItsWay(unittest.TestCase):
+    """GDEV (check.round.chain): an act off the task's direct plan costs at most what it saves (side + after ≤ direct)
+    unless a layer above the plan forced it."""
+
+    def test_rows(self):
+        from check.inv.plan import GDEV, TOL_S
+        direct, side = 100.0, 10.0
+        f = of()
+        # (forced, on the direct plan, seconds left after it) → flagged; a loss of side + after − direct
+        rows = [("must fail: a side act that loses", False, False, direct - side + 2 * TOL_S, True),
+                ("a side act that pays its way", False, False, direct - side - 2 * TOL_S, False),
+                ("must fail: an on-route act flagged", False, True, direct - side + 2 * TOL_S, False),
+                ("forced by a layer above the plan", True, False, direct - side + 2 * TOL_S, False)]
+        for name, forced, on_route, after, flagged in rows:
+            with self.subTest(name):
+                chain = [{"name": "act", "layer": "plan", "step": ("hunt", "porkchop"), "forced": forced,
+                          "on_route": on_route, "side_s": side, "direct_s": direct, "after_s": after}]
+                got = GDEV(f, None, f, {"chain": chain})
+                self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), flagged, got)
+
+    def test_a_chain_carries_its_bag(self):
+        from check import round as rnd
+        rows = rnd.chain(of(task="tool"), 3)
+        self.assertEqual(len(rows), 3)
+        for before, after in zip(rows, rows[1:]):
+            # must fail: the bag not carried (each decide priced from the start's bag again)
+            self.assertAlmostEqual(before["after_s"], after["direct_s"])
+            self.assertLess(after["direct_s"], before["direct_s"])
+        self.assertTrue(all(r["on_route"] for r in rows))
+
+
 class TheWayThereIsNotOverpriced(unittest.TestCase):
     """P3 on every node of the way to each plan the round's searches took (planner.PATHS: g + h ≤ the plan as run),
     not only the root's bound: a g priced high midway shows there, with no exact reference run."""

@@ -17,6 +17,7 @@ asked them). check/round.py puts them in ctx:
   bound      check.round.plan_bound of the task's needs from this bag (P3: at most the plan's price)
   food_left_s  planner.food_left_s: seconds the bar lasts with nothing eaten (None: food carried or no body read)
   withdraws  [(pos, item, the step's chance, production's chance now (Cost.stored), the world's block there)]
+  chain      check.round.chain's rows: each act of a run of decides against the task's direct plan (GDEV)
 An invariant whose ctx is missing is Unchecked, said why."""
 import math
 
@@ -336,4 +337,20 @@ def M1(b, d, a, ctx):
     return None
 
 
-CHECKS = {"M1": M1, "S8": S8, "D4": D4, "D6": D6, "P2": P2, "P3": P3, "P4": P4, "P5": P5, "R1": R1, "R2": R2, "R4": R4}
+def GDEV(b, d, a, ctx):
+    """G-dev: an act off the task's direct plan costs no more than it saves (side + after ≤ direct), unless a layer
+    above the plan forced it (arbiter.SCALES)."""
+    rows = ctx.get("chain")
+    if rows is None:
+        return Unchecked("no chain of decides for this state (check.round.chain: check.run --chain)")
+    for i, r in enumerate(rows):
+        if r["forced"] or r["on_route"] or r["direct_s"] is None or r["after_s"] is None:
+            continue
+        lost = r["side_s"] + r["after_s"] - r["direct_s"]
+        if lost > TOL_S:
+            return (f"decide {i}: {r['name']} ({r['layer']}, {r['step']}) loses {lost:.1f} s: {r['side_s']:.1f} s on "
+                    f"it + {r['after_s']:.1f} s after against {r['direct_s']:.1f} s direct")
+    return None
+
+
+CHECKS = {"GDEV": GDEV, "M1": M1, "S8": S8, "D4": D4, "D6": D6, "P2": P2, "P3": P3, "P4": P4, "P5": P5, "R1": R1, "R2": R2, "R4": R4}
