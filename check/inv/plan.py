@@ -24,7 +24,7 @@ from ..oracle import Unchecked
 
 TOL_TICKS = 1            # prices are whole ticks: one either way
 TOL_S = 0.05             # seconds compared after rounding
-P_TOL = 1e-3             # a chance read twice in one round (the record ages between)
+P_TOL = 1e-3             # a chance read twice in one round
 MATERIAL = ("gather", "mine", "hunt")     # steps that make a material in the world (a container's alternative)
 MAKES = MATERIAL + ("craft", "smelt", "take", "withdraw", "await", "fill", "trade", "farm")   # steps whose token is gained
 
@@ -41,8 +41,7 @@ def _tier(steps):
 
 
 def _cheapest(ctx):
-    """The plan chosen is the fewest seconds of the candidates the search priced, a tie the lowest tier — or why
-    not; None without candidates."""
+    """Why the chosen candidate is not the fewest seconds (a tie: the lowest tier), or None."""
     found = ctx.get("candidates")
     if not found:
         return None
@@ -84,8 +83,7 @@ def _tool_wanted(goal, kind, inv):
 
 def R1(b, d, a, ctx):
     """Tool material: a tool carried that works is used — a plan does not craft a tool of a kind the bag already
-    holds working at that tier or better, unless the goal asks for it; the plan chosen is the cheapest candidate
-    (_cheapest)."""
+    holds working at that tier or better, unless the goal asks for it; the chosen candidate is the cheapest."""
     why = _cheapest(ctx)
     if why:
         return why
@@ -121,7 +119,7 @@ def _breaks(plan, kind):
 
 def R2(b, d, a, ctx):
     """Materials by seconds: a material the plan makes (gather, mine, hunt) while a container here holds it is made
-    only when making it is not slower than taking it (the walk to the container and the take, priced by the model); the plan chosen is the cheapest candidate."""
+    only when making it is not slower than taking it (the walk to the container and the take, priced by the model)."""
     why = _cheapest(ctx)
     if why:
         return why
@@ -151,8 +149,8 @@ def R2(b, d, a, ctx):
 
 
 def R4(b, d, a, ctx):
-    """The way to a target by seconds: the plan chosen is the cheapest candidate, and the way taken is no slower than
-    the cheapest of the dug ways and the game's walks."""
+    """The way to a target by seconds: the way taken is no slower than the cheapest of the dug ways and the game's
+    walks."""
     why = _cheapest(ctx)
     if why:
         return why
@@ -169,8 +167,8 @@ def R4(b, d, a, ctx):
 def D4(b, d, a, ctx):
     """A switch pays (same layer: the threat layer's kernel.Held): a held answer is given up for a new one only when
     the new one's gain over what is left of the held one beats the work thrown away and the estimates' noise — or
-    its assumption broke. Every Held decision that changed answers is matched to a switch the kernel weighed. A held
-    plan gives way to the chosen one only when chosen_s + lost_s < held_s (plan_switch)."""
+    its assumption broke. Every Held decision that changed answers is matched to a switch the kernel weighed; a plan
+    switch only when chosen_s + lost_s < held_s."""
     ps = ctx.get("plan_switch")
     if ps is not None:
         held_s, chosen_s, lost_s, switched = ps
@@ -199,7 +197,6 @@ def _station(st):
         return step_station(st)
     if st.kind == "smelt":
         return "minecraft:furnace"
-    # a craft: the station of the recipe whose inputs the step names (planner.way's), else of its first recipe
     from bonobo.knowledge import sources
     from bonobo.planner import way
     shapes = [got for made, src in sources(st.token) if src[0] == "craft" and (got := way(src, made, 1)) is not None]
@@ -292,8 +289,7 @@ def P5(b, d, a, ctx):
 
 
 def S8(b, d, a, ctx):
-    """Hunger along the plan's clock never reaches zero: the held plan puts food in the bag before the bar runs out
-    (planner.fed_in_time on its own steps), or it was not planned and the round said why (D1)."""
+    """The held plan feeds the body before the bar runs out (planner.fed_in_time)."""
     plan, left = _plan(ctx), ctx.get("food_left_s")
     if plan is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
@@ -304,9 +300,7 @@ def S8(b, d, a, ctx):
 
 
 def M1(b, d, a, ctx):
-    """Memory is discounted before use and a reread overrules it: a withdrawal carries the chance production gives
-    that container now (container_p, never the record taken as certain), and none goes to a container the world no
-    longer shows."""
+    """A withdrawal carries production's discounted chance now, and none goes where the world shows no container."""
     rows = ctx.get("withdraws")
     if not rows:
         return Unchecked("no withdrawal in the held plan this round")

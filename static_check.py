@@ -657,7 +657,7 @@ def run_row(rule, srcs):
 # (rule, {path: source}, hits?): each rule's holding rows and its must-fail rows
 ROWS = [
     ("R12", {"c.py": "def exact_s(x):\n from bonobo.planner import plan_candidates\n return plan_candidates(x)[0][1]"},
-     False),                                                                        # production's price, called
+     False),
     ("R12", {"c.py": "def walk_s(d):\n return d / 4.3"}, True),                    # must fail: a model of its own
     ("R12", {"c.py": "from bonobo import nav\ndef way_cost(a, b):\n return nav.least_way_s(a, b)"}, False),
     ("R12", {"c.py": "def price(step):\n return {'mine': 60}[step]"}, True),       # must fail: a price table

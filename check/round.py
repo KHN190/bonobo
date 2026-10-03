@@ -70,8 +70,7 @@ def fact_ages(b, round_snap):
 
 
 def _hazard_at(ctx, world):
-    """Search.advance with the hazard written at its first call (S7): the interrupt as the arbiter writes it, the
-    body under water with no air on every read after."""
+    """Search.advance writing a hazard at its first call (S7): the interrupt, the body under water."""
     from bonobo import api, planner
     real = planner.Search.advance
 
@@ -147,8 +146,7 @@ def decide(facts, fail_then_again=True):
 
 
 def warm_name(facts, other):
-    """D8: the decision's name on `facts` after a round on `other` filled the process's declared caches (lifecycle.cache;
-    every other life's state and the inputs cleared between)."""
+    """D8: the decision's name on `facts` with the declared caches warm from a round on `other`."""
     from bonobo import lifecycle, paths
     try:
         _decide(other, False)
@@ -161,8 +159,7 @@ def warm_name(facts, other):
 
 
 def hazard_round(facts):
-    """S7: the round on `facts` with a hazard written as its planning begins (the interrupt message, the body then
-    under water): (the chosen layer, search steps taken after the hazard), None when the round plans nothing."""
+    """S7: (the chosen layer, search steps after the hazard) for a hazard mid-plan; None: nothing planned."""
     try:
         d, _got, ctx = _decide(facts, False, hazard=True)
         return None if ctx.get("hazard_at") is None else (d.layer, ctx["search_steps_after"])
@@ -355,8 +352,7 @@ def plan_ctx(b, act, snap, mem, world):
     out["plan_switch"] = getattr(b, "plan_switch", None)
     from bonobo.planner import food_left_s
     out["food_left_s"] = food_left_s(cost)
-    # M1: each withdrawal the held plan makes, with the chance production gives that container now and what a reread
-    # of the world shows at it
+    # M1: each withdrawal, production's chance now, the world's block there
     out["withdraws"] = [(tuple(st.detail["pos"]), st.token, st.detail.get("p"),
                          next((q for p, _i, _n, q in cost.stored(st.token) if tuple(p) == tuple(st.detail["pos"])), None),
                          world.blocks.get(tuple(st.detail["pos"]), "air"))
@@ -393,8 +389,7 @@ def plan_bound(inv, needs, cost, pending=None, jobs=None):
 
 
 def candidates(task, snap, mem, cost):
-    """planner.plan_candidates for the task's needs from this bag (the chosen first), or None when they cannot be
-    planned."""
+    """planner.plan_candidates for the task's needs (the chosen first), or None."""
     from bonobo import goals, tasks
     from bonobo.planner import Unplannable, plan_candidates
     try:
