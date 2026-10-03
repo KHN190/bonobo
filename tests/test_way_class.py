@@ -161,7 +161,7 @@ class ABuildSpotTheDoorReaches(unittest.TestCase):
 
 class ADigInThePlanIsTheRunsDigIn(unittest.TestCase):
     """K1 for the night's dig-in: the plan offers it (dig_in_site with the bag) exactly when its own commands can be
-    built (dig_in_commands: a safe column, a lid to seal with, room for it)."""
+    built (dig_in_plan: a safe column, a lid to seal with, room for it)."""
 
     def test_rows(self):
         from bonobo import survive
@@ -172,11 +172,7 @@ class ADigInThePlanIsTheRunsDigIn(unittest.TestCase):
                 with self.subTest(geo=geo, bag=bag_name):
                     blocks, _t = geometry(geo, "stone")
                     region, feet = FakeRegion(LO, HI, blocks), feet_of(geo)
-                    try:
-                        survive.dig_in_commands({"region": region, "inv": inv, "feet": feet, "protected": set()})
-                        runs = True
-                    except api.NotAvailable:
-                        runs = False
+                    runs = survive.dig_in_plan({"region": region, "inv": inv, "feet": feet, "protected": set()})[0] is not None
                     # must fail: offered by its safe depth alone, refused by the run for want of a lid
                     self.assertIs(survive.dig_in_site(region, feet, inv=inv), runs)
 

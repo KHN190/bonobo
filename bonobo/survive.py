@@ -643,27 +643,35 @@ def dig_in_start(region, feet):
         top += 1
     return x, top, z
 
-def dig_in_commands(state, args=()) -> "list[Task]":
-    """Pure: dig DIG_IN_DEPTH straight down, stand at the bottom, and seal the first dug cell."""
+def dig_in_plan(state):
+    """Pure: (tasks, None) to dig DIG_IN_DEPTH straight down, stand at the bottom and seal the first dug cell, or
+    (None, why not): the one test the plan offers a dig-in by (dig_in_site) and the run builds it by."""
 
     region, inv = state["region"], state["inv"]
     x, y, z = start = dig_in_start(region, tuple(state["feet"]))
     tasks, safe = nav.dig_down_tasks(region, start, DIG_IN_DEPTH, state["protected"], False, dug_to=state["feet"][1])
     if safe < DIG_IN_DEPTH:
-        raise NotAvailable(f"only {safe} of {DIG_IN_DEPTH} safe to dig here: no lid below the ground line")
+        return None, f"only {safe} of {DIG_IN_DEPTH} safe to dig here: no lid below the ground line"
     block = next((b for b in GROUPS["building"] if inv.count(b)), None)
     if block is None:
         # nothing to seal with: the roof is what the dig brings up (an empty bag dug a hole with no lid)
         dug = [t for t in tasks if t["type"] == "mine"]
         if not dug:
-            raise NotAvailable("nothing to seal the hole with: no block carried, none dug")
+            return None, "nothing to seal the hole with: no block carried, none dug"
         if inv.free_slots() < 1:
-            raise NotAvailable("nothing to seal the hole with, and no room in the bag for the block dug")
+            return None, "nothing to seal the hole with, and no room in the bag for the block dug"
         for t in dug:
             t["collect"] = True
         name = bare(region.name((dug[0]["x"], dug[0]["y"], dug[0]["z"])))
         block = mid(PLACEABLE_AS.get(name, name))
     tasks.append({"type": "place", "item": block, "x": x, "y": y - 1, "z": z})      # the first dug cell
+    return tasks, None
+
+def dig_in_commands(state, args=()) -> "list[Task]":
+    """Pure: dig_in_plan's tasks, or NotAvailable with its why."""
+    tasks, why = dig_in_plan(state)
+    if tasks is None:
+        raise NotAvailable(why)
     return tasks
 
 def soft_spot():
@@ -678,13 +686,9 @@ def dig_in_site(region, feet_at, protected=(), inv=None):
     """Pure: can a dig-in finish here — DIG_IN_DEPTH cells safe to dig under the column (nav.safe_depth, from
     where a started dig began: dig_in_start), so its lid sits below the ground line? A 3-thick floor over air
     gives 2: not offered (search_night_resume chose it, then 'only 2 of 3 safe'). With the bag known, the dig-in's
-    own commands decide (dig_in_commands: a lid to seal with, room for it): the plan's test is the run's."""
+    own plan decides (dig_in_plan: a lid to seal with, room for it): the plan's test is the run's."""
     if inv is not None:
-        try:
-            dig_in_commands({"region": region, "inv": inv, "feet": tuple(feet_at), "protected": set(protected)})
-            return True
-        except NotAvailable:
-            return False
+        return dig_in_plan({"region": region, "inv": inv, "feet": tuple(feet_at), "protected": set(protected)})[0] is not None
     start = dig_in_start(region, tuple(feet_at))
     return nav.safe_depth(region, start, DIG_IN_DEPTH, protected, dug_to=feet_at[1]) >= DIG_IN_DEPTH
 
