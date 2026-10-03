@@ -339,13 +339,14 @@ def plan_ctx(b, act, snap, mem, world, spent):
     look = held["steps"][0] if held is not None and len(held["steps"]) == 1 and held["steps"][0].kind == "look" \
         else None
     if held is not None and goal and goal["goal"] in goals.ITEM_GOALS:
+        pending = mem.pending_outputs(snap.dimension)       # what the planner credits: the jobs running for us
         if look is not None and "p" in look.detail:    # a look first: its price, and with 1 − p the make anyway
-            out["bound"] = look.est + (1 - look.detail["p"]) * plan_bound(snap.inv, [look.detail["need"]], cost)
+            out["bound"] = look.est + (1 - look.detail["p"]) * plan_bound(snap.inv, [look.detail["need"]], cost, pending)
         else:
-            out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost)
+            out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost, pending)
         if not out["plan_hand_made"] and look is None:
             out["exact_s"], out["exact_unknown"] = exact_s(snap.inv, held.get("want"), goals.needs(goal, snap.inv), cost,
-                                     mem.pending_outputs(snap.dimension))
+                                                           pending)
             if spent and out["exact_s"] is not None:
                 # a budget-cut round is no violation: what the cut cost is the run's distribution (check.run)
                 out["p5_loss_s"] = sum(int(getattr(s, "est", 0) or 0) for s in held["steps"]) / TICKS_PER_S - out["exact_s"]

@@ -297,6 +297,31 @@ class TheAlternativesAreReported(unittest.TestCase):
         self.assertIn("minecraft:bedrock", str(caught.exception))
 
 
+class AHeldPlanIsReplayedHonestly(unittest.TestCase):
+    def test_a_craft_whose_inputs_are_not_had_is_no_incumbent(self):
+        search = planner.Search(NullCost())
+        root = planner.Node(planner.from_bag(bag(inventory()), facts=NullCost().facts()), [], [])
+        held = [planner.Step("craft", "minecraft:iron_pickaxe", 1, {"times": 1, "inputs": {}})]
+        # must fail: a 60-tick incumbent from an empty bag (its step names no inputs: the recipe's were not read)
+        self.assertIsNone(search.replay(root, [("tool", "pickaxe", 2)], held))
+
+    def test_a_fact_asked_is_replayed_by_the_steps_that_make_it(self):
+        search = planner.Search(NullCost())
+        root = planner.Node(planner.from_bag(bag(inventory()), facts=NullCost().facts()), [], [])
+        held = [planner.Step("build", "nether_portal", 1, {})]
+        # must fail: a held plan for a fact never replayed (searched again from nothing each round)
+        self.assertIsNotNone(search.replay(root, [("fact", "portal", True)], held))
+        self.assertIsNone(search.replay(root, [("fact", "covered", True)], held))   # must fail: a fact it never makes
+
+    def test_takes_from_one_container_are_one_trip(self):
+        def took(a, b):
+            steps = [planner.Step("withdraw", "minecraft:stick", 2, {"pos": a}),
+                     planner.Step("withdraw", "minecraft:stick", 2, {"pos": b})]
+            return [s.count for s in planner.forward([(s, {}, i) for i, s in enumerate(steps)], NullCost(), [])[0]]
+        self.assertEqual(took([3, 64, 0], [3, 64, 0]), [4])         # must fail: two trips to one chest
+        self.assertEqual(took([3, 64, 0], [9, 64, 0]), [2, 2])      # must fail: two chests' takes made one
+
+
 class AlikeWaysAreOne(unittest.TestCase):
     def test_a_members_way_the_group_makes_alike_is_dropped(self):
         from bonobo.knowledge import sources
