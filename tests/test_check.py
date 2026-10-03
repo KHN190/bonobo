@@ -269,7 +269,7 @@ class GammaRoundTrip(unittest.TestCase):
              False, 'failure': 'nav', 'fluid': 'lava', 'food_source': 'animals', 'ground': 'open', 'held':
              'same', 'idle': 'none', 'job': 'growing', 'kit': 'sword_shield', 'lit': False, 'noted': 'none',
              'pack': 'dying', 'past': 'latched', 'plan_held': 'none', 'portal': 'sites', 'quarry': 'spider',
-             'repeat': 'once', 'retried': 'none', 'stock': 'none', 'task': 'planned', 'tools': 'axe_shovel',
+             'repeat': 'once', 'retried': 'none', 'stock': 'none', 'task': 'tool', 'tools': 'axe_shovel',
              'trace': 'no_id', 'upkeep_held': 'none', 'weather': 'thunder'})]
 
     def test_found(self):

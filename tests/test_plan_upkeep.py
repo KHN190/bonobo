@@ -2984,10 +2984,11 @@ class EstimatesRememberFirst(unittest.TestCase):
                 ("must fail: nothing anywhere: None", {}, {}, ["diamond_ore"], 48, None)]
         for name, noted, sight, blocks, radius, want in rows:
             with self.subTest(name), mock.patch.object(api, "api", side_effect=AssertionError("an estimate read the world")):
-                m = memory()
+                snap, m = snapshot(state(gameTime=1000), inventory(), **sight), memory()
+                m.clock = snap.state["gameTime"]            # the round's clock, as brain sets it from the snapshot
                 for k, d in noted.items():
                     m.note_seen(k, (int(d), 64, 0), OVER)
-                c = Cost(snapshot(state(), inventory(), **sight), m)
+                c = Cost(snap, m)
                 self.assertEqual(c.distance(blocks, radius), want)
 
 class BridgeStockSizedToTheGap(unittest.TestCase):

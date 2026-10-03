@@ -204,7 +204,7 @@ class Snapshot:
     inv: Inventory
     hits: dict           # the round's look: {block: [hit]}
     mobs: list           # the living entities around
-    read: int
+    read_seq: int
     read_at: float
 
     @classmethod
@@ -214,7 +214,7 @@ class Snapshot:
         snap = cls.__new__(cls)
         snap.state = cast("StateReading", dict(state))
         snap.inv = inventory if isinstance(inventory, Inventory) else Inventory(inventory)
-        snap.read, snap.read_at = api.STATE.state_reads, api.STATE.state_read_at      # the last /state read then
+        snap.read_seq, snap.read_at = api.STATE.state_reads, api.STATE.state_read_at      # the last /state read then
         snap.hits, snap.mobs = dict(hits or {}), list(mobs or [])
         return snap
 

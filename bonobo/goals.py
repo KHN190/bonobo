@@ -2,7 +2,8 @@
 
 import math
 
-from .data import WAYPOINT_R, bare
+from .data import bare
+from .game import WAYPOINT_R
 from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held_count, kit_needs, reconcile,  # noqa: F401
                         tool_ok)
 
