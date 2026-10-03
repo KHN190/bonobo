@@ -545,7 +545,7 @@ def _hook_memo(memo, name, fn, facts=False):
 
 class Search:
     def __init__(self, cost, kinds=None, exact=False):
-        self.exact = exact              # no budget: every option weighed, A* to the end (the checker's reference)
+        self.exact = exact              # the checker's reference: no budget, no pruning (dive width, tool payback, transpositions, orders)
         self.hungry = cost.hunger_rate()
         # what one search learns holds for every search of the round on the same readings (Cost.plans)
         plans = cost.plans()
@@ -1127,7 +1127,7 @@ class Search:
                 if saved <= 0:
                     continue
                 # what it can save over all that is left (each need's ways at their most) cannot pay its least
-                if saved + self.saves_at_most(node, kind, held.get(kind, -1), t, step) \
+                if not self.exact and saved + self.saves_at_most(node, kind, held.get(kind, -1), t, step) \
                         <= self.least(tool_item(kind, t), 1, node.inv) + self.only_for(node, tool_item(kind, t)):
                     continue
                 opts.append(((t + 1, use_rank(kind), 1), [("tool", kind, t, self.uses(step, kind), depth)]))
@@ -1276,7 +1276,7 @@ class Search:
                 best = (f, tie, steps)
                 break
             seen = (signature(node.stack, self.task_keys), node.inv.signature(), node.open)
-            if visited.get(seen, math.inf) <= node.g:
+            if not self.exact and visited.get(seen, math.inf) <= node.g:
                 continue                      # the same state reached as cheaply before: nothing new below it
             visited[seen] = node.g
             nodes += 1
@@ -1585,7 +1585,8 @@ def _orders(group):
 def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False, cap=math.inf):
     """One level's steps in the order of its targets whose whole plan takes fewest seconds (forward's price:"""
     group = sorted(group, key=lambda t: t.rank)
-    orders = _orders(group) if len(group) <= ORDER_MAX else [tuple(group)]
+    # the reference (exact) weighs every order: the partial-order cut and the cap are what it checks
+    orders = itertools.permutations(group) if exact else _orders(group) if len(group) <= ORDER_MAX else [tuple(group)]
     best, dearer = None, None
     for order in orders:
         needs = [n for t in order for n in t.needs]

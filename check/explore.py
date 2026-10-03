@@ -114,7 +114,8 @@ def judge(f):
     ctx["hazard"] = rnd.hazard_round(f) if ctx.get("search_steps") else None           # S7
     after = step(f, d, ctx)
     progress = made_progress(f, d, ctx)
-    return key(f), key(after), d, progress, oracle.violations(f, d, after, ctx), dict(got) != dict(f), dict(got)
+    return (key(f), key(after), d, progress, oracle.violations(f, d, after, ctx), dict(got) != dict(f), dict(got),
+            ctx.get("p5_loss_s"))
 
 
 TIMEOUT_S = 60         # one state's judging past this is a TIMEOUT violation, wherever it hangs
@@ -149,7 +150,7 @@ def judged(f, timeout=TIMEOUT_S):
         signal.alarm(0)
         signal.signal(signal.SIGALRM, before)
     d = rnd.Decision("crash", "crash", None, None, (), why, inv.lower(), ())
-    return key(f), None, d, False, [(inv, why)], False, dict(f), time.time() - t0
+    return key(f), None, d, False, [(inv, why)], False, dict(f), None, time.time() - t0
 
 
 def explore(limit, on_edge):

@@ -185,7 +185,7 @@ class ACrashIsAStatesOwn(unittest.TestCase):
         def boom(f, fail_then_again=True):
             raise ValueError("too many values to unpack")
         with mock.patch.object(rnd, "decide", boom):
-            k, after, d, _progress, found, _mismatch, _got, _secs = explore.judged(of())
+            k, after, d, _progress, found, _mismatch, _got, _loss, _secs = explore.judged(of())
         self.assertEqual((after, d.layer, [inv for inv, _why in found]), (None, "crash", ["CRASH"]))
         self.assertIn("ValueError", found[0][1])
         # must fail: judge itself still raises (only judged isolates)
@@ -204,7 +204,7 @@ class ACrashIsAStatesOwn(unittest.TestCase):
                 except Exception:  # guard: a production-style catch-all must not swallow the alarm
                     pass
         with mock.patch.object(rnd, "decide", hang):
-            _k, after, _d, _p, found, _m, _got, secs = explore.judged(of(), timeout=1)
+            _k, after, _d, _p, found, _m, _got, _loss, secs = explore.judged(of(), timeout=1)
         self.assertEqual((after, [inv for inv, _why in found]), (None, ["TIMEOUT"]))
         self.assertIn("'night'", found[0][1])                         # the state's facts are named
         self.assertLess(secs, 5)
@@ -226,16 +226,24 @@ class TheExactSearchIsCapped(unittest.TestCase):
                 secs, why = rnd.exact_s(snap.inv, None, needs, cost(snap, oak_log=30, stone=20), limit=limit)
                 self.assertEqual((secs is not None, why is not None), want, why)
 
-    def test_only_when_the_budget_was_spent(self):
-        """r5: the unbudgeted reference ran on every planned round (54 s on task=end); a search that ended within its
-        budget is the unbudgeted one, so P5's reference runs only when the round's budget was spent."""
-        from check import round as rnd
-        from check.facts import of
-        _d, _got, ctx = rnd.decide(of(queued="stick"), fail_then_again=False)      # a craft from what is carried
-        self.assertFalse(ctx["budget_spent"])
-        # must fail: the reference searched again on a round its budget never cut
-        self.assertIsNone(ctx.get("exact_s"))
-        self.assertIn("within its budget", ctx["exact_unknown"])
+    def test_a_mispruned_plan_is_reported(self):
+        """P5 against the unpruned reference: a plan dearer than it on a round its budget never cut is a violation (a
+        cut that dropped the cheaper way); a budget-cut round is no violation, its loss goes to the run's distribution."""
+        from bonobo.game import TICKS_PER_S
+        from bonobo.planner import Step
+        from check.inv.plan import P5, TOL_S
+        mined = Step("mine", "minecraft:cobblestone", 3, {"blocks": ["minecraft:stone"], "tier": 0}, est=0)
+        ref_s = 10.0
+        mined.est = int((ref_s + 2 * TOL_S) * TICKS_PER_S)
+        f = of()
+        d = Decision("plan", "task", "cobblestone", None, (), None, "task t1", ())
+        rows = [("must fail: dearer than the reference, budget never cut", False, True),
+                ("budget cut: no violation", True, False)]
+        for name, spent, violated in rows:
+            with self.subTest(name):
+                ctx = {"plan": [mined], "exact_s": ref_s, "budget_spent": spent}
+                got = P5(f, d, f, ctx)
+                self.assertEqual(isinstance(got, str), violated, got)
 
 
 class FinishedRound(unittest.TestCase):

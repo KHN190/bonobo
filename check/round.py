@@ -326,6 +326,7 @@ def plan_ctx(b, act, snap, mem, world, spent):
     cost = Cost(snap, mem, b.blacklist, policy=b.policy_cache, region=ground_read(snap))
     for st in held["steps"] if held is not None else ():
         cost.estimate(st)          # warm the cache while the stub answers
+    from bonobo.game import TICKS_PER_S
     from bonobo.planner import from_bag, price_as_run
     tools = list(from_bag(snap.inv, reserved=cost.reserved).tools)
     out = {"plan": list(held["steps"]) if held is not None else None, "price": cost.estimate, "inv": snap.inv,
@@ -342,11 +343,12 @@ def plan_ctx(b, act, snap, mem, world, spent):
             out["bound"] = look.est + (1 - look.detail["p"]) * plan_bound(snap.inv, [look.detail["need"]], cost)
         else:
             out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost)
-        if not out["plan_hand_made"] and look is None and not spent:
-            out["exact_unknown"] = "the round's search ended within its budget: its plan is the unbudgeted one"
-        elif not out["plan_hand_made"] and look is None:
+        if not out["plan_hand_made"] and look is None:
             out["exact_s"], out["exact_unknown"] = exact_s(snap.inv, held.get("want"), goals.needs(goal, snap.inv), cost,
                                      mem.pending_outputs(snap.dimension))
+            if spent and out["exact_s"] is not None:
+                # a budget-cut round is no violation: what the cut cost is the run's distribution (check.run)
+                out["p5_loss_s"] = sum(int(getattr(s, "est", 0) or 0) for s in held["steps"]) / TICKS_PER_S - out["exact_s"]
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
     # the plan and the chosen candidate priced as they run, now (D6): a later reading would see another world
     priced = {tuple(map(id, steps)): price_as_run(list(steps), tools, cost)
@@ -367,7 +369,7 @@ def plan_ctx(b, act, snap, mem, world, spent):
     return out
 
 
-EXACT_STEPS = 50_000     # search steps the unbudgeted reference may take in one state; past them P5 is unknown
+EXACT_STEPS = 5_000      # search steps the unpruned reference may take in one state; past them P5 is unknown
 
 
 def exact_s(inv, want, needs, cost, pending=None, limit=EXACT_STEPS):
