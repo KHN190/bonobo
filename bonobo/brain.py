@@ -919,8 +919,11 @@ class Brain:
             self.fail_task(task, f"{retry.cause_of(err)}: {err}")
 
     def fail_task(self, task, reason):
-        """Fail the task with its reason; the cerebrum decides what next."""
+        """Fail the task with its reason, recorded with the ground round the body and the acts it ran (K10: the live
+        log carries what a bench report does); the cerebrum decides what next."""
         log(f"?? task {tasks.describe_task(task)} failed: {reason}")
+        events.emit("task failed", f"{tasks.describe_task(task)}: {reason}",
+                    **failure_fields(self.round_snap, ACTS, f"task {task['id']}"))
         self.finish(task, "failed", reason)
 
     def finish(self, task, state, reason):
@@ -994,6 +997,15 @@ def act_record(act, start, end, outcome, cause):
     return {"start": start, "end": end, "layer": act.layer, "intent": act.name,
             "step": None if step is None else str(step), "est": getattr(step, "est", None),
             "outcome": outcome, "cause": cause}
+
+
+def failure_fields(snap, acts, intent):
+    """Pure: what a failure is recorded with (K10): where the body stood, the ground read round it (the round's
+    region, air left out) and the acts run for `intent`."""
+    region = [] if snap is None or snap.region is None else \
+        [[*p, n] for p, n in sorted(snap.region.blocks.items()) if n != "air"]
+    return {"region_at": None if snap is None else list(snap.feet), "region": region,
+            "acts": [a for a in acts if a["intent"] == intent]}
 
 
 def side_saving(p_used, later_s, now_s, detour_s):
