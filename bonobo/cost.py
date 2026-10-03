@@ -104,6 +104,12 @@ def stand_kind(kinds):
     return "use_item" if any(n in HAZARD for n in names) else "mine"
 
 
+def refuted_key(step, target):
+    """Pure: what a refuted price is kept under (Memory.refute): the step's kind and token, its target (None: the
+    step anywhere)."""
+    return step.kind, step.token, None if target is None else tuple(int(v) for v in target)
+
+
 def route_refused(routes, where):
     """Pure: the game's route to `where` was asked and not found (`routes`: the answers the snapshot was read with)."""
     return routes.get(route_key(where, 2.0, NAV_NODES), (None, None))[0] is False
@@ -366,6 +372,11 @@ class Cost:
         before it) when that and the step's site are known, else from here, with the way blocks the plan spent before
         it gone (`spent`, D6); a withdrawal by the chance its container still holds the thing (a miss costs the
         walk)."""
+        refuted = self.refuted_ticks(step, self.site(step), at)
+        if refuted is not None:
+            # a price the run refuted (Overrun): its measured rest, the parts' model set aside while the state holds
+            step.parts = {"refuted": refuted}
+            return refuted
         work = self.work(step, held, table_back)
         parts = {"work": work, **self._walk_parts(step, at, held, spent=spent)}
         if step.kind in ("seek", "wait"):
@@ -470,6 +481,46 @@ class Cost:
             hit = self._nearest(kinds, sources=sources)
             seen = self.seen(kinds, self.not_there(True)) if hit is None and k != "hunt" else None
             self.cache[key] = hit[0] if hit is not None else (seen[1] if seen is not None else None)
+        first = self.cache[key]
+        refuted = self.refuted_ticks(step, first) if sources and first is not None else None
+        return first if refuted is None else self._cheaper_source(step, kinds, first, refuted)
+
+    def refuted_ticks(self, step, target, at=None):
+        """Ticks a run measured left of `step` at `target` past its price (Memory.refuted: nav.Overrun's rest, the one
+        writer dispatch.execute's), while the state it was measured in holds (ban_state from the step's place, the
+        bag's kinds) — None when there is none or it lifted."""
+        read = getattr(self.mem, "refuted_s", None)
+        if read is None:
+            return None                     # a memory with no refutations (a test's stand-in)
+        state = ban_state(self.step_state(at)[0], frozenset(s["id"] for s in self.snap.inv.slots if s.get("count")))
+        for t in (target, None):
+            got = read(refuted_key(step, t), state)
+            if got is not None:
+                return round(got * TICKS_PER_S)
+        return None
+
+    def _cheaper_source(self, step, kinds, first, refuted):
+        """G3 over a refuted source: `first` at its refuted ticks against the others remembered or in sight, each by
+        its walk and (a mine) its dig (dug_way), nearest first until a walk alone cannot beat the best; the cheapest."""
+        key = ("cheaper", step.kind, step.token, tuple(first), refuted)
+        if key not in self.cache:
+            feet, skip = tuple(self.snap.feet), self.not_there(True)
+            dim = self.snap.dimension
+            cells = {tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim)}
+            cells |= {(h["x"], h["y"], h["z"]) for k in kinds for h in self.snap.hits.get(bare(k), ())}
+            best = (refuted, tuple(first))
+            blocks = step.detail.get("blocks") or ()
+            for c in sorted((c for c in cells if c not in skip and c != tuple(first)), key=lambda c: math.dist(c, feet)):
+                walk = walk_ticks(math.dist(c, feet))
+                if walk >= best[0]:
+                    break
+                dig = 0
+                if step.kind == "mine":
+                    dug = self._way_breaks(feet, c, blocks[0] if blocks else "stone", FIND_AT.get(step.token) is not None)
+                    dig = round(work_s(dug, [], held_tiers(self.snap.inv), TICKS_PER_S) * TICKS_PER_S) if dug else 0
+                if walk + dig < best[0]:
+                    best = (walk + dig, c)
+            self.cache[key] = best[1]
         return self.cache[key]
 
     def _kinds_of(self, step):
@@ -535,7 +586,9 @@ class Cost:
                 out["walk"] = round(through * TICKS_PER_S) if through is not None else out["walk"]
             out["dig"] = self.dig_to(step, held, at) if k == "mine" and dig else 0
         elif k in self.SOURCED:
-            d = self._source(step)
+            # one target: the walk to the site the dig prices (a refuted nearest's cheaper other, _cheaper_source)
+            mine_site = self.site(step) if k in ("gather", "mine", "take") else None
+            d = math.dist(self.snap.feet, mine_site) if mine_site is not None else self._source(step)
             out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else self.find_ticks(step_kinds(step), held, at)
             if k != "mine":
                 out["surface"] = self._surface_trip(at)

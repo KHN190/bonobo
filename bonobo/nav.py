@@ -645,11 +645,11 @@ def step_budget(est_ticks):
 
 def check_budget(target=None, remaining_s=None):
     """Overrun when the running step has spent its budget (a skill between yields, a way between segments, a walk
-    between legs)."""
+    between legs); its rest `remaining_s` when measured, else what it spent (at least as dear again)."""
     budget = BUDGET[0]
     if budget is not None and budget.left() < 0:
         raise Overrun(f"the step ran {budget.spent():.0f}s > its {budget.limit_s:.0f}s ({OVERRUN}× its price)",
-                      pos=target, remaining_s=remaining_s)
+                      pos=target, remaining_s=budget.spent() if remaining_s is None else remaining_s)
 
 
 def afford(seconds, target):
