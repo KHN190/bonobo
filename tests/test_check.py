@@ -330,6 +330,25 @@ class FactValuesOfOneType(unittest.TestCase):
                 sorted(vs)
 
 
+class UnplannableIsThisRounds(unittest.TestCase):
+    """review-brain 12: `unplannable` (D1's reason when nothing is proposed) was never cleared — a round that planned
+    still read the last failed round's reason."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import api, brain
+        from tests.world import brain_fixture, round_ctx, snapshot
+        b = brain_fixture()
+        b.unplannable["round"] = "unplannable: a round long gone"
+        snap = snapshot()
+        with mock.patch.object(b, "plan_proposals", return_value=[]), \
+                mock.patch.object(b.reflexes, "proposals", return_value=[]), mock.patch.object(b.needs, "propose"), \
+                mock.patch.object(brain.hazard, "rescue_due", return_value=None), \
+                mock.patch.object(api.STATE, "mode", "normal"):
+            b.decide(snap, round_ctx(b, snap))
+        self.assertEqual(b.unplannable, {})       # must fail: the stale reason read as this round's
+
+
 class AGrowingCropIsNotWaitedOn(unittest.TestCase):
     """y-check's D7: task farm, a crop growing — the round chose `await` (stand by the plot) round after round. An
     await runs only when its job is due by its clock within AWAIT_MAX_S (farming.awaitable); else the plan's other
