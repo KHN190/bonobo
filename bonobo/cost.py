@@ -522,7 +522,8 @@ class Cost:
     def find_ticks(self, kinds, held=None):
         """Ticks to find one of `kinds` never seen (knowledge.expected_find_s): the soonest of them, from these feet
         with the tools `held` ({tool kind: tier}) when the search runs, the bag's when None."""
-        facts = {"y": self.snap.feet[1], "held": held_tiers(self.snap.inv) if held is None else held}
+        facts = {"y": self.snap.feet[1], "held": held_tiers(self.snap.inv) if held is None else held,
+                 "feet": self.snap.feet, "biomes": self.snap.biomes}
         return round(min(expected_find_s(k, facts) for k in (kinds or ["other"])) * TICKS_PER_S)
 
 def portal_known(mem, dimension):

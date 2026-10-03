@@ -477,6 +477,39 @@ ORE_VEINS = {
     "diamond_ore": [(7, 4, -144, 16, "triangle")],
     "lapis_ore": [(2, 7, -32, 32, "triangle"), (4, 7, -64, 64, "uniform")],
 }
+# What each biome holds (knowledge.biome_options). Vanilla worldgen tree features (placed_feature trees_*,
+# VegetationPlacements): trees a chunk, the count plus its extra chance
+TREES_PER_CHUNK = {
+    "forest": 10.1, "birch_forest": 10.1, "old_growth_birch_forest": 10.1, "flower_forest": 6.1, "dark_forest": 16.0,
+    "taiga": 10.1, "snowy_taiga": 10.1, "old_growth_pine_taiga": 10.1, "old_growth_spruce_taiga": 10.1,
+    "grove": 10.1, "cherry_grove": 10.1, "jungle": 50.1, "sparse_jungle": 2.1, "bamboo_jungle": 30.1,
+    "savanna": 1.1, "savanna_plateau": 1.1, "swamp": 2.1, "wooded_badlands": 5.1, "windswept_forest": 3.1,
+    "plains": 0.05, "sunflower_plains": 0.05, "snowy_plains": 0.1, "windswept_hills": 0.1,
+    "desert": 0.0, "badlands": 0.0, "eroded_badlands": 0.0, "beach": 0.0, "snowy_beach": 0.0, "stony_shore": 0.0,
+    "river": 0.0, "frozen_river": 0.0, "mushroom_fields": 0.0, "stony_peaks": 0.0, "jagged_peaks": 0.0,
+    "frozen_peaks": 0.0, "snowy_slopes": 0.0,
+    **{o: 0.0 for o in ("ocean", "deep_ocean", "warm_ocean", "lukewarm_ocean", "deep_lukewarm_ocean", "cold_ocean",
+                        "deep_cold_ocean", "frozen_ocean", "deep_frozen_ocean")},
+}
+# Minecraft Wiki, "Mob spawning" and each biome's page: the creature spawn list's weights by biome
+FARM_ANIMALS = {"sheep": 12, "pig": 10, "chicken": 10, "cow": 8}
+BIOME_CREATURES = {
+    **{b: dict(FARM_ANIMALS) for b in ("plains", "sunflower_plains", "meadow", "forest", "flower_forest",
+                                       "birch_forest", "old_growth_birch_forest", "dark_forest", "windswept_hills",
+                                       "windswept_forest", "cherry_grove", "sparse_jungle", "jungle", "bamboo_jungle",
+                                       "swamp", "savanna", "savanna_plateau")},
+    **{b: dict(FARM_ANIMALS, rabbit=4) for b in ("taiga", "old_growth_pine_taiga", "old_growth_spruce_taiga")},
+    "desert": {"rabbit": 4}, "snowy_plains": {"rabbit": 10}, "snowy_taiga": {"rabbit": 4},
+    "mushroom_fields": {"mooshroom": 8},
+}
+# the village structure's biomes (worldgen/structure village_*: plains, desert, savanna, snowy, taiga)
+VILLAGE_BIOMES = {"plains", "meadow", "desert", "savanna", "snowy_plains", "taiga"}
+# patches a biome is made of, per chunk (no one count in the game: priors E4 measures)
+BIOME_PATCH = {
+    "sand": {"desert": 256.0, "beach": 128.0, "badlands": 128.0, "eroded_badlands": 128.0, "wooded_badlands": 64.0},
+    "water": {**{o: 256.0 for o in ("ocean", "deep_ocean", "warm_ocean", "lukewarm_ocean", "deep_lukewarm_ocean",
+                                    "cold_ocean", "deep_cold_ocean", "river", "beach")}, "swamp": 64.0},
+}
 
 CRITICAL_HP = 4            # health at or below which danger overrides everything (hazard's "critical")
 CRITICAL_HP_END = 12       # in the End: a breath or head butt takes 10+
