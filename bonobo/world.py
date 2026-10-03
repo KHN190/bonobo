@@ -199,7 +199,7 @@ class Snapshot:
         return self.state.get(key, default)
 
 SIGHT_TTL_S = 3.0          # a round's look at "how far is the nearest of each": kept while the feet stay put
-_SIGHT = {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}}
+_SIGHT = {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}, "memo": {}, "v": 0}
 SIGHT_PER_BLOCK = 4        # hits kept per block: a source is the nearest of them outside the protected cells
 # the round's route answers and the last look are about the world we stood in (a new row may stand at the same feet)
 lifecycle.in_place(__name__, "ROUTES", "_SIGHT")
@@ -228,7 +228,7 @@ def nearest(kinds, feet, dimension, radius=48, union=(), skip=None):
     key = (tuple(feet), dimension)
     fresh = _SIGHT["key"] == key and time.time() - _SIGHT["t"] < SIGHT_TTL_S
     if not fresh:
-        _SIGHT.update(key=key, t=time.time(), near={}, y={}, hits={})
+        _SIGHT.update(key=key, t=time.time(), near={}, y={}, hits={}, memo={}, v=_SIGHT.get("v", 0) + 1)
     near, hits_of = _SIGHT["near"], _SIGHT.setdefault("hits", {})
     missing = [n for n in names if n not in near]
     if missing:
@@ -243,6 +243,7 @@ def nearest(kinds, feet, dimension, radius=48, union=(), skip=None):
         for b in ask:
             near.setdefault(b, None)
             hits_of.setdefault(b, [])
+        _SIGHT["memo"], _SIGHT["v"] = {}, _SIGHT.get("v", 0) + 1     # the look grew: what was read off it goes
         for h in hits:
             b = bare(h["block"])
             hits_of.setdefault(b, []).append(h)
@@ -257,12 +258,29 @@ def nearest(kinds, feet, dimension, radius=48, union=(), skip=None):
         got = [near[n] for n in names if near.get(n) is not None and near[n] <= radius]
     return min(got) if got else None
 
+def sight_version():
+    """The look's generation: changes whenever `nearest` reads the world again or the look grows."""
+    return _SIGHT.get("v", 0), id(_SIGHT.get("hits"))
+
 def sight_pos(kinds, skip=None):
     """The cell of the nearest of `kinds` the last look saw (`nearest`; `skip`: cells not there), or None: no read of
     its own."""
-    got = [(h["distance"], (h["x"], h["y"], h["z"])) for k in kinds for h in _SIGHT.get("hits", {}).get(bare(k), ())
+    # a skip says what it holds (`memo_key`); one that does not is read each time
+    held = None if skip is None else getattr(skip, "memo_key", None)
+    key = (tuple(kinds), held) if skip is None or held is not None else None
+    hits = _SIGHT.get("hits", {})
+    memo = _SIGHT.setdefault("memo", {})
+    if memo.get("of") is not hits:          # read off another look: nothing kept
+        memo.clear()
+        memo["of"] = hits
+    if key is not None and key in memo:
+        return memo[key][0]
+    got = [(h["distance"], (h["x"], h["y"], h["z"])) for k in kinds for h in hits.get(bare(k), ())
            if skip is None or (h["x"], h["y"], h["z"]) not in skip]
-    return min(got)[1] if got else None
+    out = min(got)[1] if got else None
+    if key is not None:
+        memo[key] = (out, skip)   # one look's answer, kept until the look changes (nearest); the skip held alive
+    return out
 
 def sight_y(kinds, skip=None):
     """The y of the nearest of `kinds` the last look saw (`nearest`; `skip`: cells not there), or None: no read of its
