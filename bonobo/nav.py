@@ -942,14 +942,13 @@ def lying_drops(items, only):
     want = set(only)
     return [e for e in items if (e.get("item") or {}).get("id") in want]
 
-def sweep_lying(ctx, only, count, before, radius=6):
+def sweep_lying(ctx, only, settled, radius=6):
     """After a batch's own pickup: drops of `only` the jar's sweep left lying (it gave up on them) swept once more;
-    the count after, settled (the caller compares with `before`)."""
+    the count after, `settled()` (the caller's settled reading, compared with its own before)."""
     from .data import item_ids
-    from .skillcore import gained
     from .world import entities
     ids = item_ids(only)
-    now = gained(count, before)
+    now = settled()
     left = lying_drops(entities(radius, ["minecraft:item"]), ids)
     if not left:
         return now
@@ -958,7 +957,7 @@ def sweep_lying(ctx, only, count, before, radius=6):
         walk_sweep(ctx, radius=radius, only=ids)
     except api.Unreachable as e:
         log(f"   the drops lie out of reach: {e}")
-    return gained(count, before)
+    return settled()
 
 # the game is asked once per (target, policy, nodes) per round; cleared by `forget_routes`
 from .world import ROUTES as _ROUTES  # noqa: E402  (the round's route answers, read by the cost model too)
