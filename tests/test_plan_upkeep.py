@@ -1740,6 +1740,24 @@ class Retry(unittest.TestCase):
                     self.assertEqual(b.retry.cooling, {}, "an interruption cooled something")
                     self.assertIsNone(b.reflexes.blocked, "an interruption was taken for a blocked path")
 
+    def test_a_cooling_lifts_once_the_state_changed(self):
+        now, sig = 1000.0, retry.state_signature
+        failed_in = sig(HERE, {"minecraft:oak_log"}, True)
+        # (state now, seconds later, ready): the clock caps; a changed state lifts it at once (E5)
+        rows = [("the same state, the cause still cooling", failed_in, 1, False),
+                ("must fail: a new kind in the bag, still cooled", sig(HERE, {"minecraft:oak_log", "minecraft:stick"}, True),
+                 1, True),
+                ("the target gone", sig(HERE, {"minecraft:oak_log"}, False), 1, True),
+                ("the same state past the cap", failed_in, retry.BACKSTOP["nav"] + 1, True),
+                ("no state asked: the clock alone", None, 1, False)]
+        for name, state, later, want in rows:
+            with self.subTest(name):
+                r = retry.Retry()
+                r.failed("task t1", "nav", "no path", now, HERE, also_at=(THERE,), state=failed_in)
+                self.assertEqual(r.ready("task t1", now + later, HERE, state=state), want)
+                if state is not None:     # the place walked away from keeps its own state
+                    self.assertEqual(r.ready("task t1", now + later, THERE, state=(THERE,) + state[1:]), want)
+
     def test_cooldown_doubles_up_to_its_ceiling(self):
         r, now = retry.Retry(), 1000.0
         waits = [r.failed(f"task t{i}", "nav", "no path", now, HERE).wait for i in range(8)]
