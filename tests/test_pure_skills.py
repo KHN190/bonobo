@@ -50,8 +50,7 @@ class PickTrunks(unittest.TestCase):
 
 
 class CheapestTrunk(unittest.TestCase):
-    """wood.cheapest_trunk: the trunk walked to soonest by the walk's price, asked in the order of nav.least_way_s —
-    no nearest-N cut."""
+    """wood.cheapest_trunk: by the walk's price in nav.least_way_s order, no nearest-N cut."""
 
     def test_rows(self):
         from bonobo import wood
