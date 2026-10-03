@@ -318,6 +318,12 @@ def plan_ctx(b, act, snap, mem, world):
     out["plan_switch"] = getattr(b, "plan_switch", None)
     from bonobo.planner import food_left_s
     out["food_left_s"] = food_left_s(cost)
+    # M1: each withdrawal the held plan makes, with the chance production gives that container now and what a reread
+    # of the world shows at it
+    out["withdraws"] = [(tuple(st.detail["pos"]), st.token, st.detail.get("p"),
+                         next((q for p, _i, _n, q in cost.stored(st.token) if tuple(p) == tuple(st.detail["pos"])), None),
+                         world.blocks.get(tuple(st.detail["pos"]), "air"))
+                        for st in (held["steps"] if held is not None else ()) if st.kind == "withdraw"]
     step = getattr(act, "step", None)
     pos = step.detail.get("pos") if step is not None and step.kind == "mine" else None
     if pos is not None:
