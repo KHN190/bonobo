@@ -6,8 +6,8 @@ from . import api, nav
 from .api import NotAvailable, log
 from .data import RARE_SIGHTINGS, SEARCH_LEGS, SEARCH_LOOK_R, bare
 from .skill import skill
-from .world import feet
-from .knowledge import FIND_AT, MINE, takeable_blocks
+from .world import biomes_around, feet
+from .knowledge import FIND_AT, MINE, search_target, takeable_blocks
 
 def _searched(c):
     """A search succeeded when it found one: walking without finding is not the product."""
@@ -84,6 +84,9 @@ def _search(ctx, kinds, look, radius, legs):
         if hits:
             return hits
         todo = ctx.mem.frontier(ctx.dimension, here, kinds, band)
+        toward = search_target(kinds[0], {"feet": here, "biomes": biomes_around()})
+        if toward is not None:
+            todo = sorted(todo, key=lambda s: math.dist((s[1][0], s[1][2]), toward))     # into the biome that holds it
         target, tried = None, 0
         deep = underground_search(kinds)
         surface = not deep and ctx.dimension not in SKYLESS

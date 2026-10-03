@@ -209,12 +209,13 @@ class Snapshot:
     region: "Region | None"     # the ground round the feet, read with the round (None: not read: nothing known of it)
     region_at: float            # when that ground was read (round_ground: kept while fresh)
     routes: dict                # the game's route answers known when it was read (ROUTES: asked by walks before it)
+    biomes: list                # [(cx, cz, biome)] of the loaded chunks (biomes_around)
     read_seq: int
     read_at: float
 
     @classmethod
     def from_readings(cls, state: Mapping[str, Any], inventory: "Mapping[str, Any] | Inventory", hits=None,
-                      mobs=None, region=None, region_at=None, routes=None) -> "Snapshot":
+                      mobs=None, region=None, region_at=None, routes=None, biomes=None) -> "Snapshot":
         """A snapshot of recorded readings (/state, /inventory, the look's `hits` and `mobs`, the ground `region`): no
         world read."""
         snap = cls.__new__(cls)
@@ -224,6 +225,7 @@ class Snapshot:
         snap.hits, snap.mobs, snap.region = dict(hits or {}), list(mobs or []), region
         snap.region_at = snap.read_at if region_at is None else region_at
         snap.routes = dict(routes or {})
+        snap.biomes = list(biomes or [])
         return snap
 
     @classmethod
@@ -234,7 +236,7 @@ class Snapshot:
         feet = (state["blockX"], state["blockY"], state["blockZ"])
         hits, mobs = look_around(feet, state.get("dimension"), kinds)
         region, at = round_ground(feet, ground)
-        return cls.from_readings(state, Inventory(), hits, mobs, region, at, routes=ROUTES)
+        return cls.from_readings(state, Inventory(), hits, mobs, region, at, routes=ROUTES, biomes=biomes_around())
 
     @property
     def feet(self) -> Cell:
@@ -531,3 +533,16 @@ def ripe_near(feet, radius=32):
     lo = tuple(min(c[i] for c in cells) for i in range(3))
     hi = tuple(max(c[i] for c in cells) for i in range(3))
     return ripe_cells(Region(lo, hi, props=True))
+
+
+BIOME_VIEW_CHUNKS = 8      # the chunks a biome read covers round the feet (the client's loaded area)
+
+def biomes_around(radius=BIOME_VIEW_CHUNKS):
+    """[(cx, cz, biome id)] of the loaded chunks round the feet (/biomes); [] from a jar without it (the search's
+    legs then, as before)."""
+    try:
+        chunks = api.get(f"/biomes?radius={radius}")["chunks"]
+    except api.McError as e:
+        api.swallowed("world.biomes_around", e)
+        return []
+    return [(c["cx"], c["cz"], c["biome"]) for c in chunks]

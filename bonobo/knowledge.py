@@ -5,6 +5,7 @@ import math
 from .game import BREAK_COOLDOWN, COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
 from .data import ANIMAL_HP, BASE_MARKERS, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, HARDNESS, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
 from .data import TAKEABLE
+from .data import BIOME_CREATURES, BIOME_PATCH, TREES_PER_CHUNK, VILLAGE_BIOMES
 from .data import CHUNK_BLOCKS, CREATURE_CHUNK_P, DEEPSLATE_TOP, ORE_VEINS, PASSIVE_WEIGHT, ROUTE_FACTOR, SEARCH_LOOK_R, VILLAGE_ONLY, VILLAGE_REGION_BLOCKS, WALK_BLOCKS_PER_TICK
 from .data import COLORS, WOODS, ATTACKS_PER_S, HAND_ATTACKS_PER_S, HAND_DAMAGE, NETHER, OVERWORLD, PIGLIN_BARTER, is_night
 
@@ -137,6 +138,8 @@ TUNNEL_FACES = 6          # block faces a 1×2 tunnel's step lays open: each cel
 WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~5.3 ticks a block, sprinting with detours
 SOIL_KINDS = {"stone", "cobblestone", "dirt", "grass_block", "coarse_dirt"}
 AREA_KINDS = {"water": "water", "sand": "sand", "red_sand": "sand", "clay": "clay", "clay_ball": "clay"}
+SURFACE_CLASSES = {"tree", "animal", "village", "water", "sand", "clay", "other"}
+KNOWN_BIOMES = set(TREES_PER_CHUNK) | set(BIOME_CREATURES) | VILLAGE_BIOMES
 
 
 def find_class(kind):
@@ -179,13 +182,61 @@ def _area_s(per_block2):
     return blocks * WALK_TICKS_PER_BLOCK / TICKS_PER_S
 
 
+def _density(cls, k, biome=None):
+    """Pure: per block² of `k` (of class `cls`) in `biome` (the biome tables), or everywhere when the biome is not
+    known (None or in no table): the global density."""
+    known = biome is not None and biome in KNOWN_BIOMES
+    if cls == "tree" and known:
+        return TREES_PER_CHUNK.get(biome, FIND_DENSITY["tree"]) / CHUNK_BLOCKS ** 2
+    if cls == "animal" and known and biome in BIOME_CREATURES:
+        spawns = BIOME_CREATURES[biome]
+        return CREATURE_CHUNK_P / CHUNK_BLOCKS ** 2 * spawns.get(k, 0) / sum(spawns.values())
+    if cls == "animal":
+        return 0.0 if known else CREATURE_CHUNK_P / CHUNK_BLOCKS ** 2 * PASSIVE_WEIGHT[k] / sum(PASSIVE_WEIGHT.values())
+    if cls == "village":
+        return 1.0 / VILLAGE_REGION_BLOCKS ** 2 if not known or biome in VILLAGE_BIOMES else 0.0
+    patch = BIOME_PATCH.get(cls, {})
+    if known and biome in patch:
+        return patch[biome] / CHUNK_BLOCKS ** 2
+    return FIND_DENSITY.get(cls, FIND_DENSITY["other"]) / CHUNK_BLOCKS ** 2
+
+
+def biome_options(kind, facts):
+    """Pure: [(column (x, z) or None, seconds)] to find one `kind` (a surface class) — each chunk in view whose biome
+    holds it: the walk to its centre and a search there (_area_s); None: past the view, the global density."""
+    cls, _item = find_class(kind)
+    k = bare(kind).removeprefix("deepslate_")
+    fx, _fy, fz = facts["feet"]
+    out, view = [], 0.0
+    for cx, cz, biome in facts.get("biomes") or ():
+        col = (cx * CHUNK_BLOCKS + CHUNK_BLOCKS // 2, cz * CHUNK_BLOCKS + CHUNK_BLOCKS // 2)
+        d = math.dist((fx, fz), col)
+        view = max(view, d)
+        rho = _density(cls, k, bare(biome))
+        if rho > 0:
+            out.append((col, d * WALK_TICKS_PER_BLOCK / TICKS_PER_S + _area_s(rho)))
+    out.append((None, view * WALK_TICKS_PER_BLOCK / TICKS_PER_S + _area_s(_density(cls, k))))
+    return out
+
+
+def search_target(kind, facts):
+    """Pure: the column a search for `kind` heads to — the chunk in view that finds one soonest (biome_options:
+    P(find) per second, the walk there included) — or None: no biome known, or nothing in view beats the legs."""
+    if not facts.get("biomes") or find_class(kind)[0] not in SURFACE_CLASSES:
+        return None
+    return min(biome_options(kind, facts), key=lambda o: o[1])[0]
+
+
 def expected_find_s(kind, facts):
     """Pure: expected seconds to find one `kind` never seen, from how the game places it (find_class). `facts`:
-    {"y": the feet's y, "held": {tool kind: tier}}. An ore: the dig to its richest band (FIND_AT) and a tunnel there
-    until one shows; the soil's rock: its depth dug; the rest: a walk over the ground (_area_s)."""
+    {"y": the feet's y, "held": {tool kind: tier}, "biomes": [(cx, cz, biome)] in view, "feet"}. An ore: the dig to its
+    richest band (FIND_AT) and a tunnel there until one shows; the soil's rock: its depth dug; a surface class: the
+    soonest of biome_options when biomes are known (the price the search walks by), else a walk over the ground."""
     cls, _item = find_class(kind)
     held = facts.get("held", {})
     k = bare(kind).removeprefix("deepslate_")
+    if cls in SURFACE_CLASSES and facts.get("biomes"):
+        return min(s for _col, s in biome_options(kind, facts))
     if cls == "ore":
         drop = next(d for d, (blocks, _t) in MINE.items() if k in [bare(b) for b in blocks])
         band = FIND_AT[drop]
@@ -198,11 +249,7 @@ def expected_find_s(kind, facts):
         return work_s(["dirt"] * SOIL_DEPTH, [], held, TICKS_PER_S)
     if cls == "deep":
         return work_s(["stone"] * max(0, int(facts.get("y", DEEPSLATE_TOP)) - DEEPSLATE_TOP + 1), [], held, TICKS_PER_S)
-    if cls == "animal":
-        return _area_s(CREATURE_CHUNK_P / CHUNK_BLOCKS ** 2 * PASSIVE_WEIGHT[k] / sum(PASSIVE_WEIGHT.values()))
-    if cls == "village":
-        return _area_s(1.0 / VILLAGE_REGION_BLOCKS ** 2)
-    return _area_s(FIND_DENSITY[cls] / CHUNK_BLOCKS ** 2)
+    return _area_s(_density(cls, k))
 
 
 def step_kinds(step):
@@ -896,7 +943,7 @@ PRICE_SOURCE = {
         "break_task": "measured"},      # bench q5 ticks (readiness: mine_stone__base, ore_buried, chop__base)
     "knowledge.SURFACE_Y": "game", "data.MEASURED_BAND": "policy", "knowledge.GROW_S": {"crop": "prior", "animal": "game"}, "knowledge.NIGHT_S": "game",
     "knowledge.FIND_AT": "game", "knowledge.FIND_DENSITY": {"tree": "prior", "water": "prior", "sand": "prior", "clay": "prior", "other": "prior"}, "knowledge.TUNNEL_FACES": "game",
-    "data.ORE_VEINS": "game", "data.CREATURE_CHUNK_P": "game", "data.VILLAGE_REGION_BLOCKS": "game", "data.SOIL_DEPTH": "prior", "data.DEEPSLATE_TOP": "game",
+    "data.ORE_VEINS": "game", "data.TREES_PER_CHUNK": "game", "data.BIOME_CREATURES": "game", "data.VILLAGE_BIOMES": "game", "data.BIOME_PATCH": "prior", "data.CREATURE_CHUNK_P": "game", "data.VILLAGE_REGION_BLOCKS": "game", "data.SOIL_DEPTH": "prior", "data.DEEPSLATE_TOP": "game",
     "data.WALK_BLOCKS_PER_TICK": "mineflayer prior", "data.ROUTE_FACTOR": "prior", "data.HARDNESS": "game",
     "data.TOOL_SPEED": "game", "data.BREAK_DIVISOR": "game", "data.PASSIVE_WEIGHT": "game", "data.SEARCH_LEGS": "prior",
     "data.SEARCH_LOOK_R": "prior", "game.EAT_TICKS": "game", "game.BREAK_COOLDOWN": "game", "game.PLAYER_SPRINT": "game",
