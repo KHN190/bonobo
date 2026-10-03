@@ -98,6 +98,25 @@ class TheRoundsOnePlan(unittest.TestCase):
                 self.assertEqual(first.token == "minecraft:cooked_beef", first_food)
 
 
+class TheHeldPlanIsTheBar(unittest.TestCase):
+    """The plan held from the round before, priced on today's world, is the incumbent: a plan as cheap is found with
+    far fewer search steps; a held plan that no longer runs from this bag is ignored."""
+
+    def test_rows(self):
+        needs = [("tool", "pickaxe", 2)]
+        fresh_before = planner.SPENT["steps"]
+        fresh = plan_needs(bag(inventory()), needs, NullCost())
+        fresh_steps = planner.SPENT["steps"] - fresh_before
+        # (situation, the held plan) → (as cheap as a fresh one, searched less than it)
+        rows = [("must fail: the held plan, still good: priced, not searched again", fresh, True),
+                ("a held plan missing its first steps: ignored, searched as fresh", fresh[3:], False)]
+        for name, held, fewer in rows:
+            with self.subTest(name):
+                before = planner.SPENT["steps"]
+                got = plan_needs(bag(inventory()), needs, NullCost(), held=held)
+                self.assertEqual((ticks(got), planner.SPENT["steps"] - before < fresh_steps), (ticks(fresh), fewer))
+
+
 class TheChainIsTheGraphs(unittest.TestCase):
     """How deep a plan may go is the recipe and contract graph's own longest chain (Bound.depth, no typed limit); a
     cycle is cut where it closes (the same thing asked while it is being made), never by depth."""
