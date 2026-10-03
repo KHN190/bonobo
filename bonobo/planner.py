@@ -32,6 +32,7 @@ STATIONS = frozenset(("minecraft:crafting_table", "minecraft:furnace"))     # wh
 FOOD_IDS = frozenset(mid(f) for f in ALL_FOOD)          # what the eat reflex eats
 MAKES_FOOD = ("smelt", "craft", "take", "withdraw", "trade", "await")   # steps that put food in the bag
 MERGEABLE_CRAFTS = {"planks", "minecraft:stick", "minecraft:torch", "minecraft:ladder"}
+ORDER_MAX = 4         # a level's targets every order of which is weighed (4! plans)
 DIVE_WIDTH = 2        # options a nested choice of the incumbent dive weighs (the least-bound first)
 REORDER_MAX = 10      # steps with a known place an order is searched over exactly (2^n states)
 
@@ -1196,9 +1197,23 @@ def _in_levels(inv, targets, cost, pending, jobs):
     """The targets' steps, level by level (`levels`), each level from the bag the ones before it leave."""
     steps = []
     for group in levels(targets):
-        needs = [n for t in group for n in t.needs]
-        steps += plan_needs(_After(inv, steps), needs, cost, pending, jobs) if needs else []
+        steps += _cheapest_order(_After(inv, steps), group, cost, pending, jobs)
     return steps
+
+
+def _cheapest_order(inv, group, cost, pending, jobs):
+    """One level's steps in the order of its targets whose whole plan takes fewest seconds (forward's price: the
+    walks, a tool made first speeding the rest) — every order weighed up to ORDER_MAX targets, queue rank only at
+    equal seconds (and the order beyond that)."""
+    orders = itertools.permutations(group) if len(group) <= ORDER_MAX else [tuple(group)]
+    best = None
+    for order in orders:
+        needs = [n for t in order for n in t.needs]
+        steps = plan_needs(inv, needs, cost, pending, jobs) if needs else []
+        key = (sum(s.est for s in steps), tuple(t.rank for t in order))
+        if best is None or key < best[0]:
+            best = (key, steps)
+    return best[1] if best else []
 
 
 def plan_round(inv, targets, cost, pending=None, jobs=None):

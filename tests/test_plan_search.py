@@ -67,6 +67,16 @@ class TheRoundsOnePlan(unittest.TestCase):
         # must fail: the queue's rank put the torches (rank 0) before the pickaxe they wait on
         self.assertLess(made.index("minecraft:wooden_pickaxe"), made.index("minecraft:torch"))
 
+    def test_the_order_is_the_fewest_seconds(self):
+        from bonobo.planner import Target, plan_round
+        targets = [Target("logs", [("log", 8)], 0), Target("torches", [("minecraft:torch", 8)], 1)]
+        by_rank = ticks(plan_needs(bag(inventory()), [("log", 8), ("minecraft:torch", 8)], NullCost()))
+        other = ticks(plan_needs(bag(inventory()), [("minecraft:torch", 8), ("log", 8)], NullCost()))
+        _first, steps, _secs = plan_round(bag(inventory()), targets, NullCost())
+        # must fail: the queue's rank (logs first) though the other order's whole plan takes fewer seconds
+        self.assertEqual(ticks(steps), min(by_rank, other))
+        self.assertLess(other, by_rank)
+
     def test_a_loop_of_waits_is_said(self):
         from bonobo.planner import Target, plan_round
         with self.assertRaises(Unplannable):
