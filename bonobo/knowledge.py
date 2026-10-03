@@ -21,6 +21,7 @@ STEP_WHEN = None       # fn(step, facts) → [(fact, value)] it needs first, or 
 STEP_SETS = None       # fn(step) → {fact: value} its run leaves (skill.sets_of_step)
 STEP_USES = None       # fn(step) → {item: n} of its needs its run uses up (skill.step_uses)
 FIGHT_LINE = None      # fn(contract, args, state, inv) → (ok, why): S5's one judge (brain.fight_line_holds)
+LINE_KIT = None        # fn(contract, args, state, inv) → [needs rows] that each clear it (brain.line_kit)
 FACT_STEPS = None      # fn(fact, value) → [(kind, token)] of the steps that set it (skill.steps_for_fact)
 STEP_STATION = None    # fn(step) → its contract's station or None (skill.station_of_step)
 

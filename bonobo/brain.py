@@ -110,6 +110,14 @@ def line_raisers(kinds, state, inv, material=LINE_ARMOR):
     return out
 
 
+def line_kit(contract, args, state, inv):
+    """Pure: line_raisers for the fights a skill's call makes ([] when it makes none)."""
+    kinds = list(contract.fights(skillkit.Call(args, {})) or ()) if getattr(contract, "fights", None) else []
+    return line_raisers(kinds, state, inv) if kinds else []
+
+_k.LINE_KIT = line_kit      # the planner's cost model asks it when the line refuses a fight (cost.line_kit)
+
+
 def act_commit_s(act):
     """Pure: the act's planned seconds, None when unpriced."""
     ticks = sum(int(getattr(st, "est", 0) or 0) for st in getattr(act, "steps", ()))

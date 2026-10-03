@@ -248,6 +248,20 @@ class Cost:
         except (IndexError, KeyError, TypeError):
             return True, None              # args it cannot read: the runner refuses them
 
+    def line_kit(self, step, held=None):
+        """[needs rows] of kit that each put the step's fight over the line (knowledge.LINE_KIT), from the bag as planned."""
+        from . import knowledge, skill
+        if knowledge.LINE_KIT is None or self.snap is None:
+            return []
+        found = skill.step_contract(step)
+        if found is None:
+            return []
+        inv = self.snap.inv if held is None else planned_bag(self.snap.inv, held)
+        try:
+            return knowledge.LINE_KIT(found[0], found[1], getattr(self.snap, "state", {}) or {}, inv)
+        except (IndexError, KeyError, TypeError):
+            return []
+
     def stored(self, token):
         """[(pos, item, count, the chance it still holds it)] of `token` in the containers seen here (memory), the
         nearest first."""

@@ -1041,12 +1041,21 @@ class Search:
                 opts.append(((t + 1, use_rank(kind), 1), [("tool", kind, t, self.uses(step, kind), depth)]))
         return self.options(node, opts, self.after(node, step))
 
-    def emit(self, node, step, depth, start):
+    def emit(self, node, step, depth, start, raised=False):
         held = node.inv.held()
         # S5: an optional fight only above the line, with the weapon the plan holds by then (brain's one judge)
-        ok, why = getattr(self.cost, "fight_line", lambda s, held=None: (True, None))(step, held)
+        ok, why = (True, None) if raised else \
+            getattr(self.cost, "fight_line", lambda s, held=None: (True, None))(step, held)
         if not ok:
-            return self.dead(f"{step.kind}: {why}")
+            # under the line: each kit that clears it (brain.line_raisers) made first, priced like any need
+            kits = getattr(self.cost, "line_kit", lambda s, held=None: [])(step, held)
+            opts = [((k + 1, 0, 1), [("tool", r[1], int(r[2]), self.uses(step, r[1]), depth) if r[0] == "tool"
+                                     else ("need", r[0], int(r[1]), depth + 1, False) for r in rows]
+                     + [("emit", step, depth, start, True)]) for k, rows in enumerate(kits)]
+            if not opts:
+                return self.dead(f"{step.kind}: {why}")
+            self.reasons.append(f"{step.kind}: {why}")
+            return self.options(node, opts)
         step = Step(step.kind, step.token, step.count, dict(step.detail))
         breaks, kills = own_work(step)
         for kind in {k for k in map(tool_kind, breaks) if k is not None} | ({"sword"} if kills else set()):
