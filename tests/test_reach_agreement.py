@@ -312,17 +312,29 @@ class ReachAgreement(unittest.TestCase):
         print(f"rows={rows} red={len(red)}: {red}")
 
 
-def _two_gaps(width=3, gap_z=(0, 30)):
-    """Two independent 3-wide chasms, each needing 3 way-blocks to bridge (place_budget(8) = 4, so EITHER alone
-    prices fine off a full 8; cumulatively 3+3=6 <= 8 carried, but place_budget(5) = 2 < 3 once 3 are already
-    spent -- D6's own point: a step prices off its OWN planned bag, not the trip's starting one)."""
-    blocks, lo, hi = _floor(hi=(10, 80, 40))
-    targets = []
-    for z in gap_z:
-        for x in range(1, 1 + width):
-            del blocks[(x, 63, z)]
-        blocks[(5, 64, z)] = "iron_ore"
-        targets.append((5, 64, z))
+def _two_gaps(width=4):
+    """A single 1-wide, walled corridor (z = -1/+1 solid up to y67: no sideways detour around a gap) with two
+    4-wide chasms in it. place_budget(8) = 8 // 2 = 4 (BLOCK_RESERVE=16 only kicks in past stock > 32, nav.py:256-
+    259): a 4-wide gap needs (about) every one of those 4 treads, so crossing it the first time spends roughly the
+    WHOLE budget a fresh 8 allows. cost.Cost.refused/gather._cheapest_seed price the second gap off a fresh
+    Inventory(8) again (gather.py:196; cost.py:188's `self.snap.inv` is never decremented across steps in one
+    plan), so it looks exactly as affordable as the first -- but only ~4 of the real 8 are left once the first gap
+    is actually crossed, and place_budget(4) = 2 < 4 needed for the second (D6). TODO(unsure): tread-per-gap-cell
+    is an assumption about tunnel_steps' bridging, not measured here -- retune `width` if a run shows otherwise."""
+    lo, hi = (-10, 50, -10), (60, 80, 10)
+    blocks = {(x, 63, 0): "stone" for x in range(lo[0], hi[0] + 1)}
+    for z in (-1, 1):
+        for x in range(lo[0], hi[0] + 1):
+            for y in range(63, 68):
+                blocks[(x, y, z)] = "stone"          # the corridor wall: no stepping around a gap sideways
+    targets, start = [], 1
+    for _ in range(2):
+        for x in range(start, start + width):
+            blocks.pop((x, 63, 0), None)
+        ore = (start + width, 64, 0)
+        blocks[ore] = "iron_ore"
+        targets.append(ore)
+        start += width + 6                            # solid ground between the two gaps
     return FakeRegion(lo, hi, blocks), FEET, targets
 
 
