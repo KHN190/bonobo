@@ -37,8 +37,8 @@ from bonobo.knowledge import members  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import Unplannable  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
-from tests.world import (PLANNER_DIMS, bag, cost, full_bag, handles, inventory, memory, slot, snapshot,  # noqa: E402
-                         state, worlds)
+from tests.world import (PLANNER_DIMS, bag, cost, full_bag, handles, inventory, memory, round_ctx, slot,  # noqa: E402
+                         snapshot, state, worlds)
 
 OVER, NETHER = "minecraft:overworld", "minecraft:the_nether"
 
@@ -753,7 +753,7 @@ class Held:
             self.b.held[tid] = held
             if self.task.get("state") != "running":
                 self.task["state"] = "running"
-        act, update = self.b.task_act(self.task, snap, None, c, held)
+        act, update = self.b.task_act(self.task, snap, round_ctx(self.b, snap), c, held)
         self.task.update(update)
         return act
 
@@ -997,7 +997,8 @@ class HeldPlans(unittest.TestCase):
                     mock.patch.object(brainmod.arbiter.BODY, "holder", return_value=None), \
                     mock.patch.object(hazard, "rescue_due",
                                       side_effect=lambda s, **k: "drowning" if s.get("inWater") else None):
-                act = b.decide(snapshot(state(), inventory()), None)
+                snap = snapshot(state(), inventory())
+                act = b.decide(snap, round_ctx(b, snap))
             self.assertIsNotNone(act)                       # must fail: the plan's round, the hazard left a round
             self.assertEqual(act.name, "rescue drowning")
             self.assertIsNone(api.interrupt_pending())
@@ -1016,7 +1017,8 @@ class HeldPlans(unittest.TestCase):
         (must fail: everything held, holding idle)."""
         for inv, want in self.PREPARE:
             with self.subTest(want=want), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
-                act = q.b.prepare(snapshot(inv=inv), None)
+                snap = snapshot(inv=inv)
+                act = q.b.prepare(snap, round_ctx(q.b, snap))
                 self.assertEqual(tasks.load(), [], "idle stocking queued a task")
                 if want == "milestone":
                     first = next(n for n in goals.MILESTONES
@@ -1038,7 +1040,8 @@ class HeldPlans(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
                 for g in queued:
                     q.task(g)
-                got = q.b.plan_proposals(snapshot(state(), inventory(*items)), None)
+                snap = snapshot(state(), inventory(*items))
+                got = q.b.plan_proposals(snap, round_ctx(q.b, snap))
                 self.assertEqual([i.kind for i in got], want)
 
     def test_a_failure_cools_where_it_happened(self):
@@ -1077,7 +1080,8 @@ class HeldPlans(unittest.TestCase):
                     for _ in range(3):
                         q.b.failed("task t1", api.NavFailed("no path found"))
                 before = [t["id"] for t in tasks.load()]
-                got = q.b.plan_proposals(snapshot(state(), inv), None)
+                snap = snapshot(state(), inv)
+                got = q.b.plan_proposals(snap, round_ctx(q.b, snap))
                 self.assertEqual([i.kind for i in got], want)
                 self.assertEqual([t["id"] for t in tasks.load()], before, "stocking changed the queue")
 
@@ -2087,7 +2091,7 @@ class OneArbiter(unittest.TestCase):
         with mock.patch.object(api.STATE, "mode", "normal"), mock.patch.object(brainmod.hazard, "rescue_due", return_value=None), \
                 mock.patch.object(tasks, "load", return_value=[task]), \
                 mock.patch.object(tasks, "expire", return_value=False):
-            act = b.decide(snap, None)
+            act = b.decide(snap, round_ctx(b, snap))
         self.assertEqual((act.layer, act.name), ("idle", "wait for day"))
 
     def test_night_stock_plans_under_cover(self):
@@ -2469,7 +2473,7 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
                     mock.patch.object(arbiter.BODY, "holder", return_value=holder), \
                     mock.patch.object(brainmod.hazard, "rescue_due", return_value=due), \
                     mock.patch.object(tasks, "load", return_value=[]), mock.patch.object(tasks, "expire", return_value=False):
-                act = b.decide(snap, None)
+                act = b.decide(snap, round_ctx(b, snap))
                 self.assertEqual((act.layer if act else None, asked), (want, asked_want))
 
 
@@ -2496,7 +2500,7 @@ class GivenUpThenANextStep(unittest.TestCase):
             with self.subTest(name), mock.patch.object(api.STATE, "mode", "normal"), \
                     mock.patch.object(brainmod.hazard, "rescue_due", return_value=None), \
                     mock.patch.object(tasks, "load", return_value=[]), mock.patch.object(tasks, "expire", return_value=False):
-                got = [b.decide(snap, None).name for _ in range(2)]
+                got = [b.decide(snap, round_ctx(b, snap)).name for _ in range(2)]
                 self.assertEqual(got, want)
 
     def test_what_follows_by_cause(self):
@@ -3145,7 +3149,7 @@ class TheRoundsPick(unittest.TestCase):
     def first(self, entries, snap, seen):
         q = Held(goals.have(("log", 1)), seen=seen)
         held = q.b.round_for(entries, snap, cost(snap, mem=q.b.mem, **seen))
-        act = q.b.round_act(held["steps"], snap, None) if held is not None else None
+        act = q.b.round_act(held["steps"], snap, round_ctx(q.b, snap)) if held is not None else None
         return None if act is None else (act.step.kind, act.step.token)
 
     def test_rows(self):
@@ -3188,10 +3192,10 @@ class TheRoundsPick(unittest.TestCase):
                     q.task(g)
                 snap = snapshot(state(), inventory())
                 counted.clear()
-                q.b.plan_proposals(snap, None)
+                q.b.plan_proposals(snap, round_ctx(q.b, snap))
                 first = len(counted)
                 counted.clear()
-                q.b.plan_proposals(snap, None)
+                q.b.plan_proposals(snap, round_ctx(q.b, snap))
                 return first, len(counted)
         self.assertEqual(calls(2), (1, 0))
         self.assertEqual(calls(6), (1, 0))

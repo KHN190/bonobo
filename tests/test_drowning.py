@@ -87,14 +87,14 @@ class TheBrainAsksTheSameTable(unittest.TestCase):
                 b.retry, b.place, b.blacklist = retry.Retry(), None, {}
                 b.reflexes = __import__("bonobo.reflexes", fromlist=["Maintain"]).Maintain(b)
                 snap = Snapshot.from_readings(st, {"slots": [], "equipment": {}})
-                act = b.decide(snap, ctx=None)
+                act = b.decide(snap, ctx=round_ctx(b, snap))
                 self.assertEqual((act.layer, act.name), ("L0", f"rescue {due}"))
 
 
 # ------------------------------------------------------------------------------------------ where to go to breathe
 from bonobo import survive  # noqa: E402
 from bonobo.terrain import air_route  # noqa: E402
-from tests.world import FakeRegion  # noqa: E402
+from tests.world import FakeRegion, round_ctx  # noqa: E402
 
 LO, HI = (-8, 56, -8), (8, 72, 8)
 PILLAR_WHY = "no land within reach: a block placed underfoot at the surface"
