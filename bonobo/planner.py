@@ -20,7 +20,7 @@ from typing import Any
 
 from . import api, lifecycle
 from .api import McError
-from .data import GROUPS, OVERWORLD, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_USES, bare, mid
+from .data import GROUPS, NIGHT_WORK, OVERWORLD, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_USES, bare, mid
 from .beliefs import CONFIG, TICKS_PER_S, fights_back
 from .knowledge import (ALL_FOOD, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
@@ -58,7 +58,7 @@ class Step:
 
 
 _MEMBERS: dict = {}     # token → the item ids it counts (knowledge.members), read once: the tables are fixed
-lifecycle.in_place(__name__, "_MEMBERS")
+lifecycle.in_place(__name__, "_MEMBERS", cache=True)
 
 
 class VirtualInventory:
@@ -335,6 +335,12 @@ def least_prices(ways):
     return price
 
 
+def covered_prices(ways, kinds):
+    """Pure: {token: the least ticks one unit takes made under cover alone (data.NIGHT_WORK ways: mine, craft, smelt,
+    their inputs the same)} — the route's work a night underground can be spent on; absent: none of it can."""
+    return least_prices({a: [w for w, k in zip(ws, kinds[a]) if k in NIGHT_WORK] for a, ws in ways.items()})
+
+
 class Bound:
     """What a token costs at the least, from the tables: never above what a plan pays, whatever the bag holds.
     `scratch[token]` — ticks one unit's whole derivation takes from nothing (each way's own work with the best tools,
@@ -348,6 +354,7 @@ class Bound:
     def __init__(self, cost):
         from .knowledge import producers
         self.ways = {}      # asked token → [(ticks per unit, {input: per unit}, {tool kind: tier})]
+        self.kinds = {}     # asked token → each way's step kind (as `ways`)
         self.shapes = {}    # asked token → [(its unit step, the station it works at or None, {input: per unit})]
         tokens = {t for g in producers() for t in g.keys()} | set(GROUPS) | {"food"}
         for asked in sorted(tokens):
@@ -374,10 +381,13 @@ class Bound:
                 if step.kind == "smelt":      # a smelt burns its fuel: one way per fuel, its share a unit
                     for fuel, burns in FUELS:
                         self.ways.setdefault(asked, []).append((per, {**ins, fuel: ins.get(fuel, 0) + 1 / burns}, need))
+                        self.kinds.setdefault(asked, []).append(step.kind)
                 else:
                     self.ways.setdefault(asked, []).append((per, ins, need))
+                    self.kinds.setdefault(asked, []).append(step.kind)
                 self.shapes.setdefault(asked, []).append((step, _station, ins))
         self.scratch = least_prices(self.ways)
+        self.covered = covered_prices(self.ways, self.kinds)
         self.reach = {}     # token → every token its derivation may use (its inputs, theirs, …)
         for asked in self.ways:
             seen, todo = set(), [asked]
@@ -493,7 +503,7 @@ class Bound:
 
 _BOUNDS = {}      # Bound by (producers, hooks, measured durations): reused across rounds
 BOUNDS_KEPT = 4   # the offline one, the live one and a change or two in between
-lifecycle.in_place(__name__, "_BOUNDS")
+lifecycle.in_place(__name__, "_BOUNDS", cache=True)
 
 
 def bound(cost):
@@ -746,6 +756,8 @@ class Search:
 
     # -- one node to its next choice: resolved in place; returns children, [] when it died, None when complete
     def advance(self, node, floor=0):
+        if self.stop():
+            raise api.Interrupted("a hazard while planning")      # S7: read before every step, the dive's too
         self.spent += 1
         SPENT["steps"] += 1
         while len(node.stack) > floor:
@@ -1192,8 +1204,6 @@ class Search:
         nodes = 0
         visited: dict = {}                  # the transposition table: (what is left, the bag, what is open) → least g
         while heap and (nodes <= MAX_NODES or self.exact):
-            if self.stop():
-                raise api.Interrupted("a hazard while planning")
             f, tie, n = heapq.heappop(heap)
             if best is not None and (f, tie) >= (best[0], best[1]):
                 break

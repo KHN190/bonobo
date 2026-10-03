@@ -30,8 +30,20 @@ def E1(b, d, a, ctx):
     return f"a task acting with whatever is in the hand: {bad[0]}" if bad else None
 
 
+def P1(b, d, a, ctx):
+    """Perceived facts no older than one perception cycle when the round uses them: each reading's age now and the
+    longest its cache may keep it (the agreement with a re-read is live only)."""
+    if "fact_ages" not in ctx:
+        return Unchecked("no reading ages taken this round")
+    from bonobo.perception import WATCH_S
+    for name, (age, kept) in sorted(ctx["fact_ages"].items()):
+        if max(age, kept) > WATCH_S:
+            return f"{name}: {max(age, kept):.1f} s old at most, a perception cycle is {WATCH_S} s"
+    return None
+
+
 def live(_b, _d, _a, _ctx):
     return Unchecked("live only: the world must change between two reads (a skill's effect, a re-read)")
 
 
-CHECKS = {"E1": E1, "E3": E3, "E2": live, "P1": live}
+CHECKS = {"E1": E1, "E3": E3, "E2": live, "P1": P1}

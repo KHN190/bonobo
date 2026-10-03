@@ -47,23 +47,23 @@ def craft_chain():
             Step("craft", "minecraft:furnace", 1, {"times": 1, "inputs": {"minecraft:cobblestone": 8}})]
 
 
-def held_for(value, goal, snap, mem):
+def held_for(value, goal, snap, mem, key=None):
     """The held plan of `value` for `goal` (brain.held's shape: steps, sig, event, dim, want), each step priced by the
     production cost model as the planner prices its own (Step.est: D6 reads it)."""
     from bonobo.cost import Cost
     from typing import cast
-    out = _held_for(value, goal, snap, mem)
+    out = _held_for(value, goal, snap, mem, key)
     cost = Cost(snap, mem)
     for st in cast(list, out["steps"]):
         st.est = cost.estimate(st)
     return out
 
 
-def _held_for(value, goal, snap, mem):
-    from bonobo import goals
+def _held_for(value, goal, snap, mem, key=None):
+    from bonobo.bag import bag_signature
     from bonobo.decompose import Step
-    rest = goals.remainder(goal, snap, mem)
-    out = {"sig": None, "event": False, "dim": snap.dimension, "want": rest, "hand_made": True}
+    # held for the round the brain makes of this task (brain.round_key), on this bag: kept as it is unless it changes
+    out = {"sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension, "want": key, "hand_made": True}
     if value == "event":
         return dict(out, steps=[_iron_pickaxe()], event=True)
     if value == "emptied":
@@ -89,10 +89,13 @@ def prepare(brain, facts):
         return
     from bonobo import api, tasks
     from bonobo.world import Inventory, Snapshot
+    from bonobo.brain import round_key
     tid = task_id()
-    task = next(t for t in tasks.load() if t["id"] == tid)
+    live = [t for t in tasks.load() if t["state"] in tasks.LIVE]
+    seq, task = next((i, t) for i, t in enumerate(live) if t["id"] == tid)
     snap = Snapshot.from_readings(api.get("/state"), Inventory())
-    brain.held[tid] = held_for(facts["plan_held"], tasks.goal_of(task), snap, brain.mem)
+    brain.held[tid] = held_for(facts["plan_held"], tasks.goal_of(task), snap, brain.mem,
+                               round_key([(f"task {tid}", tasks.goal_of(task), seq)]))
 
 
 def alpha(a):

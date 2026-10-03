@@ -3,7 +3,7 @@
 import math
 import time
 
-from .api import McError
+from .api import Interrupted, McError
 from .beliefs import CONFIG as _PLAY
 from .data import MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare, mid
 from .knowledge import food_count, soil_depth, dawn_s, MIN_FIND_P, body_facts, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
@@ -540,6 +540,8 @@ class Prices:
             try:
                 steps = plan_needs(tools, [(item, 1)], self.cost)
                 self.cache[item] = self.cost.plan_s(steps) if steps else None
+            except Interrupted:
+                raise                     # a hazard while pricing: the round starts again from survival (S7)
             except (Unplannable, McError, KeyError, TypeError):
                 self.cache[item] = None
         got = self.cache[item]

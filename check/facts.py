@@ -145,13 +145,13 @@ def key(facts):
 
 def of(**kw):
     """Facts from keyword values (the rest, a DEPENDS fact whose condition is off, and a dimension's value its
-    `valid` refuses here: the domain's first value)."""
+    `valid` refuses here: its `instead`, else the domain's first value)."""
     out = {k: kw.get(k, d[0]) for k, d in DOMAINS.items()}
     for k, (on, _witness) in DEPENDS.items():
         if not on(out):
             out[k] = DOMAINS[k][0]
     for d in DIMS:
         if hasattr(d, "valid") and not d.valid(out[d.NAME], out):
-            out[d.NAME] = DOMAINS[d.NAME][0]
+            out[d.NAME] = d.instead(out) if hasattr(d, "instead") else DOMAINS[d.NAME][0]
     return MappingProxyType(out)
 

@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import brain  # noqa: E402,F401  (registers every skill, so the steps find their providers)
-from bonobo import decompose, goals  # noqa: E402
+from bonobo import decompose, goals, skill  # noqa: E402
 from bonobo.cost import Cost  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import Unplannable  # noqa: E402
@@ -103,11 +103,10 @@ class Sources(unittest.TestCase):
                  ("lava known in the Overworld: nothing missing", {"dimension": OVER, "lava": True}, [])]
 
     def test_cast_asks_of_where_it_is(self):
-        from bonobo import knowledge
         from bonobo.planner import Step
         for name, facts, want in self.CAST_WHEN:
             with self.subTest(name):
-                self.assertEqual(knowledge.step_when(Step("cast", "nether_portal", 1, {}), facts), want)
+                self.assertEqual(skill.when_of_step(Step("cast", "nether_portal", 1, {}), facts), want)
 
     def test_a_cast_that_cannot_run_is_not_planned(self):
         """No lava known: the portal is built (obsidian), never cast."""

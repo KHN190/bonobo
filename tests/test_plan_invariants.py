@@ -66,7 +66,7 @@ class D4KeepUnlessItPays(unittest.TestCase):
         held = plan_needs(bag(before), self.NEEDS, cost(snapshot(inv=before), **self.SEEN))
         c = cost(snapshot(inv=now), **self.SEEN)
         fresh = plan_needs(bag(now), self.NEEDS, c)
-        staying = sum(c.estimate(s) for s in held) / TICKS_PER_S
+        staying = brain.repriced_s(held, c, bag(now))       # the held plan priced as a fresh one is (forward)
         return sum(s.est for s in fresh) / TICKS_PER_S, staying
 
     def test_rows(self):

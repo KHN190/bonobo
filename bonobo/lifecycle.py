@@ -8,6 +8,7 @@ tests/test_lifecycle.py holds every `global`-assigned module name to a registere
 from typing import Any
 
 _RESETS = []        # [(module name, names covered, fn)], in registration (import) order
+CACHES = set()      # (module, names) whose value is a pure function of the inputs (D8: a cached value = recomputed)
 
 
 def on_reset(fn, covers=()):
@@ -37,10 +38,11 @@ def owns(module, state):
     return state
 
 
-def in_place(module, *names):
+def in_place(module, *names, cache=False):
     """Register a reset putting each named module-level container of `module` back to its contents now (at import),
     IN PLACE: a name imported elsewhere (`from .runner import LAST_FEEDBACK`, nav's alias of world.ROUTES) keeps
-    seeing the same object. Call it after the containers are defined, with `__name__`."""
+    seeing the same object. Call it after the containers are defined, with `__name__`. `cache`: their value is
+    a pure function of the inputs, kept by `reset_all(caches=False)` (the D8 check's warm round)."""
     import copy
     import sys
     mod = sys.modules[module]
@@ -52,13 +54,17 @@ def in_place(module, *names):
             c.clear()
             (c.update if isinstance(c, (dict, set)) else c.extend)(copy.deepcopy(v))
     _RESETS.append((module, tuple(names), reset))
+    if cache:
+        CACHES.add((module, tuple(names)))
     return reset
 
 
-def reset_all():
-    """Every registered reset, once: nothing the last life (row, death, dimension) left carries into the next."""
-    for _mod, _names, fn in list(_RESETS):
-        fn()
+def reset_all(caches=True):
+    """Every registered reset, once: nothing the last life (row, death, dimension) left carries into the next;
+    `caches` False keeps the declared caches (in_place's `cache`)."""
+    for mod, names, fn in list(_RESETS):
+        if caches or (mod, names) not in CACHES:
+            fn()
 
 
 def registered():

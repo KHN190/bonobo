@@ -22,7 +22,96 @@ def known():
         return {ln.split()[0] for ln in fh if ln.strip() and not ln.startswith("#")}
 
 
-class Generated(unittest.TestCase):
+class DuskByThePrep(unittest.TestCase):
+    """Dusk compares the chosen night way's preparation × LEAD with the light left, never the night itself; a night
+    underground is lost only where the route has no work under cover left."""
+
+    def test_rows(self):
+        # (situation, facts) → dusk read back (production's reading on the γ world)
+        rows = [("must fail: dawn, empty bag: digging in fits the day", of(), False),
+                ("one tick of light left: no way fits", of(dusk=True), True)]
+        for name, f, want in rows:
+            with self.subTest(name):
+                _d, got, _ctx = rnd.decide(f, fail_then_again=False)
+                self.assertIs(got["dusk"], want)
+
+    def test_the_night_lost_is_what_no_covered_work_fills(self):
+        from bonobo import beliefs, decompose
+        night_s, risk = beliefs.value("time.night_s"), beliefs.value("risk.night_sheltered") * beliefs.value(
+            "time.death_cost_s")
+        # (situation, covered work left on the route) → the waited night's price
+        rows = [("must fail: the route's digging done: the whole night lost", 0.0, night_s + risk),
+                ("work under cover for half the night", night_s / 2, night_s / 2 + risk),
+                ("more work than night: nothing lost but the risk", night_s * 3, risk)]
+        for name, covered, want in rows:
+            with self.subTest(name):
+                got = decompose.night_facts(None, night_left_s=night_s, covered_work_s=covered)["wait_s"]
+                self.assertAlmostEqual(got, want)
+
+
+class FreshFacts(unittest.TestCase):
+    """P1 (age): a fact the round decides on is no older than one perception cycle, by its age now and by how long its
+    cache may keep it."""
+
+    def test_rows(self):
+        from bonobo.perception import WATCH_S
+        from check.inv import effects
+        d = rnd.Decision("plan", "task", None, None, (), None, "task t1", ())
+        # (situation, {reading: (age now, kept at most)}) → flagged
+        rows = [("read this cycle, kept a cycle", {"look": (0.0, WATCH_S)}, False),
+                ("must fail: read two cycles ago", {"look": (2 * WATCH_S, WATCH_S)}, True),
+                ("must fail: a cache that keeps it longer than a cycle", {"look": (0.0, 15 * WATCH_S)}, True)]
+        for name, ages, flagged in rows:
+            with self.subTest(name):
+                got = effects.P1(of(), d, of(), {"fact_ages": ages})
+                self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), flagged)
+        self.assertIsInstance(effects.P1(of(), d, of(), {}), oracle.Unchecked)
+
+
+class AHazardMidPlan(unittest.TestCase):
+    """S7: a danger written as the round plans stops the search at its next step and the round answers it."""
+
+    def test_rows(self):
+        from check.inv import safety
+        d = rnd.Decision("safety", "L0", None, None, (), None, "rescue drowning", ())
+        # (situation, the hazard round's reading) → flagged
+        rows = [("stopped at once, the rescue", ("safety", 0), False),
+                ("nothing planned: nothing to stop", None, False),
+                ("must fail: the search ran on", ("safety", 57), True),
+                ("must fail: the plan answered", ("plan", 0), True)]
+        for name, reading, flagged in rows:
+            with self.subTest(name):
+                got = safety.S7(of(), d, of(), {"hazard": reading})
+                self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), flagged)
+
+    def test_the_round(self):
+        f = of(hunger="starve", queued="cobblestone", place="home", bed="home")
+        self.assertEqual(rnd.hazard_round(f), ("safety", 0))
+
+
+class ColdIsWarm(unittest.TestCase):
+    """D8: a decision is the inputs' pure function: the cold round's and the warm round's (the declared caches filled by
+    another state) agree."""
+
+    def test_rows(self):
+        from check.inv import purity
+        d = rnd.Decision("plan", "task", None, None, (), None, "task t1", ())
+        # (situation, ctx) → flagged
+        rows = [("the same decision", {"warm": "task t1"}, False),
+                ("must fail: the warm round chose otherwise", {"warm": "wait for day"}, True)]
+        for name, ctx, flagged in rows:
+            with self.subTest(name):
+                got = purity.D8(of(), d, of(), ctx)
+                self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), flagged)
+        self.assertIsInstance(purity.D8(of(), d, of(), {}), oracle.Unchecked)
+
+    def test_warm_is_cold(self):
+        from bonobo import lifecycle
+        from check import explore
+        f = of()
+        self.assertEqual(rnd.warm_name(f, explore.POLLUTE), rnd.decide(f, fail_then_again=False)[0].name)
+        self.assertIn(("bonobo.planner", ("_BOUNDS",)), lifecycle.CACHES)      # what the warm round keeps
+
     @settings(max_examples=EXAMPLES, deadline=None, derandomize=True, database=None, suppress_health_check=[HealthCheck.too_slow])
     @given(states)
     def test_any_state(self, f):
@@ -37,6 +126,21 @@ class Generated(unittest.TestCase):
         f = of(night=True, place="open")
         d = rnd.Decision("plan", "wait", "day", None, (), None, "wait for day", ())
         self.assertIn("S4", {inv for inv, _ in oracle.violations(f, d, f, {})} - (known() - {"S4"}))
+
+    def test_a_wait_in_the_open_needs_no_way_and_a_reason(self):
+        """S4 with D1: waiting in the open at night is lawful only when the round's night table offers no way and the
+        wait says why."""
+        f = of(night=True, place="open")
+        why = "night in the open, no way through it here: none can be had"
+        # (situation, reason, the round's night way) → S4 flagged
+        rows = [("no way here, the reason written", why, None, False),
+                ("must fail: a way to take (dig in), waited instead", why, "dig in", True),
+                ("must fail: no reason written", None, None, True)]
+        for name, reason, way, flagged in rows:
+            with self.subTest(name):
+                d = rnd.Decision("plan", "idle", None, None, (), reason, "wait for day", ())
+                ctx = {"night_way": way, "night_steps": []}
+                self.assertEqual(oracle.S4(f, d, f, ctx) is not None, flagged)
 
 
 class Fuzz(unittest.TestCase):

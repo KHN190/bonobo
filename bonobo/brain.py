@@ -53,7 +53,7 @@ TRACK_FILE = paths.data("track.jsonl")
 # Step kinds a night under cover can carry on with (data.NIGHT_WORK). Everything else (a tree, an animal, a plan's wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
 from .data import NIGHT_WORK, TICKS_PER_S  # noqa: E402
 from . import beliefs, estimate  # noqa: E402
-from .data import TOOL_MATERIAL_FOR_TIER, critical_hp, weapon_hit  # noqa: E402
+from .data import TIER_OF_MATERIAL, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, critical_hp, weapon_hit  # noqa: E402
 
 
 def fight_line_holds(contract, args, state, inv):
@@ -120,11 +120,22 @@ def pays_switch(held_s, chosen_s, lost_s):
     what is left of the held one."""
     return chosen_s + lost_s < held_s
 
-def repriced_s(steps, cost):
-    """Seconds left of a held plan, each step priced on the world now (K4: no progress stored); its est updated."""
+def repriced_s(steps, cost, inv):
+    """Seconds left of a held plan priced on the world now as a fresh plan is (planner.forward: each step with the
+    tools held by then, from where the one before leaves the body) — K4, no progress stored; each est updated."""
+    from .knowledge import held_tiers
+    from .planner import Step, forward
+    held, entries = held_tiers(inv), []
+    for i, st in enumerate(steps):
+        entries.append((Step(st.kind, st.token, st.count, dict(st.detail)), dict(held), i))
+        material, _, kind = bare(st.token).rpartition("_")
+        if st.kind == "craft" and kind in TOOL_KINDS and material in TIER_OF_MATERIAL:
+            held[kind] = max(held.get(kind, -1), TIER_OF_MATERIAL[material])
+    priced, ticks = forward(entries, cost)
+    by_key = {p.key(): p.est for p in priced}
     for st in steps:
-        st.est = cost.estimate(st)
-    return sum(st.est for st in steps) / TICKS_PER_S
+        st.est = by_key.get(st.key(), st.est)
+    return ticks / TICKS_PER_S
 
 def thrown_s(now=None):
     """Seconds of the running plan act a switch throws away: its commit less what is left (arbiter.work_left_s);
@@ -202,6 +213,7 @@ class Brain:
         self.held = {}                # task id -> the round's plan it is in: {"steps", "sig", "event", "dim", "want", "ran"}
         self.needs_plan = None        # the round's plan when no task is queued (upkeep's needs alone)
         self.unplannable: dict[str, str] = {}     # target or need name -> why it could not be planned (readout)
+        self.abandoned: str | None = None         # E5: what the last skill given up declared follows (ABANDON_WAYS)
         self.plan_switch = None       # (held_s, chosen_s, lost_s, switched) of the round's replan over a held plan
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
@@ -385,6 +397,8 @@ class Brain:
                     cause=retry.cause_of(err) if outcome == "failed" else None)
         if isinstance(err, api.TaskStuck):
             events.anomaly("task stuck", f"{name}: {err}")
+        if err is not None:
+            self.abandoned = abandon_after(err, source)     # E5: what follows it, by its cause
         first = arbiter.resume_of(source)[1] if source is not None else None
         if outcome == "ok":
             self.retry.succeeded(name)
@@ -559,8 +573,13 @@ class Brain:
 
         def upkeep():
             self.needs.propose(snap, ctx)
-            return [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
-                    for seq, name, run in self.reflexes.proposals(snap, ctx)]
+            out = [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
+                   for seq, name, run in self.reflexes.proposals(snap, ctx)]
+            if self.abandoned == "cover":       # E5: a skill given up: into cover, once, before anything else
+                self.abandoned = None
+                cover = Act("upkeep", "abandoned: cover", lambda: needs.cover(ctx, snap.state))
+                out.insert(0, arbiter.Intent("maintain", cover, key=cover.name, seq=-1))
+            return out
 
         # the gate's facts: what is cooling, and whether the surface is closed (met and unplannable needs are judged
         # where proposed, never intents)
@@ -647,7 +666,7 @@ class Brain:
             act = self.prepare(snap, ctx)
             return [arbiter.Intent("plan", act, kind="idle", key=act.name, surface=True)] if act else []
         out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: survive.wait_for_day(ctx)),
-                              kind="wait for day", key="wait for day")]
+                              self.wait_why(snap), kind="wait for day", key="wait for day")]
         if "pickaxe" in self.needs.working:
             act = self.night_stock(snap, ctx)
             if act is not None:
@@ -671,7 +690,7 @@ class Brain:
             return None
         if old is not None and same and old["steps"] \
                 and [str(s) for s in old["steps"]] != [str(s) for s in held["steps"]]:
-            held_s = repriced_s(old["steps"], cost)
+            held_s = repriced_s(old["steps"], cost, snap.inv)
             chosen_s, lost_s = sum(s.est for s in held["steps"]) / TICKS_PER_S, thrown_s()
             switched = pays_switch(held_s, chosen_s, lost_s)
             self.plan_switch = (held_s, chosen_s, lost_s, switched)
@@ -705,6 +724,18 @@ class Brain:
                     and not open_air:
                 return craft_act("plan", f"round: {step_key(st)}", ctx, steps, st, snap.night, inv=snap.inv)
         return None
+
+    def wait_why(self, snap):
+        """Why the night is waited out (D1): under cover, the night's work is done; in the open, the night's ways
+        that are cooling here, or that none can be had."""
+        if not self.under_sky(snap):
+            return "night under cover: waiting for day"
+        cooled = decompose.cooled_ways(self.ready)
+        way, _secs, _steps = self.needs.overnight(snap)
+        if way is not None and not cooled:
+            return f"night in the open: {way} is the night's way"
+        return "night in the open, no way through it here: " + (
+            f"{', '.join(cooled)} failed here lately" if cooled else "none can be had")
 
     def under_sky(self, snap):
         """The body stands under the open sky (reflexes.sheltered: not under rock, walled in, nor inside a site): by
@@ -905,7 +936,8 @@ class Brain:
         except McError as e:
             api.swallowed("brain.price_table", e)
             return {}
-        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, region=perception.ground_read(snap)), snap.inv)
+        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, region=perception.ground_read(snap),
+                           stop=api.stop_asked), snap.inv)
 
     # -- bookkeeping
     def track(self, snap):
@@ -971,6 +1003,18 @@ def write(task, fields):
     """Apply a decision's task writes (task_act, after_step) to the task file: one update, nothing when unchanged."""
     if fields:
         tasks.update(task["id"], **fields)
+
+DANGER_SOURCES = ("layer:safety", "layer:tactic")     # with every "hazard:…": work given up to a danger
+
+
+def abandon_after(err, source):
+    """Pure (E5): what follows work given up — into cover when a danger stopped it (S1, a threat), else the round
+    plans again (not found, stuck: no walk to cover); a skill's own `abandon` (TaskStuck.then) overriding."""
+    if isinstance(err, api.TaskStuck) and err.then is not None:
+        return err.then
+    if source is not None and (source in DANGER_SOURCES or source.startswith("hazard:")):
+        return "cover"
+    return "replan"
 
 def outcome_of(err) -> "tuple[Outcome, Source | None]":
     """Pure: (outcome, interrupt source); "interrupted" when the source's rule resumes the work — no count, no /stop, no cooldown."""
