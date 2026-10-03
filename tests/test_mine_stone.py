@@ -60,6 +60,20 @@ class Shaft(unittest.TestCase):
                  floor, under, 0, True),
                 ("lava beside the shaft", ground(lava_side), stone, depth, False),
                 ("a cave under the shaft's foot", ground(cave), stone, depth, False)]
+
+        def sand_shaft(d):
+            """d cells of sand (places nothing: not GROUPS['building']) over solid stone — isolates nav.place_budget
+            (the one exit budget strip_mine_step's dig_down shares) from what the shaft itself digs."""
+            blocks = {(0, FEET[1] - i, 0): "sand" for i in range(1, d + 1)}
+            blocks.update({(x, FEET[1] - d - k, z): "stone" for x in range(-2, 3) for z in range(-2, 3) for k in (1, 2)})
+            return FakeRegion((-2, FEET[1] - d - 3, -2), (2, FEET[1] + 2, 2), blocks)
+
+        # the exit budget alone (dug=0 throughout): refused exactly when nav.place_budget(carried) < d - JUMP_BLOCKS
+        for carried in (0, 8, 40):
+            for d in (4, 12):
+                want = gather.nav.place_budget(carried) >= d - JUMP_BLOCKS
+                rows.append((f"sand shaft (nav.place_budget, the budget strip_mine_step's gate shares): "
+                            f"{carried} carried, depth {d}", sand_shaft(d), (0, FEET[1] - d, 0), carried, want))
         for name, region, target, carried, dug in rows:
             with self.subTest(name):
                 tasks, why = gather.shaft_plan(region, FEET, target, carried)
@@ -157,6 +171,35 @@ class NoWayBansTheCell(unittest.TestCase):
             next(run)                   # no way to its cell; the next pass's top
         # must fail: every cell of the vein banned over the one no way reached
         self.assertEqual(len(ctx.blacklist), 1)
+
+
+class StripMineSharesShaftBudget(unittest.TestCase):
+    """gather.strip_mine_step gates its own nav.dig_down with shaft_plan — the one exit budget (nav.place_budget)
+    the ore shaft shares: nav.dig_down runs only when the gate passes; refused, the dry-ground fallback runs
+    instead, never a silent dig (S1: nav.dig_down itself still runs the chain, with before_segment)."""
+
+    def test_rows(self):
+        from bonobo import api, nav
+        from bonobo.skillcore import Context
+        ctx = Context(None, nav.Policy(), "minecraft:overworld", {})
+        s = {"blockX": 0, "blockY": 80, "blockZ": 0}
+        dry = [{"x": 20, "y": 80, "z": 0, "block": "minecraft:stone", "distance": 20.0}]
+        # (name, shaft_plan's verdict) -> dig_down called?
+        rows = [("the gate passes: dig_down runs", (["a task"], None), True),
+                ("must fail: the gate refuses (no exit budget): dig_down never runs, dry ground instead",
+                 (None, "0 of 0 carried spendable, 0 dug on the way, 11 to pillar back out"), False)]
+        for name, verdict, want_dig in rows:
+            with self.subTest(name):
+                dig_down = mock.Mock()
+                with mock.patch.object(gather, "Inventory", lambda: bag(inventory(("wooden_pickaxe", 1)))), \
+                        mock.patch.object(api, "get", lambda path, *a, **k: s), \
+                        mock.patch.object(gather, "shaft_plan", lambda *a, **k: verdict), \
+                        mock.patch.object(nav, "dig_down_region", lambda *a, **k: None), \
+                        mock.patch.object(nav, "dig_down", dig_down), \
+                        mock.patch.object(gather, "find", lambda *a, **k: dry), \
+                        mock.patch.object(nav, "arrived_near", lambda *a, **k: True):
+                    gather.strip_mine_step.__wrapped__(ctx, 16)
+                self.assertEqual(dig_down.called, want_dig)
 
 
 PICK = {"id": "minecraft:diamond_pickaxe", "count": 1, "damage": 0, "maxDamage": 1561}

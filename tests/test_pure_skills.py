@@ -479,13 +479,15 @@ class CraftCommands(unittest.TestCase):
                 self.assertEqual(self.shape(craft.craft_commands(st, (recipes,))), want)
 
     def test_a_table_kept_for_the_next_sitting(self):
+        """craft.station_kept (G3) decides, not a bare bool: kept when the next use (D6's own place for it) is
+        near enough that walking back there prices cheaper than breaking, carrying and placing it again."""
         from tests.world import bag, inventory
         st = {"inv": bag(inventory(oak_planks=12, cobblestone=3)), "table": None, "spot": (1, 64, 0)}
-        rows = [("kept: the plan crafts at a table again", True, False),
-                ("must fail: not kept: taken back", False, True)]
-        for name, keep, taken in rows:
+        rows = [("kept: the next use is right here (0 ticks back)", (1, 64, 0), False),
+                ("must fail: the next use is far enough that carrying it on prices cheaper", (1, 64, 300), True)]
+        for name, next_use, taken in rows:
             with self.subTest(name):
-                got = self.shape(craft.craft_commands(dict(st, keep_table=keep), (self.PICK,)))
+                got = self.shape(craft.craft_commands(dict(st, next_use=next_use), (self.PICK,)))
                 self.assertEqual("mine" in got, taken)
 
     def test_resumed_from_the_bag(self):

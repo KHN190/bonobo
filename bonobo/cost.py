@@ -7,7 +7,7 @@ from . import api
 from .api import Interrupted, McError
 from .data import SEARCH_LOOK_R
 from .data import MEASURED_BAND, MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, GROUPS, HARDNESS, HAZARD, NAV_NODES, bare, mid
-from .knowledge import SURFACE_Y, sources, step_station, work_s, food_count, soil_depth, dawn_s, body_facts, expected_find_s, step_kinds, WALK_TICKS_PER_BLOCK, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
+from .knowledge import SURFACE_Y, sources, step_station, work_s, food_count, soil_depth, dawn_s, body_facts, expected_find_s, step_kinds, walk_ticks, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS, walk_ticks: re-exported)
 from .skillcore import ban_state, banned
 from .world import Region, Versioned, job_ready, route_key
 from .skill import MIN_SAMPLES
@@ -23,10 +23,6 @@ TABLE = "minecraft:crafting_table"   # nothing known nearby: what a search usual
 STAT_KEYS = {"mine": lambda s: (f"mine:{s.token}", s.count), "gather": lambda s: ("chop", s.count),
              "hunt": lambda s: (f"hunt:{s.token}", s.count), "smelt": lambda s: ("smelt", s.count),
              "craft": lambda s: ("craft", 1)}
-
-def walk_ticks(distance):
-    """Ticks to walk `distance` straight-line blocks, detours included: the one walk-time estimate."""
-    return int(float(distance) * WALK_TICKS_PER_BLOCK)
 
 class _Ground(Region):
     """The ground as expected where nothing is read:"""
@@ -237,11 +233,14 @@ class Cost:
         return self.cache[key]
 
     def _entity(self, types):
+        """Blocks to the nearest of `types` in the round's look the door has a way to (refused "attack": a way to a
+        stand in reach of it as it stands now, the gate's own), not banned; else the nearest remembered."""
         key = ("ent", tuple(types))
         if key not in self.cache:
             ids = {mid(t) for t in types}
             near = [e["distance"] for e in self.snap.mobs if mid(e["type"]) in ids
-                    and (e.get("id") is None or not banned(self.blacklist, (e["id"], 0, 0)))]
+                    and (e.get("id") is None or not banned(self.blacklist, (e["id"], 0, 0)))
+                    and ("x" not in e or self.refused(tuple(math.floor(e[k]) for k in ("x", "y", "z")), "attack") is None)]
             self.cache[key] = min(near) if near else self._known(types)
         return self.cache[key]
 

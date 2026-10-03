@@ -22,14 +22,20 @@ def portal_centre(frames):
     xs, zs = [p[0] for p in frames], [p[2] for p in frames]
     return (min(xs) + max(xs)) // 2, frames[0][1], (min(zs) + max(zs)) // 2
 
-def eye_plan(missing, centre, floor_solid, lit, have_block):
-    """Pure: (floor cell to fill or None, where to stand, frames to fill): stand over the ring's middle and fill every eye from there (each frame within 2.3 blocks)."""
+def eye_plan(missing, centre, floor_solid, lit, have_block, region=None):
+    """Pure: (floor cell to fill or None, where to stand, frames to fill): stand over the ring's middle and fill every
+    eye from there — each frame's click passing the door's own test from that stand over `region` (stands_for
+    "use_item", the gated eye; P2), else NotAvailable at the first that does not."""
     if lit or not missing:
         return None, None, []
     floor = (centre[0], centre[1] - 1, centre[2])
     if not floor_solid and not have_block:
         raise NotAvailable("no block to put over the ring's middle to stand on")
-    return (None if floor_solid else floor), centre, sorted(missing)
+    frames = sorted(missing)
+    hidden = [f for f in frames if region is not None and not nav.stands_for("use_item", region, centre, f)]
+    if hidden:
+        raise NotAvailable(f"frame {hidden[0]} not in a click's sight from the ring's middle {centre}", pos=hidden[0])
+    return (None if floor_solid else floor), centre, frames
 
 def outside_spot(frame, centre):
     """Pure: the floor cell just outside the ring next to a frame block (away from the 3×3 opening)."""
@@ -56,7 +62,7 @@ def activate_end_portal(ctx):
     lit = any(n == "end_portal" for n in region.blocks.values())
     below = (centre[0], centre[1] - 1, centre[2])
     block = nav.building_item()
-    floor, stand, frames = eye_plan(missing, centre, Region(below, below).solid(below), lit, bool(block))
+    floor, stand, frames = eye_plan(missing, centre, Region(below, below).solid(below), lit, bool(block), region)
     if stand is None:
         return
     if floor is not None:

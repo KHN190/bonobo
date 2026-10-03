@@ -137,6 +137,11 @@ FIND_AT = {
 FIND_DENSITY = {"tree": 1.0, "water": 0.5, "sand": 0.25, "clay": 0.1, "other": 0.05}
 TUNNEL_FACES = 6          # block faces a 1×2 tunnel's step lays open: each cell's two sides, the roof, the floor
 WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~5.3 ticks a block, sprinting with detours
+
+def walk_ticks(distance):
+    """Pure: ticks to walk `distance` straight-line blocks, detours included (the one copy: cost re-exports it)."""
+    return int(float(distance) * WALK_TICKS_PER_BLOCK)
+
 SOIL_KINDS = {"stone", "cobblestone", "dirt", "grass_block", "coarse_dirt"}
 AREA_KINDS = {"water": "water", "sand": "sand", "red_sand": "sand", "clay": "clay", "clay_ball": "clay"}
 SURFACE_CLASSES = {"tree", "animal", "village", "water", "sand", "clay", "other"}

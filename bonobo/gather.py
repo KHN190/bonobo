@@ -100,21 +100,22 @@ def deep_below(cell: Cell, feet_at: Cell) -> bool:
     """Pure: `cell` lies deeper than a level stand sees (LEVEL_SIGHT_DEPTH): reached by a way down, not a walk."""
     return cell[1] < feet_at[1] - LEVEL_SIGHT_DEPTH
 
-def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
+def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=(), use_ladders=False):
     """Pure: (tasks, why not) for a straight shaft from the feet down to a buried `target`'s level: dug only as deep as
-    nav.dig_down_tasks finds safe (lava, water, a cave stop it) and the blocks to pillar back out with — carried, and
-    what the shaft itself digs that places (stone → cobblestone, dirt: data.PLACEABLE_AS, the building group) — cover
-    (the last JUMP_BLOCKS jumped)."""
+    nav.dig_down_tasks finds safe (lava, water, a cave stop it) and the blocks to pillar back out with — nav.place_budget
+    of carried (the one exit budget dig_down's own caller shares), and what the shaft itself digs that places (stone →
+    cobblestone, dirt: data.PLACEABLE_AS, the building group) — cover (the last JUMP_BLOCKS jumped)."""
     depth = feet_at[1] - target[1]
-    tasks, safe = nav.dig_down_tasks(region, feet_at, depth, protected)
+    tasks, safe = nav.dig_down_tasks(region, feet_at, depth, protected, use_ladders=use_ladders)
     if safe < depth:
         return None, nav.Why(f"lava, water or a cave {safe + 1} down", (feet_at[0], feet_at[1] - safe - 1, feet_at[2]))
     x, y, z = feet_at
     dug = sum(1 for i in range(1, depth + 1) if region.solid((x, y - i, z))
               and mid(PLACEABLE_AS.get(bare(region.name((x, y - i, z))), bare(region.name((x, y - i, z)))))
               in GROUPS["building"])
-    if carried + dug < depth - JUMP_BLOCKS:
-        return None, f"{carried} blocks carried, {dug} dug on the way, {depth - JUMP_BLOCKS} to pillar back out"
+    budget = nav.place_budget(carried)
+    if budget + dug < depth - JUMP_BLOCKS:
+        return None, f"{budget} of {carried} carried spendable, {dug} dug on the way, {depth - JUMP_BLOCKS} to pillar back out"
     return tasks, None
 
 def pass_cells(vein, open_set, start: Cell, n) -> list[Cell]:
@@ -509,10 +510,19 @@ def strip_mine_step(ctx, length=16):
             raise api.NavFailed(f"can't climb back up to mining depth {depth}")
         return "climbed"
     if fy > depth + 4:
+        descend = min(12, fy - depth)
+        here = (fx, fy, fz)
+        region = nav.dig_down_region(here, descend)
+        use_ladders = Inventory().count("minecraft:ladder") >= 12
+        # the one exit budget shared with the ore shaft (shaft_plan): a gate only, nav.dig_down still runs it (S1)
+        shaft, why = shaft_plan(region, here, (fx, fy - descend, fz), Inventory().count("building"),
+                                ctx.policy.protected, use_ladders=use_ladders)
         try:
-            nav.dig_down(min(12, fy - depth), ctx.policy, use_ladders=Inventory().count("minecraft:ladder") >= 12)
+            if shaft is None:
+                raise NotAvailable(why or "unsafe to dig down here")
+            nav.dig_down(descend, ctx.policy, use_ladders=use_ladders)
         except NotAvailable:
-            # unsafe here (water/lava/cave below): find dry solid ground nearby
+            # unsafe here, or no exit budget: find dry solid ground nearby
             stone = [h for h in find(["stone", "deepslate", "dirt", "grass_block"], radius=24, limit=40)
                      if h["y"] <= fy and math.dist((h["x"], h["z"]), (fx, fz)) >= 6]
             if not stone:
@@ -592,14 +602,19 @@ def hunt(ctx, token, count, types, night):
         if e["distance"] > 4:
             # walk and bridge to animals, never tunnel
             how, near = nav.chase(e["id"], types, approach_policy(ctx.policy), HUNT_REACH)
-            if how != "near" or near is None:
+            if near is None:
                 api.detail(f"   hunt: prey {e['id']} {how}: the nearest again")
                 continue
-            e = near
+            e = near        # still far: the attack's gate makes the way to where it is now (nav.reach, P2)
         api.detail(f"   hunt: prey {e['id']} at {(round(e['x'], 1), round(e['y'], 1), round(e['z'], 1))} "
                    f"{e['distance']:.1f} off; {_hunt_seen(types)}")
         try:
-            got = api.run({"type": "attack", "entity": e["id"]}, wait=30, awaits="the mob dead")
+            try:
+                got = api.run({"type": "attack", "entity": e["id"]}, wait=30, awaits="the mob dead")
+            except api.NavFailed as why:
+                ctx.ban((e["id"], 0, 0))        # no way to it as it stands now (ban_state): the next prey
+                api.detail(f"   hunt: no way to prey {e['id']}: {why}")
+                continue
             api.detail(f"   hunt: attack {got.get('status')} {got.get('message', '')}; after: {_hunt_seen(types)}")
             bagged = Inventory().count(token)
             # the drop can land where nothing stands: `sweep` makes a way to it before a kill is written off
@@ -682,15 +697,33 @@ def take(ctx, token, count, blocks):
             hits = [h for h in hits if (h["x"], h["y"], h["z"]) in ripe]
         if not hits:
             raise NotAvailable(f"no {bare(blocks[0])} within reach to take")
-        cell = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
-        if not nav.arrived_near(cell, ctx.policy, range_=3, attempts=2):
+        # the nearest the door's own predicate (nav.reach, the bag held now) gets to; one it refuses is banned with
+        # the state it failed in (ban_state: lifted once the bag changes, accept5's table), never as gone
+        here, inv, hit, stand, why = feet(), Inventory(), None, None, None
+        for h in hits:
+            c = (h["x"], h["y"], h["z"])
+            region = region_around([here, c], pad=math.ceil(nav.REACH))
+            got = nav.reach(region, here, c, "mine", inv, ctx.policy.protected) if region is not None else None
+            if got is None or got.stand is not None:
+                hit, stand = h, (got.stand if got is not None else None)
+                break
+            why = got.why
+            ctx.ban(c)
+        if hit is None:
+            raise NotAvailable(f"no {bare(blocks[0])} a way reaches to take: {why}", pos=getattr(why, "cell", None))
+        cell = (hit["x"], hit["y"], hit["z"])
+        if stand is not None and stand != tuple(here):
+            nav.arrived_near(stand, ctx.policy, range_=0.6, attempts=1)
+        try:
+            # the walk short of the stand: the gate makes the way (reach_stand), as reach planned it
+            mine_cell(ctx.policy, cell, wanted=[token], require_drops=False, wait=60)
+        except api.NavFailed:
             ctx.ban(cell)
             continue
-        mine_cell(ctx.policy, cell, wanted=[token], require_drops=False, wait=60)
         api.run({"type": "collect", "radius": 4}, wait=20, awaits="the drops the break left, counted after")
         yield None
         got += 1
         # the block is gone whether or not the drop reached the bag: forget it, or we walk back to an empty square
-        ctx.mem.forget_seen(bare(hits[0]["block"]), cell, ctx.dimension, radius=1)
+        ctx.mem.forget_seen(bare(hit["block"]), cell, ctx.dimension, radius=1)
         log(f"took {bare(token)} at {cell} ({got}/{want})")
     return got
