@@ -297,8 +297,10 @@ def spot_region(state, reach=4):
     fx, fy, fz = state["blockX"], state["blockY"], state["blockZ"]
     return Region((fx - reach, fy - 3, fz - reach), (fx + reach, fy + 4, fz + reach))
 
-def free_spots(region, state, block_under=True, reach=4, avoid=(), limit=5):
-    """Pure: air cells with a solid floor in reach, clear of the body, best first (same height, open above, ~2 away)."""
+def free_spots(region, state, block_under=True, reach=4, avoid=(), limit=5, inv=None, protected=()):
+    """Pure: air cells with a solid floor in reach, clear of the body, best first (same height, open above, ~2 away).
+    `inv` (not None): only spots nav.reach also accepts to place on (P2/K1) — the gate's own stand test, so the plan
+    never offers one the run then refuses; `inv` left None keeps the old geometry-only offer (other callers)."""
     s = state
     fx, fy, fz = s["blockX"], s["blockY"], s["blockZ"]
     scored = []
@@ -317,12 +319,21 @@ def free_spots(region, state, block_under=True, reach=4, avoid=(), limit=5):
                 enclosed = region.solid(cell_add(p, (0, 1, 0)))
                 scored.append(((abs(dy), enclosed, abs(max(abs(dx), abs(dz)) - 2)), p))
     scored.sort()
-    return [p for _, p in scored[:limit]]
+    if inv is None:
+        return [p for _, p in scored[:limit]]
+    from .nav import reach as _reach
+    out = []
+    for _, p in scored:
+        if len(out) >= limit:
+            break
+        if _reach(region, (fx, fy, fz), p, "place", inv, protected).stand is not None:
+            out.append(p)
+    return out
 
-def free_spots_here(block_under=True, reach=4, avoid=(), limit=5):
+def free_spots_here(block_under=True, reach=4, avoid=(), limit=5, inv=None, protected=()):
     """`free_spots` around the body now: one /state read and one region read."""
     s = api.get("/state")
-    return free_spots(spot_region(s, reach), s, block_under, reach, avoid, limit)
+    return free_spots(spot_region(s, reach), s, block_under, reach, avoid, limit, inv, protected)
 
 def place(item, pos):
     r = api.run({"type": "place", "item": item, "x": pos[0], "y": pos[1], "z": pos[2]}, wait=60, awaits="one block, placed or not (callers chain place tasks)")

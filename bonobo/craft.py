@@ -423,7 +423,8 @@ def _sitting(ctx, recipes, next_use=None):
         if near:
             state["table"] = (near[0]["x"], near[0]["y"], near[0]["z"])
         else:
-            spots = free_spots_here(limit=1) or make_room(ctx)
+            # offered only if nav.reach also accepts it (P2/K1): never a spot the run then refuses
+            spots = free_spots_here(limit=1, inv=inv, protected=ctx.policy.protected) or make_room(ctx)
             state["spot"] = spots[0] if spots else None
     tasks = craft_commands(state, (recipes,))
     placed = next(((t["x"], t["y"], t["z"]) for t in tasks if t.get("type") == "place"), None)
