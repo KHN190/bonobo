@@ -10,7 +10,16 @@ DEPENDS = (lambda f: not f["night"] and f["dimension"] == "minecraft:overworld" 
 WORLD = True         # the clock moves it
 
 DUSK_T = DAY_END - 1                 # one tick of light left: no way fits
-DAWN_T = 0                           # the whole day ahead (625 s): every way of the bags here fits (dig in, 371 s × LEAD)
+DAWN_T = 0                           # the whole day ahead (625 s): the cheapest way's prep fits
+
+
+def valid(value, f):
+    # every shelter cooling (the bed alone) or a starving body: no way's prep fits a day, so never not-dusk
+    return value or not DEPENDS[0](f) or not (f["cooled"] or f["hunger"] == "starve")
+
+
+def instead(f):
+    return True
 
 
 def domain():
