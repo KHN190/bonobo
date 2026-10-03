@@ -106,8 +106,7 @@ class NavFailed(NotAvailable):
     """The body couldn't get where a skill needed it."""
 
 class TaskStuck(McError):
-    """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled. `then`: what its skill
-    declared follows (skill.ABANDON_WAYS); a jar task's own: the round plans again."""
+    """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled. `then`: what follows."""
 
     def __init__(self, message="", then="replan"):
         super().__init__(message)
@@ -132,8 +131,7 @@ def interrupt_pending():
 
 
 def stop_asked():
-    """A stop perception asked for (interrupt_pending): a plan being searched ends, the round starts again from
-    survival."""
+    """A stop perception asked for (interrupt_pending)."""
     return interrupt_pending() is not None
 
 

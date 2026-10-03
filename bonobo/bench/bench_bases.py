@@ -47,7 +47,7 @@ BASES = {
                est=('plan', [('minecraft:beef', 1)]), entities=[('minecraft:cow', 3)]),
     'eat': dict(skills=['eat'], doc='hungry, bread carried → the food bar rises', point='A',
               scene=[('floor',), ('stand',), ('give', 'bread', 4)], pre=('hungry',), run=('skill_bare', 'eat'),
-              check=('food_up',), est=('eat', 0), combat=True),     # 0: the hungry hook's Hunger 255 empties the bar
+              check=('food_up',), est=('eat', 0), combat=True),     # the hungry hook empties the bar
     'sleep': dict(skills=['sleep'], doc='night, a bed carried → morning', point='A',
                 scene=[('floor',), ('stand',), ('give', 'white_bed'), ('time', 18000)],
                 run=('skill', 'sleep', ('$ctx', 'policy')), check=('is_day',), est=('step', 'sleep', '', 1, {})),

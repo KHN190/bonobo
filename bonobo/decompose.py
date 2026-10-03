@@ -90,14 +90,12 @@ def day_extra_s(keys, facts):
     return extra_s(tuple(k for k in keys if k not in NIGHT_ITSELF), facts)
 
 def free_ways(key, cost, facts=None):
-    """[(name, its own steps' seconds, its steps, the facts its extra seconds are read from)] of the SOURCES[key] ways
-    offered here that need nothing first (priced without planning)."""
+    """[(name, seconds, steps, extra keys)] of SOURCES[key] ways needing nothing first."""
     return [(src["name"], cost.plan_s(own), own, tuple(src.get("extra_s", ())))
             for src, needs, own in offered_sources(key, cost, facts)[0] if not needs]
 
 def offered_sources(key, cost, facts=None):
-    """The SOURCES[key] ways offered here: ([(source, its needs, its own steps, each priced)], why each other is
-    not) — no planning."""
+    """([(source, needs, own steps)], why not) of SOURCES[key] ways offered here."""
 
     why, out = [], []
     for src in SOURCES.get(key, ()):
@@ -149,7 +147,7 @@ def _decompose(inv, goal, cost, pending) -> list[Step]:
     return solve_needs(inv, round_needs(goal, inv, cost), cost, pending, jobs)
 
 def round_needs(goal, inv, cost):
-    """`goal` as the planner's needs (plan_needs / plan_round take them): items, a fact, or the step that does it."""
+    """`goal` as the planner's needs."""
     template, args = goal["goal"], goal.get("args", {})
     if template in goals.ITEM_GOALS:
         then = THEN.get(args.get("name")) if template == "milestone" else None
@@ -164,7 +162,7 @@ def round_needs(goal, inv, cost):
         if bp != "shelter" and bp not in blueprints.REGISTRY:
             raise Unplannable(f"no blueprint {bp!r} to build")
         if bp == "nether_portal":
-            return [("fact", "portal", True)]       # built, or cast in place
+            return [("fact", "portal", True)]
         return [("do", Step("build", bp, 1, {"at": args.get("at")}))]
     if template == "sleep":
         return [("do", Step("sleep", "bed", 1, {}))]

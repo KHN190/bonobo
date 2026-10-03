@@ -62,7 +62,6 @@ def held_for(value, goal, snap, mem, key=None):
 def _held_for(value, goal, snap, mem, key=None):
     from bonobo.bag import bag_signature
     from bonobo.decompose import Step
-    # held for the round the brain makes of this task (brain.round_key), on this bag: kept as it is unless it changes
     out = {"sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension, "want": key, "hand_made": True}
     if value == "event":
         return dict(out, steps=[_iron_pickaxe()], event=True)

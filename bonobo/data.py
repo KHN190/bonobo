@@ -246,8 +246,7 @@ def recipes():
     return r
 
 def vanilla_recipes():
-    """The game's own recipe files (vanilla/recipe, copied from the 1.21.11 jar's data/minecraft/recipe): item →
-    (pattern, output count) in recipes()' form."""
+    """The recipes copied from the 1.21.11 jar (vanilla/recipe), in recipes()' form."""
     import json
     import os
     out = {}
