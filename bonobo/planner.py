@@ -1062,7 +1062,10 @@ class Search:
         for kind in {k for k in map(tool_kind, breaks) if k is not None} | ({"sword"} if kills else set()):
             if kind in held:
                 node.inv.wear(kind, 0, self.uses(step, kind))
-        ticks = self.cost.work(step, held) + self.cost.dig_to(step, held) + self.cost.walk_lb(step)
+        ticks = self.cost.work(step, held)
+        if not (step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)) \
+                or not any(st.key() == step.key() for st, _h, _s in node.steps):
+            ticks += self.cost.dig_to(step, held) + self.cost.walk_lb(step)    # a repeat joins the first (forward): one trip
         if self.hungry and not node.inv.facts.get("fed"):
             ticks += round(ticks * self.hungry)         # F1l: hunger's seconds until a step makes food
             node.inv.set_fact("fed", mid(step.token) in FOOD_IDS and step.kind in MAKES_FOOD)
