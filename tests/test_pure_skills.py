@@ -881,5 +881,20 @@ class Connected(unittest.TestCase):
         run_table(self, connected, self.TABLE)
 
 
+class ChopOutcome(unittest.TestCase):
+    """wood.chop_outcome: a trunk whose log is gone but not held has its drop lying about (swept), not "nothing"
+    (night_first__low 175033: the base log broken, the drop left, the trunk banned, the task failed)."""
+
+    def test_table(self):
+        from bonobo import wood
+        trunk = [{"x": 3, "y": 0, "z": 3}, {"x": 3, "y": 1, "z": 3}]
+        rows = [("held rose: got", 1, 2, {(3, 1, 3)}, "got"),
+                ("must fail: the base broken, none held: lying", 1, 1, {(3, 1, 3)}, "lying"),
+                ("all standing, none held: nothing", 1, 1, {(3, 0, 3), (3, 1, 3)}, "nothing")]
+        for name, before, now, still, want in rows:
+            with self.subTest(name):
+                self.assertEqual(wood.chop_outcome(before, now, trunk, still), want)
+
+
 if __name__ == "__main__":
     unittest.main()
