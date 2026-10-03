@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .data import EXCEPTIONS, UNREACHABLE  # noqa: E402  (the one list: api raises Unreachable on the same words)
+from .data import place_signature, state_signature  # noqa: F401  (with the facts: a ban's state reads them too)
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -39,19 +40,10 @@ def source_of(err) -> Source:
     """The interrupt source an exception stands for (EXCEPTIONS): what is done about it is arbiter.RESUME_OF's."""
     return row_of(err)[1]
 
-def place_signature(feet, night, bin_size=16):
-    """Where we are, coarsely, and whether it is dark. What a cause is cooled against."""
-    return tuple(int(c) // bin_size for c in feet), bool(night)
-
 # causes whose failure is about where the body is (and, with the place's night bit, when): cooled at that place.
 # The rest are not about the place — the game connection (game), the bag (tool), a bug or a mod task (error) —
 # and cool wherever the body goes. A failure about a target is cooled at the target (brain.failed: `pos`).
 BY_PLACE = ("stuck", "nav", "unavailable")
-
-def state_signature(place, bag_kinds, target_present):
-    """Pure: what a failure is tied to: the place, the kinds carried, whether its target is still there. A cooling
-    lifts once the state differs (E5): the clock is only its cap."""
-    return place, frozenset(bag_kinds), bool(target_present)
 
 def cause_key(cause, place):
     return f"{cause}@{place if cause in BY_PLACE else '*'}"
