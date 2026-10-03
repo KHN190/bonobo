@@ -11,7 +11,7 @@
  "death": "far",
  "dimension": "minecraft:overworld",
  "dps": "read",
- "dusk": true,
+ "dusk": "dusk",
  "failure": "stuck",
  "fluid": "lava",
  "food": false,

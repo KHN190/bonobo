@@ -7,7 +7,7 @@
  "cooking": "iron",
  "cooled": true,
  "dimension": "minecraft:overworld",
- "dusk": false,
+ "dusk": "day",
  "failure": "unavailable",
  "fluid": "swimming",
  "food": true,

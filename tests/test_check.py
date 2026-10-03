@@ -315,6 +315,21 @@ def every_value():
     return out + [alone(k, v) for k, vs in DOMAINS.items() for v in vs if (k, v) not in seen]
 
 
+def one_type(values):
+    """Pure: the values of one fact are of one type (check.run sorts the corpus keys: a bool beside a str raises)."""
+    return len({type(v) for v in values}) <= 1
+
+
+class FactValuesOfOneType(unittest.TestCase):
+    def test_every_fact(self):
+        self.assertTrue(one_type((False, True)))
+        self.assertFalse(one_type((False, True, "dawn")))               # must fail: what broke check.run's sort
+        for k, vs in DOMAINS.items():
+            with self.subTest(k):
+                self.assertTrue(one_type(vs), f"{k}: {vs}")
+                sorted(vs)
+
+
 class GammaRoundTrip(unittest.TestCase):
     def test_every_value_of_every_fact(self):
         from check import round as rnd
@@ -333,7 +348,7 @@ class GammaRoundTrip(unittest.TestCase):
              'takeover': True, 'queued': 'none', 'cooled': True, 'hunger': 'full', 'station': 'crafting_table',
              'mob': 'creeper', 'armour': 'gold', 'bag': 'full', 'bystander': 'piglin', 'carried': 'meat_fuel',
              'chest': 'unopened', 'combat': 'shooting', 'death': 'none', 'range': 'mid', 'dps': 'read', 'dusk':
-             False, 'failure': 'nav', 'fluid': 'lava', 'food_source': 'animals', 'ground': 'open', 'held':
+             'day', 'failure': 'nav', 'fluid': 'lava', 'food_source': 'animals', 'ground': 'open', 'held':
              'same', 'idle': 'none', 'job': 'growing', 'kit': 'sword_shield', 'lit': False, 'noted': 'none',
              'pack': 'dying', 'past': 'latched', 'plan_held': 'none', 'portal': 'sites', 'quarry': 'spider',
              'repeat': 'once', 'retried': 'none', 'stock': 'none', 'task': 'tool', 'tools': 'axe_shovel',
@@ -342,7 +357,7 @@ class GammaRoundTrip(unittest.TestCase):
               {'dimension': 'minecraft:overworld', 'night': False, 'hp': 'ok', 'place': 'home', 'bed': 'none',
                'pickaxe': 0, 'building': True, 'food': False, 'tree': False, 'ore': 'buried', 'threat': False,
                'takeover': False, 'queued': 'none', 'cooled': True, 'hunger': 'starve', 'station': 'crafting_table',
-               'carried': 'raw_meat', 'chest': 'unopened', 'dusk': True, 'failure': 'nav', 'fluid': 'lava',
+               'carried': 'raw_meat', 'chest': 'unopened', 'dusk': 'dusk', 'failure': 'nav', 'fluid': 'lava',
                'food_source': 'crops', 'ground': 'hole'})]
 
     def test_found(self):

@@ -27,12 +27,12 @@ class DuskByThePrep(unittest.TestCase):
 
     def test_rows(self):
         # (situation, facts) → dusk read back (production's reading on the γ world)
-        rows = [("must fail: dawn, empty bag: digging in fits the day", of(), False),
-                ("one tick of light left: no way fits", of(dusk=True), True)]
+        rows = [("must fail: dawn, empty bag: digging in fits the day", of(), "day"),
+                ("one tick of light left: no way fits", of(dusk="dusk"), "dusk")]
         for name, f, want in rows:
             with self.subTest(name):
                 _d, got, _ctx = rnd.decide(f, fail_then_again=False)
-                self.assertIs(got["dusk"], want)
+                self.assertEqual(got["dusk"], want)
 
     def test_the_night_lost_is_what_no_covered_work_fills(self):
         from bonobo import beliefs, decompose

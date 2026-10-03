@@ -11,7 +11,7 @@
  "death": "none",
  "dimension": "minecraft:the_nether",
  "dps": "read",
- "dusk": false,
+ "dusk": "day",
  "failure": "error",
  "fluid": "lava",
  "food": true,

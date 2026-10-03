@@ -10,7 +10,7 @@
  "cooled": false,
  "death": "far",
  "dimension": "minecraft:the_nether",
- "dusk": false,
+ "dusk": "day",
  "failure": "unavailable",
  "fluid": "none",
  "food": false,
