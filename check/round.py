@@ -372,7 +372,7 @@ def exact_s(inv, want, needs, cost, pending=None):
     try:
         if want:
             targets = [Target(name, decompose.round_needs(json.loads(goal), inv, cost), rank)
-                       for rank, (name, goal) in enumerate(want)]
+                       for rank, (name, goal, *_rest) in enumerate(want)]
             return plan_round(inv, targets, cost, pending, exact=True)[2]
         return plan_candidates(inv, needs, cost, exact=True)[0][1]
     except Unplannable:

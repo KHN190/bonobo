@@ -19,7 +19,7 @@ def _shard(keys):
     from bonobo import api
     with contextlib.redirect_stdout(io.StringIO()), Gate() as gate:
         api.detail = lambda *a: None
-        out = [explore.judge(explore.of(**dict(zip(explore.DOMAINS, k)))) for k in keys]
+        out = [explore.judged(explore.of(**dict(zip(explore.DOMAINS, k)))) for k in keys]
     return out, gate.hits()
 
 
@@ -43,8 +43,9 @@ def main(argv):
         for results, hits in pool.imap_unordered(_shard, shards):
             gate.merge(hits)
             for k, after, d, progress, found, mismatch, got in results:
-                first.setdefault("step", (explore.of(**dict(zip(explore.DOMAINS, k))), d))
-                graph[k] = (after, d, progress)
+                if after is not None:          # a crashed state has no successor
+                    first.setdefault("step", (explore.of(**dict(zip(explore.DOMAINS, k))), d))
+                    graph[k] = (after, d, progress)
                 if mismatch:
                     roundtrip.append((dict(zip(explore.DOMAINS, k)), got))
                 for inv, msg in found:
@@ -53,8 +54,7 @@ def main(argv):
     loops = explore.cycles(graph)
     hit, total, unhit = gate.report()
     secs = time.time() - t0
-    b, d = first["step"]
-    unchecked = oracle.unchecked(b, d)
+    unchecked = oracle.unchecked(*first["step"]) if "step" in first else {}
     lines = [f"# check run: {len(seen)} abstract states, {secs:.0f} s, coverage {hit}/{total} branch arms "
              f"({100 * hit / max(1, total):.1f} %)", "",
              "## violations by invariant", "| invariant | count |", "|---|---|"]

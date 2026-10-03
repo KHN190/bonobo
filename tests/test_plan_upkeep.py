@@ -731,11 +731,11 @@ class Held:
         b.last_failure, b.committed, b.last_hold_log, b.task_writes = None, None, 0, None
         self.task = {"id": "t1", "goal": goal["goal"], "args": goal.get("args", {}), "state": "pending", "reason": "",
                      **({"plan": plan} if plan is not None else {})}
-        self._reserved = bagmod.RESERVED          # task_act sets the module-wide reservation: put back after
+        self._reserved = set(bagmod.RESERVED)     # task_act sets the module-wide reservation in place: put back after
 
     def restore(self):
         from bonobo import bag as bagmod
-        bagmod.RESERVED = self._reserved
+        bagmod.RESERVED.clear(); bagmod.RESERVED.update(self._reserved)
 
     def round(self, inv, st=None):
         snap = snapshot(st or state(), inv)
@@ -773,7 +773,7 @@ class Queue_:
 
     def __enter__(self):
         from bonobo import bag as bagmod
-        self._reserved = bagmod.RESERVED
+        self._reserved = set(bagmod.RESERVED)
         for p in self.patches:
             p.start()
         return self
@@ -782,7 +782,7 @@ class Queue_:
         from bonobo import bag as bagmod
         for p in reversed(self.patches):
             p.stop()
-        bagmod.RESERVED = self._reserved      # task_act sets the module-wide reservation
+        bagmod.RESERVED.clear(); bagmod.RESERVED.update(self._reserved)
 
     def task(self, goal):
         tasks.add(goal)
@@ -1287,14 +1287,15 @@ def run_upkeep(row, tmp):
             secs, known = float("inf"), False
         plan_s[goal["args"]["needs"][0][0]] = secs
         plan_s[goal["args"]["needs"][0][0] + ":known"] = known
-    plan_s["overnight"] = needs.overnight(snap.inv, c)
-    plan_s["overnight:known"] = all(c.known_source(st) for st in plan_s["overnight"][2])
     # the row's readings only: no world read, no task file
     reads = {"enclosed": row.enclosed, "bed_near": row.bed_seen, "soft_ground": False}
     picked = arbiter.arbitrate([arbiter.Intent("maintain", (name, run), seq=seq, key=name)
                                 for seq, name, run in rx.proposals(snap, None, dict(reads))])
     got = picked.action if picked else None
     table.propose(snap, None, reads=dict(reads))
+    plan_s["overnight"] = table.overnight(snap)        # under the round's night facts, as propose read them
+    plan_s["overnight:known"] = table.known(plan_s["overnight"][2], snap)
+    plan_s["night prep"] = table.night_prep_s(snap)
     if got:                                     # MAINTAIN outranks PLAN (arbiter.SCALES): no need acted this round
         table.needs_now = []
     # What upkeep wants got is proposed, never queued (planned with the queue in the round's one plan).
@@ -1332,7 +1333,9 @@ class Upkeep(unittest.TestCase):
                 over = snap.dimension == OVER
                 way, secs, _ = plan_s["overnight"]
                 # A plan that knows where it goes leads by × LEAD; one that guesses waits for the real threshold.
-                bed_due = needs.dusk_s(snap) < secs * lead if plan_s["overnight:known"] else needs.dusk_s(snap) <= 0
+                prep = plan_s["night prep"]
+                bed_due = prep is not None and (needs.dusk_s(snap) < prep * lead if plan_s["overnight:known"]
+                                                else needs.dusk_s(snap) <= 0)
                 bed = over and not snap.night and snap.inv.count("bed") == 0 and way == "bed" and bed_due \
                     and not under_rock(snap.get("skyLight", 15))
                 self.assertEqual(((("bed", 1),) in queued), bed, f"dusk in {needs.dusk_s(snap)} s, {way} plan "

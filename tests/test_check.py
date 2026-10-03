@@ -173,6 +173,24 @@ class KnownViolations(unittest.TestCase):
                 self.assertIn(inv, [k for k, _m in oracle.violations(facts, d, facts, ctx)], d.name)
 
 
+class ACrashIsAStatesOwn(unittest.TestCase):
+    """explore.judged: a state whose round raises is a CRASH violation with its trace's ends; the run goes on."""
+
+    def test_rows(self):
+        from unittest import mock
+        from check import round as rnd
+
+        def boom(f, fail_then_again=True):
+            raise ValueError("too many values to unpack")
+        with mock.patch.object(rnd, "decide", boom):
+            k, after, d, _progress, found, _mismatch, _got = explore.judged(of())
+        self.assertEqual((after, d.layer, [inv for inv, _why in found]), (None, "crash", ["CRASH"]))
+        self.assertIn("ValueError", found[0][1])
+        # must fail: judge itself still raises (only judged isolates)
+        with mock.patch.object(rnd, "decide", boom), self.assertRaises(ValueError):
+            explore.judge(of())
+
+
 class FinishedRound(unittest.TestCase):
     """D1 on the production round: the round that finishes the queue's last task proposes nothing on purpose (brain
     just_finished) — the task it finished is the reason; a queue empty before the round, nothing proposed, no reason
