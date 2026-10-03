@@ -33,8 +33,9 @@ def walk_ticks(distance):
 class _Ground(Region):
     """The ground as expected where nothing is read:"""
 
-    def __init__(self, feet, target, block, soil, ore):
+    def __init__(self, feet, target, block, soil, ore, read=None):
         pad = 3
+        self.read = read                # the round's ground (Snapshot.region): what it read, it says
         self.lo = tuple(min(feet[i], target[i]) - pad for i in range(3))
         self.hi = tuple(max(feet[i], target[i]) + pad for i in range(3))
         self.blocks, self.props = {}, {}
@@ -43,6 +44,10 @@ class _Ground(Region):
     def name(self, p):
         if tuple(p) == self.target:
             return self.block
+        if p in self.blocks:
+            return self.blocks[p]           # what the way being planned changed
+        if self.read is not None and self.read.inside(p):
+            return self.read.name(p)
         k = self.feet_y - p[1]
         if k <= 0:
             return "air"
@@ -51,10 +56,10 @@ class _Ground(Region):
         return "deepslate" if p[1] < DEEPSLATE_TOP else "stone"
 
 
-def dug_way(feet, target, block, soil, ore, inv, protected=()):
+def dug_way(feet, target, block, soil, ore, inv, protected=(), read=None):
     """The block names the way to stand where `target` can be mined breaks — nav.plan_way's own choice (a level way…"""
     from . import nav
-    region, here, out = _Ground(feet, target, block, soil, ore), tuple(feet), []
+    region, here, out = _Ground(feet, target, block, soil, ore, read), tuple(feet), []
     for _segment in range(abs(feet[1] - target[1]) + 2):
         steps, _why, _secs = nav.plan_way(region, here, tuple(target), "mine", inv, protected or ())
         if steps is None:
@@ -356,7 +361,7 @@ class Cost:
         key = ("dug", feet, tuple(target), tuple(blocks))
         if key not in self.cache:
             got = dug_way(feet, target, blocks[0] if blocks else "stone", self.soil(),
-                          FIND_AT.get(step.token) is not None, self.snap.inv, self.protected())
+                          FIND_AT.get(step.token) is not None, self.snap.inv, self.protected(), self.region)
             self.cache[key] = got or []
         return list(self.cache[key])
 

@@ -64,7 +64,12 @@ def scene_cost(world, dimension="minecraft:overworld"):
     mobs = [{"type": m, "id": i, "x": p[0], "y": p[1], "z": p[2], "distance": math.dist(p, world["feet"])}
             for i, (m, p) in enumerate(world["mobs"])]
     mem = Memory(os.path.join(tempfile.mkdtemp(prefix="scene-"), "notes.json"))      # a scene remembers nothing
-    return Cost(Snapshot.from_readings(state, _bag(world["slots"]), hits, mobs), mem)
+    # the round's ground as production reads it (survive.ROUND_GROUND's box round the feet), from the scene's blocks
+    from ...survive import ROUND_GROUND
+    from ...world import Region, cell_add
+    lo, hi = (cell_add((fx, fy, fz), d) for d in ROUND_GROUND[0])
+    ground = Region.of(lo, hi, {c: bare(b) for c, b in world["blocks"].items()})
+    return Cost(Snapshot.from_readings(state, _bag(world["slots"]), hits, mobs, region=ground), mem)
 
 
 def _plan_s(needs, world, dimension):

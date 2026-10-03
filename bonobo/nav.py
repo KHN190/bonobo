@@ -1159,21 +1159,34 @@ def tunnel_steps(region, feet, target, protected=(), places=(), done=None):
     done = done or (lambda here: holds(region, here, target))
     y = feet[1]
     left, tasks, here, been = list(places), [], tuple(feet), {tuple(feet)}
-    while not done(here):
-        d = stair_dir(here, target)
-        stand = (here[0] + d[0], y, here[2] + d[1])
-        cells = [stand, cell_add(stand, (0, 1, 0))]
-        tread = cell_add(stand, (0, -1, 0))
-        if not all(region.inside(c) for c in cells + [tread]) or stand in been:
-            # off the read, or back where it was (over the target: no level stand holds it)
-            return tasks, f"no stand reaches {tuple(target)} within the read"
-        been.add(stand)
-        step, why = _step_tasks(region, cells, tread, stand, feet, protected, left, here)
-        if step is None:
-            return tasks, why
-        tasks += step
-        here = stand
-    return tasks, None
+    opened: dict = {}                   # cells the way has dug so far: open to the sight of the stands after them
+    try:
+        while not done(here):
+            d = stair_dir(here, target)
+            stand = (here[0] + d[0], y, here[2] + d[1])
+            cells = [stand, cell_add(stand, (0, 1, 0))]
+            tread = cell_add(stand, (0, -1, 0))
+            if not all(region.inside(c) for c in cells + [tread]) or stand in been:
+                # off the read, or back where it was (over the target: no level stand holds it)
+                return tasks, f"no stand reaches {tuple(target)} within the read"
+            been.add(stand)
+            step, why = _step_tasks(region, cells, tread, stand, feet, protected, left, here)
+            if step is None:
+                return tasks, why
+            tasks += step
+            for t in step:
+                if t["type"] == "mine":
+                    cell = (t["x"], t["y"], t["z"])
+                    opened.setdefault(cell, region.blocks.get(cell))
+                    region.blocks[cell] = "air"
+            here = stand
+        return tasks, None
+    finally:
+        for cell, was in opened.items():         # the region as read again for whoever reads it next
+            if was is None:
+                region.blocks.pop(cell, None)
+            else:
+                region.blocks[cell] = was
 
 def stands_at(kind, region, feet, target):
     """Pure: the way's end for `kind`: standing on the cell (stand), else a stand that holds it (reach and sight)."""

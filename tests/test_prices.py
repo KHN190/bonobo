@@ -83,6 +83,20 @@ class TheWorkAsTheJarRunsIt(unittest.TestCase):
         # (bench craft__base: 3.75 s of its 5)
         self.assertGreater(cost(snapshot()).work(step), near)
 
+    def test_an_ore_behind_stone_prices_the_tunnel(self):
+        import json
+        from bonobo import brain, planner  # noqa: F401
+        from bonobo.bench.words import est
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "bench_rows.json")) as fh:
+            setup = json.load(fh)["ore_buried"]["setup"]
+        c = est.scene_cost(est.scene_world(setup))
+        steps = planner.plan_needs(c.snap.inv, [("minecraft:raw_iron", 1)], c)
+        breaks = c.work_of(steps[-1])[0]
+        # must fail: the ore two blocks into the stone priced as one break at arm's length (the ground the round read
+        # unread by the dig to it, and the tunnel never seeing through the cells it opened)
+        self.assertGreaterEqual(breaks.count("stone"), 4)
+        self.assertLessEqual(breaks.count("stone"), 6)
+
     def test_crafts_at_one_table_break_it_once(self):
         from bonobo import planner
         from tests.world import cost
