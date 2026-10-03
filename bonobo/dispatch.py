@@ -112,7 +112,7 @@ def step_moved(start, now):
 def run_priced(dimension, step, night, run, budget=True):
     """`run()` carried out as `step`, its price line written however it ends: every way a step is run (a task's step,
     a reflex's shelter, a bench row's) goes through here, so each is priced and timed the same way. `budget`: the
-    step held to its overrun budget (nav.step_budget) — off for a reflex's (S1/S7)."""
+    step held to its overrun budget (api.step_budget) — off for a reflex's (S1/S7)."""
     t0, g0 = time.time(), _game_tick()
     PHASES.clear()
     PHASES.update(ticks_after=api.ticks_mark())
@@ -127,7 +127,7 @@ def run_priced(dimension, step, night, run, budget=True):
                 "game_s": None if g1 is None else (g1 - g0) / TICKS_PER_S, **step_moved(PHASES, api.STATE),
                 "ticks": api.ticks_since(api.STATE.ticks, PHASES["ticks_after"])}
     try:
-        with nav.step_budget(step.est if budget else None):      # OVERRUN × its as-run price, every try
+        with api.step_budget(step.est if budget else None):      # OVERRUN × its as-run price, every try
             out = run()
     except GameUnreachable:
         raise

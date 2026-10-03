@@ -225,9 +225,9 @@ def _go_way(ctx, region, start, target, faces, drop):
         return nav.arrived_near((walk["x"], walk["y"], walk["z"]), approach_policy(ctx.policy), range_=walk["range"],
                            attempts=1)
     # the whole way (every segment nav.reach takes) within what the step has left, its digging timed (OVERRUN)
-    if nav.BUDGET[0] is not None:
+    if api.BUDGET[0] is not None:
         whole = nav.reach(region, start, target, "mine", Inventory(), ctx.policy.protected, walks=walks)
-        nav.afford(max(seconds or 0.0, whole.seconds if whole.stand is not None else 0.0), target)
+        api.afford(max(seconds or 0.0, whole.seconds if whole.stand is not None else 0.0), target)
     nav.run_way(steps, ctx.policy, target)
     return True
 

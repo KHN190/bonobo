@@ -10,11 +10,13 @@ import time
 import traceback
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Mapping, Sequence, cast
 
 from . import arbiter, lifecycle, paths, tape
-from .data import EXCEPTIONS, TASK_WAIT_S, item_ids, living
+from .data import EXCEPTIONS, OVERRUN, OVERRUN_FLOOR_S, TASK_WAIT_S, item_ids, living
+from .game import TICKS_PER_S
 
 if TYPE_CHECKING:
     from .shapes import Task, TaskResult, TaskStatus
@@ -130,13 +132,64 @@ class CommitmentExpired(McError):
     """The running task outlived the commitment its plan was made under: the world owes the planner a new decision."""
 
 class Overrun(CommitmentExpired):
-    """A step past its budget (nav.step_budget: OVERRUN × its as-run price): its price refuted — stopped and
+    """A step past its budget (step_budget: OVERRUN × its as-run price): its price refuted — stopped and
     re-planned at once (EXCEPTIONS: replan, an interruption: nothing counted, banned or cooled; the skill resumes
     from what it did), the measured rest recorded for its target (`pos`, `remaining_s`: dispatch.execute)."""
 
     def __init__(self, message="", pos=None, remaining_s=None):
         super().__init__(message, pos=pos)
         self.remaining_s = remaining_s
+
+@dataclass
+class StepBudget:
+    """One planned step's seconds, by the clock from its start: max(OVERRUN × its as-run price, OVERRUN_FLOOR_S) —
+    every walk, way, wait and work of the step spends it."""
+    began: float
+    limit_s: float
+
+    def spent(self):
+        return time.time() - self.began
+
+    def left(self):
+        return self.limit_s - self.spent()
+
+
+BUDGET: list = [None]    # the running step's StepBudget (dispatch.run_priced), None outside a step or under a reflex
+lifecycle.in_place(__name__, "BUDGET")
+
+
+@contextmanager
+def step_budget(est_ticks):
+    """The step run inside is held to its budget (StepBudget); `est_ticks` None or 0 (unpriced, a reflex, a safety
+    skill nested in it): none while inside, and the outer step's clock paused for it (a safety act's seconds are
+    never the step's)."""
+    before, t0 = BUDGET[0], time.time()
+    BUDGET[0] = StepBudget(t0, max(OVERRUN * est_ticks / TICKS_PER_S, OVERRUN_FLOOR_S)) if est_ticks else None
+    try:
+        yield BUDGET[0]
+    finally:
+        if before is not None and BUDGET[0] is None:
+            before.began += time.time() - t0
+        BUDGET[0] = before
+
+
+def check_budget(target=None, remaining_s=None):
+    """Overrun when the running step has spent its budget (a skill between yields, a way between segments, a walk
+    between legs); its rest `remaining_s` when measured, else what it spent (at least as dear again)."""
+    budget = BUDGET[0]
+    if budget is not None and budget.left() < 0:
+        raise Overrun(f"the step ran {budget.spent():.0f}s > its {budget.limit_s:.0f}s ({OVERRUN}× its price)",
+                       pos=target, remaining_s=budget.spent() if remaining_s is None else remaining_s)
+
+
+def afford(seconds, target):
+    """Overrun before any digging when a way priced `seconds` (its whole, nav.reach) is past what the step has left:
+    that price is the measured rest."""
+    budget = BUDGET[0]
+    if budget is not None and seconds > budget.left():
+        raise Overrun(f"way to {target} ~{seconds:.0f}s > the step's {budget.left():.0f}s left "
+                       f"({OVERRUN}× its price, {budget.spent():.0f}s spent)", pos=target, remaining_s=seconds)
+
 
 class Interrupted(McError):
     """The perception thread stopped the running task because of a danger; survival mode takes over next round."""

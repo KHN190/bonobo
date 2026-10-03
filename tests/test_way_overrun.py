@@ -1,4 +1,4 @@
-"""data.OVERRUN (the user's rule): a step's ways are held to OVERRUN × its as-run price (Step.est, nav.step_budget) —
+"""data.OVERRUN (the user's rule): a step's ways are held to OVERRUN × its as-run price (Step.est, api.step_budget) —
 a way priced past what the step has left is refused before digging, one running past it is stopped at a segment
 boundary, the budget spent across every try and way of the step; an overrun is api.Overrun (no ban: the round
 prices again), never a NavFailed keyed to the target."""
@@ -51,26 +51,26 @@ class StepBudget(unittest.TestCase):
 
     def test_refused_before_digging(self):
         """accept7: a way priced 104 s against a 61 s step (> 1.5×): refused, nothing dug, not a NavFailed (no ban)."""
-        with nav.step_budget(61 * TICKS_PER_S), self.assertRaises(api.Overrun) as e:
+        with api.step_budget(61 * TICKS_PER_S), self.assertRaises(api.Overrun) as e:
             self.way(104.3)
         self.assertNotIsInstance(e.exception, api.NavFailed)      # must fail: the target banned for a price miss
         self.assertEqual(self.parts, [])
 
     def test_dug_within_the_budget(self):
         self.assertLessEqual(20.0, OVERRUN * 61, "fixture must fall inside the budget")
-        with nav.step_budget(61 * TICKS_PER_S):
+        with api.step_budget(61 * TICKS_PER_S):
             self.way(20.0)
         self.assertEqual(self.parts, [SEGMENT, SEGMENT])
 
     def test_stopped_at_a_segment_once_over(self):
         """Priced fine (10 s), the digging runs long: stopped before the next segment, not finished."""
-        with nav.step_budget(10 * TICKS_PER_S), self.assertRaises(api.Overrun):
+        with api.step_budget(10 * TICKS_PER_S), self.assertRaises(api.Overrun):
             self.way(10.0, part_s=20.0)
         self.assertEqual(self.parts, [SEGMENT])                   # must fail: the whole way dug
 
     def test_one_budget_across_the_steps_ways(self):
         """Two ways of one step: the second has only what the first left (must fail: a budget per try)."""
-        with nav.step_budget(10 * TICKS_PER_S) as budget:
+        with api.step_budget(10 * TICKS_PER_S) as budget:
             self.way(10.0, part_s=5.0)
             self.assertEqual(budget.spent(), 10.0)
             self.parts.clear()                                    # the step's next way: a stand not yet held
@@ -80,11 +80,11 @@ class StepBudget(unittest.TestCase):
     def test_a_safety_act_inside_pauses_the_steps_clock(self):
         """A 30 s soft skill (eat, flee: step_budget(None)) inside a 10 s step: the step's clock paused for it, no
         overrun after (must fail: the step's price refuted for time a safety act spent)."""
-        with nav.step_budget(10 * TICKS_PER_S) as budget:
+        with api.step_budget(10 * TICKS_PER_S) as budget:
             self.clock[0] += 2.0
-            with nav.step_budget(None):
+            with api.step_budget(None):
                 self.clock[0] += 30.0
-            nav.check_budget()
+            api.check_budget()
             self.assertEqual(budget.spent(), 2.0)
 
     def test_no_step_no_budget(self):
@@ -96,7 +96,7 @@ class StepBudget(unittest.TestCase):
         """S1/S7: the policy's before_segment (the hazard check) still runs per segment of a budgeted way."""
         seen = []
         policy = nav.Policy(before_segment=lambda part: seen.append(len(part)))
-        with nav.step_budget(61 * TICKS_PER_S), mock.patch.object(nav, "Policy", lambda: policy):
+        with api.step_budget(61 * TICKS_PER_S), mock.patch.object(nav, "Policy", lambda: policy):
             self.way(20.0)
         self.assertEqual(seen, [SEGMENT, SEGMENT])
 
@@ -194,7 +194,7 @@ class OverrunIsReplannedNotFailed(unittest.TestCase):
 
 class ReflexShelterNeverOverruns(unittest.TestCase):
     """bench/core.py's shelter path: dispatch.run_priced(..., budget=False) opens no step clock (S7's exclusion), so
-    nav.check_budget/afford stay no-ops however long the reflex runs. `budget=` is new API (no base signature):
+    api.check_budget/afford stay no-ops however long the reflex runs. `budget=` is new API (no base signature):
     not red by assertion on 2000ec2 (TypeError there)."""
 
     def test_a_long_reflex_never_raises(self):
@@ -203,10 +203,10 @@ class ReflexShelterNeverOverruns(unittest.TestCase):
         step = Step("skill", "shelter", 1, {}, 5 * TICKS_PER_S)
 
         def long_reflex():
-            self.assertIsNone(nav.BUDGET[0], "must fail: a budget open under budget=False")
+            self.assertIsNone(api.BUDGET[0], "must fail: a budget open under budget=False")
             for _ in range(5):
-                nav.check_budget()               # must never raise: no budget is open
-            nav.afford(1e9, (0, 64, 0))           # an absurd way price: still a no-op with no budget
+                api.check_budget()               # must never raise: no budget is open
+            api.afford(1e9, (0, 64, 0))           # an absurd way price: still a no-op with no budget
             return "sheltered"
 
         with mock.patch.object(dispatch, "trace", lambda *a, **k: None):
