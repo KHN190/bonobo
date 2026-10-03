@@ -393,8 +393,8 @@ def options(state):
     hazards = [h for h in state.get("hazards", ()) if h[3] in MOBS]
     prot = float(state.get("protection", 0.0))
     grid = state.get("field")
-    press = pressure(here, hazards, prot, ground=grid) if hazards else 0.0
-    blast_here = burst_damage(here, hazards, prot) if hazards else 0.0
+    press = pressure(here, hazards, prot, ground=grid)
+    blast_here = burst_damage(here, hazards, prot)
     work_s = horizon_for(state)
     if not hazards or (press <= 0.0 and blast_here <= 0.0):
         # a creeper exerts no pressure (a blast is not a rate): tested separately, or it is always ignored
@@ -555,10 +555,10 @@ def fallback(opts, state):
 class Field:
     """The threats around us, as a kernel model: one state, one price, a column per answer."""
 
-    def __init__(self, state, price=None, refused=None):
+    def __init__(self, state, price=None, refused=lambda _option: None):
         self.field = state
         self.price_hp = price or (lambda dhp: dhp)
-        self.refused = refused          # option → why it may not be chosen now (fight_loop: it just failed), or None
+        self.refused = refused          # option → why it may not be chosen now (fight_loop: it just failed)
         self.work_s = horizon_for(state)
         self.opts = [Answer(o, self.price_hp, self.work_s) for o in options(state)]
         self.idle = next(a for a in self.opts if a.name == "ignore")
@@ -581,7 +581,7 @@ class Field:
     def admissible(self, state, option):
         """Refused only what the caller says it may not choose now (an answer that just failed)."""
 
-        why = self.refused(getattr(option, "option", option)) if self.refused is not None else None
+        why = self.refused(getattr(option, "option", option))
         return (False, why) if why else (True, "")
 
 def owed(option, work_s):

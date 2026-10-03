@@ -190,9 +190,9 @@ REPEAT_S = 10         # the same danger interrupts at most once per 10 s (let th
 NIGHTFALL = "night"
 
 
-IN_SITE = None      # (feet, dimension) → inside a site's interior: set by every Brain built (Brain.__init__)
-COVER = None        # (feet, dimension) → nearest site interior cell or None: set by Brain
-NIGHTS_MISSED = None    # () → nights in a row not slept (Memory.nights_missed): set by Brain
+IN_SITE = lambda feet, dimension: False      # (feet, dimension) → inside a site's interior: Brain.__init__ wires memory's
+COVER = lambda feet, dimension: None         # (feet, dimension) → nearest site interior cell or None: Brain wires it
+NIGHTS_MISSED = lambda: 0                    # () → nights in a row not slept (Memory.nights_missed): Brain wires it
 
 
 def nightfall(state, enclosed, in_site=lambda: False):
@@ -215,11 +215,11 @@ def hide_near(s):
 
 
 def cover_near(s):
-    return None if COVER is None else COVER((s["blockX"], s["blockY"], s["blockZ"]), s.get("dimension"))
+    return COVER((s["blockX"], s["blockY"], s["blockZ"]), s.get("dimension"))
 
 
 def in_site_here(s):
-    return IN_SITE is not None and IN_SITE((s["blockX"], s["blockY"], s["blockZ"]), s.get("dimension"))
+    return IN_SITE((s["blockX"], s["blockY"], s["blockZ"]), s.get("dimension"))
 
 
 KIT_PRICED = ("sword", "shield", "food_items", "bed", "torches", "bag_free")
@@ -239,7 +239,7 @@ def price_inputs(state) -> dict:
         sheltered=sheltered(state.get("skyLight", 15), lambda: False, lambda: in_site_here(state)),
         pickaxe=0 if tier is None else max(1, tier),       # tool_loss: 0 none, 1 stone-class, 2+ iron
         ground=STATE.region,
-        **({} if NIGHTS_MISSED is None else {"nights_missed": NIGHTS_MISSED()}),
+        nights_missed=NIGHTS_MISSED(),
         **{k: state[k] for k in KIT_PRICED if k in state})
 
 
