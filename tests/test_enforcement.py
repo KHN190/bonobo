@@ -260,18 +260,16 @@ class OneDecisionPoint(unittest.TestCase):
     """A fixed order, no scores: the first layer that has something to do takes the round (brain.py docstring).
     Asked of `Brain.decide` itself, with each layer replaced by a recorder that says whether it has work."""
 
-    LAYERS = ("hazard", "upkeep", "queue", "prepare")
+    LAYERS = ("hazard", "upkeep", "queue")
     # (which layers have something to do) → the layers asked, in order, and the one that took the round
-    ROWS = [(set(), ["hazard", "upkeep", "queue", "prepare"], None),  # must fail: nothing to do, no layer takes the round
-            ({"prepare"}, ["hazard", "upkeep", "queue", "prepare"], "prepare"),
-            ({"queue", "prepare"}, ["hazard", "upkeep", "queue"], "queue"),
+    ROWS = [(set(), ["hazard", "upkeep", "queue"], None),  # must fail: nothing to do, no layer takes the round
+            ({"queue"}, ["hazard", "upkeep", "queue"], "queue"),
             ({"upkeep", "queue"}, ["hazard", "upkeep"], "upkeep"),
-            ({"hazard", "upkeep", "queue", "prepare"}, ["hazard"], "hazard")]
+            ({"hazard", "upkeep", "queue"}, ["hazard"], "hazard")]
 
-    # a fight row's round (Brain.round(plan=False)): reflexes and safety only — the queue and idle stocking never
-    # asked (combat__low_hp_eat mined coal for 14 s after the fight)
-    NO_PLAN = [({"queue", "prepare"}, ["hazard", "upkeep"], None),   # must fail: plan work would take the round
-               ({"prepare"}, ["hazard", "upkeep"], None),
+    # a fight row's round (Brain.round(plan=False)): reflexes and safety only — the queue never asked
+    # (combat__low_hp_eat mined coal for 14 s after the fight)
+    NO_PLAN = [({"queue"}, ["hazard", "upkeep"], None),   # must fail: plan work would take the round
                ({"upkeep", "queue"}, ["hazard", "upkeep"], "upkeep"),
                ({"hazard", "queue"}, ["hazard"], "hazard")]
 
@@ -311,7 +309,6 @@ class OneDecisionPoint(unittest.TestCase):
                                                                  "dim": snap.dimension, "want": ()}
             b.task_act = lambda *a: (ask_queue(*a), {})
             b.mem, b.blacklist, b.policy_cache, b.held = None, {}, None, {}
-            b.prepare = layer("prepare", brain.Act("idle", "p", None))
             with self.subTest(busy=sorted(busy)), mock.patch.object(api.STATE, "mode", "normal"), \
                     mock.patch.object(brain.hazard, "rescue_due", layer("hazard", "drowning")), \
                     mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "running", "goal": "have",
@@ -319,8 +316,7 @@ class OneDecisionPoint(unittest.TestCase):
                     mock.patch.object(tasks, "expire", return_value=False):
                 act = b.decide(snap, round_ctx(b, snap))
                 self.assertEqual(asked, want_asked)
-                taker = None if act is None else {"L0": "hazard", "upkeep": "upkeep", "task": "queue",
-                                                  "idle": "prepare"}[act.layer]
+                taker = None if act is None else {"L0": "hazard", "upkeep": "upkeep", "task": "queue"}[act.layer]
                 self.assertEqual(taker, want_taker)
 
 

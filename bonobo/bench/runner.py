@@ -696,12 +696,12 @@ def _report(name, data):
     return folder
 
 
-def failure_record(name, code, cls, note, seconds, feedback, trace, lines):
+def failure_record(name, code, cls, note, seconds, feedback, trace, lines, acts=()):
     """Pure: a failed row's report, every list copied — the trace is TRACE_NOW, which the next row clears before
-    this report's thread writes it (the empty traces)."""
+    this report's thread writes it (the empty traces); `acts`: the brain's acts the row ran (brain.act_record)."""
     from .. import skill as _skill
     return {"scenario": name, "code": code, "cls": cls, "note": note, "seconds": seconds,
-            "feedback": list(feedback), "trace": list(trace), "log": list(lines[-200:]),
+            "feedback": list(feedback), "trace": list(trace), "log": list(lines[-200:]), "acts": list(acts),
             "setup_s": dict(SETUP_S), "setup": dict(SETUP_READOUT), "check": dict(CHECK_READOUT),
             "fight_holds": list(_skill.HELD_WAITS)}
 
@@ -988,7 +988,9 @@ def run_named(name, make_ctx):
         save_table(record(load_table(), name, code, ok, seconds, note, cls, e4=e4_row,
                           ticks=_api.ticks_since(_api.STATE.ticks, row_mark)))
     if not ok:
-        folder = _report(name, failure_record(name, code, cls, note, seconds, feedback, trace, console.lines))
+        from .. import brain as _brain
+        acts = [a for a in _brain.ACTS if a["start"] >= row_t0]
+        folder = _report(name, failure_record(name, code, cls, note, seconds, feedback, trace, console.lines, acts))
         note = f"{note} [{cls}] → {folder}"
     return ok, seconds, note, cls, code
 

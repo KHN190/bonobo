@@ -1,5 +1,5 @@
-"""idle: nothing queued, and the first idle stocking need (goals.PREPARE[0]) cooling after a failure here
-(brain.need_act: a need whose key is not ready offers no step) — prepare walks on to the next need."""
+"""idle: nothing queued, and the run's first milestone (goals.MILESTONES) cooling after a failure here
+(brain.plan_proposals: a milestone whose key is not ready is not planned) — the round proposes nothing, with its reason."""
 NAME = "idle"
 VALUES = ("none", "cooling")
 DEPENDS = (lambda f: f["task"] == "none" and f["queued"] == "none", {})
@@ -11,7 +11,7 @@ def domain():
 
 def _key():
     from bonobo import goals
-    return f"idle: {goals.describe(goals.have(*[tuple(n) for n in goals.PREPARE[0]]))}"
+    return f"milestone: {goals.describe(goals.make('milestone', name=next(iter(goals.MILESTONES))))}"
 
 
 def prepare(brain, facts):

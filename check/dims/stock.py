@@ -1,6 +1,6 @@
-"""What the bag holds for the day's upkeep beyond the base facts: torches (goals.PREPARE's last row) and the station
-kit carried (goals.MILESTONES "station kit"). With every PREPARE row met the brain's upkeep proposes nothing and the
-plan's own proposals are asked (brain.plan_proposals: night_stock under cover, prepare's nothing-left).
+"""What the bag holds for the day's upkeep beyond the base facts: torches and the station kit carried
+(goals.MILESTONES "station kit"). With them met the plan's own proposals are asked (brain.plan_proposals: the next
+milestone, night_stock under cover when it pays).
 α: the bag's counts of those items."""
 NAME = "stock"
 VALUES = ("none", "torches", "kit")

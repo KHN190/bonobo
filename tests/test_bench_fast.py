@@ -168,14 +168,20 @@ class AReportKeepsItsTrace(unittest.TestCase):
 
     def test_rows(self):
         from bonobo.bench import runner
+        from bonobo import brain
         trace, feedback, lines = [{"t": 1.0}], [{"cmd": "x"}], ["a"]
-        rec = runner.failure_record("r", "c", "skill", "n", 1.0, feedback, trace, lines)
+        acts = [brain.act_record(brain.Act("task", "task t1", None), 1.0, 2.5, "failed", "nav")]
+        rec = runner.failure_record("r", "c", "skill", "n", 1.0, feedback, trace, lines, acts)
         trace.clear()          # what the next row's run() does to TRACE_NOW
         feedback.clear()
+        acts.clear()
         # (situation, the field) → still what the row saw
         rows = [("must fail: the trace emptied by the next row", "trace", [{"t": 1.0}]),
                 ("the feedback", "feedback", [{"cmd": "x"}]),
-                ("the log", "log", ["a"])]
+                ("the log", "log", ["a"]),
+                ("must fail: the acts the row ran, each as run", "acts",
+                 [{"start": 1.0, "end": 2.5, "layer": "task", "intent": "task t1", "step": None, "est": None,
+                   "outcome": "failed", "cause": "nav"}])]
         for name, key, want in rows:
             with self.subTest(name):
                 self.assertEqual(rec[key], want)
