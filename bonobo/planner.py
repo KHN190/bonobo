@@ -1146,6 +1146,7 @@ class Search:
         # the fuel lands in the step's detail when its option runs
         children = self.options(node, [(t, [x for x in tasks if x[0] != "setfuel"]) for t, tasks in opts],
                                 self.after(node, step))
+        assert children is not None, "two FUELS: the fuel always branches"
         picks = [tasks[-1] for _t, tasks in opts]
         for c, (_op, _s, fuel, k) in zip(children, picks):
             self.set_fuel(c, step, fuel, k)
@@ -1872,6 +1873,7 @@ def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False, cap
         if best is None or key < best[0]:
             best = (key, steps)
     if best is None:
+        assert dearer is not None, "every order either planned or was dearer than the cap"
         raise dearer
     return best[1]
 
