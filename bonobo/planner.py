@@ -545,7 +545,7 @@ def _hook_memo(memo, name, fn, facts=False):
 
 class Search:
     def __init__(self, cost, kinds=None, exact=False):
-        self.exact = exact              # the checker's reference: no budget, no pruning (dive width, tool payback, transpositions, orders)
+        self.exact = exact              # the checker's reference: no budget, no pruning (dive width, tool payback, transpositions, orders, alike group ways)
         self.hungry = cost.hunger_rate()
         # what one search learns holds for every search of the round on the same readings (Cost.plans)
         plans = cost.plans()
@@ -584,7 +584,7 @@ class Search:
     def sources(self, token):
         """knowledge.sources, asked once a plan (the registry does not change within one)."""
         if token not in self._sources:
-            self._sources[token] = uncovered(token, sources(token))
+            self._sources[token] = sources(token) if self.exact else uncovered(token, sources(token))
         return self._sources[token]
 
     # -- what is left: its bound
