@@ -48,8 +48,10 @@ def _go_to_machine(ctx, machine):
     if not nav.arrived_near(access, ctx.policy, range_=2, attempts=2):
         raise NotAvailable(f"{machine['name']} not reachable")
 
-def spot_options(bp, near, region, policy, radius=8, body=None) -> "list[tuple[int, Cell, int, tuple]]":
-    """Pure: [(prepare cost, origin, turns, prepare)] for building `bp` around `near`, cheapest first."""
+def spot_options(bp, near, region, policy, radius=8, body=None, inv=None) -> "list[tuple[int, Cell, int, tuple]]":
+    """Pure: [(prepare cost, origin, turns, prepare)] for building `bp` around `near`, cheapest first; with the body and
+    the bag known, the first is one whose access spot the door's way predicate does not refuse (nav.known_refusal,
+    asked cheapest first until one passes)."""
 
     nx, ny, nz = near
     budget = int(_PLAY["build"]["max_prepare_blocks"])
@@ -86,6 +88,10 @@ def spot_options(bp, near, region, policy, radius=8, body=None) -> "list[tuple[i
                     out.append((len(prepare), math.dist(origin, near), origin, turns, tuple(prepare)))
                     break
     out.sort()
+    if body is not None and inv is not None:
+        first = next((i for i, o in enumerate(out) if nav.known_refusal(
+            region, body, blueprints.access_spot(bp, o[2], o[3]), "stand", inv, policy.protected) is None), len(out))
+        out = out[first:]
     # a build already partly standing is resumed first: its rest is the cheapest work there is
     return ([(0, origin, turns, ()) for origin, turns in started_builds(bp, region, near)]
             + [(cost, origin, turns, prepare) for cost, _d, origin, turns, prepare in out])
@@ -172,7 +178,7 @@ def plan_machine_spot(bp, near, policy, radius=8, body=None):
     nx, ny, nz = near
     height = max(p.offset[1] for p in bp.parts) + 2
     region = Region((nx - radius - 3, ny - 4, nz - radius - 3), (nx + radius + 3, ny + height + 3, nz + radius + 3))
-    options = spot_options(bp, near, region, policy, radius=radius, body=body)
+    options = spot_options(bp, near, region, policy, radius=radius, body=body, inv=Inventory())
     if not options:
         raise NotAvailable(f"no ground for {bp.name} within {radius} blocks, and none that could be made")
     _cost, origin, turns, prepare = options[0]
@@ -416,7 +422,7 @@ def _blueprint_spot(state, args):
         return None
     near = tuple(args[1]) if len(args) > 1 and args[1] is not None else tuple(state["feet"])
     options = spot_options(bp, near, state["region"], nav.Policy(protected=state.get("protected") or set()),
-                           body=state.get("feet"))
+                           body=state.get("feet"), inv=state.get("inv"))
     return options[0][1:] if options else None
 
 def _blueprint_anchor(state, args):

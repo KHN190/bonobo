@@ -137,6 +137,50 @@ class AFailedWayIsKeyedByItsCause(unittest.TestCase):
         self.assertIsNotNone(cost(region, feet, 0, bans).refused(t, "mine"))
 
 
+class ABuildSpotTheDoorReaches(unittest.TestCase):
+    """K1 for builds (a hut, a smelter, a nether portal): the spot chosen is one whose access spot the door's way
+    predicate does not refuse — the same known_refusal, over the same ground, with the same bag."""
+
+    def test_rows(self):
+        from bonobo import blueprints, building
+        for name, bp in sorted(blueprints.REGISTRY.items()):
+            for geo in ("flat", "pillar"):
+                for carried in (0, CARRIED):
+                    with self.subTest(bp=name, geo=geo, carried=carried):
+                        blocks, _t = geometry(geo, "stone")
+                        region, feet = FakeRegion(LO, HI, blocks), feet_of(geo)
+                        inv = inventory_of(carried)
+                        got = building.spot_options(bp, FEET, region, nav.Policy(), radius=3, body=feet, inv=inv)
+                        if not got:
+                            continue
+                        _c, origin, turns, _p = got[0]
+                        # must fail: a spot whose access the door then finds no way to (pillar, empty bag)
+                        self.assertIsNone(nav.known_refusal(region, feet, blueprints.access_spot(bp, origin, turns),
+                                                            "stand", inv, set()))
+
+
+class ADigInThePlanIsTheRunsDigIn(unittest.TestCase):
+    """K1 for the night's dig-in: the plan offers it (dig_in_site with the bag) exactly when its own commands can be
+    built (dig_in_commands: a safe column, a lid to seal with, room for it)."""
+
+    def test_rows(self):
+        from bonobo import survive
+        from bonobo.world import BAG_SLOTS, Inventory
+        full = Inventory(inventory(*[("stick", 64)] * BAG_SLOTS))      # no block to seal with, no room for one dug
+        for geo in ("flat", "hole", "pillar"):
+            for bag_name, inv in (("empty", inventory_of(0)), ("blocks", inventory_of(CARRIED)), ("full", full)):
+                with self.subTest(geo=geo, bag=bag_name):
+                    blocks, _t = geometry(geo, "stone")
+                    region, feet = FakeRegion(LO, HI, blocks), feet_of(geo)
+                    try:
+                        survive.dig_in_commands({"region": region, "inv": inv, "feet": feet, "protected": set()})
+                        runs = True
+                    except api.NotAvailable:
+                        runs = False
+                    # must fail: offered by its safe depth alone, refused by the run for want of a lid
+                    self.assertIs(survive.dig_in_site(region, feet, inv=inv), runs)
+
+
 def inventory_of(carried):
     from bonobo.world import Inventory
     return Inventory(inventory(("cobblestone", carried)) if carried else inventory())

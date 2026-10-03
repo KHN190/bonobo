@@ -674,10 +674,17 @@ def soft_spot():
     return nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
 
 
-def dig_in_site(region, feet_at, protected=()):
+def dig_in_site(region, feet_at, protected=(), inv=None):
     """Pure: can a dig-in finish here — DIG_IN_DEPTH cells safe to dig under the column (nav.safe_depth, from
     where a started dig began: dig_in_start), so its lid sits below the ground line? A 3-thick floor over air
-    gives 2: not offered (search_night_resume chose it, then 'only 2 of 3 safe')."""
+    gives 2: not offered (search_night_resume chose it, then 'only 2 of 3 safe'). With the bag known, the dig-in's
+    own commands decide (dig_in_commands: a lid to seal with, room for it): the plan's test is the run's."""
+    if inv is not None:
+        try:
+            dig_in_commands({"region": region, "inv": inv, "feet": tuple(feet_at), "protected": set(protected)})
+            return True
+        except NotAvailable:
+            return False
     start = dig_in_start(region, tuple(feet_at))
     return nav.safe_depth(region, start, DIG_IN_DEPTH, protected, dug_to=feet_at[1]) >= DIG_IN_DEPTH
 
@@ -687,13 +694,13 @@ ROUND_GROUND = (((-SOFT_RADIUS, -DIG_IN_DEPTH - 2, -SOFT_RADIUS), (SOFT_RADIUS, 
                 ((-1, -1, -1), (1, 3, 1)))
 
 
-def night_ground(region, at):
+def night_ground(region, at, inv=None):
     """Pure over the round's ground: (seconds' walk to hand-diggable ground or None, whether a dig-in can finish right
     here); a ground not read is none of either (priced as no soft ground, no dig-in: never taken as safe)."""
     if region is None:
         return None, False
     spot = nearest_soft(region, tuple(at), DIG_IN_DEPTH)
-    return (None if spot is None else spot[1] / WALK_BLOCKS_PER_S), dig_in_site(region, tuple(at))
+    return (None if spot is None else spot[1] / WALK_BLOCKS_PER_S), dig_in_site(region, tuple(at), inv=inv)
 
 @skill(gives=["state:sheltered"], needs={}, remaining=lambda st, c: dug_in_left(st, c), start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
        provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None,

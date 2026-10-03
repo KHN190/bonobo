@@ -145,7 +145,7 @@ def ground(reads, snap) -> tuple[Callable, Callable, Callable]:
     """The ground readings needs and reflexes ask, over the round's ground (snap.region): enclosed, hand-diggable
     ground, a dig-in site — no read of their own (K10)."""
 
-    both = _once(None, "night_ground", lambda: survive.night_ground(snap.region, snap.feet))
+    both = _once(None, "night_ground", lambda: survive.night_ground(snap.region, snap.feet, snap.inv))
     soft = _once(reads, "soft_ground", lambda: both()[0])
     # given readings without the dig-in site say nothing against it (a test's round reads no world)
     site = (lambda: reads.get("dig_in_site", True)) if reads is not None else (lambda: both()[1])
