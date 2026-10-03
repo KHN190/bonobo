@@ -112,6 +112,13 @@ def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
         return None, f"{carried} blocks carried, {dug} dug on the way, {depth - JUMP_BLOCKS} to pillar back out"
     return tasks, None
 
+def approach_cell(vein, open_set, start: Cell) -> Cell:
+    """Pure: the vein cell a pass goes for first — an open-faced one within WORK_REACH of `start` (worked from where
+    the body stands), else the nearest: a shaft or a tunnel only for a vein with no open face in reach."""
+    here = [p for p in vein if p in open_set and math.dist(p, start) <= WORK_REACH]
+    return min(here or vein, key=lambda p: (math.dist(p, start), p))
+
+
 def stair_leg_end(start: Cell, target: Cell) -> Cell:
     """Pure: where one staircase segment from `start` toward `target` ends (nav.stair_dir, nav.STAIR_STEPS down)."""
     d = nav.stair_dir(start, target)
@@ -286,7 +293,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         want = breaks or max(1, target - have)
         vein = set(sorted(vein, key=lambda p: math.dist(p, start))[: max(want, len(vein) if tier else want)])
         # reach a vein by walking if there is a way, else by digging one: buried ore has no path, and banning it left coal inside a wall forever
-        near = min(vein, key=lambda p: math.dist(p, start))
+        near = approach_cell(vein, open_set, start)
         if (FIND_AT.get(mid(drop)) is None and near not in open_set and near[1] < start[1]
                 and ctx.policy.allow_dig and near not in shaftless):
             # a buried surface kind (stone under the soil): straight down, with a way back out and no lava below

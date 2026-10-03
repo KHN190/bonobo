@@ -67,6 +67,24 @@ class Shaft(unittest.TestCase):
                     self.assertEqual(len([t for t in tasks if t.get("type") != "wait"]), FEET[1] - target[1])
 
 
+class AnOpenFaceIsWorkedWhereItStands(unittest.TestCase):
+    """mine_stone__base (a stone floor): the floor's own top faces are open and in reach, yet the nearest vein cell by
+    distance was one buried under the body's supports — a shaft dug, its stone spent pillaring out. The pass goes for
+    an open face in reach first (gather.approach_cell)."""
+
+    def test_rows(self):
+        x, y, z = FEET
+        buried = (x + 1, y - 2, z)              # under a support cell: nearer, no open face
+        top = (x + 3, y - 1, z)                 # the floor's top, its face open, in reach
+        far_top = (x + 9, y - 1, z)             # open, out of reach
+        rows = [("must fail: an open face in reach beats a nearer buried cell", {buried, top}, {top}, top),
+                ("no open face in reach: the nearest (a shaft or a tunnel)", {buried, far_top}, {far_top}, buried),
+                ("nothing open: the nearest", {buried, top}, set(), buried)]
+        for name, vein, open_set, want in rows:
+            with self.subTest(name):
+                self.assertEqual(gather.approach_cell(vein, open_set, FEET), want)
+
+
 class NoShaftIsNoBan(unittest.TestCase):
     """mine_stone__base: a shaft that cannot be dug from here banned every cell of the connected vein (88 stone), and the
     next pass found nothing; the way in failed, not the vein — no ban, the next pass takes another way."""
