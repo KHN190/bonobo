@@ -16,7 +16,7 @@ from .knowledge import have_remainder, needs_rows
 from .bag import has_room
 from .world import Versioned
 
-REGISTRY: "dict[str, Contract]" = Versioned()      # versioned: what is read off it is kept until it changes
+REGISTRY: "Versioned[str, Contract]" = Versioned()      # versioned: what is read off it is kept until it changes
 Needs = dict[str, int]         # {dimension: minimum}: "tool:pickaxe:2", "item:minecraft:bucket", ... (knowledge.needs_rows)
 Bag = dict[str, int]           # {item or group token: count}: a wanted bag, what is left of it
 VERIFY_SETTLE_S = 3.0      # how long a finished skill's effect may take to show up in the world
@@ -288,11 +288,12 @@ def step_uses(step):
     c = _provider(step)
     if c is None or c.uses is None:
         return {}
-    if not callable(c.uses):
-        return dict(c.uses)
+    of = c.uses
+    if isinstance(of, dict):
+        return dict(of)
     found = step_contract(step)
     try:
-        uses = dict(c.uses(found[1])) if found is not None else {}
+        uses = dict(of(found[1])) if found is not None else {}
     except (IndexError, KeyError, TypeError):
         uses = {}                         # args it cannot read: the runner refuses them, nothing to plan around
     return uses

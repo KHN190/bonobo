@@ -5,7 +5,7 @@ import functools
 import math
 
 import time
-from typing import TYPE_CHECKING, Any, Mapping, cast
+from typing import TYPE_CHECKING, Any, Mapping, TypeVar, cast
 
 from . import api, lifecycle
 from .game import EYE_HEIGHT
@@ -16,7 +16,11 @@ from .data import (DAY_END, DAY_TICKS, is_night, DOOR_SUFFIX, GROUPS, HAZARD, NI
 if TYPE_CHECKING:
     from .shapes import Cell, EntityReading, Equipment, InventoryReading, Slot, StateReading
 
-class Versioned(dict):
+K = TypeVar("K")
+V = TypeVar("V")
+
+
+class Versioned(dict[K, V]):
     """A dict whose `version` grows on every write: what is read off it is kept until it is written."""
 
     version = 0
@@ -258,7 +262,7 @@ def _per_block_ok():
         api.swallowed("world._per_block_ok", e)
         return False
 
-def nearest(kinds, feet, dimension, radius=48, union=(), skip=None):
+def nearest(kinds, feet, dimension, radius: float = 48, union=(), skip=None):
     """Blocks to the nearest of `kinds` in sight, or None — estimates never search the world themselves. `skip`:
     cells that are not there for this ask (a gather source is never a home block)."""
 
