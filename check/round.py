@@ -4,6 +4,7 @@ import contextlib
 import os
 import time
 import shutil
+import tempfile
 from collections import namedtuple
 from unittest import mock
 
@@ -18,7 +19,13 @@ def data_dirs():
     import (memory, tasks) — the same unless a bonobo module was imported before check/ set MC_DATA (a test run that
     loads another module first: the round's memory and queue then lived in the tests' dir and outlived the round)."""
     from bonobo import memory, tasks
-    return sorted({_DIR, os.path.dirname(memory.NOTES_FILE), os.path.dirname(tasks.FILE)})
+    dirs = sorted({_DIR, os.path.dirname(memory.NOTES_FILE), os.path.dirname(tasks.FILE)})
+    temp = os.path.realpath(tempfile.gettempdir())
+    away = [d for d in dirs if not os.path.realpath(d).startswith(temp + os.sep)]
+    if away:
+        # a player's own data (bonobo imported before check/): never emptied, the round refused
+        raise RuntimeError(f"the checker empties only temp dirs; production resolved {away} (import check first)")
+    return dirs
 
 
 def fresh_round():

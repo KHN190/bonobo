@@ -74,7 +74,7 @@ class Oracle(unittest.TestCase):
                 self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), fires, got)
 
     def test_every_invariant_has_a_function(self):
-        ids = {f"{p}{n}" for p, top in (("S", 6), ("D", 7), ("E", 3), ("R", 5)) for n in range(1, top + 1)} | {"P1", "P2", "P3", "P4", "P5"}
+        ids = {f"{p}{n}" for p, top in (("S", 8), ("D", 8), ("E", 3), ("R", 5), ("P", 5)) for n in range(1, top + 1)} | {"M1"}
         self.assertEqual(set(oracle.CHECKS), ids)
 
     def test_unchecked_ones_are_named(self):
@@ -131,6 +131,25 @@ class OneRestorePoint(unittest.TestCase):
             rnd.decide(of(place="home", queued="stick"), fail_then_again=False)     # leaves a home and a task there
             _d, got, _ctx = rnd.decide(of(), fail_then_again=False)
         self.assertEqual((got["place"], got["queued"]), ("open", "none"))          # must fail: the home leaked
+
+    def test_a_players_own_data_is_never_emptied(self):
+        import os
+        import shutil
+        import tempfile
+        from unittest import mock
+        from bonobo import memory
+        from check import round as rnd
+        own = tempfile.mkdtemp(prefix="bonobo-own-", dir=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        try:
+            kept = os.path.join(own, "detail.log")
+            with open(kept, "w") as fh:
+                fh.write("a player's log")
+            with mock.patch.object(memory, "NOTES_FILE", os.path.join(own, "world-notes.json")):
+                with self.assertRaises(RuntimeError):                 # must fail: a round that empties it
+                    rnd.decide(of(), fail_then_again=False)
+            self.assertTrue(os.path.exists(kept))
+        finally:
+            shutil.rmtree(own)
 
 class KnownViolations(unittest.TestCase):
     """The baseline's known breaches (docs/refactor.md V list), each built as the decision itself and asked of the
