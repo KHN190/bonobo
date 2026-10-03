@@ -148,15 +148,34 @@ SOURCES = {
 def cheapest(key, amount, default, inv, cost, extra=None, facts=None, priced=False):
     """The cheapest way to `key` × amount: the solver's steps, or a SOURCES[key] source's runs plus their needs;
     (steps, name), with its seconds (extras included) when `priced`."""
+    ways, why = priced_ways(key, amount, default, inv, cost, extra, facts)
+    if not ways:
+        raise Unplannable(f"no way to {key}: " + "; ".join(why))
+    name, best, steps = min(((n, s + extra_s(x, facts), st) for n, s, st, x in ways), key=lambda w: w[1])
+    steps = None if name == "default" else steps
+    return (steps, name, best) if priced else (steps, name)
+
+def extra_s(keys, facts):
+    """Pure: a source's own extra seconds the place facts say (a walk, the night waited)."""
+    return sum(float((facts or {}).get(k, 0.0)) for k in keys)
+
+def priced_ways(key, amount, default, inv, cost, extra=None, facts=None, free_only=False):
+    """Every way to `key` × amount priced once: ([(name, its plan's seconds, steps, the facts its extra seconds are
+    read from)], why the others are not offered) — the default (`default()`'s steps) and each SOURCES[key] source
+    that can finish here. `free_only`: only the sources that need nothing (priced without planning)."""
 
     mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
-    why = []
+    why, out = [], []
     try:
-        best, best_steps, name = cost.plan_s(default()), None, "default"
+        if free_only:
+            raise Unplannable("not asked")
+        steps = default()
+        out.append(("default", cost.plan_s(steps), steps, ()))
     except Unplannable as e:
-        best, best_steps, name = math.inf, None, None
         why.append(f"default: {e}")
     for src in SOURCES.get(key, ()):
+        if free_only and src["needs"]:
+            continue
         if src["name"] in (facts or {}).get("cooled", ()):
             why.append(f"{src['name']}: failed here lately (cooling)")
             continue                 # a way that just failed is not priced again tonight: the next way is
@@ -184,7 +203,7 @@ def cheapest(key, amount, default, inv, cost, extra=None, facts=None, priced=Fal
         runs = math.ceil(amount / src["yields"])
         try:
             needs = [n if n[0] == "tool" or n[0].endswith("_helmet") else (n[0], n[1] * runs) for n in src["needs"]]
-            pre = solve_needs(inv, needs, cost, extra)
+            pre = solve_needs(inv, needs, cost, extra) if needs else []
         except Unplannable as e:
             why.append(f"{src['name']}: {e}")
             continue
@@ -195,13 +214,8 @@ def cheapest(key, amount, default, inv, cost, extra=None, facts=None, priced=Fal
                                                        else {})})
             step.est = cost.estimate(Step(kind, tok, 1, dict(detail))) * runs
             own.append(step)
-        # A source's own extra seconds the place facts say (a walk, the night waited), added to its plan.
-        seconds = cost.plan_s(pre + own) + sum(float((facts or {}).get(k, 0.0)) for k in src.get("extra_s", ()))
-        if seconds < best:
-            best, best_steps, name = seconds, pre + own, src["name"]
-    if best == math.inf:
-        raise Unplannable(f"no way to {key}: " + "; ".join(why))
-    return (best_steps, name, best) if priced else (best_steps, name)
+        out.append((src["name"], cost.plan_s(pre + own), pre + own, tuple(src.get("extra_s", ()))))
+    return out, why
 
 def _action(kind, token, cost, **detail):
     step = Step(kind, token, 1, detail)

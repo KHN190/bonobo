@@ -8,7 +8,7 @@ from .beliefs import CONFIG as _PLAY
 from .data import MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare, mid
 from .knowledge import food_count, soil_depth, dawn_s, MIN_FIND_P, body_facts, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
-from .world import ROUTES, Region, entities, job_ready, nearest, route_key, sight_pos, sight_version, sight_y
+from .world import ROUTES, Region, Versioned, entities, job_ready, nearest, route_key, sight_pos, sight_version, sight_y
 from .skill import MIN_SAMPLES
 from .planner import Unplannable, plan_needs
 
@@ -100,7 +100,7 @@ class Cost:
 
         self.snap, self.mem, self.region, self.stop = snap, mem, region, stop
         self.reserved = frozenset(reserved)
-        self.blacklist = blacklist or {}
+        self.blacklist = blacklist if blacklist is not None else Versioned()
         self.cache = {}
         self._known_fn = known
         self._finds = finds
@@ -128,10 +128,11 @@ class Cost:
 
     def not_there(self, sources=False):
         """The cells no estimate goes to: banned (no way there), and with `sources` the protected ones — built once
-        while the bans and the round's routes stand as they are."""
-        stamp = (len(self.blacklist), len(ROUTES))
+        until either is written (world.Versioned; a plain dict is read afresh each ask)."""
+        version = getattr(self.blacklist, "version", None)
+        stamp = None if version is None else (version, ROUTES.version)
         got = self.cache.get(("gone", sources))
-        if got is None or got[0] != stamp:
+        if got is None or stamp is None or got[0] != stamp:
             got = self.cache[("gone", sources)] = (stamp, _Gone(self.protected() if sources else None, self.blacklist))
         return got[1]
 

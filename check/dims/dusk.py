@@ -23,7 +23,15 @@ def alpha(a):
     snap = a.snap
     if snap.night or snap.dimension != "minecraft:overworld":
         return False
-    way, seconds, _steps = overnight(snap.inv, Cost(snap, a.mem))
+    if a.brain is not None:
+        # the brain's own night table (needs.overnight, priced once for the round): not priced while a way needing
+        # nothing already ends the night inside the light left
+        free = a.brain.needs.night_free_s(snap)
+        if free is not None and dusk_s(snap) >= free * LEAD:
+            return False
+        way, seconds, _steps = a.brain.needs.overnight(snap)
+    else:
+        way, seconds, _steps = overnight(snap.inv, Cost(snap, a.mem))
     return way is not None and dusk_s(snap) < seconds * LEAD
 
 

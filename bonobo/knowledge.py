@@ -235,9 +235,11 @@ SKILL_MODULES = ("brewing", "building", "combat", "dragon", "end", "explore", "f
 def producers():
     """Every producing table the registered skills declare, in rank order (every skill module loaded first: one
     already imported registers only its own — gather alone left no craft producer, so no tool could be planned)."""
-    import importlib
-    for m in SKILL_MODULES:
-        importlib.import_module(f"{__package__}.{m}")
+    import sys
+    if any(f"{__package__}.{m}" not in sys.modules for m in SKILL_MODULES):
+        import importlib
+        for m in SKILL_MODULES:
+            importlib.import_module(f"{__package__}.{m}")
     return sorted(PRODUCERS, key=lambda g: g.rank)
 
 def produced(kind):

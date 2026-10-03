@@ -169,8 +169,7 @@ class Plans(unittest.TestCase):
     def test_replan(self):
         for name, goal, step in REPLAN:
             with self.subTest(name):
-                task = {"id": "t1", "goal": goal["goal"], "args": goal["args"]}
-                held, why = brainmod.replan(task, goal, snapshot(), cost(snapshot(), oak_log=5, stone=2))
+                held, why = brainmod.replan([("task t1", goal, 0)], snapshot(), cost(snapshot(), oak_log=5, stone=2))
                 if step is None:
                     self.assertEqual((held, why.startswith("unplannable")), (None, True))
                     continue
@@ -656,10 +655,10 @@ class Repairs(unittest.TestCase):
         seen = {"oak_log": 8, "stone": 2, "iron_ore": 12, "coal_ore": 9}
         for name, goal, inv_before, inv_after, pending, check in REPAIRS:
             with self.subTest(name):
-                task = {"id": "t1", "goal": goal["goal"], "args": goal.get("args", {})}
+                entries = [("task t1", goal, 0)]
                 snap_b, snap_a = snapshot(inv=inv_before), snapshot(inv=inv_after)
-                held_b, why_b = brainmod.replan(task, goal, snap_b, cost(snap_b, **seen))
-                held_a, why_a = brainmod.replan(task, goal, snap_a, cost(snap_a, **seen), pending=pending)
+                held_b, why_b = brainmod.replan(entries, snap_b, cost(snap_b, **seen))
+                held_a, why_a = brainmod.replan(entries, snap_a, cost(snap_a, **seen), pending=pending)
                 self.assertIsNone(why_b)
                 self.assertIsNone(why_a)
                 self.assertEqual(held_a["sig"], needs.bag_signature(snap_a.inv), "the held plan is stamped with its bag")
@@ -669,9 +668,8 @@ class Repairs(unittest.TestCase):
     def test_nothing_can_plan_it(self):
         for name, goal in UNPLANNABLE:
             with self.subTest(name):
-                task = {"id": "t1", "goal": goal["goal"], "args": goal.get("args", {})}
                 try:
-                    held, why = brainmod.replan(task, goal, snapshot(), cost())
+                    held, why = brainmod.replan([("task t1", goal, 0)], snapshot(), cost())
                 except ValueError:
                     continue
                 self.assertEqual((held, why.split(":")[0]), (None, "unplannable"))
@@ -3008,43 +3006,66 @@ class ToolsThatPayForThemselves(unittest.TestCase):
 
 
 class TheRoundsPick(unittest.TestCase):
-    """brain.round_pick: the queue's goals and upkeep's needs in the round's one plan (planner.plan_round): at equal
-    seconds the queue's place, else the seconds; a plan whose clock runs the bar out is not the one taken."""
+    """brain.round_for / round_act: the queue's goals and upkeep's needs in the round's one plan (planner.plan_round):
+    the order of least total seconds, the queue's place at equal totals; a plan whose clock runs the bar out is not
+    the one taken."""
 
-    def pick(self, offers, snap, seen):
-        from bonobo.planner import Target
+    def first(self, entries, snap, seen):
         q = Held(goals.have(("log", 1)), seen=seen)
         try:
-            acts = [(brainmod.Act("task", name, None, step=planner.Step(kind, token, 1, {})), "queue")
-                    for name, _needs, _rank, (kind, token) in offers]
-            targets = [Target(name, needs_, rank) for name, needs_, rank, _own in offers]
-            act, _kind = q.b.round_pick(acts, targets, snap, None, cost(snap, mem=q.b.mem, **seen))
-            if act is None:
-                return None
-            return act.name if act.name in [o[0] for o in offers] else (act.step.kind, act.step.token)
+            held = q.b.round_for(entries, snap, cost(snap, mem=q.b.mem, **seen))
+            act = q.b.round_act(held["steps"], snap, None) if held is not None else None
+            return None if act is None else (act.step.kind, act.step.token)
         finally:
             q.restore()
 
     def test_rows(self):
         carried = snapshot(state(), inventory(("oak_log", 1), ("oak_planks", 2)))
-        sticks = ("task t1", [("minecraft:stick", 4)], 0, ("craft", "minecraft:stick"))
-        planks = ("task t2", [("planks", 4)], 1, ("craft", "planks"))
-        logs = ("task t3", [("log", 6)], 0, ("gather", "log"))
-        sticks_later = ("task t1", [("minecraft:stick", 4)], 1, ("craft", "minecraft:stick"))
+        sticks, planks, logs = goals.have(("minecraft:stick", 4)), goals.have(("planks", 4)), goals.have(("log", 6))
         hungry = snapshot(state(food=3), inventory())
-        pick = ("task t1", [("tool", "pickaxe", 2)], 0, ("gather", "log"))
         seen = {"cow": 8, "oak_log": 6, "stone": 2}
-        # (situation, snapshot, offers, what the round lets drive: an offer's name, or the round's own step)
-        rows = [("equal seconds: the queue's first place", carried, [sticks, planks], "task t1"),
-                ("equal seconds, the places swapped: the other", carried,
-                 [("task t1", sticks[1], 1, sticks[3]), ("task t2", planks[1], 0, planks[3])], "task t2"),
+        # (situation, snapshot, [(name, goal, queue place)], the round plan's first step)
+        rows = [("equal seconds: the queue's first place", carried, [("a", sticks, 0), ("b", planks, 1)],
+                 ("craft", "minecraft:stick")),
+                ("equal seconds, the places swapped: the other", carried, [("a", sticks, 1), ("b", planks, 0)],
+                 ("craft", "planks")),
                 ("unequal seconds, the same total either way (G3): the queue's place, not the cheaper first", carried,
-                 [logs, sticks_later], "task t3"),
-                ("must fail: a plan that starves on the way: food first (its own step, not the task's)", hungry,
-                 [pick], ("hunt", "minecraft:beef"))]
-        for name, snap, offers, want in rows:
+                 [("a", logs, 0), ("b", sticks, 1)], ("gather", "log")),
+                ("must fail: a plan that starves on the way: food first", hungry,
+                 [("a", goals.have(("tool", "pickaxe", 2)), 0)], ("hunt", "minecraft:beef"))]
+        for name, snap, entries, want in rows:
             with self.subTest(name):
-                self.assertEqual(self.pick(offers, snap, seen), want)
+                self.assertEqual(self.first(entries, snap, seen), want)
+
+    def test_one_plan_a_round(self):
+        """The round plans once, however many targets (planner.plan_round), and not at all again while nothing it
+        was made from changed (must fail: a plan per target; the same world planned again)."""
+        from bonobo import decompose as dec
+        counted = []
+
+        def spy(fn):
+            def wrapped(*a, **k):
+                counted.append(fn.__name__)
+                return fn(*a, **k)
+            return wrapped
+        goals_ = [goals.have((item, 1)) for item in ("log", "minecraft:stick", "planks", "minecraft:crafting_table",
+                                                       "minecraft:torch", "minecraft:chest")]
+
+        def calls(n):
+            with tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q, \
+                    mock.patch.object(planner, "plan_round", spy(planner.plan_round)), \
+                    mock.patch.object(dec, "solve_needs", spy(dec.solve_needs)):
+                for g in goals_[:n]:
+                    q.task(g)
+                snap = snapshot(state(), inventory())
+                counted.clear()
+                q.b.plan_proposals(snap, None)
+                first = len(counted)
+                counted.clear()
+                q.b.plan_proposals(snap, None)
+                return first, len(counted)
+        self.assertEqual(calls(2), (1, 0))
+        self.assertEqual(calls(6), (1, 0))
 
     def test_the_order_is_the_least_total(self):
         """G3: the round's plan costs no more than its targets in any other place order; equal totals keep the
