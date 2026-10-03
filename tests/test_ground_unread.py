@@ -1,6 +1,7 @@
 """S1 over a ground not read: a failed read of the round's ground (world.round_ground) leaves the region None, every
-reader of it answers "not known" (never enclosed, never a pit, never a buried head, no soft ground), and the round —
-its rescues first — goes on."""
+reader of it answers "not known" (never enclosed, never a pit, no soft ground) — a danger read off the body instead
+(a buried head by suffocation damage just taken, a pit by being held in place) — and the round, its rescues first,
+goes on."""
 import os
 import sys
 import unittest
@@ -27,7 +28,13 @@ class EveryReaderOfNone(unittest.TestCase):
         # (reader, its answer over a ground not read)
         rows = [("enclosed", lambda: world.is_enclosed(None, feet), False),
                 ("a pit", lambda: nav.in_pit(None, feet), False),
-                ("a buried head", lambda: skillcore.head_buried_in(None, s), False),
+                ("a buried head, no suffocation taken", lambda: skillcore.head_buried_in(None, s), False),
+                ("a buried head by the body's own evidence: suffocation 10 ticks ago",
+                 lambda: skillcore.head_buried_in(None, dict(s, gameTime=1000,
+                                                             lastDamage={"source": "inWall", "gameTime": 990})), True),
+                ("an old suffocation hit says nothing now",
+                 lambda: skillcore.head_buried_in(None, dict(s, gameTime=1000,
+                                                             lastDamage={"source": "inWall", "gameTime": 900})), False),
                 ("on a column", lambda: reflexes.on_column(None, feet), False),
                 ("the night's ground", lambda: survive.night_ground(None, feet), (None, False))]
         for name, read, want in rows:
@@ -48,6 +55,23 @@ class TheRescueStillRuns(unittest.TestCase):
             act = b.decide(snap, round_ctx(b, snap))
         # must fail: AttributeError on snap.region before the rescue was even asked
         self.assertEqual(act.name, "rescue drowning")
+
+
+class SuffocatingOnAnUnreadGround(unittest.TestCase):
+    def test_the_rescue_is_still_asked(self):
+        """Must fail: the ground not read and suffocation damage just taken — the rescue, not a pass on False."""
+        from bonobo import hazard
+        b = brain_fixture()
+        b.needs = mock.Mock(working={}, needs_now=[], propose=lambda snap, ctx, reads=None: [])
+        b.reflexes = mock.Mock(proposals=lambda snap, ctx, reads=None: [], afloat=False)
+        st = dict(state(), gameTime=1000, lastDamage={"source": "inWall", "gameTime": 995, "amount": 1.0})
+        snap = world.Snapshot.from_readings(st, inventory())
+        self.assertIsNone(snap.region)
+        with mock.patch.object(api.STATE, "mode", "normal"), \
+                mock.patch("bonobo.tasks.load", return_value=[]), mock.patch("bonobo.tasks.expire", return_value=False):
+            act = b.decide(snap, round_ctx(b, snap))
+        self.assertEqual(act.name if act else None, "rescue suffocating")
+        self.assertIsNone(hazard.rescue_due(dict(state(), gameTime=1000), buried=skillcore.head_buried_in(None, state())))
 
 
 class TheRoundPlansFixes(unittest.TestCase):

@@ -235,7 +235,8 @@ class Maintain:
             "stuck": lambda: self.stuck_in_place(snap, enclosed),
             # a hole open to the sky, deeper than a jump (travel's shaft, a dug pit): read only under open sky
             "in_pit": lambda: s.get("skyLight", 0) >= OPEN_SKY and not _k.swimming(s)
-            and _once(reads, "in_pit", lambda: nav.in_pit(snap.region, snap.feet))(),
+            and _once(reads, "in_pit", lambda: nav.in_pit(snap.region, snap.feet) if snap.region is not None
+                      else self.stuck_in_place(snap))(),      # ground not read: the body's own record (held in place)
         }, snap=snap, ctx=ctx, food=s.get("food", 20), hp=s.get("health", MAX_HP), night=snap.night,
             bed_carried=inv.count("bed") > 0, used_slots=inv.used_slots(), blocked=blocked is not None,
             blocked_at=blocked, building=inv.count("building"), feet=snap.feet)
