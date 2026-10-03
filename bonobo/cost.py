@@ -199,11 +199,11 @@ class Cost:
     def refused(self, cell, kind, at=None, spent=0):
         """The why no way to `kind` (nav.stands_for) at `cell` exists (reach) whose cell was read or banned, or None
         (a way, or unknown past the read): what a plan refuses a source by, as the door fails by it."""
-        got = self.reach(cell, kind, at, spent)
-        named = getattr(got.why, "cell", None) if got is not None and got.stand is None else None
+        reached = self.reach(cell, kind, at, spent)
+        named = getattr(reached.why, "cell", None) if reached is not None and reached.stand is None else None
         if named is None or not (self.region.inside(named) or named in self.not_there(False).cells):
             return None
-        return got.why
+        return reached.why
 
     def ripe(self, token):
         """Ripe crop cells known to give `token` from due crop jobs (memory only: an estimate never touches the world)."""
@@ -510,8 +510,8 @@ class Cost:
         """Way blocks the door's way to the step's site spends (reach from `at` with `spent` gone): what the next
         step's bag is short of (D6); 0 with no site, off the read or refused."""
         kind, site = self.way_kind(step), self.site(step)
-        got = self.reach(site, kind, at, spent) if kind is not None and site is not None else None
-        return got.spent if got is not None and got.stand is not None else 0
+        reached = self.reach(site, kind, at, spent) if kind is not None and site is not None else None
+        return reached.spent if reached is not None and reached.stand is not None else 0
 
     def _walk_parts(self, step, at=None, held=None, dig=True, spent=0):
         """{"walk", "dig", "surface", "seek"} ticks of getting to where the step happens (seek: the walk to a thing

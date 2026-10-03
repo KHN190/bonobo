@@ -201,11 +201,11 @@ def _cheapest_seed(ctx, hits, start, open_set):
         seconds = None
         if region is not None:
             walks = nav.plan_walks([c] if c in open_set else [], WORK_REACH)
-            got = nav.reach(region, start, c, "mine", inv, ctx.policy.protected, walks=walks)
-            if got.stand is None:
-                refused.append((c, got.why))
+            reached = nav.reach(region, start, c, "mine", inv, ctx.policy.protected, walks=walks)
+            if reached.stand is None:
+                refused.append((c, reached.why))
                 continue
-            seconds = got.seconds
+            seconds = reached.seconds
         priced.append((c, seconds, lb))
     if not priced and refused:
         c, why = refused[0]
@@ -703,11 +703,11 @@ def take(ctx, token, count, blocks):
         for h in hits:
             c = (h["x"], h["y"], h["z"])
             region = region_around([here, c], pad=math.ceil(nav.REACH))
-            got = nav.reach(region, here, c, "mine", inv, ctx.policy.protected) if region is not None else None
-            if got is None or got.stand is not None:
-                hit, stand = h, (got.stand if got is not None else None)
+            reached = nav.reach(region, here, c, "mine", inv, ctx.policy.protected) if region is not None else None
+            if reached is None or reached.stand is not None:
+                hit, stand = h, (reached.stand if reached is not None else None)
                 break
-            why = got.why
+            why = reached.why
             ctx.ban(c)
         if hit is None:
             raise NotAvailable(f"no {bare(blocks[0])} a way reaches to take: {why}", pos=getattr(why, "cell", None))
