@@ -807,7 +807,7 @@ PRICE_SOURCE = {
         "break_task": "measured"},      # bench f1 traces: a stone break 0.95 s against the game's 0.56 s
     "knowledge.SURFACE_Y": "game", "data.MEASURED_BAND": "policy", "knowledge.GROW_S": {"crop": "prior", "animal": "game"}, "knowledge.NIGHT_S": "game",
     "knowledge.MIN_FIND_P": "policy", "knowledge.FIND_AT": "game",
-    "data.WALK_BLOCKS_PER_TICK": "prior", "data.ROUTE_FACTOR": "prior", "data.HARDNESS": "game",
+    "data.WALK_BLOCKS_PER_TICK": "mineflayer prior", "data.ROUTE_FACTOR": "prior", "data.HARDNESS": "game",
     "data.TOOL_SPEED": "game", "data.BREAK_DIVISOR": "game", "data.PASSIVE_WEIGHT": "game", "data.SEARCH_LEGS": "prior",
     "data.SEARCH_LOOK_R": "prior", "game.EAT_TICKS": "game", "game.PLAYER_SPRINT": "game",
 }
