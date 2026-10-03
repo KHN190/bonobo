@@ -9,6 +9,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import events, paths  # noqa: E402
 from bonobo.tools import wake  # noqa: E402
+from check.round import renew_session  # noqa: E402
 
 IDLE_S = 30.0
 T = 1000.0
@@ -46,7 +47,7 @@ class Wake(unittest.TestCase):
     def test_rows(self):
         for name, write, after, wakes in ROWS:
             with self.subTest(name):
-                paths.renew_session()
+                renew_session()
                 out = []
                 write(out)
                 why = wake.wake_reason(out, T + after, IDLE_S)

@@ -7,11 +7,12 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import events, paths  # noqa: E402
+from check.round import renew_session  # noqa: E402
 
 
 class Events(unittest.TestCase):
     def setUp(self):
-        paths.renew_session()
+        renew_session()
 
     def test_decisions_only_when_they_change(self):
         out = []
@@ -76,7 +77,7 @@ class Events(unittest.TestCase):
                 ("slow deciding around a task", slow * 10, slow * 10 - slow - 1, 1)]
         for name, total, ran, n in rows:
             with self.subTest(name):
-                paths.renew_session()
+                renew_session()
                 out = []
                 events.round_time(total, ran, t=1.0, sink=out)
                 self.assertEqual(len([r for r in out if r["kind"] == "anomaly"]), n)
@@ -139,7 +140,7 @@ class Events(unittest.TestCase):
                 ("must fail: the last life's harm", ["hurt", "death", "respawn"], None)]
         for name, kinds, want in rows:
             with self.subTest(name):
-                paths.renew_session()
+                renew_session()
                 with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
                     for k in kinds:
                         f.write(json.dumps({"t": 1.0, "kind": k, "line": k, "source": "minecraft:zombie"}) + "\n")

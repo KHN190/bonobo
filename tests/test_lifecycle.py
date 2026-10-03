@@ -30,7 +30,7 @@ ALLOW = {
     # containers mutated in place
     ("bonobo.lifecycle", "_RESETS"): "the registry itself",
     ("bonobo.lifecycle", "CACHES"): "import-time: which registered resets are caches (D8)",
-    ("bonobo.paths", "_SESSION"): "the session registry itself (paths.session; renewed by paths.renew_session)",
+    ("bonobo.paths", "_SESSION"): "the session registry itself (paths.session; renewed by check.round.renew_session)",
     ("bonobo.fight_loop", "BATCH"): "import-time registry (skills lend their batches)",
     ("bonobo.fight_loop", "REGION"): "import-time registry (skills lend their regions)",
     ("bonobo.goals", "DESIRED"): "import-time registry",

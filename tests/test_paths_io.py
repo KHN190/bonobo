@@ -10,6 +10,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import paths  # noqa: E402
+from check.round import renew_session  # noqa: E402
 
 
 class Files(unittest.TestCase):
@@ -81,7 +82,7 @@ class Session(unittest.TestCase):
                 obj = paths.session(f"test.{why}", factory)
                 use(obj)
                 held = obj                                          # a holder from before the renewal
-                paths.renew_session()
+                renew_session()
                 self.assertEqual(held, want)                        # must fail: renewed by rebinding, a holder keeps the old
                 self.assertIs(held, obj)
 
