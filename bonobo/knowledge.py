@@ -22,12 +22,18 @@ STEP_SETS = None       # fn(step) → {fact: value} its run leaves (skill.sets_o
 STEP_USES = None       # fn(step) → {item: n} of its needs its run uses up (skill.step_uses)
 FIGHT_LINE = None      # fn(contract, args, state, inv) → (ok, why): S5's one judge (brain.fight_line_holds)
 FACT_STEPS = None      # fn(fact, value) → [(kind, token)] of the steps that set it (skill.steps_for_fact)
+STEP_STATION = None    # fn(step) → the station its contract works at, carried or standing, or None (skill.station_of_step)
 
 def step_call(step):
     """The needs of what carries out `step`, skill modules loaded first; {} when none is wired in."""
 
     producers()
     return STEP_CALL(step) if STEP_CALL is not None else {}
+
+def step_station(step):
+    """The station `step`'s contract works at, carried or standing (None when none, or none is wired in)."""
+    producers()
+    return STEP_STATION(step) if STEP_STATION is not None else None
 
 def fact_steps(fact, value):
     """[(kind, token)] of the steps that set `fact` to `value` ([] when none is wired in)."""

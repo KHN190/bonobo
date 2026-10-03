@@ -188,7 +188,10 @@ def D4(b, d, a, ctx):
 
 
 def _station(st):
-    """The station a step works at, or None."""
+    """The station a step works at (its way's, else its contract's: knowledge.step_station), or None."""
+    from bonobo.knowledge import step_station
+    if st.kind not in ("smelt", "craft"):
+        return step_station(st)
     if st.kind == "smelt":
         return "minecraft:furnace"
     if st.kind == "craft":
@@ -231,7 +234,7 @@ def P2(b, d, a, ctx):
                     return f"step {i + 1} {st} needs a tier-{tier} {kind}, none held or made before it"
         station = _station(st)
         if station and have(station) <= 0 and (mem is None or not any(
-                s.get("block") in (station, bare(station)) for s in mem.stations(dim))):
+                bare(s.get("block") or "") in {bare(i) for i in ids(station)} for s in mem.stations(dim))):
             return f"step {i + 1} {st} works at a {bare(station)}, none held, made before it or remembered"
         if st.kind in MAKES:
             made[st.token] += int(st.count)

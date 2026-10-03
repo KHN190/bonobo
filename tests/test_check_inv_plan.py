@@ -133,6 +133,12 @@ class Plan(unittest.TestCase):
         ("P2", {"plan": [step("seek", "stone", 600), step("craft", "minecraft:furnace", 60, inputs={"stone": 8})],
                 "inv": Bag(items={"stone": 7}), "mem": Mem(stations=["crafting_table"]),
                 "dimension": "minecraft:overworld"}, True),
+        # must fail: a sleep with no bed carried, made or standing (its contract's station)
+        ("P2", {"plan": [step("sleep", "bed", 400)], "inv": Bag(), "mem": Mem(), "dimension": "minecraft:overworld"}, True),
+        ("P2", {"plan": [step("sleep", "bed", 400)], "inv": Bag(items={"minecraft:white_bed": 1}), "mem": Mem(),
+                "dimension": "minecraft:overworld"}, False),
+        ("P2", {"plan": [step("sleep", "bed", 400)], "inv": Bag(), "mem": Mem(stations=["white_bed"]),
+                "dimension": "minecraft:overworld"}, False),
         # must fail: a smelt with no furnace held, made or remembered
         ("P2", {"plan": BEEF_IN_ORDER[:1], "inv": Bag(items=TWO_BEEF), "mem": Mem(),
                 "dimension": "minecraft:overworld"}, True),
@@ -147,6 +153,19 @@ class Plan(unittest.TestCase):
         for inv in plan.CHECKS:
             with self.subTest(inv=inv):
                 self.assertIsInstance(plan.CHECKS[inv](F, D, F, {}), oracle.Unchecked)
+
+
+class StationsDeclared(unittest.TestCase):
+    """A contract that works at a block, carried or standing, says so (`station`): the planner and P2 read it."""
+
+    def test_every_station_user_declares_it(self):
+        import inspect
+        from bonobo import knowledge
+        from bonobo.skill import REGISTRY
+        knowledge.producers()
+        users = [c.name for c in REGISTRY.values() if "Station(ctx" in inspect.getsource(c.fn) and c.station is None]
+        self.assertEqual(users, [], "these work at a station they do not declare")
+        self.assertEqual(REGISTRY["sleep"].station, "bed")          # must fail: a sleep planned with no bed
 
 
 class RoundPrices(unittest.TestCase):

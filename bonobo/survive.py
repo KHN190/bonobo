@@ -520,9 +520,8 @@ def wait_for_day(ctx):
         api.run({"type": "wait", "ticks": DAY_WAIT_TICKS}, wait=15, awaits="the time of day")
         yield api.get("/state")["timeOfDay"]
 
-# needs: none the bag can state — a bed carried or one standing nearby
 @skill(gives=["state:day"], remaining=_k.daytime, needs={}, verify=lambda c: _k.daytime({"state": api.get("/state")}, c) == {}, budget=240, stall=60,
-       provides={"sleep": lambda ctx, s: (_night_policy(ctx),)}, sets={"bed": {"night": False}})
+       provides={"sleep": lambda ctx, s: (_night_policy(ctx),)}, sets={"bed": {"night": False}}, station="bed")
 def sleep(ctx, night_policy):
     """Sleep through the night: the home's bed when it is within reach of the night (HOME_BED_R), else a carried bed
     (placed next to us, picked up after), else a nearby site bed."""

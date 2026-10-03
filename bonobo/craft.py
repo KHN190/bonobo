@@ -412,7 +412,7 @@ def _furnace_slots():
 
 @skill(gives=K.GIVES_SMELT, needs={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
        budget=900, stall=30, units=lambda c: min(64, c.args[3]), key=lambda c: "smelt",
-       provides={"smelt": lambda ctx, s: _smelt_args(s)}, prefer=-1, when=K.body_when())
+       provides={"smelt": lambda ctx, s: _smelt_args(s)}, prefer=-1, when=K.body_when(), station="minecraft:furnace")
 def smelt(ctx, output, input_token, count, fuel):
     """One furnace session: load input + fuel, watch the output slot fill (10 s/item), take everything out."""
     count = min(64, count)
@@ -473,7 +473,7 @@ def furnace_takes(slots, input_ids, output):
 
 @skill(gives=["state:smelting"], remaining=_k.less_than_at_start(lambda c: c.args[2], lambda c: min(64, c.args[3])), needs={}, start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
        budget=180, stall=40,
-       provides={"smelt": lambda ctx, s: _smelt_args(s) if s.count >= ASYNC_SMELT_MIN else None})
+       provides={"smelt": lambda ctx, s: _smelt_args(s) if s.count >= ASYNC_SMELT_MIN else None}, station="minecraft:furnace")
 def start_smelt_job(ctx, output, input_token, count, fuel):
     """Spread the batch over the free furnaces within FURNACE_REACH (placing one if none), fuel each, and walk away."""
 
