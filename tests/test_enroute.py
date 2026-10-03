@@ -85,6 +85,29 @@ class TheRoundTakesWhatIsOnTheWay(unittest.TestCase):
         self.assertEqual(arbiter.arbitrate(got).kind, "enroute")
 
 
+class DiamondToolsOffTheRoute(unittest.TestCase):
+    """goals.OFF_ROUTE: the diamond tools are only "used later" (en-route), never the run's next target nor its
+    route's seconds."""
+
+    def test_the_route_is_unchanged_by_it(self):
+        from bonobo import needs
+        b = brain_fixture()
+        snap = world.Snapshot.from_readings(state(x=.5, y=64, z=.5), world.Inventory(inventory(*KIT)), {}, [],
+                                            ground())
+        b.round_snap = snap
+        route = {k: v for k, v in goals.MILESTONES.items() if k != "diamond tools"}
+        with_it = needs.Needs(b).route_covered_s(snap)
+        with mock.patch.object(goals, "MILESTONES", route):
+            self.assertEqual(needs.Needs(b).route_covered_s(snap), with_it)
+
+    def test_never_the_next_milestone(self):
+        snap = world.Snapshot.from_readings(state(x=.5, y=64, z=.5), world.Inventory(inventory(*KIT)), {}, [],
+                                            ground())
+        with mock.patch.object(goals, "MILESTONES", {"diamond tools": goals.MILESTONES["diamond tools"]}):
+            # must fail: the diamond tools the run's next target, the speedrun order changed
+            self.assertIsNone(brain.next_milestone(snap, memory()))
+
+
 def scene(notes=(), containers=(), chests=()):
     """A Cost over flat ground, the leg (0,64,0) → (45,64,0), `notes` remembered, `containers` with remembered
     contents, `chests` seen unopened."""

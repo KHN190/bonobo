@@ -1018,10 +1018,11 @@ class Brain:
         """{item: (P it is used later, how many are still lacked)}: what the held plan's other steps get (P 1, their
         counts: the plan is made from the bag), and what each later milestone's needs come down to (Cost.raw_needs)
         less what the bag holds, P falling with its distance down the chain (1 / (1 + k), the k-th after the current
-        one). An item the bag already holds enough of is not wanted."""
+        one; goals.OFF_ROUTE after the route). An item the bag already holds enough of is not wanted."""
         wanted = {st.token: (1.0, st.count) for st in held["steps"] if st.kind in cost.GOT and st is not own}
-        later = [name for name in goals.MILESTONES
-                 if goals.remainder(goals.make("milestone", name=name), snap, self.mem) != {}][1:]
+        unmet = [name for name in goals.MILESTONES
+                 if goals.remainder(goals.make("milestone", name=name), snap, self.mem) != {}]
+        later = [n for n in unmet if n not in goals.OFF_ROUTE][1:] + [n for n in unmet if n in goals.OFF_ROUTE]
         for k, name in enumerate(later, start=1):
             rows = goals.MILESTONES[name]
             for need in rows if isinstance(rows, list) else ():
@@ -1179,8 +1180,8 @@ def armour_gain(inv):
 
 
 def next_milestone(snap, mem):
-    """The run's first milestone the world does not meet yet (goals.MILESTONES), or None."""
-    for name in goals.MILESTONES:
+    """The run's first milestone the world does not meet yet (goals.MILESTONES, OFF_ROUTE skipped), or None."""
+    for name in (n for n in goals.MILESTONES if n not in goals.OFF_ROUTE):
         goal = goals.make("milestone", name=name)
         if goals.remainder(goal, snap, mem) != {}:
             return goal
