@@ -330,7 +330,9 @@ class Fight:
         expected = action.duration_s * self.dps_here(state)
         hit = max((float(beliefs.MOBS[t[3]]["attack"]) for t in state["threats"] if t[3] in beliefs.MOBS),
                   default=expected)
-        if expected > 0 and not estimate.fight_line_ok(me["hp"], me["hp_floor"], expected, hit):
+        # S5 gates staying under fire; an action that takes the pressure off (water at an enderman) is the answer to it
+        relieves = self.dps_here(action.effect(state)) < self.dps_here(state)
+        if expected > 0 and not relieves and not estimate.fight_line_ok(me["hp"], me["hp_floor"], expected, hit):
             return False, (f"expects {estimate.loss_q(expected, hit):.0f} damage (its quantile), only "
                            f"{max(me['hp'] - me['hp_floor'], 0):.0f} to spare")
         return True, ""

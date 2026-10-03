@@ -26,6 +26,7 @@ def dragon(phase, hp=HP):
 
 
 CRYSTAL = {"type": D.CRYSTAL, "x": 40.0, "y": 100.0, "z": 0.0}
+ENDERMAN_NEAR = {"type": "minecraft:enderman", "x": FX + 1.5, "y": FY, "z": FZ + 0.5, "angry": True}
 BEDS = {"bed": 6}
 
 
@@ -87,6 +88,10 @@ class Intent(unittest.TestCase):
                 ("must fail: the sitting phase all but over", IN_PIT, [dragon(6)], BEDS, PIT, sitting, "retreat"),
                 ("it circles, the pit ready: wait", IN_PIT, [dragon(0)], BEDS, PIT, 0.0, "retreat"),
                 ("a crystal standing, a bow", IN_PIT, [dragon(0), CRYSTAL], bow, PIT, 0.0, "shoot_crystal"),
+                ("an angry enderman beside the pit, water carried: water at the feet", IN_PIT,
+                 [dragon(0), ENDERMAN_NEAR], dict(BEDS, **{"minecraft:water_bucket": 1}), PIT, 0.0, "water_bucket"),
+                ("must fail: the enderman beside, no water: the crystal shot stays refused (S5)", IN_PIT,
+                 [dragon(0), ENDERMAN_NEAR, CRYSTAL], bow, PIT, 0.0, "retreat"),
                 ("obsidian for the pit's walls", IN_PIT, [dragon(0)], obsidian, PIT, 0.0, "reinforce")]
         for name, me, near, inv, pit, elapsed, want in rows:
             with self.subTest(name):
