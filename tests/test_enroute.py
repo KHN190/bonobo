@@ -112,8 +112,7 @@ class ThePickedCCostsLessThanItsValue(unittest.TestCase):
         for name, mobs in rows:
             with self.subTest(name):
                 got, b = proposals(mobs)
-                # must fail on the base: there is no round-held record (brain.EnrouteChoice: A_s, C_s, P, value) at
-                # all yet -- this is the one place that record is read, by field name, once Opus's rework lands
+                # the round-held record (brain.EnrouteChoice: A_s, C_s, P, value), read by field name
                 choice = getattr(b, "enroute_choice", None)
                 if not provides(b, "wool"):
                     continue      # A held: nothing was swapped in, nothing to check against its own price
