@@ -74,13 +74,13 @@ class Oracle(unittest.TestCase):
                 self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), fires, got)
 
     def test_every_invariant_has_a_function(self):
-        ids = {f"{p}{n}" for p, top in (("S", 6), ("D", 7), ("E", 3), ("R", 5)) for n in range(1, top + 1)} | {"P1", "P2", "P3", "P4"}
+        ids = {f"{p}{n}" for p, top in (("S", 6), ("D", 7), ("E", 3), ("R", 5)) for n in range(1, top + 1)} | {"P1", "P2", "P3", "P4", "P5"}
         self.assertEqual(set(oracle.CHECKS), ids)
 
     def test_unchecked_ones_are_named(self):
         got = oracle.unchecked(of(), dec())
         self.assertEqual({k for k, why in got.items() if why == PENDING["F1"]}, set())   # check/inv/plan.py judges them
-        self.assertTrue({"D4", "D6", "P2", "P3", "P4", "R1", "R2", "R4"} <= set(got))         # no plan in an empty ctx: said, not passed
+        self.assertTrue({"D4", "D6", "P2", "P3", "P4", "P5", "R1", "R2", "R4"} <= set(got))         # no plan in an empty ctx: said, not passed
         self.assertNotIn("S5", got)                                         # judged: brain.fight_line_holds
         self.assertNotIn("S4", got)                                         # must fail: a judged one said unchecked
 

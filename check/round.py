@@ -181,9 +181,10 @@ def _decide(facts, fail_then_again):
         ctx["pressed"] = any(pressed(fight_loop.threat_state(s, rows, ids=ids)) for s, rows, ids in bids)
         from bonobo import tasks as tasklist
         live_before = {t["id"] for t in tasklist.load() if t["state"] in tasklist.LIVE}     # D1: what this round finishes
-        began = time.perf_counter()
+        from bonobo.planner import SPENT
+        began = SPENT["steps"]
         act = b.decide(snap, bctx)
-        ctx["decide_s"] = time.perf_counter() - began          # the round's own decision, the checker's readings apart
+        ctx["search_steps"] = SPENT["steps"] - began            # the round's own thinking, the checker's readings apart
         if offered:
             option, worth = offered[-1]
             d = Decision(layer="tactic", kind="threat", token=option.kind, target=getattr(option, "target", None),
@@ -262,6 +263,8 @@ def plan_ctx(b, act, snap, mem, world):
     from bonobo import goals
     if held is not None and goal and goal["goal"] in goals.ITEM_GOALS:
         out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost)
+        if not out["plan_hand_made"]:
+            out["exact_s"] = exact_s(snap.inv, goals.needs(goal, snap.inv), cost)
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
     out["plan_switch"] = getattr(b, "plan_switch", None)
     step = getattr(act, "step", None)
@@ -269,6 +272,15 @@ def plan_ctx(b, act, snap, mem, world):
     if pos is not None:
         out["way"] = ways(snap, world, tuple(pos))
     return out
+
+
+def exact_s(inv, needs, cost):
+    """Seconds of the cheapest plan for `needs` with no search budget (the planner's exact mode), None when none."""
+    from bonobo.planner import Unplannable, plan_candidates
+    try:
+        return plan_candidates(inv, needs, cost, exact=True)[0][1]
+    except Unplannable:
+        return None
 
 
 def plan_bound(inv, needs, cost, pending=None, jobs=None):

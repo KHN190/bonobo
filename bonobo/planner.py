@@ -452,11 +452,12 @@ class Node:
 
 
 class Search:
-    def __init__(self, cost, kinds=None):
+    def __init__(self, cost, kinds=None, exact=False):
+        self.exact = exact              # no budget: every option weighed, A* to the end (the checker's reference)
         self.hungry = getattr(cost, "hunger_rate", lambda: 0.0)()
         # what one search learns holds for every search of the round on the same readings (Cost.plans)
         plans = cost.plans() if hasattr(cost, "plans") else {}
-        shared = plans.setdefault(("search", tuple(sorted(kinds)) if kinds else None), {})
+        shared = plans.setdefault(("search", tuple(sorted(kinds)) if kinds else None, exact), {})
         self.walks = shared.setdefault("walks", {})       # (token, way) → its own walk at the least (own_walk)
         self.spent = 0                  # nodes advanced (the dive's budget: DIVE_NODES)
         self.stored_c, self.near_c, self.reach_c = (shared.setdefault(k, {}) for k in ("stored", "near", "reach"))
@@ -569,6 +570,7 @@ class Search:
     # -- one node to its next choice: resolved in place; returns children, [] when it died, None when complete
     def advance(self, node, floor=0):
         self.spent += 1
+        SPENT["steps"] += 1
         while len(node.stack) > floor:
             task = node.stack.pop()
             op = task[0]
@@ -930,7 +932,7 @@ class Search:
             best, before = None, len(self.reasons)
             for k, c in enumerate(sorted(got, key=lambda c: (c.g + self.h(c, c.horizon), c.tie))):
                 width = DIVE_WIDTH if self.spent <= DIVE_NODES else 1      # the budget spent: the first way that can be had
-                if best is not None and self.greedy and floor > 0 and k >= width:
+                if best is not None and self.greedy and not self.exact and floor > 0 and k >= width:
                     break                     # inside a choice, the few least-bound ways; A* weighs the rest
                 done = self.settled(c, cap if best is None else min(cap, best.g))
                 if done is not None and (best is None or (done.g, done.tie) < (best.g, best.tie)):
@@ -1004,7 +1006,7 @@ class Search:
 
         push(self.h(root), (), root)
         nodes = 0
-        while heap and nodes <= MAX_NODES:
+        while heap and (nodes <= MAX_NODES or self.exact):
             if self.stop():
                 raise api.Interrupted("a hazard while planning")
             f, tie, n = heapq.heappop(heap)
@@ -1126,7 +1128,11 @@ def plan_name(steps):
     return " → ".join(dict.fromkeys(f"{s.kind} {bare(s.token)}" for s in steps)) or "nothing to do"
 
 
-def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None):
+SPENT = {"steps": 0}      # search steps advanced since the round began (what a round's thinking is counted in)
+lifecycle.in_place(__name__, "SPENT")
+
+
+def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact=False):
     """The plans the search priced for `needs` from this bag, cheapest first: [(name, seconds, steps)] — the one
     chosen first, the alternatives it beat after (what a check of the choice reads). `pending`: counted as held
     (planned sources' and jobs' outputs); `jobs`: of it, what running jobs make (awaited when used); `kinds`: the
@@ -1136,13 +1142,14 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None):
     root = Node(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()), [], [])
     # one plan per question a round asks (the same needs from the same bag: needs, upkeep, queue, night)
     cache = cost.plans() if hasattr(cost, "plans") else getattr(cost, "cache", None)
-    key = ("plan", tuple(repr(tuple(n)) for n in needs), root.inv.signature(), tuple(sorted(kinds)) if kinds else None)
+    key = ("plan", tuple(repr(tuple(n)) for n in needs), root.inv.signature(), tuple(sorted(kinds)) if kinds else None,
+           exact)
     if cache is not None and key in cache:
         if isinstance(cache[key], str):
             raise Unplannable(cache[key])           # the same question failed this round already
         return [(name, seconds, [Step(s.kind, s.token, s.count, dict(s.detail), s.est) for s in steps])
                 for name, seconds, steps in cache[key]]
-    search = Search(cost, kinds)
+    search = Search(cost, kinds, exact)
     try:
         chosen = search.plan(root, list(needs))
     except Unplannable as e:

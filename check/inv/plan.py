@@ -12,7 +12,8 @@ asked them). check/round.py puts them in ctx:
   switches   [(fresh, staying, lost, noise, switched)] every switch the kernel weighed this round
   holds      [(held name, chosen name, because)] every kernel.Held decision this round
   plan_hand_made  the held plan is check/dims/plan_held's hand-made one (P2 does not judge it)
-  decide_s   seconds brain.decide took this round (P4: at most ROUND_S)
+  search_steps  the search steps brain.decide took this round (P4: at most ROUND_STEPS)
+  exact_s    the unbudgeted search's cheapest seconds for the task's needs (P5: the chosen plan no slower)
   bound      check.round.plan_bound of the task's needs from this bag (P3: at most the plan's price)
 An invariant whose ctx is missing is Unchecked, said why."""
 import math
@@ -257,16 +258,31 @@ def P3(b, d, a, ctx):
     return None
 
 
-ROUND_S = 0.5            # one round's decision, planning included: the speedrun's budget for thinking
+ROUND_S = 0.1            # one round's thinking: the speedrun's budget for a decision
+STEP_S = 1e-4            # seconds one search step takes, measured (check.round.decide, a 1-in-25 corpus sample)
+ROUND_STEPS = int(ROUND_S / STEP_S)      # what P4 counts: steps, not the wall clock (no machine's speed in a verdict)
 
 
 def P4(b, d, a, ctx):
-    """A round decides within ROUND_S: planning answers or refuses, never searches on unbounded (D1: a step or a
-    reason every round, in time)."""
-    took = ctx.get("decide_s")
+    """A round thinks within ROUND_STEPS search steps: planning answers or refuses, never searches on unbounded (D1:
+    a step or a reason every round, in time)."""
+    took = ctx.get("search_steps")
     if took is None:
-        return Unchecked("no timed decision this round")
-    return None if took <= ROUND_S else f"the round took {took:.2f} s to decide (budget {ROUND_S} s)"
+        return Unchecked("no counted decision this round")
+    return None if took <= ROUND_STEPS else f"the round took {took} search steps (budget {ROUND_STEPS})"
 
 
-CHECKS = {"D4": D4, "D6": D6, "P2": P2, "P3": P3, "P4": P4, "R1": R1, "R2": R2, "R4": R4}
+def P5(b, d, a, ctx):
+    """G3/R1: the plan chosen is as fast as the cheapest the planner finds with no budget — a budget may cut the
+    search's time, never the plan's seconds."""
+    plan, best = _plan(ctx), ctx.get("exact_s")
+    if plan is None or best is None or ctx.get("plan_hand_made"):
+        return Unchecked("no planner plan with its unbudgeted best this round")
+    from bonobo.game import TICKS_PER_S
+    chosen = sum(int(getattr(st, "est", 0) or 0) for st in plan) / TICKS_PER_S
+    if chosen > best + TOL_S:
+        return f"G3: the plan chosen takes {chosen:.1f} s, the unbudgeted search found {best:.1f} s"
+    return None
+
+
+CHECKS = {"D4": D4, "D6": D6, "P2": P2, "P3": P3, "P4": P4, "P5": P5, "R1": R1, "R2": R2, "R4": R4}
