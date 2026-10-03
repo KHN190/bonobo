@@ -217,12 +217,10 @@ def _decide(facts, fail_then_again):
                 ctx["fight_line"] = why
         if snap.night:
             # asked only of an unsheltered body, as the shelter row asks it
-            from bonobo.decompose import cooled_ways, night_facts, night_left_s
             from bonobo.reflexes import ground
-            enclosed, soft, site = ground(None)
+            enclosed, _soft, _site = ground(None)
             if not b.reflexes.sheltered(snap, enclosed):
-                way, _s, steps = b.needs.overnight(snap, night_facts(soft(), cooled_ways(b.ready), site(),
-                                                                     night_left_s=night_left_s(snap)), bed_too=False)
+                way, _s, steps = b.needs.overnight(snap, bed_too=False)     # the round's own table, not priced again
                 ctx["night_way"], ctx["night_steps"] = way, [st.key() for st in steps]
         ctx.update(plan_ctx(b, act, snap, mem, world), switches=weighed, holds=held_log)
         chosen = seen.get("chosen")

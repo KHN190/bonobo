@@ -15,7 +15,7 @@ from .skill import skill
 from .skillcore import gained
 from .world import BAG_SLOTS, Inventory, Region, nearest
 from .bag import FREE_SLOTS_TARGET, bag_signature, empty_how
-from .decompose import cooled_ways, night_facts, night_left_s, way_key
+from .decompose import way_key
 
 
 def in_sight(snap, kinds, radius):
@@ -166,6 +166,13 @@ STEP_RUN: Any = None     # dispatch.execute, set by Brain
 SHELTER_RUN = {"dig_in": lambda ctx: survive.dig_in(ctx), "pod": lambda ctx: survive.pod(ctx),
                "hut": lambda ctx: building.build_shelter(ctx), "home": lambda ctx: survive.sleep_at_home(ctx)}
 
+def home_walk_s(b, snap):
+    """Seconds of open walk to the home's bed, or None: none, or a "no way there" verdict on it (brain.failed)."""
+    bed = b.mem.home_part("beds", snap.dimension, snap.feet, anywhere=True)
+    if bed is None or skillcore.banned(b.blacklist, bed):
+        return None
+    return math.dist(bed, snap.feet) / WALK_BLOCKS_PER_S
+
 class Maintain:
     """The reflex table's executor, remembering where the body has been (stuck) and where the last path failed (blocked)."""
 
@@ -196,22 +203,14 @@ class Maintain:
 
         b, s, inv = self.brain, snap.state, snap.inv
         blocked = self.blocked_here(b.place)
-        enclosed, soft_ground, dig_site = ground(reads)
+        enclosed, _soft_ground, _dig_site = ground(reads)
 
         def night_way():
-            bed = b.mem.home_part("beds", snap.dimension, snap.feet, anywhere=True)
-            # bed_reach: a home bed with no "no way there" verdict on it (the reach verdict, brain.failed)
-            reach = bed is not None and not skillcore.banned(b.blacklist, bed)
-            home_s = math.dist(bed, snap.feet) / WALK_BLOCKS_PER_S if reach and bed is not None else None
-
-            def priced(cooled):
-                return b.needs.overnight(snap, night_facts(soft_ground(), cooled, dig_site(), home_s, night_left_s(snap)),
-                                         bed_too=False)
-            cooled = cooled_ways(b.ready)
-            got = priced(cooled)
-            if got[0] is None and cooled:      # S1 over D5: a cooled way beats the open night
-                log(f"   the night: every way cooled here ({', '.join(sorted(cooled))}): the cheapest taken again")
-                got = priced(())
+            facts = b.needs.night_facts(snap, reads)
+            got = b.needs.overnight(snap, facts, bed_too=False)
+            if got[0] is None and facts.get("cooled"):      # S1 over D5: a cooled way beats the open night
+                log(f"   the night: every way cooled here ({', '.join(facts['cooled'])}): the cheapest taken again")
+                got = b.needs.overnight(snap, {k: v for k, v in facts.items() if k != "cooled"}, bed_too=False)
             return got
         view = View({
             "died_recently": lambda: worth_recovering(b, snap),
