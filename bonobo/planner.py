@@ -703,7 +703,7 @@ class Search:
         lost = [t[1] for t in root.stack if t[0] == "need" and self.lb.least(t[1], t[2], held, {}) == math.inf]
         lost += [tool_item(t[1], t[2]) for t in root.stack if t[0] == "tool"
                  and self.lb.least(tool_item(t[1], t[2]), 1, held, {}) == math.inf]
-        return "no way to obtain " + ", ".join(dict.fromkeys(bare(t) for t in lost)) if lost else "no way found"
+        return "no way to obtain " + ", ".join(dict.fromkeys(lost)) if lost else "no way found"
 
     def reach_lb(self, token, held, seen):
         """Ticks no plan for `token` can walk less than:"""
