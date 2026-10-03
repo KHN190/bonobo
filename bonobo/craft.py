@@ -271,12 +271,18 @@ def use_readout(task, result):
 def run_split(tasks, **kw):
     """Run a `*_commands` chain: each stretch between CLOSE markers in one run_chain, the screen closed between them."""
 
+    def failed():
+        bad = next((r for r in results if r.get("status") != "succeeded"), None)
+        if bad is not None:
+            raise McError(f"{bad.get('type', 'task')} failed: {bad.get('message')}")
+
     results, part = [], []
     for t in list(tasks) + [None]:
         if t is None or t == CLOSE or t.get("type") == "use":
             if part:
                 results += api.run_chain(part, stop_on_failure=True, **kw)
                 part = []
+                failed()                # a station whose place failed is never used (no screen at air)
             if t is not None and t != CLOSE:
                 # a station's use goes alone: its screen read before any craft is sent to it
                 (r,) = api.run_chain([t], stop_on_failure=True, **kw) or [{}]
@@ -290,9 +296,7 @@ def run_split(tasks, **kw):
                 api.post("/close")
             continue
         part.append(t)
-    bad = next((r for r in results if r.get("status") != "succeeded"), None)
-    if bad is not None:
-        raise McError(f"{bad.get('type', 'task')} failed: {bad.get('message')}")
+    failed()
     return results
 
 def craft_commands(state, args):

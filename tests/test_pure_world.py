@@ -1450,3 +1450,22 @@ class AProvokedEndermanIsAThreat(unittest.TestCase):
         with mock.patch.object(api, "api", w.api):
             snap = Snapshot.read(["stone"], (((-1, -1, -1), (1, 1, 1)), ((0, 0, 0), (0, 0, 0))))
         self.assertTrue(any(m.get("angry") for m in snap.mobs))     # must fail: the look drops the jar's flag
+
+
+class ARegionAfterOurOwnWrites(unittest.TestCase):
+    """P1: a box read before the way's own breaks and places is read again (Region.now); with none since, kept."""
+
+    def test_rows(self):
+        from bonobo import api
+        reads = []
+
+        def get(path):
+            reads.append(path)
+            return {"palette": ["minecraft:stone" if len(reads) == 1 else "minecraft:air"], "blocks": [[0, 0, 0, 0]]}
+        with mock.patch.object(api, "get", get), mock.patch.object(api.STATE, "world_writes", 0):
+            r = Region((0, 0, 0), (0, 0, 0))
+            self.assertIs(r.now(), r)
+            api.STATE.world_writes += 1                 # a mine task sent
+            # must fail: the stone the way broke still read as stone
+            self.assertEqual(r.now().name((0, 0, 0)), "air")
+        self.assertIsNone(Region.of((0, 0, 0), (0, 0, 0), {}).now().writes)

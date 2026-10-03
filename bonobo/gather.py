@@ -349,6 +349,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"got near {near_cell} but no way in to the {blocks[0]}")
                 continue
+        region = region.now()             # the way there dug and placed: its cells read again (P1)
         # distance is not reachability: only open-faced blocks go to mine_many; travel digs a way to the nearest buried one
         held = held_cells(Region(*sight_box(here_now)), here_now, in_reach, vein)
         open_faced = open_faced_cells(in_reach, here_now, region, held)
@@ -374,6 +375,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 api.run_chain(seal, stop_on_failure=True, wait=60)
         # a cell open only into pockets no body can stand in: the jar's mine never digs for a line of sight, so the
         # block on the body's side goes first (bag.opener; down-flagged when it lies below the feet)
+        region = region.now()             # after the seal's places
         openers = sorted({op for _c, op in opener_pairs(region, vein, here_now, ctx.policy.protected)})
         if openers:
             api.run_chain([nav.mine_task(op, down=op[1] < here_now[1]) for op in openers], stop_on_failure=True, wait=60)
@@ -383,6 +385,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             batch = mine_segment_commands({"inv": Inventory(), "feet": here_now}, (vein, drop, tier))
             r = nav.run_cells("mine_many", batch[:-1], then=batch[-1], wait=TASK_WAIT_S)
         except api.Unreachable as out:
+            region = region.now()         # the batch broke what it could
             around = {c: region.name(c) for c in out.cells or ()}
             api.detail(f"  mine {bare(drop)} refused by the jar ({out}): feet {feet()}, cells "
                        + "; ".join(f"{c} {n} faces {[region.name(cell_add(c, d)) for d in nav.NEIGHBOURS6]}" for c, n in around.items()))

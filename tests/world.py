@@ -27,6 +27,9 @@ class FakeRegion:
     def __init__(self, lo, hi, blocks):
         self.lo, self.hi, self.blocks = tuple(lo), tuple(hi), dict(blocks)
 
+    def now(self):
+        return self
+
     def inside(self, p):
         return all(self.lo[i] <= p[i] <= self.hi[i] for i in range(3))
 

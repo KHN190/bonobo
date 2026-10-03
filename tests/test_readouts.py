@@ -74,6 +74,24 @@ class UseOpensOrFails(unittest.TestCase):
         self.assertIn("crafting_table at (1, 64, 2)", str(e.exception))
         self.assertEqual(sent, [use])
 
+    def test_a_table_not_placed_is_never_used(self):
+        # accept_fresh_iron_pickaxe 19:46:36: the place failed ("no reachable face"), the use went to the air there
+        from unittest import mock
+        sent = []
+
+        def chain(tasks, **k):
+            sent.extend(tasks)
+            return [{"type": t["type"], "status": "failed" if t["type"] == "place" else "succeeded",
+                     "message": "no reachable face to place against"} for t in tasks]
+        place = {"type": "place", "x": 1, "y": 64, "z": 2, "item": "minecraft:crafting_table"}
+        use = {"type": "use", "x": 1, "y": 64, "z": 2}
+        with mock.patch.object(api, "run_chain", chain), mock.patch.object(craft, "use_readout", lambda *a: None), \
+                mock.patch.object(api, "post"):
+            with self.assertRaises(api.McError) as e:
+                craft.run_split([place, use, craft.CLOSE])
+        self.assertIn("no reachable face", str(e.exception))
+        self.assertEqual(sent, [place])                 # must fail: the use sent to the air the place left
+
 
 if __name__ == "__main__":
     unittest.main()
