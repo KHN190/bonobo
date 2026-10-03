@@ -16,7 +16,7 @@ from .skill import skill
 from .skillcore import gained
 from .world import BAG_SLOTS, Inventory, Region, nearest
 from .bag import FREE_SLOTS_TARGET, bag_signature, empty_how
-from .decompose import way_key
+from .decompose import cooled_ways, way_key
 from .planner import Step
 
 
@@ -317,24 +317,32 @@ class Maintain:
 
     # -- night
     def shelter(self, snap, ctx, night_way):
-        """The cheapest night way: one part per round, then the shelter."""
+        """The cheapest night way: one part per round, then the shelter. A way that fails cools (`b.failed`) and is
+        priced out; the next cheapest untried way is taken at once, until one works or every way has failed (raised,
+        with each one's reason — a false "ok" never reaches the caller)."""
 
         b = self.brain
         ctx = b.context(snap.dimension, b.policy(snap, True))
         way, _secs, steps = night_way
-        log(f"   the night: {way} ({' → '.join(map(str, steps))})")
-        try:
-            if len(steps) > 1:
-                return STEP_RUN(ctx, steps[0], True)
-            run = lambda: SHELTER_RUN[steps[-1].token](ctx)     # noqa: E731
-            return PRICED_RUN(snap.dimension, steps[-1], True, run, budget=False) if PRICED_RUN is not None else run()
-        except McError as e:
-            if api.interrupted(e):
-                raise
-            # the way failed, not the night: it cools under its own key and drops out of the pricing, so the
-            # next way is chosen this same night (dig in: "no lid below the ground line" → wall in)
-            b.failed(way_key(way), e)
-            return None
+        tried = []
+        while True:
+            log(f"   the night: {way} ({' → '.join(map(str, steps))})")
+            try:
+                if len(steps) > 1:
+                    return STEP_RUN(ctx, steps[0], True)
+                run = lambda: SHELTER_RUN[steps[-1].token](ctx)     # noqa: E731
+                return PRICED_RUN(snap.dimension, steps[-1], True, run, budget=False) if PRICED_RUN is not None else run()
+            except McError as e:
+                if api.interrupted(e):
+                    raise
+                # the way failed, not the night: it cools under its own key and drops out of the pricing, so the
+                # next way is chosen this same round (dig in: "no lid below the ground line" → wall in)
+                b.failed(way_key(way), e)
+                tried.append(f"{way}: {e}")
+                facts = dict(b.needs.night_facts(snap), cooled=sorted(cooled_ways(b.ready)))
+                way, _secs, steps = b.needs.overnight(snap, facts, bed_too=False)
+                if way is None:
+                    raise NotAvailable("every night way failed here: " + "; ".join(tried))
 
     def sheltered(self, snap, enclosed=None):
         """knowledge.sheltered over this round: under rock, walled in, or inside a site's interior."""

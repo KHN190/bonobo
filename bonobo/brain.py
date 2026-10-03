@@ -416,9 +416,17 @@ class Brain:
         return self.wait_s(name, cause) <= 0
 
     def wait_s(self, name, cause=None):
-        """Seconds before `name` may be tried here (retry.wait)."""
-        return self.retry.wait(name, time.time(), self.place, cause,
-                               state=lambda c: self.state_of(self.place, self.fail_target.get(name), cause=c))
+        """Seconds before `name` may be tried here (retry.wait): where the body stands, and — a failure with a target
+        cools at the target (`failed`), not where the body stood — at that target too."""
+        now = time.time()
+        target = self.fail_target.get(name)
+        here = self.retry.wait(name, now, self.place, cause,
+                               state=lambda c: self.state_of(self.place, target, cause=c))
+        if target is None:
+            return here
+        at_target = ("target", tuple(target))
+        return max(here, self.retry.wait(name, now, at_target, cause,
+                                         state=lambda c: self.state_of(at_target, target, cause=c)))
 
     def state_of(self, place, target, kinds=None, cause=None):
         """The state a failure holds in (retry.state_signature) from the round's snapshot; None before any round."""
