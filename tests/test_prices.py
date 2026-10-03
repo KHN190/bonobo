@@ -83,6 +83,21 @@ class TheWorkAsTheJarRunsIt(unittest.TestCase):
         # (bench craft__base: 3.75 s of its 5)
         self.assertGreater(cost(snapshot()).work(step), near)
 
+    def test_crafts_at_one_table_break_it_once(self):
+        from bonobo import planner
+        from tests.world import cost
+        c = cost(snapshot())
+        steps = [Step("craft", t, 1, {}) for t in ("minecraft:wooden_pickaxe", "minecraft:wooden_axe",
+                                                   "minecraft:wooden_sword")]
+        once = c.work(steps[0]) - c.work(steps[0], table_back=False)
+        # must fail: each of three crafts at the one table placed charged its break (the run sits at it: brain.craft_run)
+        self.assertEqual(sum(planner.price_as_run(steps, [], c)), sum(c.work(st, table_back=False) for st in steps) + once)
+        search = planner.Search(c)
+        node = planner.Node(planner.from_bag(snapshot().inv, None, None, c.reserved, c.facts()), [], [])
+        for st in steps:
+            search.emit(node, st, 0, 0)
+        self.assertLessEqual(node.g, sum(planner.price_as_run(steps, [], c)))     # the search's price the same way
+
 
 if __name__ == "__main__":
     unittest.main()

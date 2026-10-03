@@ -697,7 +697,7 @@ class Search:
         """Ticks `step` takes at the least, run after what `node` has emitted (its g's share, and the bound's for a step
         already chosen and still to come): a repeat of a merged step only the work its units add (forward joins it
         to the first, a craft's work once); else its work and the least walk to it, none to a place walked to."""
-        ticks = self.cost.work(step, held)
+        ticks = self.cost.work(step, held, table_back=not node.inv.facts.get("table back"))
         if (step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)) \
                 and node.inv.facts.get("made " + repr(step.key())):
             return max(0, ticks - self.cost.work(_scaled(step, 0), held))
@@ -1394,6 +1394,8 @@ class Search:
             if kind in held:
                 node.inv.wear(kind, 0, self.uses(step, kind))
         ticks = self.least_of(node, step, held)
+        if self.cost.table_back(step):
+            node.inv.set_fact("table back", True)       # its break paid: the crafts after it sit at the same table
         mergeable = step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)
         made = "made " + repr(step.key())       # in the bag's facts: what a sub-plan is remembered by sees it too
         if mergeable and not node.inv.facts.get(made):
@@ -1617,9 +1619,11 @@ def price_as_run(steps, tools, cost, held=None) -> list:
     out, at = [], None
     have: list[tuple] = list(tools or ())
     hungry = cost.hunger_rate()      # F1l: hunger's seconds until a step makes food
+    table = False                    # a table placed and carried on already: its break is paid once
     for i, step in enumerate(steps):
         tiers = held[i] if held is not None else _tiers(have)
-        est = cost.estimate(step, tiers, at)
+        est = cost.estimate(step, tiers, at, table_back=not table)
+        table = table or cost.table_back(step)
         if hungry:
             est += round(est * hungry)
             hungry = 0.0 if mid(step.token) in FOOD_IDS and step.kind in MAKES_FOOD else hungry
@@ -2078,11 +2082,14 @@ class NullCost:
     def facts(self):
         return {"dimension": OVERWORLD, **body_facts(None)}
 
-    def work(self, step, held=None):
+    def work(self, step, held=None, table_back=True):
         return prior_work_ticks(step, held or {}, TICKS_PER_S)
 
-    def estimate(self, step, held=None, at=None):
+    def estimate(self, step, held=None, at=None, table_back=True):
         return self.work(step, held) + self.dig_to(step, held)
+
+    def table_back(self, step):
+        return False
 
     def dig_to(self, step, held=None):
         """Ticks the digging to it takes (its work_of beyond its own work), with `held`."""

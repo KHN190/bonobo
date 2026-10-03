@@ -288,11 +288,11 @@ class Cost:
         prior = prior_ticks(step)          # a measurement is trusted within MEASURED_BAND of the prior it replaces
         return int(min(max(per * max(1, units) * TICKS_PER_S, prior / MEASURED_BAND), prior * MEASURED_BAND))
 
-    def estimate(self, step, held=None, at=None):
+    def estimate(self, step, held=None, at=None, table_back=True):
         """Ticks this step takes: its work (`work`) plus the walk to where it happens — from `at` (the plan's place
         before it) when that and the step's site are known, else from here; a withdrawal by the chance its container
         still holds the thing (a miss costs the walk)."""
-        work = self.work(step, held)
+        work = self.work(step, held, table_back)
         parts = {"work": work, **self._walk_parts(step, at, held)}
         if step.kind in ("seek", "wait"):
             parts[step.kind], parts["work"] = work, 0
@@ -301,7 +301,7 @@ class Cost:
         step.parts = {**parts, "chance": total - ticks}      # E4: each part measured and fitted apart
         return total
 
-    def work(self, step, held=None):
+    def work(self, step, held=None, table_back=True):
         """Ticks of the step's own work: measured when there is enough of it, else the prior less what the tools
         held save (`held`: {tool kind: tier}, the bag's when not given)."""
         measured = self.measured(step)
@@ -315,10 +315,15 @@ class Cost:
         if held is None:
             held = held_tiers(self.snap.inv)
         ticks = prior_work_ticks(step, held, TICKS_PER_S)
-        if step.kind == "craft" and self.made_at(step) == TABLE and not self.station_near(TABLE):
+        if table_back and self.table_back(step):
             # the table placed for it is broken and carried on after (craft.takes_back): its break by what is held
             ticks += round(work_s([bare(TABLE)], [], held, TICKS_PER_S) * TICKS_PER_S)
         return ticks
+
+    def table_back(self, step):
+        """Does `step` place a crafting table it then breaks and carries on (a craft at one, none standing near)?
+        Once a plan: the crafts after it at the table placed sit at it (brain.keeps_table, forward's one price)."""
+        return step.kind == "craft" and self.made_at(step) == TABLE and not self.station_near(TABLE)
 
     def made_at(self, step):
         """The station a craft of `step` works at by its recipe (planner.way's), or the contract's; None for none."""

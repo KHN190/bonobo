@@ -59,8 +59,9 @@ class TheLookPricesTheTake(unittest.TestCase):
             with self.subTest(name):
                 null = planner.NullCost()           # offline: no hunger clock, no site
                 c = SimpleNamespace(mem=mem, snap=snap, stored=lambda token: [], hunger_rate=null.hunger_rate,
-                                    site=null.site,
-                                    estimate=lambda st, held=None, at=None, look=look, take=take: look if st.kind == "look" else take)
+                                    site=null.site, table_back=null.table_back,
+                                    estimate=lambda st, held=None, at=None, table_back=True, look=look, take=take:
+                                    look if st.kind == "look" else take)
                 made = [Step("craft", IRON, 24, {}, make)]
                 with mock.patch.object(planner, "plan_needs", lambda *a, **k: made):
                     got = planner.look_first(snapshot(state(), inventory()).inv, [(IRON, 24)], c)
