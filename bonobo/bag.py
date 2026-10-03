@@ -5,6 +5,10 @@ from .world import cell_add, screen_slot
 from .knowledge import ALL_FOOD, RAW_MEAT, members
 from .api import NotAvailable
 from .data import TOOL_KINDS, VALUABLES
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .shapes import Cell
 
 PICKUP_FILTER_AT = 28
 
@@ -260,17 +264,17 @@ def opener(region, cell, feet, drop, forced=False):
                and not getattr(region, "unbreakable", lambda p: False)(f)]
     return min(options, key=lambda f: (sum((a - b) ** 2 for a, b in zip(f, eye)), f), default=None)
 
-def mineable(cells, feet, region=None, drop=None):
+def mineable(cells, feet, region=None, drop=None) -> "list[Cell]":
     """Pure: the cells breakable from `feet`, in order — never the floor, our own column below, or a face only over a deep drop."""
 
     feet = tuple(feet)
-    ok = [tuple(c) for c in cells if not holds_up(feet, c)
-          and (region is None or stand_spot(region, tuple(c), drop))]
+    ok: "list[Cell]" = [(c[0], c[1], c[2]) for c in cells if not holds_up(feet, c)
+                        and (region is None or stand_spot(region, tuple(c), drop))]
     if region is None:
         return ok
     return exposed_order(region, ok)
 
-def exposed_order(region, cells):
+def exposed_order(region, cells: "list[Cell]") -> "list[Cell]":
     """Pure: `cells` in an order each can be broken in — a cell goes once one of its faces is open, read or opened by
     a cell broken before it in the batch; one no break in the batch opens (buried) goes last, its way planned by the
     door's stand gate (nav.gate): a feasibility, not a preference."""

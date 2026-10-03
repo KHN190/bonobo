@@ -173,7 +173,7 @@ class Cost:
         hit = self._nearest(kinds, sources)
         return hit[1] if hit else None
 
-    def distance(self, blocks, radius=48, sources=False):
+    def distance(self, blocks, radius: float = 48, sources=False):
         """Blocks to the nearest one of these: remembered (no world read), else in sight now (one cached /find), else
         None. `sources`: what a gather or a mine takes from — a protected cell (a home block) is not there."""
 

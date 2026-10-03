@@ -197,12 +197,12 @@ def _station(st):
         return step_station(st)
     if st.kind == "smelt":
         return "minecraft:furnace"
-    if st.kind == "craft":
-        from bonobo.knowledge import source
-        src = source(st.token)
-        if src and src[0] == "craft" and len(src[1]) == 9:
-            return "minecraft:crafting_table"
-    return None
+    # a craft: the station of the recipe whose inputs the step names (planner.way's), else of its first recipe
+    from bonobo.knowledge import sources
+    from bonobo.planner import way
+    shapes = [got for made, src in sources(st.token) if src[0] == "craft" and (got := way(src, made, 1)) is not None]
+    named = set(st.detail.get("inputs") or ())
+    return next((g[2] for g in shapes if {t for t, _c in g[1]} == named), shapes[0][2] if shapes else None)
 
 
 def P2(b, d, a, ctx):
