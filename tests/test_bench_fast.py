@@ -21,6 +21,32 @@ class TheReportReadsWhereTheBodyStopped(unittest.TestCase):
                 self.assertEqual(tuple(hi[i] - lo[i] for i in range(3)), tuple(core.BOX[1][i] - core.BOX[0][i] for i in range(3)))
 
 
+class EveryRunWritesItsOwnReportOrNone(unittest.TestCase):
+    """K10 (accept3): a run cut before its verdict wrote nothing, and the newest report was accept2's. A row's folder
+    is made as it starts, saying it was cut; a failure's report replaces it, a pass removes it."""
+
+    def test_rows(self):
+        import json
+        import tempfile
+        from unittest import mock
+        from bonobo.bench import runner
+        rows = [("must fail: cut before the verdict, the run's own report says so", None, runner.CUT),
+                ("a failure's report replaces it", {"scenario": "row", "note": "failed"}, "failed"),
+                ("a pass writes none", "pass", None)]
+        for name, end, want in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, mock.patch.object(runner, "BENCH", tmp):
+                folder = runner.start_report("row", 0.0)
+                if end == "pass":
+                    runner.drop_report(folder)
+                elif end is not None:
+                    with mock.patch.object(runner, "bag_now", side_effect=runner.McError("no game")):
+                        runner._report(folder, end)
+                        runner.report_written()
+                path = os.path.join(folder, "report.json")
+                got = json.load(open(path))["note"] if os.path.exists(path) else None
+                self.assertEqual(got, want)
+
+
 class Replies(unittest.TestCase):
     def test_rows(self):
         # (situation, commands) → replies waited on

@@ -11,7 +11,7 @@ from .api import McError, NotAvailable, log
 from .data import DOOR_NEAR, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .game import EYE_HEIGHT, PLAYER_SPRINT
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
-from .knowledge import dig_ticks
+from .knowledge import WAY_BLOCKS, dig_ticks
 from .bag import holds_up
 from .beliefs import TICKS_PER_S
 from collections.abc import Mapping
@@ -232,7 +232,7 @@ def mod_features():
 
 def building_of(inv):
     """Pure: the building block the bag holds most of, or None."""
-    options = [b for b in GROUPS["building"] if inv.usable(b)]
+    options = [b for b in WAY_BLOCKS if inv.usable(b)]
     return max(options, key=inv.usable) if options else None
 
 def building_item():
@@ -375,6 +375,33 @@ def unstandable(tasks, region, feet_at):
                  if not stands_for(t["type"], Dug(region, before[id(t)]), s, _cell_of(t), t.get("down", False))), None)
 
 
+def standable_order(tasks, region, feet_at):
+    """Pure: the chain with each run of mines (no goto between) in an order the stand test passes (stands_for over
+    the region its earlier mines dug): the given order wherever it already passes, else the first that does next (a
+    log above an unbroken one is mined after it). The one order unstandable then judges."""
+    out, run = [], []
+
+    def flush():
+        dug = [_cell_of(t) for t in out if t.get("type") == "mine" and "x" in t]
+        at = next((_cell_of(t) for t in reversed(out) if t.get("type") == "goto"), tuple(feet_at))
+        left = list(run)
+        while left:
+            pick = next((t for t in left if stands_for("mine", Dug(region, tuple(dug)), at, _cell_of(t),
+                                                         t.get("down", False))), left[0])
+            left.remove(pick)
+            out.append(pick)
+            dug.append(_cell_of(pick))
+        run.clear()
+    for t in tasks:
+        if t.get("type") == "mine" and "x" in t:
+            run.append(t)
+        else:
+            flush()
+            out.append(t)
+    flush()
+    return out
+
+
 def task_stands(tasks, feet_at):
     """Pure: [(task, the stand it is sent from)] for the approaching ones — the body's feet, or the last goto's cell
     before it in the same chain."""
@@ -404,6 +431,7 @@ def gate(tasks, policy):
     for _ in range(WAY_TRIES):
         pairs = task_stands(tasks, feet())
         region = _read_box([_cell_of(t) for t, _s in pairs] + [s for _t, s in pairs])
+        tasks[:] = standable_order(tasks, region, feet())
         bad = unstandable(tasks, region, feet())
         if bad is None:
             break

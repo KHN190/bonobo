@@ -1027,3 +1027,13 @@ def prior_ticks(step):
     if f"{k}:{step.token}" in PRIOR_TICKS:
         return PRIOR_TICKS[f"{k}:{step.token}"]
     return PRIOR_TICKS.get(k, 1000)
+
+
+WAY_BLOCKS = tuple(GROUPS["building"])        # the blocks a way is built with (placed: a bridge, a pillar, a tread)
+
+
+def way_kinds(kinds):
+    """Pure: of item ids carried, the ones a way is made with (nav.plan_way): its blocks (WAY_BLOCKS) and tools."""
+    blocks = {mid(b) for b in WAY_BLOCKS}
+    return frozenset(k for k in kinds if mid(k) in blocks or bare(k).rpartition("_")[2] in TOOL_KINDS)
+

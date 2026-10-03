@@ -400,7 +400,7 @@ class Brain:
         snap = self.round_snap
         if snap is None:
             return None
-        return retry.state_signature(place, skillcore.way_kinds(bag_kinds(snap.inv) if kinds is None else kinds),
+        return retry.state_signature(place, _k.way_kinds(bag_kinds(snap.inv) if kinds is None else kinds),
                                      target_present(snap, target))
 
     def attempt(self, name, fn, also=(), site=None):
