@@ -1276,7 +1276,7 @@ class Target:
     needs: list
     rank: int = 0
     after: tuple = ()
-
+    options: tuple = ()     # one of: ((way, its needs, seconds it adds beyond its steps), …) — the cheapest whole plan's
 
 def levels(targets):
     """Pure: the targets in groups none of which waits on a later one (their `after` names), each group by queue
@@ -1373,12 +1373,36 @@ def _cheapest_order(inv, group, cost, pending, jobs, held=None):
     return best[1] if best else []
 
 
-def plan_round(inv, targets, cost, pending=None, jobs=None, held=None):
+def _one_of(inv, targets, cost, pending, jobs, held, chosen):
+    """The steps of the targets with every one-of target settled to its cheapest way (ways that cannot be had left
+    out; none left: Unplannable naming each way's why)."""
+    choices = [t for t in targets if t.options]
+    fixed = [t for t in targets if not t.options]
+    best, why = None, []
+    for combo in itertools.product(*[t.options for t in choices]):
+        picked = [Target(t.name, list(opt[1]), t.rank, t.after) for t, opt in zip(choices, combo)]
+        try:
+            steps = _in_levels(inv, fixed + picked, cost, pending, jobs, held)
+        except Unplannable as e:
+            why.append(" + ".join(opt[0] for opt in combo) + f": {e}")
+            continue
+        key = (sum(s.est for s in steps) / TICKS_PER_S + sum(opt[2] for opt in combo), [o[0] for o in combo])
+        if best is None or key < best[0]:
+            best = (key, steps, {t.name: opt[0] for t, opt in zip(choices, combo)})
+    if best is None:
+        raise Unplannable("; ".join(why) or "no way of a one-of target")
+    if chosen is not None:
+        chosen.update(best[2])
+    return best[1]
+
+
+def plan_round(inv, targets, cost, pending=None, jobs=None, held=None, chosen=None):
     """The round's one plan over every target (the queue's goals and upkeep's): (its first step, the steps, seconds).
     Targets with no wait between them are planned together, cheapest first, queue rank breaking ties; one that waits
-    on others after them, from the bag they leave. Hard: the bar never runs out along the plan's clock (S-class) —
-    a plan that would starve is planned again with food first."""
-    steps = _in_levels(inv, targets, cost, pending, jobs, held)
+    on others after them, from the bag they leave. A one-of target (`options`: the night's ways) takes the way whose
+    whole plan, its extra seconds added, is cheapest — the way taken written to `chosen` ({target: way}). Hard: the
+    bar never runs out along the plan's clock (S-class) — a plan that would starve is planned again with food first."""
+    steps = _one_of(inv, targets, cost, pending, jobs, held, chosen)
     left = food_left_s(cost)
     if not fed_in_time(steps, left):
         fed = plan_needs(inv, [("food", 1)], cost, pending, jobs)

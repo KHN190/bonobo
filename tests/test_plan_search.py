@@ -77,6 +77,21 @@ class TheRoundsOnePlan(unittest.TestCase):
         self.assertEqual(ticks(steps), min(by_rank, other))
         self.assertLess(other, by_rank)
 
+    def test_one_of_takes_the_cheapest_whole_plan(self):
+        from bonobo.planner import Target, plan_round
+        # (situation, the ways: (name, needs, extra seconds)) → the way taken
+        rows = [("a bed's plan the cheapest", (("bed", [("bed", 1)], 0.0), ("shelter", [("minecraft:cobblestone", 8)], 120.0)),
+                 "bed"),
+                ("must fail: the first way listed, though its extra seconds make it the dearer",
+                 (("bed", [("bed", 1)], 900.0), ("shelter", [("minecraft:cobblestone", 8)], 0.0)), "shelter"),
+                ("a way that cannot be had is left out",
+                 (("bedrock", [("minecraft:bedrock", 1)], 0.0), ("shelter", [("minecraft:cobblestone", 8)], 0.0)), "shelter")]
+        for name, options, way in rows:
+            with self.subTest(name):
+                chosen: dict = {}
+                plan_round(bag(inventory()), [Target("night", [], 0, options=options)], NullCost(), chosen=chosen)
+                self.assertEqual(chosen, {"night": way})
+
     def test_a_loop_of_waits_is_said(self):
         from bonobo.planner import Target, plan_round
         with self.assertRaises(Unplannable):
