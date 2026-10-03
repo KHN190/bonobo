@@ -1,6 +1,6 @@
 """Static game knowledge (Minecraft Java 1.21). Pure data, no I/O."""
 import math
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from .game import TICKS_PER_S
 
@@ -368,7 +368,7 @@ def in_box(box, p):
     return all(min(lo[i], hi[i]) <= p[i] <= max(lo[i], hi[i]) for i in range(3))
 
 
-def home_box_of(boxes, p) -> Any:
+def home_box_of(boxes, p) -> tuple | None:
     """Pure: the box of `boxes` (a home's) the cell of point `p` lies in, or None."""
     cell = tuple(math.floor(v) for v in p)
     return next((b for b in boxes if in_box(b, cell)), None)

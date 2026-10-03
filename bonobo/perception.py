@@ -225,7 +225,7 @@ def in_site_here(s):
 KIT_PRICED = ("sword", "shield", "food_items", "bed", "torches", "bag_free")
 
 
-def ground_read(snap) -> Any:
+def ground_read(snap) -> world.Region | None:
     """The blocks perception read (price_inputs' ground): the region a Cost prices digging over."""
     return price_inputs(snap.state)["ground"]
 
@@ -588,7 +588,7 @@ def footing(state):
     return None if region is None else (lambda spot: nav.landing(region, here, spot))
 
 
-def kit_signature(state, now) -> tuple[Any, Any, Any, int, int]:
+def kit_signature(state, now) -> tuple[object, object, object, int, int]:
     """Pure: when the kit must be read again — the held slot, a screen, the armour changed, a dig sent, or
     FACT_TTL_S["kit"] passed."""
 

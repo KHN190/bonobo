@@ -4,7 +4,7 @@ import copy
 import json
 import math
 import time
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, decompose, goals, survive, world
@@ -87,7 +87,7 @@ def night_options(inv, cost, facts=None, bed_too=True):
                         own_s + decompose.day_extra_s(keys, facts), own))
     return out
 
-def overnight(inv, cost, facts=None, bed_too=True) -> tuple[Any, float, list]:
+def overnight(inv, cost, facts=None, bed_too=True) -> tuple[str | None, float, list]:
     """How to get through a night, by price: (choice, seconds, steps); (None, inf, []) when there is none — the night
     a one-of target (night_options) of one plan_round: the bed ways (a carried bed — the sleep row's: a room, light,
     the gate, taken back — or the home's bed a walk reaches, its open walk priced with the night's risk) against

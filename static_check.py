@@ -708,6 +708,15 @@ def r13(trees):
         if fn.returns is None:
             out.append((where, fn.name, "no return type"))
             continue
+        ann = fn.returns
+        if isinstance(ann, ast.Constant) and isinstance(ann.value, str):
+            try:
+                ann = ast.parse(ann.value, mode="eval").body
+            except SyntaxError:
+                pass
+        if any(isinstance(n, ast.Name) and n.id == "Any" for n in ast.walk(ann)):
+            out.append((where, fn.name, "Any in its return type: no shape declared"))
+            continue
         counts = _tuple_returns(fn)
         if counts and _tuple_arity(fn.returns) not in counts:
             out.append((where, fn.name, f"returns a {'/'.join(map(str, sorted(counts)))}-tuple its type does not count"))
@@ -751,6 +760,8 @@ ROWS = [
     ("R13", {"bonobo/m.py": "def f(x) -> tuple[int, int]:\n return x, x",
              "check/c.py": "from bonobo import m\nm.f(1)"}, False),
     ("R13", {"bonobo/m.py": "def f(x):\n return x", "check/c.py": "def g():\n pass"}, False),     # not called
+    ("R13", {"bonobo/m.py": "def f(x) -> tuple[Any, int]:\n return x, 1", "check/c.py": "from bonobo.m import f\nf(1)"},
+     True),                                                                          # must fail: Any hides the shape
     ("R12", {"c.py": "def exact_s(x):\n from bonobo.planner import plan_candidates\n return plan_candidates(x)[0][1]"},
      False),
     ("R12", {"c.py": "def walk_s(d):\n return d / 4.3"}, True),                    # must fail: a model of its own

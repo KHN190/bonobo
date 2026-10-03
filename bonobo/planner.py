@@ -217,7 +217,7 @@ def use_rank(kind):
 
 # -- the ways one source makes `n` of a token: (step, the needs before it, what its run adds back)
 
-def way(src, token, n, ripe=0) -> tuple[Step, list, Any, list] | None:
+def way(src, token, n, ripe=0) -> tuple[Step, list, str | None, list] | None:
     """(step, [(input token, amount)] in the order they are needed, station or None, [(token, amount)] added after)…"""
     kind = src[0]
     if kind == "craft":
@@ -1509,7 +1509,8 @@ def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False):
     return best[1]
 
 
-def plan_round(inv, targets, cost, pending=None, jobs=None, held=None, chosen=None, exact=False) -> tuple[Any, list, float]:
+def plan_round(inv, targets, cost, pending=None, jobs=None, held=None, chosen=None,
+               exact=False) -> tuple[Step | None, list, float]:
     """The round's one plan over every target (the queue's goals and upkeep's):"""
     jobs = dict(pending or {}) if jobs is None else jobs
     steps = _one_of(inv, targets, cost, pending, jobs, held, chosen, exact)

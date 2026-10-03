@@ -2,7 +2,7 @@
 
 import math
 import time
-from typing import Any
+from typing import Any, Callable
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, building, craft, nav, nether, skillcore, store, survive, tape, world, jobs
@@ -140,7 +140,7 @@ def nether_retreat(snap):
         return "bag full"
     return None
 
-def ground(reads=None) -> tuple[Any, Any, Any]:
+def ground(reads=None) -> tuple[Callable, Callable, Callable]:
     """The two ground readings needs and reflexes ask, each read once when first asked: enclosed, and hand-diggable ground."""
 
     both = _once(None, "night_ground", survive.night_ground)          # one region read answers the two below
