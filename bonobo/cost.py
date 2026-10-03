@@ -218,14 +218,14 @@ class Cost:
     def line_kit(self, step, held=None):
         """[needs rows] of kit that each put the step's fight over the line (knowledge.LINE_KIT), from the bag as planned."""
         from . import knowledge, skill
-        if knowledge.LINE_KIT is None or self.snap is None:
+        if knowledge.LINE_KIT is None:
             return []
         found = skill.step_contract(step)
         if found is None:
             return []
         inv = self.snap.inv if held is None else planned_bag(self.snap.inv, held)
         try:
-            return knowledge.LINE_KIT(found[0], found[1], getattr(self.snap, "state", {}) or {}, inv)
+            return knowledge.LINE_KIT(found[0], found[1], self.snap.state, inv)
         except (IndexError, KeyError, TypeError) as e:
             api.swallowed("cost.line_kit", e)       # args it cannot read: no kit, the fight stays refused
             return []
