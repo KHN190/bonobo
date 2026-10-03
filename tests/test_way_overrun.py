@@ -179,5 +179,52 @@ class Accept7MineStep(unittest.TestCase):
         self.assertEqual([t for t in sent if t["type"] == "mine"], [])
 
 
+class OverrunIsReplannedNotFailed(unittest.TestCase):
+    """brain.outcome_of(Overrun) == "interrupted" (data.EXCEPTIONS["Overrun"]: replan, layer:plan; arbiter.RESUME_OF
+    "same"): Brain.failed returns before writing a retry entry or a ban (brain.py:368's early return) -- new API
+    (api.Overrun, EXCEPTIONS/RESUME_OF rows) with no base equivalent: not red by assertion on 2000ec2 (AttributeError/
+    KeyError there), unlike the production-path rows above."""
+
+    def test_outcome_is_interrupted(self):
+        from bonobo import brain
+        self.assertEqual(brain.outcome_of(api.Overrun("the step ran 20s > 15s", pos=(1, 64, 1), remaining_s=20.0)),
+                         ("interrupted", "layer:plan"))
+
+    def test_failed_writes_no_retry_entry_and_no_ban(self):
+        from bonobo import brain
+        from tests.world import brain_fixture
+        b = brain_fixture()
+        outcomes, retried = [], []
+        b.mem.record_outcome = lambda *a, **k: outcomes.append(a)
+        b.retry.failed = lambda *a, **k: retried.append(a)
+        err = api.Overrun("the step ran 20s > 15s", pos=(5, 64, 5), remaining_s=20.0)
+        self.assertIsNone(b.failed("mine:minecraft:raw_iron", err))
+        self.assertEqual(outcomes, [], "must fail: an interruption counted as an outcome")
+        self.assertEqual(retried, [], "must fail: an interruption written as a retry entry")
+        self.assertEqual(b.blacklist, {}, "must fail: an interruption banned its target")
+
+
+class ReflexShelterNeverOverruns(unittest.TestCase):
+    """bench/core.py's shelter path: dispatch.run_priced(..., budget=False) opens no step clock (S7's exclusion), so
+    nav.check_budget/afford stay no-ops however long the reflex runs. `budget=` is new API (no base signature):
+    not red by assertion on 2000ec2 (TypeError there)."""
+
+    def test_a_long_reflex_never_raises(self):
+        from bonobo import dispatch
+        from bonobo.planner import Step
+        step = Step("skill", "shelter", 1, {}, 5 * TICKS_PER_S)
+
+        def long_reflex():
+            self.assertIsNone(nav.BUDGET[0], "must fail: a budget open under budget=False")
+            for _ in range(5):
+                nav.check_budget()               # must never raise: no budget is open
+            nav.afford(1e9, (0, 64, 0))           # an absurd way price: still a no-op with no budget
+            return "sheltered"
+
+        with mock.patch.object(dispatch, "trace", lambda *a, **k: None):
+            out = dispatch.run_priced("minecraft:overworld", step, False, long_reflex, budget=False)
+        self.assertEqual(out, "sheltered")
+
+
 if __name__ == "__main__":
     unittest.main()
