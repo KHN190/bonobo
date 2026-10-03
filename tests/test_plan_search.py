@@ -54,6 +54,40 @@ class TheContractsStation(unittest.TestCase):
                                  ("sleep", made))
 
 
+class TheRoundsOnePlan(unittest.TestCase):
+    """planner.plan_round: every target in one plan — a target that waits on another after it (hard), the queue's
+    rank a tie-break only, the bar never run out along the plan's clock (hard)."""
+
+    def test_waits_are_kept(self):
+        from bonobo.planner import Target, plan_round
+        first, steps, _secs = plan_round(bag(inventory()), [
+            Target("torches", [("minecraft:torch", 4)], 0, after=("pick",)), Target("pick", [("tool", "pickaxe", 0)], 1)],
+            NullCost())
+        made = [s.token for s in steps if s.kind == "craft"]
+        # must fail: the queue's rank put the torches (rank 0) before the pickaxe they wait on
+        self.assertLess(made.index("minecraft:wooden_pickaxe"), made.index("minecraft:torch"))
+
+    def test_a_loop_of_waits_is_said(self):
+        from bonobo.planner import Target, plan_round
+        with self.assertRaises(Unplannable):
+            plan_round(bag(inventory()), [Target("a", [("log", 1)], 0, ("b",)), Target("b", [("log", 1)], 0, ("a",))],
+                       NullCost())
+
+    def test_the_bar_never_runs_out(self):
+        from tests.world import cost, state
+        from bonobo.planner import Target, plan_round
+        # (situation, the bar) → the first step is food (carried beef, coal, a furnace standing)
+        rows = [("a full bar: the task first", 20, False),
+                ("must fail: a bar of 6 and a long task: food before it runs out", 6, True)]
+        for name, food, first_food in rows:
+            with self.subTest(name):
+                m = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
+                m.add_station("minecraft:furnace", (1, 64, 1), OVER)
+                snap = snapshot(state(food=food), inventory(("beef", 2), ("coal", 4)))
+                first, _steps, _secs = plan_round(snap.inv, [Target("iron", [("tool", "pickaxe", 2)], 0)], cost(snap, mem=m))
+                self.assertEqual(first.token == "minecraft:cooked_beef", first_food)
+
+
 class TheChainIsTheGraphs(unittest.TestCase):
     """How deep a plan may go is the recipe and contract graph's own longest chain (Bound.depth, no typed limit); a
     cycle is cut where it closes (the same thing asked while it is being made), never by depth."""

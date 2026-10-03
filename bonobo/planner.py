@@ -1111,6 +1111,111 @@ def plan_needs(inv, needs, cost, pending=None, jobs=None, kinds=None):
     return plan_candidates(inv, needs, cost, pending, jobs, kinds)[0][2]
 
 
+@dataclass
+class Target:
+    """One goal of a round's plan: its needs, its place in the queue (a tie-break at equal seconds only) and the
+    targets it must come after (a directive's --after, a contract's needs: hard)."""
+    name: str
+    needs: list
+    rank: int = 0
+    after: tuple = ()
+
+
+def levels(targets):
+    """Pure: the targets in groups none of which waits on a later one (their `after` names), each group by queue
+    rank; Unplannable when the waits close a loop."""
+    left, out, done = list(targets), [], set()
+    while left:
+        ready = sorted((t for t in left if set(t.after) <= done), key=lambda t: t.rank)
+        if not ready:
+            raise Unplannable("the targets wait on each other: " + ", ".join(t.name for t in left))
+        out.append(ready)
+        done |= {t.name for t in ready}
+        left = [t for t in left if t.name not in done]
+    return out
+
+
+def food_left_s(cost):
+    """Seconds the body's bar lasts with nothing eaten (beliefs risk.food_drain_s a point), None when food is carried
+    (the eat reflex answers it) or no body is read."""
+    from . import beliefs
+    from .knowledge import food_count
+    state = getattr(getattr(cost, "snap", None), "state", None) or {}
+    inv = getattr(getattr(cost, "snap", None), "inv", None)
+    if "food" not in state or inv is None or food_count(inv) > 0:
+        return None
+    return float(state["food"]) * float(beliefs.value("risk.food_drain_s"))
+
+
+def fed_in_time(steps, left_s):
+    """Pure: the plan puts food in the bag before the bar runs out (`left_s`), or never needs to."""
+    if left_s is None:
+        return True
+    clock = 0.0
+    for st in steps:
+        clock += st.est / TICKS_PER_S
+        if mid(st.token) in FOOD_IDS and st.kind in MAKES_FOOD:
+            return clock <= left_s
+        if clock > left_s:
+            return False
+    return True
+
+
+class _After:
+    """The bag as a plan's steps leave it: their outputs in, their inputs out, the tools they make carried."""
+
+    def __init__(self, inv, steps):
+        self.equipment = getattr(inv, "equipment", {})
+        counts = Counter()
+        for slot in inv.slots:
+            counts[slot["id"]] += slot["count"]
+        self._tools = {k: list(inv.tools(k)) for k in TOOL_KINDS}
+        for st in steps:
+            for tok, c in st.detail.get("inputs", {}).items():
+                for m in members(tok):
+                    take = min(int(math.ceil(c)), counts[mid(m)])
+                    counts[mid(m)] -= take
+                    c -= take
+            item = mid(GROUPS[st.token][0]) if st.token in GROUPS else mid(st.token)
+            material, _, kind = bare(item).rpartition("_")
+            if st.kind == "craft" and kind in TOOL_KINDS and material in TOOL_USES:
+                tier = next(t for t, m in TOOL_MATERIAL_FOR_TIER.items() if m == material)
+                self._tools[kind].append((tier, TOOL_USES[material], item))
+            elif st.kind not in ("seek", "look", "reach", "portal", "enter", "activate", "slay", "sleep", "wait"):
+                counts[item] += int(st.count)
+        self.slots = [{"id": i, "count": n} for i, n in counts.items() if n > 0]
+
+    def tools(self, kind):
+        return list(self._tools.get(kind, []))
+
+    def count(self, item):
+        return sum(s["count"] for s in self.slots if s["id"] == mid(item))
+
+
+def _in_levels(inv, targets, cost, pending, jobs):
+    """The targets' steps, level by level (`levels`), each level from the bag the ones before it leave."""
+    steps = []
+    for group in levels(targets):
+        needs = [n for t in group for n in t.needs]
+        steps += plan_needs(_After(inv, steps), needs, cost, pending, jobs) if needs else []
+    return steps
+
+
+def plan_round(inv, targets, cost, pending=None, jobs=None):
+    """The round's one plan over every target (the queue's goals and upkeep's): (its first step, the steps, seconds).
+    Targets with no wait between them are planned together, cheapest first, queue rank breaking ties; one that waits
+    on others after them, from the bag they leave. Hard: the bar never runs out along the plan's clock (S-class) —
+    a plan that would starve is planned again with food first."""
+    steps = _in_levels(inv, targets, cost, pending, jobs)
+    left = food_left_s(cost)
+    if not fed_in_time(steps, left):
+        fed = plan_needs(inv, [("food", 1)], cost, pending, jobs)
+        steps = fed + _in_levels(inv, targets, cost, {**(pending or {}), "food": 1}, jobs)
+        if not fed_in_time(steps, left):
+            raise Unplannable(f"the bar runs out in {left:.0f} s before any food the plan can make")
+    return (steps[0] if steps else None), steps, sum(s.est for s in steps) / TICKS_PER_S
+
+
 def craftable_tier(inv, kind, reserved=()):
     """The best tier of `kind` this bag crafts with crafting steps only (`reserved`, what the held plans will consume,
     left out), or 0."""
