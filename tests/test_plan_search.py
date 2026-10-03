@@ -607,9 +607,13 @@ class TheNightsWaysBoundEachOther(unittest.TestCase):
         search = planner.Search(c)
         node = planner.Node(planner.from_bag(bag(inventory()), None, None, c.reserved, c.facts()), [], [])
         node.stack = [("need", "bed", 1, 0, False)]
-        # must fail: 20 ticks (the walks every way of a bed shares: none) for a bed whose every way walks to wool or
-        # logs, so a dearer way of the night is searched uncapped before the cheap one bars it
-        self.assertGreater(search.h(node), 300)
+        from unittest import mock
+        with mock.patch.object(planner.Search, "walk_to", return_value=0.0), \
+                mock.patch.object(planner.Search, "legs", return_value=0.0):
+            unwalked = planner.Search(c).h(node)
+        # must fail: the bound with no walk (the walks every way of a bed shares: none) for a bed whose every way
+        # walks to wool or logs, so a dearer way of the night is searched uncapped before the cheap one bars it
+        self.assertGreater(search.h(node), unwalked)
 
     def test_a_tools_payback_counts_its_craft(self):
         from tests.world import cost

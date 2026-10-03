@@ -158,9 +158,10 @@ class ThePriceLineByPart(unittest.TestCase):
                                  {"walk": 12.0, "seek": 0.0, "arrived_s": 12.5})
         self.assertEqual(ln["est_parts"], {"work": 900, "walk": 200, "hunger": 200})      # the rest: hunger's share
         self.assertEqual(ln["actual_parts"], {"walk": 12.0, "seek": 0.0, "work": 58.0})
-        self.assertEqual((ln["price"]["work"], ln["price"]["walk"], ln["price"]["hunger"], ln["arrived_s"]),
-                         ("PRIOR_TICKS.gather_each:prior", "data.WALK_BLOCKS_PER_TICK:prior", "risk.food_drain_s:prior",
-                          12.5))
+        want = [f"{i}:{dispatch.price_source(i)}" for i in
+                ("PRIOR_TICKS.gather_each", "data.WALK_BLOCKS_PER_TICK", "risk.food_drain_s")]
+        self.assertEqual([ln["price"]["work"], ln["price"]["walk"], ln["price"]["hunger"], ln["arrived_s"]],
+                         want + [12.5])
         self.assertNotIn("seek", ln["price"])                     # must fail: a zero part priced
 
 
@@ -220,6 +221,14 @@ class BenchColumn(unittest.TestCase):
         t["chop__base"]["k"][-1]["t"] -= 1
         t = runner.record(t, "chop__base", "k", True, 9.0, e4=(True, []))
         self.assertEqual(runner.e4_status(t, "chop__base", "k"), "in")
+
+    def test_a_row_keeps_its_tasks_ticks(self):
+        from bonobo import api
+        kept = {7: ["mine", 90, 96, 99, 1], 8: ["mine", 100, 117, 120, 2]}
+        ticks = api.ticks_since(kept, 7)
+        self.assertEqual(ticks, [kept[8]])                                   # must fail: an earlier row's task
+        t = runner.record({}, "mine_stone__base", "k", True, 9.0, ticks=ticks)
+        self.assertEqual(t["mine_stone__base"]["k"][-1]["ticks"], ticks)    # must fail: a passing row keeps none
 
     def test_row_reads_its_own_lines(self):
         with tempfile.TemporaryDirectory() as tmp:
