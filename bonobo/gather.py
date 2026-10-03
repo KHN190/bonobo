@@ -6,7 +6,7 @@ import re
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import knowledge as K
 from . import api, beliefs, nav
-from .api import McError, NotAvailable, log
+from .api import McError, NotAvailable, ToolMissing, log
 from .skill import skill
 from .data import SEARCH_LOOK_R, SEARCH_MOB_R, SEARCH_RINGS
 from .data import LEVEL_SIGHT_DEPTH, BAN_MAX_S, ENTITY_REACH, TASK_WAIT_S, WORK_REACH, cannot_reach, bare, mid
@@ -15,7 +15,7 @@ from .data import GROUPS, MINE_YIELD, PLACEABLE_AS
 from .game import JUMP_BLOCKS
 from .bag import mineable, opener, pickup_whitelist, refused
 from .world import Inventory, Region, cell_add, connected, entities, find, region_around, ripe_near
-from .skillcore import ToolMissing, mine_cell, gained, settle
+from .skillcore import mine_cell, gained, settle
 from .world import feet
 from .explore import surface_first, explore_for, approach_policy, seek_blocks
 from .fluids import CAVE_AIR, fluid_faces, seal_plan

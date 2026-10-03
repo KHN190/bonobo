@@ -62,11 +62,6 @@ class NeedMissing(McError):
         super().__init__("missing " + ", ".join(f"{k} {v}" for k, v in sorted(missing.items())))
         self.missing = dict(missing)
 
-class ToolMissing(McError):
-    def __init__(self, kind, tier):
-        super().__init__(f"need a tier-{tier} {kind}")
-        self.kind, self.tier = kind, tier
-
 _BAN_COUNTS = {}
 lifecycle.in_place(__name__, "_BAN_COUNTS")     # in place: every Context shares it; bans name the last life's cells
 
@@ -342,7 +337,10 @@ ARM_REGION_MAX = 4096       # cells one read may cover to name what a chain's mi
 def arm(tasks, inv=None, read_blocks=True):
     """The item each mine or attack holds, named where none is (knowledge.tool_for / weapon_for): reads only when a
     task lacks one — the bag (unless `inv`, the one perception already holds, is given) and the blocks the mines
-    break (unless `read_blocks` is off: a mine then names the bare-block tool). HOLD puts that item in hand (I2)."""
+    break (unless `read_blocks` is off: a mine then names the bare-block tool). HOLD puts that item in hand (I2).
+    A tool that would not outlast the chain's own count of mines needing it (spare_uses/working) drops those mines
+    (keeping every other task, in order) and raises api.ToolMissing(kind, tier, pos, done=the rest still armed):
+    the round re-plans (planner.tool prices a new one by seconds, R1/G3), never a mid-chain tier downgrade."""
     mines = [t for t in tasks if t.get("type") == "mine" and "item" not in t]
     if not mines and not any(t.get("type") == "attack" and "item" not in t for t in tasks):
         return tasks
@@ -364,14 +362,29 @@ def arm(tasks, inv=None, read_blocks=True):
     except McError as e:              # no world to read (an offline test): the tasks go as they were — said, never silent
         api.detail(f"  arm: {type(e).__name__}: {e} — {[t.get('type') for t in tasks]} sent without naming what they hold")
         return tasks
-    out = []
+    out, spent, cut = [], {}, None     # item -> mines already counted against it in this chain; cut: (kind, tier, pos)
     for t in tasks:
         kind = t.get("type")
         if "item" in t or kind not in ("mine", "attack"):
             out.append(t)
-        elif kind == "mine":
-            out.append({**t, "item": _know.tool_for(inv, names.get((t["x"], t["y"], t["z"])))})
-        else:
+            continue
+        if kind == "attack":
             out.append({**t, "item": _know.attack_weapon(inv, beliefs.COMMON_FOE_HP) or "hand"})
+            continue
+        block = names.get((t["x"], t["y"], t["z"]))
+        item = _know.tool_for(inv, block)
+        tool_kind = _know.tool_kind(block)
+        if item != "hand" and tool_kind is not None:
+            used = spent.get(item, 0) + 1
+            if not _know.working(_know.tool_uses_left(inv, item), used):
+                # this mine (and any later one past it needing the same worn-out item) is dropped, never downgraded;
+                # everything else (a goto back, a batch's own closing collect) still goes, in order
+                if cut is None:
+                    cut = (tool_kind, _know.item_tier(item), (t["x"], t["y"], t["z"]))
+                continue
+            spent[item] = used
+        out.append({**t, "item": item})
+    if cut is not None:
+        raise api.ToolMissing(*cut, done=out)
     return out
 

@@ -118,6 +118,14 @@ class TaskStuck(McError):
         super().__init__(message)
         self.then = then
 
+class ToolMissing(McError):
+    """No held tool of `kind` (tier `tier`+) is enough (skill.needs_of's hard check, or ARM cutting a chain where
+    its tool would not outlast `pos`'s worth of mines). `done`: the prefix ARM could still arm (run_chain runs it,
+    then lets this propagate so the round plans a replacement, I2/R1/G3) — empty outside ARM's own use."""
+    def __init__(self, kind, tier, pos=None, done=None):
+        super().__init__(f"need a tier-{tier} {kind}" if pos is None else f"no {kind} tier {tier}+ with uses enough left past {pos}", pos=pos)
+        self.kind, self.tier, self.done = kind, tier, done or []
+
 class CommitmentExpired(McError):
     """The running task outlived the commitment its plan was made under: the world owes the planner a new decision."""
 
@@ -852,7 +860,13 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
     results: list[TaskResult] = []
     chain_began = time.time()
     armed = [walk_only(dict(t)) for t in tasks]
-    armed = ARM(armed) if ARM else armed
+    tool_missing = None
+    try:
+        armed = ARM(armed) if ARM else armed
+    except ToolMissing as e:
+        if not e.done:
+            raise                  # the very first mine was cut: nothing armed, nothing to send
+        armed, tool_missing = e.done, e     # run the safe prefix now, raise after so the round plans a replacement
     for n, part in enumerate(segments(armed, segment)):
         if n:
             # an interrupt stops the chain at a segment boundary; the skill resumes by what the world lacks, never this index
@@ -893,6 +907,8 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
     if tasks:
         ok = sum(t["status"] == "succeeded" for t in results)
         detail(f"  chain: {ok}/{len(tasks)} succeeded")
+    if tool_missing is not None:
+        raise tool_missing          # the prefix ran; the round still owes a replacement tool, never a silent success
     return results
 
 
