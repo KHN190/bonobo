@@ -255,7 +255,7 @@ def contain_lava_commands(state, args=()) -> "list[Task]":
     open_lava = _open_lava(state["region"], state["feet"]) if state["region"] is not None else []
     return fill_with_blocks(open_lava, state["inv"], "lava exposed and no blocks to cover it", partial=True)
 
-@skill(gives=["state:lava_covered"], remaining=_k.blocks_gone("lava"), needs={"building": 1}, start=lambda c: _open_lava_now(c.args[0], c.args[1] if len(c.args) > 1 else 4),
+@skill(gives=["state:lava_covered"], remaining=_k.blocks_gone("lava"), needs={}, start=lambda c: _open_lava_now(c.args[0], c.args[1] if len(c.args) > 1 else 4),
        verify=lambda c: c.base == 0 or _open_lava_now(c.args[0], c.args[1] if len(c.args) > 1 else 4) < c.base,
        commands=contain_lava_commands, budget=120, stall=30)
 def contain_lava(ctx, radius=4):
