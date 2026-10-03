@@ -1,4 +1,4 @@
-"""G3/D6: a placed furnace is left standing only where the walk back for the plan's own place of the next use —
+"""A placed furnace is left standing only where the walk back for the plan's own place of the next use —
 priced by the real dig path (_next_use_at's Cost replay), not the straight line — costs fewer ticks than breaking
 it, carrying it, and placing it again there (craft.station_kept); the one decision point brain.craft_act reads
 (craft.next_furnace_use), not a bare "needs one again" bool. A crafting table is never priced this way: ours (just
@@ -147,7 +147,7 @@ class NextUseWalksThePlanForward(unittest.TestCase):
             self.assertEqual(craft.next_furnace_use(cost, [table_now, smelt_a, smelt_b], smelt_a), ((5, 70, 5), 0))
 
     def test_carries_the_last_known_place_forward(self):
-        """A craft step itself has no site (own_work's never a kinds-step): the place before it (D6) stands in."""
+        """A craft step itself has no site (own_work's never a kinds-step): the place before it stands in."""
         table_now = Step("craft", "minecraft:crafting_table", 1)
         mine = Step("mine", "minecraft:iron_ore", 1, {"blocks": ["iron_ore"]})
         pickaxe = Step("craft", "minecraft:wooden_pickaxe", 1)

@@ -414,7 +414,7 @@ class UnplannableIsThisRounds(unittest.TestCase):
 
 
 class GateDropsAreNamed(unittest.TestCase):
-    """D1: every proposal the gate drops leaves the round's idle reason naming it and why."""
+    """Every proposal the gate drops leaves the round's idle reason naming it and why."""
 
     def test_rows(self):
         from unittest import mock

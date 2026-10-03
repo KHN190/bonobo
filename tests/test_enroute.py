@@ -1,9 +1,8 @@
-"""En-route as a planner choice (docs/refactor.md 顺路插入, G3/K4): each round A is the normal held plan; C is
+"""En-route as a planner choice: each round A is the normal held plan; C is
 A's goal needs plus one en-route candidate's item (planner.plan_needs); C is held only when its seconds cost less
 than A's by more than P x bag.item_value(item) (P: 1 for the held plan's own want, discounted for a later
-milestone). Rows go through the production round (brain.Brain.plan_proposals/round_for), not a helper function, so
-they hold whatever Opus's internals turn out to be. Rows needing that rework fail on the base by assertion; they
-are marked below."""
+milestone). Rows go through the production round
+(brain.Brain.plan_proposals/round_for), not a helper function."""
 import os
 import sys
 import tempfile
@@ -15,7 +14,7 @@ from bonobo import brain  # noqa: E402,F401  (every skill registered)
 from bonobo import api, arbiter, goals, lifecycle, tasks, world  # noqa: E402
 from bonobo.knowledge import members  # noqa: E402
 from tests.world import brain_fixture, inventory, memory, round_ctx, state  # noqa: E402
-from tests.test_plan_run_order import brought_before  # noqa: E402  (the one P2 order check, reused)
+from tests.test_plan_run_order import brought_before  # noqa: E402  (the one order check, reused)
 
 D = "minecraft:overworld"
 ORE = (40, 64, 0)
@@ -102,7 +101,7 @@ class TheRoundTakesWhatIsOnTheWay(unittest.TestCase):
 
 
 class ThePickedCCostsLessThanItsValue(unittest.TestCase):
-    """D4/G3: whenever C is held over A, its seconds beat A's by less than P x bag.item_value(item) -- never a
+    """Whenever C is held over A, its seconds beat A's by less than P x bag.item_value(item) -- never a
     detour that costs more than what it is worth -- and only one extra plan is priced a round (never a chain of
     them)."""
 
@@ -122,7 +121,7 @@ class ThePickedCCostsLessThanItsValue(unittest.TestCase):
 
 
 class NeverIronBeforeAPickaxe(unittest.TestCase):
-    """P2, unchanged by the rework: an empty-bag start whose immediate goal is a wooden pickaxe, with iron ore in
+    """An empty-bag start whose immediate goal is a wooden pickaxe, with iron ore in
     sight 2 off the first step's own site (wanted later, for stone/iron tools) -- the held plan never mines iron
     before a pickaxe exists, and the round's chosen act is never a dig at the ore itself. Must fail on the base:
     its old side act (cost.enroute) picks the ore as a detour by proximity alone, with no tool check at all, and

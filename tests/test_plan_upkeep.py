@@ -26,7 +26,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, arbiter, craft, decompose, goals, lifecycle, nav, needs, planner, reflexes, retry, skillcore, survive, tasks  # noqa: E402
+from bonobo import api, arbiter, craft, decompose, goals, lifecycle, nav, needs, planner, reflexes, retry, skillcore, survive, tasks, world  # noqa: E402
 from bonobo.data import DAY_END, TOOL_USES  # noqa: E402
 from bonobo.knowledge import TOOL_WORKING  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402  (imports every skill module: `handles` needs the registry)
@@ -791,7 +791,7 @@ class Queue_:
         self.patches = [mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")),
                         mock.patch.object(brainmod, "Cost", lambda snap, mem=None, bl=None, **k: cost(snap, mem=mem,
                                                                                                     **self.seen)),
-                        mock.patch.object(brainmod, "Inventory", lambda: bag(self.after_inv)),
+                        mock.patch.object(brainmod, "Inventory", lambda data=None: bag(self.after_inv) if data is None else world.Inventory(data)),
                         mock.patch.object(api, "api", side_effect=AssertionError("the queue read the world"))]
 
     def __enter__(self):
