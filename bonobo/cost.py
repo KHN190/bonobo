@@ -3,6 +3,7 @@
 import math
 import time
 
+from . import api
 from .api import Interrupted, McError
 from .beliefs import CONFIG as _PLAY
 from .data import MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare, mid
@@ -259,7 +260,8 @@ class Cost:
         inv = self.snap.inv if held is None else planned_bag(self.snap.inv, held)
         try:
             return knowledge.LINE_KIT(found[0], found[1], getattr(self.snap, "state", {}) or {}, inv)
-        except (IndexError, KeyError, TypeError):
+        except (IndexError, KeyError, TypeError) as e:
+            api.swallowed("cost.line_kit", e)       # args it cannot read: no kit, the fight stays refused
             return []
 
     def stored(self, token):
