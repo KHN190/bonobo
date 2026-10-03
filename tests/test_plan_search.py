@@ -570,6 +570,19 @@ class APrepAloneStillCounts(unittest.TestCase):
         self.assertGreater(search.saves_at_most(node, "pickaxe", 0, 2, now), 0)
 
 
+class AFactLeftBoundsTheToolsPayback(unittest.TestCase):
+    def test_a_diamond_axe_is_not_tried_for_four_logs(self):
+        search = planner.Search(NullCost())
+        node = planner.Node(planner.from_bag(bag(inventory()), facts=NullCost().facts()), [], [])
+        node.stack = [("fact", "covered", True, 0)]      # a shelter still to make: its ways' work is in the table
+        step = planner.Step("gather", "log", 4, {})
+        got = search.speed(node, step, 0)
+        tiers = {t[2] for c in (got or [node]) for t in c.stack if t[0] == "tool" and t[1] == "axe"}
+        # must fail: a fact left made the payback unbounded (inf), so iron and diamond axes were tried for 4 logs
+        self.assertLess(search.saves_at_most(node, "axe", -1, 3, step), math.inf)
+        self.assertFalse(tiers & {2, 3}, tiers)
+
+
 class AlikeOrdersAreOne(unittest.TestCase):
     def test_only_targets_that_share_are_permuted(self):
         from bonobo.planner import Target

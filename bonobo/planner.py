@@ -628,6 +628,8 @@ class Search:
             return 0.0 if mid(item) in asked or self.stored(item) else self.lb.least(item, 1, held, memo)
         for task in node.stack[floor:]:
             op = task[0]
+            if op == "emit" and task[1].kind != "await":
+                units += self.least_of(node, task[1], BEST_TOOLS, walk=False)  # a step chosen, still to run (best tools: it may run after any)
             if op == "need":
                 _op, token, n, _depth, fresh = task
                 # a container holding it is a way the tables do not price (a withdraw): nothing is known below it
@@ -653,6 +655,22 @@ class Search:
         walk = max(walk, self.legs(node, floor, held, memo["held"], frozenset(trips)))
         return units + walk + max(tool, station)     # a tool or station made is work no unit's least counts
 
+    def least_of(self, node, step, held, walk=True):
+        """Ticks `step` takes at the least, run after what `node` has emitted (its g's share, and the bound's for a step
+        already chosen and still to come): a repeat of a merged step only the work its units add (forward joins it
+        to the first, a craft's work once); else its work and the least walk to it, none to a place walked to."""
+        ticks = self.cost.work(step, held)
+        if (step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)) \
+                and node.inv.facts.get("made " + repr(step.key())):
+            return max(0, ticks - self.cost.work(_scaled(step, 0), held))
+        if not walk:                    # its walk is the bound's legs' (each place walked into once)
+            return ticks
+        # from the nearest place it can be walked to from: forward may run it after any step
+        walk = 0 if self.cost.site(step) in self.walked(node) else self.cost.walk_lb(step)
+        if step.kind == "withdraw" and step.detail.get("p"):
+            return round((ticks + walk) / step.detail["p"])
+        return ticks + self.cost.dig_to(step, held) + walk
+
     def walked(self, node):
         """The places the node's steps work at (forward's route passes each)."""
         return frozenset(p for p in (self.cost.site(st) for st, _h, _s in node.steps) if p is not None)
@@ -666,6 +684,12 @@ class Search:
             return 0.0
         req: set = set()
         for task in node.stack[floor:]:
+            if task[0] == "emit" and task[1].kind != "await" and not (
+                    (task[1].kind in MERGEABLE or (task[1].kind == "craft" and task[1].token in MERGEABLE_CRAFTS))
+                    and node.inv.facts.get("made " + repr(task[1].key()))):
+                site = self.cost.site(task[1])
+                if site is not None:
+                    req.add(("at", tuple(site), float(self.cost.walk_lb(task[1]))))
             if task[0] == "need" and held(task[1]) < task[2]:
                 req |= self.required(task[1], held, heldset, trips) or frozenset()
             elif task[0] == "tool" and not node.inv.has_tool(task[1], task[2], task[3]):
@@ -1029,7 +1053,7 @@ class Search:
             tasks: list[tuple] = [("emit", step, depth, len(node.steps)), ("taken", taken, k)]
             if k < n:
                 tasks.append(("need", token, n - k, depth, False))
-            out.append(((0, 1, j), tasks))
+            out.append(((0, -1, j), tasks))       # taken ahead of made at an equal bound: the dive tries it first
         return out
 
     def tasks(self, token, n, depth, start, step, inputs, station, adds):
@@ -1142,12 +1166,33 @@ class Search:
             memo[token] = best
             return best
 
+        def made_fact(fact, value, depth=0):
+            """The most a fact's making (each way FACT_STEPS names: its own work, its call's needs, the facts its
+            `when` asks) saves; inf where no table says (a fact no step makes, or a chain past FACT_DEPTH)."""
+            if depth > FACT_DEPTH:
+                return math.inf
+            worst = None
+            for kind, token in self.fact_steps(fact, value):
+                st = Step(kind, token, 1, {})
+                got = own(st)
+                for dim, n in self.call(st).items():
+                    if not dim.startswith("tool:"):
+                        got += n * (unit(dim) or 0.0)
+                when = self.when(st, {})
+                if isinstance(when, str):
+                    continue
+                got += sum(made_fact(f, v, depth + 1) for f, v in when)
+                worst = got if worst is None else max(worst, got)
+            return math.inf if worst is None else worst
+
         total = 0.0
         emitted = {id(t[1]) for t in node.stack if t[0] == "emit"}
         for task in node.stack:
             op = task[0]
             if op == "need":
-                total += task[2] * (unit(task[1]) or 0.0)
+                # what a remembered container holds is taken, not made: no work of this kind for it
+                kept = sum(self.kept().get(m, 0) for m in _MEMBERS.get(task[1]) or members(task[1]))
+                total += max(0, task[2] - kept) * (unit(task[1]) or 0.0)
             elif op == "tool":
                 total += unit(tool_item(task[1], task[2])) or 0.0
             elif op == "station":
@@ -1158,7 +1203,9 @@ class Search:
                 total += own(task[1])           # a step whose emit is not queued yet: its work is still to come
             elif op == "fuel":
                 total += task[1].count * (unit("coal") or 0.0)
-            elif op in ("fact", "do"):
+            elif op == "fact":
+                total += made_fact(task[1], task[2])
+            elif op == "do":
                 return math.inf
         return total
 
@@ -1264,20 +1311,11 @@ class Search:
         for kind in {k for k in map(tool_kind, breaks) if k is not None} | ({"sword"} if kills else set()):
             if kind in held:
                 node.inv.wear(kind, 0, self.uses(step, kind))
-        ticks = self.cost.work(step, held)
+        ticks = self.least_of(node, step, held)
         mergeable = step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)
         made = "made " + repr(step.key())       # in the bag's facts: what a sub-plan is remembered by sees it too
-        if mergeable and node.inv.facts.get(made):
-            # a repeat joins the first (forward): no trip, and only the work its units add (a craft's is once)
-            ticks = max(0, ticks - self.cost.work(_scaled(step, 0), held))
-        else:
-            # at the least (from the nearest place it can be walked to from): forward may run it after any step
-            # a place a step before already stands at is walked into once: the route may run the two together
-            walk = 0 if self.cost.site(step) in self.walked(node) else self.cost.walk_lb(step)
-            ticks = round((ticks + walk) / step.detail["p"]) if step.kind == "withdraw" and step.detail.get("p") \
-                else ticks + self.cost.dig_to(step, held) + walk
-            if mergeable:
-                node.inv.set_fact("trip " + step.token, True)
+        if mergeable and not node.inv.facts.get(made):
+            node.inv.set_fact("trip " + step.token, True)
         if mergeable:
             node.inv.set_fact(made, True)
         if self.hungry and not node.inv.facts.get("fed"):
@@ -1577,6 +1615,7 @@ def plan_name(steps) -> str:
 SPENT: dict = {"steps": 0, "budget": 0, "round": None}   # steps advanced, searches a budget stopped, where a round began
 PATHS: list = []        # each plan a round's searches took: (its price as run, (g, h) at every step on its way there)
 ROUND_STEPS = 1500      # the user's cap on a round's search steps, against a runaway search (P4)
+FACT_DEPTH = 3          # facts asked by the facts a step needs, followed this deep by the faster tool's payback bound
 DIVE_RESERVE = 200      # of it kept from A* for the first plans the round's later searches still owe
 
 

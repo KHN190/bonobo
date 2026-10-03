@@ -59,6 +59,12 @@ def _g3(ctx, why, lost_s):
     if not ctx.get("budget_spent"):
         return why
     ctx.setdefault("p5_loss_s", lost_s)
+    if "p5_case" not in ctx:
+        from bonobo.planner import plan_name
+        from bonobo.game import TICKS_PER_S
+        plan = _plan(ctx) or []
+        paid = sum(int(getattr(st, "est", 0) or 0) for st in plan) / TICKS_PER_S
+        ctx["p5_case"] = (f"{plan_name(plan)} ({paid:.1f} s)", why)      # the G3 rule's own words: what was cheaper
     return Unchecked(f"budget spent (P4 before G3): {why}")
 
 
