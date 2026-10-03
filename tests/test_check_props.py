@@ -22,6 +22,33 @@ def known():
         return {ln.split()[0] for ln in fh if ln.strip() and not ln.startswith("#")}
 
 
+class DuskByThePrep(unittest.TestCase):
+    """Dusk compares the chosen night way's preparation × LEAD with the light left, never the night itself; a night
+    underground is lost only where the route has no work under cover left."""
+
+    def test_rows(self):
+        # (situation, facts) → dusk read back (production's reading on the γ world)
+        rows = [("must fail: dawn, empty bag: digging in fits the day", of(), False),
+                ("one tick of light left: no way fits", of(dusk=True), True)]
+        for name, f, want in rows:
+            with self.subTest(name):
+                _d, got, _ctx = rnd.decide(f, fail_then_again=False)
+                self.assertIs(got["dusk"], want)
+
+    def test_the_night_lost_is_what_no_covered_work_fills(self):
+        from bonobo import beliefs, decompose
+        night_s, risk = beliefs.value("time.night_s"), beliefs.value("risk.night_sheltered") * beliefs.value(
+            "time.death_cost_s")
+        # (situation, covered work left on the route) → the waited night's price
+        rows = [("must fail: the route's digging done: the whole night lost", 0.0, night_s + risk),
+                ("work under cover for half the night", night_s / 2, night_s / 2 + risk),
+                ("more work than night: nothing lost but the risk", night_s * 3, risk)]
+        for name, covered, want in rows:
+            with self.subTest(name):
+                got = decompose.night_facts(None, night_left_s=night_s, covered_work_s=covered)["wait_s"]
+                self.assertAlmostEqual(got, want)
+
+
 class Generated(unittest.TestCase):
     @settings(max_examples=EXAMPLES, deadline=None, derandomize=True, database=None, suppress_health_check=[HealthCheck.too_slow])
     @given(states)
