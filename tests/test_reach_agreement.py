@@ -6,14 +6,14 @@ nav.py:314). `_run_reachable` below is a thin wrapper over it (`.stand is not No
 retired the old hand-rolled mirror once nav.reach existed to call directly.
 
 Plan-side rows call the real production functions where they now ask nav.reach themselves (wood.trunk_batch,
-wood.py:14; fluids.fill_spot, fluids.py:44; cost.Cost.refused/station_near, cost.py:199/cost.py:~330) -- so most
-rows are expected GREEN today, proving the fix holds. Two rows stay a deliberate, narrower oracle than nav.reach:
-_chase_reachable (attack: nav.chase never tunnels, gather.py:586) and CumulativeBudget (D6: a step must be priced
-off the PLAN's own remaining bag, not a fresh one) -- those are still live findings, not bugs in this test.
+wood.py:14; fluids.fill_spot, fluids.py:44; cost.Cost.refused/station_near/_entity, cost.py:199/~330/235) -- so most
+rows are expected GREEN today, proving the fix holds. CumulativeBudget stays a deliberate gap: a step priced off a
+fresh bag (as gather._cheapest_seed and most callers still do) vs the real leftover bag after the step before it
+actually spent (D6) -- a live finding, not a bug in this test.
 """
 import unittest
 
-from bonobo import cost as _cost, fluids, gather, nav, wood, world
+from bonobo import cost as _cost, fluids, nav, wood, world
 from bonobo.skillcore import free_spots
 from bonobo.world import Inventory
 from tests.world import FakeRegion, inventory, memory, state
@@ -219,39 +219,14 @@ def _use_item_row(terrain):
     return region, feet, plan_of, run_of
 
 
-def _no_dig_steps(region, feet, target, inv, protected=()):
-    """The way nav.chase would take (gather.py:586 'walk and bridge to animals, never tunnel'): plan_way's own
-    answer, discarded if it contains a mine step."""
-    steps, _why, _secs = nav.plan_way(region, feet, target, "mine", inv, protected)
-    if steps is None or any(t["type"] == "mine" for t in steps):
-        return None
-    return steps
-
-
-def _chase_reachable(region, feet, target, inv, protected=(), tries=None):
-    """Plan-side for attack: does nav.chase (nav.py:1381, never tunnelling) actually close to gather.HUNT_REACH ==
-    data.ENTITY_REACH (gather.py:548) of the target -- the real decider gather.hunt uses before it attacks. Unlike
-    nav.reach's own "attack" branch (which still lets plan_way dig toward a mob), this one never does: a
-    deliberately narrower oracle, not a bug in nav.reach. Mirrors nav.reach's own loop (nav.py:1468) -- After/took
-    (nav.py:1409/1429) -- just discarding any way that contains a mine step."""
-    import math as _math
-    tries = tries or nav.WAY_TRIES
-    feet, ground = tuple(feet), nav.After(region)
-    for _ in range(tries):
-        if _math.dist(feet, target) <= gather.HUNT_REACH:
-            return True
-        steps = _no_dig_steps(ground, feet, target, inv, protected)
-        if not steps:
-            return False
-        feet = nav.took(ground, steps, feet)
-    return _math.dist(feet, target) <= gather.HUNT_REACH
-
-
 def _attack_row(terrain):
     region, feet, anchor = TERRAINS[terrain]()
 
     def plan_of(blocks):
-        return _chase_reachable(region, feet, anchor, _inv(blocks))
+        # plan-side: cost.Cost._entity (cost.py:235) skips prey the door refuses -- self.refused(cell, "attack"),
+        # i.e. nav.reach's own "attack" branch (nav.py:341 ENTITY_ACTS); same function both sides ask now
+        snap = world.Snapshot.from_readings(state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5), _inv(blocks), {}, [], region)
+        return _cost.Cost(snap, memory()).refused(anchor, "attack") is None
 
     def run_of(blocks):
         # run-side: nav.reach's own "attack" branch (nav.py:341 ENTITY_ACTS; now in APPROACHING, nav.py:309)
@@ -331,26 +306,28 @@ def _starving_widths(carried, max_width=40):
 
 
 def _two_gaps(carried):
-    """A single 1-wide, walled corridor (z = -1/+1 solid up to y67: no sideways detour around a gap) with two
-    chasms in it, sized by `_starving_widths` so cost.Cost.refused (which prices each step off a fresh
-    Inventory(carried), never decremented across steps in one plan) calls both reachable, while the real
-    sequential run starves the second once the first has actually spent its share (D6)."""
+    """A walled corridor (z = -1/+1 solid up to y67: no sideways detour) running BOTH ways from feet: gap1 at +x,
+    gap2 at -x -- two INDEPENDENT candidates, neither on the other's path, so pricing B fresh from feet never has
+    to cross A too (that would price the whole A+B trip as one plan_way call, a different question). Sized by
+    `_starving_widths` so cost.Cost.refused (fresh Inventory(carried), never decremented across steps in one plan)
+    calls both reachable, while the real sequential run (cross A for real, then price B off what's left) starves
+    the second (D6)."""
     gap1, gap2 = _starving_widths(carried)
-    lo, hi = (-10, 50, -10), (60, 80, 10)
+    lo, hi = (-60, 50, -10), (60, 80, 10)
     blocks = {(x, 63, 0): "stone" for x in range(lo[0], hi[0] + 1)}
     for z in (-1, 1):
         for x in range(lo[0], hi[0] + 1):
             for y in range(63, 68):
                 blocks[(x, y, z)] = "stone"          # the corridor wall: no stepping around a gap sideways
-    targets, start = [], 1
-    for width in (gap1, gap2):
-        for x in range(start, start + width):
-            blocks.pop((x, 63, 0), None)
-        ore = (start + width, 64, 0)
-        blocks[ore] = "iron_ore"
-        targets.append(ore)
-        start += width + 6                            # solid ground between the two gaps
-    return FakeRegion(lo, hi, blocks), FEET, targets
+    for x in range(1, 1 + gap1):
+        blocks.pop((x, 63, 0), None)
+    a = (1 + gap1, 64, 0)
+    blocks[a] = "iron_ore"
+    for x in range(-gap2, 0):
+        blocks.pop((x, 63, 0), None)
+    b = (-gap2 - 1, 64, 0)
+    blocks[b] = "iron_ore"
+    return FakeRegion(lo, hi, blocks), FEET, [a, b]
 
 
 class CumulativeBudget(unittest.TestCase):
@@ -369,12 +346,14 @@ class CumulativeBudget(unittest.TestCase):
                                                          _inv(carried), {}, [], region), memory()).refused(b, "mine") is None
         self.assertTrue(plan_a and plan_b, "both steps must look doable off the starting bag for this to be a real plan")
         # run-side: nav.reach itself, step A first (spending real blocks), step B priced off what nav.reach says
-        # was actually spent (Reached.spent) -- the one true sequential execution
+        # was actually spent (Reached.spent) -- the one true sequential execution. B is independent of A (the
+        # opposite direction, no shared gap), so its own reach starts back at the original feet, same as the plan
+        # side's -- only the BAG differs, which is D6's whole point
         inv = _inv(carried)
         got_a = nav.reach(region, feet, a, "mine", inv)
         self.assertIsNotNone(got_a.stand)
         inv_after_a = nav.less_way_blocks(inv, got_a.spent)
-        got_b = nav.reach(region, got_a.stand, b, "mine", inv_after_a)
+        got_b = nav.reach(region, feet, b, "mine", inv_after_a)
         # must fail: plan said both reachable off 8; run finds the second starved by the first's actual spend
         self.assertEqual((plan_a, plan_b), (True, got_b.stand is not None),
                          "D6: plan must price step 2 off step 1's leftover bag")
