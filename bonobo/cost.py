@@ -28,8 +28,7 @@ def walk_ticks(distance):
     return int(float(distance) * WALK_TICKS_PER_BLOCK)
 
 class _Ground(Region):
-    """The ground as expected where nothing is read: air from the feet up, `soil` levels of dirt under them, then stone
-    (deepslate below DEEPSLATE_TOP); the target its own block, or soil over a buried surface kind."""
+    """The ground as expected where nothing is read:"""
 
     def __init__(self, feet, target, block, soil, ore):
         pad = 3
@@ -50,8 +49,7 @@ class _Ground(Region):
 
 
 def dug_way(feet, target, block, soil, ore, inv, protected=()):
-    """The block names the way to stand where `target` can be mined breaks — nav.plan_way's own choice (a level way or a
-    staircase, by seconds, at any depth) over the expected ground — or None when it finds none."""
+    """The block names the way to stand where `target` can be mined breaks — nav.plan_way's own choice (a level way…"""
     from . import nav
     region, here, out = _Ground(feet, target, block, soil, ore), tuple(feet), []
     for _segment in range(abs(feet[1] - target[1]) + 2):
@@ -79,8 +77,7 @@ def planned_bag(inv, held):
     return Inventory({"slots": slots, "equipment": dict(getattr(inv, "equipment", {}) or {})})
 
 class _Gone:
-    """Cells an estimate never goes to: banned now, protected (None: none asked), or the game's route there asked this
-    round and not found (`route_refused`: the one reachability reading)."""
+    """Cells an estimate never goes to:"""
 
     def __init__(self, protected, blacklist, now=None):
         self.protected, self.blacklist = protected, blacklist
@@ -120,8 +117,7 @@ class Cost:
         self._ripe = ripe            # offline: {token: ripe cells} standing in for memory and the world
 
     def plans(self):
-        """The round's plan memo, shared by every cost model built on this snapshot with the same readings (memory,
-        bans, reservation, ground): {} of this model alone when it reads offline stand-ins, None with no snapshot."""
+        """The round's plan memo, shared by every cost model built on this snapshot with the same readings (memory,…"""
         if self.snap is None or not hasattr(self.snap, "__dict__"):
             return self.cache
         if self._known_fn is not None or self._finds is not None or self._ripe is not None:
@@ -315,8 +311,7 @@ class Cost:
         return prior_work_ticks(step, held, TICKS_PER_S)
 
     def soil(self):
-        """The soil under the feet (knowledge.soil_depth) in `region`, the blocks perception read (never read here);
-        the prior where the column was not read."""
+        """The soil under the feet (knowledge.soil_depth) in `region`, the blocks perception read (never read here);…"""
         return soil_depth(self.region, tuple(self.snap.feet))
 
     def work_of(self, step, reach=True):
@@ -461,8 +456,7 @@ class Cost:
 
     # -- seconds to a kind: where it is, the game's route to it, the chance a search finds one
     def hunger_rate(self):
-        """The share of each step's seconds hunger adds until something is eaten (threat.hunger_slowed), 0 with
-        food carried (eaten by the reflex) or no body read."""
+        """The share of each step's seconds hunger adds until something is eaten (threat.hunger_slowed), 0 with food…"""
         state = getattr(self.snap, "state", None) or {}
         inv = getattr(self.snap, "inv", None)
         if "food" not in state or inv is None or food_count(inv) > 0:

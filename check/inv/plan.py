@@ -208,8 +208,7 @@ def _station(st):
 
 
 def P2(b, d, a, ctx):
-    """The plan runs in its order: each step's inputs, tools and station are there when it starts — in the bag, made
-    by an earlier step, or (a station) remembered in this dimension."""
+    """The plan runs in its order:"""
     plan, inv = _plan(ctx), ctx.get("inv")
     if plan is None or inv is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
@@ -253,8 +252,7 @@ def P2(b, d, a, ctx):
 
 
 def P3(b, d, a, ctx):
-    """The search's bound never overprices: what it says no plan can cost less than is at most the price of the plan
-    the planner chose (an overpricing bound prunes the cheapest)."""
+    """The search's bound never overprices:"""
     plan, bound = _plan(ctx), ctx.get("bound")
     if plan is None or bound is None or ctx.get("plan_hand_made"):
         return Unchecked("no planner plan with its bound this round")
@@ -270,8 +268,7 @@ ROUND_STEPS = int(ROUND_S / STEP_S)      # what P4 counts: steps, not the wall c
 
 
 def P4(b, d, a, ctx):
-    """A round thinks within ROUND_STEPS search steps: planning answers or refuses, never searches on unbounded (D1:
-    a step or a reason every round, in time)."""
+    """A round thinks within ROUND_STEPS search steps:"""
     took = ctx.get("search_steps")
     if took is None:
         return Unchecked("no counted decision this round")
@@ -279,8 +276,7 @@ def P4(b, d, a, ctx):
 
 
 def P5(b, d, a, ctx):
-    """G3/R1: the plan chosen is as fast as the cheapest the planner finds with no budget; slower only when a search
-    budget stopped this round (P4 ranks above P5: budget_spent, said)."""
+    """G3/R1:"""
     plan, best = _plan(ctx), ctx.get("exact_s")
     if plan is None or best is None or ctx.get("plan_hand_made"):
         return Unchecked("no planner plan with its unbudgeted best this round")
