@@ -36,7 +36,7 @@ def jar_schema(source):
 def mismatches(schema, tree, where=""):
     """Pure: [(where:line, type, unknown keys, missing keys)] for every dict literal naming a jar task type. A dict
     spread with ** is not judged missing anything (its keys come from elsewhere). A required key given None is
-    missing too ("entity=None"): the jar read it as JsonNull and answered 500 (combat__dig_in 01:03:09)."""
+    missing too ("entity=None"): the jar reads it as JsonNull and answers a 500, not the task itself."""
     out = []
     for n in ast.walk(tree):
         if not isinstance(n, ast.Dict):

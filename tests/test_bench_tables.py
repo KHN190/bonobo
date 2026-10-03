@@ -74,7 +74,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 120)           # the minimal bench (bench-a06, bench-a46) + a must-fail row each for nav, chop, craft, smelt, eat, loot, hunt, night_first + a proving row per unproven skill; + 25 more proving rows restored verbatim (a88, a46); + E4's 9 rows + dragon_perch_window
+        self.assertEqual(len(rec), 120)           # the minimal bench + a must-fail row each for nav, chop, craft, smelt, eat, loot, hunt, night_first + a proving row per unproven skill; + 25 more proving rows restored verbatim; + E4's 9 rows + dragon_perch_window
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
@@ -752,7 +752,7 @@ class FakeBar:
             return ["Test failed"]
         key = cmd.split()[-1]
         val = {"foodLevel": self.food, "foodSaturationLevel": self.sat, "foodExhaustionLevel": self.exh}[key]
-        return [f"knh190 has the following entity data: {val}"]
+        return [f"player has the following entity data: {val}"]
 
     def chat(self, cmd):
         from bonobo.bench.words import brain as wb
@@ -917,7 +917,7 @@ class DeflectCells(unittest.TestCase):
 
     def test_health_read(self):
         from bonobo.bench.words import fight as wf
-        self.assertEqual(wf.data_health(["knh190 has the following entity data: 17.5f"]), 17.5)
+        self.assertEqual(wf.data_health(["player has the following entity data: 17.5f"]), 17.5)
         self.assertIsNone(wf.data_health(["No entity was found"]), "must fail: no entity, no health")
 
 

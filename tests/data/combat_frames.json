@@ -1,5 +1,5 @@
 {
- "source": "bench combat_arena, 2026-09-17 (bench/combat.jsonl): the threat state each run was decided from",
+ "source": "bench combat_arena: the threat state each run was decided from",
  "frames": {
   "none": {
    "cell": {

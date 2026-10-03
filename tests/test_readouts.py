@@ -75,7 +75,7 @@ class UseOpensOrFails(unittest.TestCase):
         self.assertEqual(sent, [use])
 
     def test_a_table_not_placed_is_never_used(self):
-        # accept_fresh_iron_pickaxe 19:46:36: the place failed ("no reachable face"), the use went to the air there
+        # a place that failed ("no reachable face") must not let the use that follows go to the air there
         from unittest import mock
         sent = []
 

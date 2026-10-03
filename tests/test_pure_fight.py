@@ -505,7 +505,7 @@ class HazardsAndStandableSpots(unittest.TestCase):
                 self.assertEqual(len(cm.hazard_points(near, hostile=threat.aggro)), want)
 
     def test_safe_spot_is_standable(self):
-        """fight_enderman_1 05:07:32, as logged: four endermen as hazards moved the target into the glass wall."""
+        """Four endermen as hazards must never move the target into the glass wall."""
         from bonobo import nav
         solid = lambda c: c[1] == 199 or c[0] >= 10009  # noqa: E731  (floor, and the wall from x 10009)
         hz = [((9997.5, 200.0, 10003.5), 3.0), ((10000.5, 200.0, 9997.5), 3.0), ((10003.5, 200.0, 10003.5), 3.0),

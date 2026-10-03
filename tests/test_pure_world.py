@@ -764,13 +764,13 @@ class RetryAndSkill(unittest.TestCase):
 
 
 class ARepeatIsNotANewSource(unittest.TestCase):
-    """E5/K5 (merged from test_accept3_idle.py): three failures at the same target are one source tried; the task
+    """E5/K5: three failures at the same target are one source tried; the task
     is reported upward only after SOURCES_TRIED distinct ones (the run dropped "stone tools" after one log, three
     times)."""
 
     def test_table(self):
         sig = lambda p: retry.state_signature(("target", p), frozenset({"minecraft:oak_log"}), True)   # noqa: E731
-        log_cell = (12986, 77, 12999)        # the one log the run failed to stand for, three times (21:21:27-21:21:53)
+        log_cell = (12986, 77, 12999)        # a log the door failed to stand for, three times running
         others = [(12990, 75, 13004), (12979, 76, 12992)]
         rows = [("must fail: the same log thrice is one source, not exhausted", [log_cell] * retry.SOURCES_TRIED,
                  None),
@@ -796,7 +796,7 @@ class ARepeatIsNotANewSource(unittest.TestCase):
 
 
 class ACraftIsNoStateChange(unittest.TestCase):
-    """E5/K5 (merged from test_accept3_idle.py; knowledge.failure_kinds): a way not found (nav) holds in the kinds
+    """E5/K5 (knowledge.failure_kinds): a way not found (nav) holds in the kinds
     that change a way, as a ban does — planks or sticks crafted lift it, a block to place or a tool does; any other
     failure lifts on any bag change."""
 

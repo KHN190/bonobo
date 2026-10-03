@@ -111,9 +111,8 @@ class AStandThatHoldsForNoWayFailsAtItsTarget(unittest.TestCase):
 
 
 class EveryStepCooledSeeks(unittest.TestCase):
-    """D1/E5 (merged from test_accept3_idle.py): when every step of the plan cools here, the round seeks the plan's
-    first source elsewhere (a state change lifts the coolings), never "nothing to do; waiting" (21:22:21 on, trees
-    in sight)."""
+    """D1/E5: when every step of the plan cools here, the round seeks the plan's first source elsewhere (a state
+    change lifts the coolings), never "nothing to do; waiting" while a source is in sight."""
 
     def test_table(self):
         from bonobo import dispatch

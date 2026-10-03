@@ -1,6 +1,6 @@
 """contain_lava's needs (fluids.py:258): no lava in sight must never demand a building block just to be ASKED --
-only fill_with_blocks (fluids.py:208), reached when lava is actually open, may say "no blocks to cover it"
-(accept8: an empty bag failed contain_lava with "missing building 1" after every dug-way segment, lava or not)."""
+only fill_with_blocks (fluids.py:208), reached when lava is actually open, may say "no blocks to cover it". An
+empty bag with no lava exposed must not fail contain_lava at all, lava or not, after any dug-way segment."""
 import os
 import sys
 import unittest
@@ -23,7 +23,7 @@ class ContainLava(unittest.TestCase):
     "building": 1 -- is checked against a real, known-empty bag rather than a live /inventory read)."""
 
     def test_no_lava_no_blocks_runs_clean(self):
-        # must fail on 26355c6: needs={"building": 1} there raises NeedMissing even with no lava exposed
+        # must fail without this fix: needs={"building": 1} raises NeedMissing even with no lava exposed
         with mock.patch.object(skillcore, "Inventory", lambda *a, **k: _EMPTY), \
              mock.patch.object(fluids, "find", lambda *a, **k: []):
             got = fluids.contain_lava(_ctx())

@@ -1,5 +1,5 @@
 """fight_loop.offer never asks who holds the body under its own lock: the lease's release check bids, and bid takes
-that lock (hello2 11:56:04: perception, the fight and the brain all stopped, no line, no task)."""
+that lock -- that order deadlocks perception, the fight and the brain together, with no line and no task."""
 import threading
 import unittest
 from unittest import mock

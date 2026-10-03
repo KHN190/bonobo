@@ -270,8 +270,8 @@ class AStaleTargetIsDecidedAgain(unittest.TestCase):
 
 class AFailedAnswerIsDecidedAgain(unittest.TestCase):
     """An answer that raised (a jar error, nothing to do it with) is refused a while and the held choice dropped: the
-    next decision is a fresh one without it, never the same option bid again (combat__dig_in 01:03:09-11: the same
-    fight ×3, then death). An attack naming no mob is never built, nor kept as the held choice."""
+    next decision is a fresh one without it, never the same option bid again. An attack naming no mob is never
+    built, nor kept as the held choice."""
 
     def setUp(self):
         from bonobo import fight_loop
@@ -966,7 +966,7 @@ class APillarUnderHits(unittest.TestCase):
 
 class AHoleDeepEnoughToStopThem(unittest.TestCase):
     """Digging down is priced by the depth that really puts us out of a walker's reach (melee_stop_blocks): a
-    1-deep hole leaves every hit landing, so it is never an answer (combat__dig_in 01:38:51 died in one)."""
+    1-deep hole leaves every hit landing, so it is never an answer."""
 
     def test_rows(self):
         from bonobo import field

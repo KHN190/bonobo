@@ -19,7 +19,7 @@ class Living(unittest.TestCase):
         arrow = {"id": 7, "type": "minecraft:arrow", "distance": 2.0}         # no health: not a living entity
         with mock.patch.object(api, "get", lambda path: {"entities": [dying, alive, arrow]}):
             got = world.entities(64, [COW])
-        # must fail: the cow killed by the last row's setup offered as prey (hunt 03:54:44, "target not found")
+        # must fail: a cow already dying must never be offered as prey ("target not found" once it's gone)
         self.assertEqual([e["id"] for e in got], [alive["id"]])
         self.assertEqual(living([arrow]), [arrow])
 

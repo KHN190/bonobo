@@ -1,6 +1,6 @@
-"""Merged from test_accept3_idle.py (accept3, 21:22): craft_chain's verify reads the table where its sitting left
-it (placed, kept standing for the next craft), not only the bag (21:22:15: pickaxe and shovel made, "finished
-without reaching its goal")."""
+"""craft_chain's verify reads the table where its sitting left it (placed, kept standing for the next craft), not
+only the bag -- the table must still be read as the goal, or a finished craft reads as "finished without reaching
+its goal"."""
 import os
 import sys
 import unittest

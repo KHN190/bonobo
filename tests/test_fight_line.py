@@ -147,7 +147,7 @@ class AngerNbt(unittest.TestCase):
 
     def test_table(self):
         from bonobo.bench.words import fight as words_fight
-        rows = [("a UUID reply", ["knh190 has the following entity data: [I; 12, -34, 56, -78]"], [12, -34, 56, -78]),
+        rows = [("a UUID reply", ["player has the following entity data: [I; 12, -34, 56, -78]"], [12, -34, 56, -78]),
                 ("must fail: no UUID in the reply", ["No entity was found"], None)]
         for name, lines, want in rows:
             with self.subTest(name):

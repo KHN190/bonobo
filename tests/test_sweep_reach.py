@@ -1,7 +1,7 @@
 """nav.walk_sweep/sweep_lying: a drop the collect radius couldn't take is chased to ITS OWN cell (the same
-reach_stand/plan_way the gate uses, via way_to), never just retried blind from the feet (accept7 00:33:56-58's
-"1 drop(s) left lying; sweeping again" -> "the drops lie out of reach": no stand check ever named the item's own
-position, so the retry repeated the identical failed radius from the identical spot)."""
+reach_stand/plan_way the gate uses, via way_to), never just retried blind from the feet -- a drop left lying with
+no stand check naming the item's own position otherwise just repeats the identical failed radius from the
+identical spot."""
 import os
 import sys
 import unittest
@@ -18,8 +18,8 @@ def _ctx():
 class WalkSweepNear(unittest.TestCase):
     """Unit: walk_sweep's own `near` fallback -- when the jar's Unreachable names no cells, it still tries the
     ones given (a caller's own /entities read), not the feet (a no-op: the same spot, the same failed radius).
-    New in this fix: `near` doesn't exist on 6929151's walk_sweep, so this row can't even be collected there --
-    the regression test below is the one that fails on the base by assertion, not by signature."""
+    `near` is new here: a walk_sweep without it can't even collect this row -- the regression test below is the
+    one that fails on an older walk_sweep by assertion, not by signature."""
 
     def test_near_cells_used_when_the_jar_names_none(self):
         calls, seen = {"n": 0}, []
@@ -61,10 +61,10 @@ class WalkSweepNear(unittest.TestCase):
 
 class SweepReachesTheDropsOwnCell(unittest.TestCase):
     """Regression, through the production path (sweep_lying -> walk_sweep -> way_to -> reach_stand): a drop the
-    batch's own sweep left lying is reached by its real /entities position. Must fail on 6929151 by assertion (not
-    collection): there, sweep_lying never reads the drop's position into the retry at all, so `reach_stand` there
-    is asked for the FEET's own cell (0, 64, 0) -- the same spot the first, failed collect already stood at --
-    instead of the drop's actual (12960, 67, 12928); this test asserts the latter, which only this fix produces."""
+    batch's own sweep left lying is reached by its real /entities position. Must fail by assertion on a
+    sweep_lying that never reads the drop's position into the retry: `reach_stand` there is asked for the FEET's
+    own cell (0, 64, 0) -- the same spot the first, failed collect already stood at -- instead of the drop's
+    actual (12960, 67, 12928); this test asserts the latter."""
 
     def test_production_path_reaches_the_drop(self):
         drop = {"type": "minecraft:item", "item": {"id": "minecraft:cobblestone", "count": 1},
@@ -84,7 +84,7 @@ class SweepReachesTheDropsOwnCell(unittest.TestCase):
              mock.patch.object(nav, "feet", lambda: (0, 64, 0)), \
              mock.patch("bonobo.world.entities", lambda radius, types: [drop]):
             got = nav.sweep_lying(_ctx(), ["minecraft:cobblestone"], lambda: 1, radius=6)
-        self.assertEqual(seen, [(12960, 67, 12928)])    # must fail on 6929151: there it's [(0, 64, 0)]
+        self.assertEqual(seen, [(12960, 67, 12928)])    # must fail without this fix: there it's [(0, 64, 0)]
         self.assertEqual(got, 1)
 
 

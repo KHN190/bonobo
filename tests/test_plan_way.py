@@ -125,8 +125,8 @@ class StairShape(unittest.TestCase):
 
 class WayEndsAtTheTarget(unittest.TestCase):
     """plan_way, run as the door runs it (steps applied, the region read again, asked again until it plans nothing):
-    the feet end where `kind` of the target can be done — not one step above it and 11 along (a46: the staircase
-    stopped at target y + 1 wherever its direction had taken it)."""
+    the feet end where `kind` of the target can be done — never one step above it, wherever the staircase's own
+    direction would otherwise have carried it."""
 
     def run_door(self, kind, target, region, feet=FEET, calls=8):
         blocks = dict(region.blocks)
@@ -351,7 +351,7 @@ class AWayPassesItsOwnGate(unittest.TestCase):
 
 
 class TheChopChainHasAStand(unittest.TestCase):
-    """P2/K1 (merged from test_accept3.py, accept3 21:21): a trunk with a log the door can stand for is chopped —
+    """P2/K1: a trunk with a log the door can stand for is chopped —
     the batch's order passes the door's own stand test (nav.standable_order: stands_for over what its earlier
     mines dug), from inside the column or beside it."""
 

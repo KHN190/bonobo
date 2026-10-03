@@ -175,7 +175,7 @@ def _place_row(terrain):
 
 def _place_sitting_row(terrain):
     # plan-side: free_spots_here(limit=1) via craft._sitting's keep_table branch (craft.py:376) -- a narrower
-    # candidate count than Station's own (craft.py:90, limit=3): the accept4-a06 "craft.py:78 vs :366 radius" note
+    # candidate count than Station's own (craft.py:90, limit=3)
     return _place_row_for(terrain, limit=1)
 
 
@@ -278,7 +278,7 @@ def _single_gap(width):
 
 def _spend(width, carried):
     """What nav.reach actually spends crossing a `width`-wide gap off a fresh `carried`, or None if unreachable
-    fresh (production pricing, not an assumed width-to-tread ratio -- fa0e8a5's point: a 4-wide gap only spent 2)."""
+    fresh (production pricing, not an assumed width-to-tread ratio: a gap's real spend can be less than its width)."""
     region, feet, target = _single_gap(width)
     got = nav.reach(region, feet, target, "mine", _inv(carried))
     return got.spent if got.stand is not None else None
@@ -328,11 +328,11 @@ def _two_gaps(carried):
 
 
 class CumulativeBudget(unittest.TestCase):
-    """D6: a plan's second step must be priced off the bag the FIRST step actually leaves. Plan-side now points at
-    the real threading Opus added for this (fa0e8a5): cost.Cost.reach/refused(cell, kind, at, spent) -- `at` the
-    place step A left the body, `spent` its way blocks (cost.py:183/199, step_bag cost.py:173) -- the same
-    plumbing planner.price_as_run (planner.py:1593) carries through a real plan via Cost.way_spent (cost.py:505).
-    If this still disagrees with the run, it's fa0e8a5's own gap, not this test's."""
+    """D6: a plan's second step must be priced off the bag the FIRST step actually leaves. Plan-side points at the
+    real threading: cost.Cost.reach/refused(cell, kind, at, spent) -- `at` the place step A left the body, `spent`
+    its way blocks (cost.py:183/199, step_bag cost.py:173) -- the same plumbing planner.price_as_run (planner.py:
+    1593) carries through a real plan via Cost.way_spent (cost.py:505). If this still disagrees with the run, the
+    threading itself has a gap, not this test."""
 
     def test_second_step_sees_the_first_steps_spend(self):
         carried = 8
@@ -357,7 +357,7 @@ class CumulativeBudget(unittest.TestCase):
         run_b = nav.reach(region, run_a.stand, b, "mine", inv_after_a)
 
         self.assertEqual(plan_b, run_b.stand is not None,
-                         "D6 (fa0e8a5): Cost.refused(b, at=A's stand, spent=A's spend) must agree with the real "
+                         "D6: Cost.refused(b, at=A's stand, spent=A's spend) must agree with the real "
                          "sequential run -- if not, the threading itself is the bug, not this test")
 
 

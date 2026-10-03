@@ -183,11 +183,11 @@ class HoldingADecision(unittest.TestCase):
 
 class SwitchRule(unittest.TestCase):
     """kernel.switches / lost_s: a new choice replaces the held one only when its gain over the held one re-priced
-    now pays for the work an abandon throws away (live 17:23:31-36: evade 80 s against the fight's 132 s, kept)."""
+    now pays for the work an abandon throws away."""
 
     def test_rows(self):
         # (fresh score, held re-priced, lost) → switches
-        rows = [("must fail: evade 80 against the fight's 132 (17:23:32)", 80.0, 132.0, 0.0, False),
+        rows = [("must fail: evade 80 against the fight's 132", 80.0, 132.0, 0.0, False),
                 ("a fight 132 against an evade 82 that walked 1 s: the gain pays", 132.0, 82.0, 1.0, True),
                 ("must fail: a tie keeps", 50.0, 50.0, 0.0, False),
                 ("gain 2 s, 3 s of work thrown away: kept", 52.0, 50.0, 3.0, False),

@@ -1,7 +1,7 @@
 """CT2 — real threat frames → the answer the fight chooses, against answers set by hand.
 
-The frames are what the game gave the threat layer in the bench's combat arena (tests/data/combat_frames.json,
-recorded 2026-09-17): the body, what was coming at it, the ground. The expected answer is written here by hand from
+The frames are what the game gave the threat layer in the bench's combat arena: the body, what was coming at it,
+the ground. The expected answer is written here by hand from
 what a player would do — not copied from what the model said then — so a row goes red when the model disagrees with
 play, including the rows where the only sane answer is to give up the fight and leave.
 """

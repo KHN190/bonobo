@@ -1229,13 +1229,13 @@ class ServerProbe(unittest.TestCase):
 
     def test_rows(self):
         from bonobo.bench import core
-        rows = [("passed before the marker", ["Test passed", "[knh190] probe-3"], "probe-3", True),
-                ("failed before the marker", ["Test failed", "[knh190] probe-3"], "probe-3", False),
+        rows = [("passed before the marker", ["Test passed", "[player] probe-3"], "probe-3", True),
+                ("failed before the marker", ["Test failed", "[player] probe-3"], "probe-3", False),
                 ("must fail: a 'Test passed' after the marker is another command's", ["Test failed",
-                 "[knh190] probe-3", "Test passed"], "probe-3", False),
-                ("must fail: no test line at all: no answer", ["[knh190] probe-3"], "probe-3", None),
+                 "[player] probe-3", "Test passed"], "probe-3", False),
+                ("must fail: no test line at all: no answer", ["[player] probe-3"], "probe-3", None),
                 ("must fail: a line that only mentions 'passed' is not the answer",
-                 ["the ore passed the test", "[knh190] probe-3"], "probe-3", None)]
+                 ["the ore passed the test", "[player] probe-3"], "probe-3", None)]
         for name, lines, mark, want in rows:
             with self.subTest(name):
                 self.assertIs(core.probe_answer(core.reply_before(lines, mark)), want)

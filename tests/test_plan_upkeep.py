@@ -1096,7 +1096,7 @@ class HeldPlans(unittest.TestCase):
             self.assertEqual([(i.kind, i.action.name, i.action.step.kind) for i in got], [("queue", "task t1", "seek")])
 
     def test_a_cooled_log_step_takes_the_second_tree(self):
-        """A walk to the plan's tree that failed with no target of its own (no tread: accept 19:43:54) failed at the
+        """A walk to the plan's tree that failed with no target of its own (no tread to place) failed at the
         step's site: the next round prices the second tree, its step ready there."""
         from bonobo import cost as costmod
         from bonobo.planner import Step
@@ -1663,7 +1663,7 @@ RETRY = [
     ("three nav failures at three targets escalate on the third; the target cools, not the place: the task may try "
      "another target", [("task t1", NAV_AT(x), HERE) for x in (9, 10, 11)], {("task t1", "nav"): 3}, {"task t1"},
      {"task t1": True}),
-    ("must fail: the same target thrice is one source tried: counted, not escalated (accept3 21:21:53)",
+    ("must fail: the same target thrice is one source tried: counted, not escalated",
      [("task t1", NAV, HERE)] * 3, {("task t1", "nav"): 3}, set(), {"task t1": True}),
     ("interruptions of every kind count nothing", [("task t1", e, HERE) for e in (I, C, B, P, I)], {}, set(),
      {"task t1": True}),
@@ -2932,7 +2932,7 @@ class CraftInOneSitting(unittest.TestCase):
                 self.assertEqual(brainmod.craft_run(steps, first), want)
 
     def test_a_craft_waiting_on_a_later_step_stays_out(self):
-        # hello2 10:34:41: "craft 4× planks" batched a torch whose coal a later mine step brings — "missing 6× coal"
+        # a craft batched with a torch whose coal a later mine step brings must not be rushed ahead of it
         S = planner.Step
         planks = S("craft", "planks", 4, {"times": 1, "inputs": {"log": 1}})
         sticks = S("craft", "minecraft:stick", 4, {"times": 1, "inputs": {"planks": 2}})

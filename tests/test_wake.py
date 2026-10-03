@@ -63,7 +63,7 @@ class Wake(unittest.TestCase):
                 self.assertEqual(wake.frozen(silent, paused) is not None, wakes)
 
     def test_silence_counts_from_the_start(self):
-        # must fail: detail.log left from two days ago taken as this run's silence (17:19: "silent 190653s")
+        # must fail: a log left from a much earlier run must not be taken as this run's own silence
         now = 1000.0
         rows = [("an old log at start: from the start", now - 190653, now - 5, 5.0),
                 ("a log written in this run", now - 20, now - 300, 20.0)]

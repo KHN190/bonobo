@@ -2068,9 +2068,9 @@ class BagRules(unittest.TestCase):
                 self.assertEqual(bag.mineable(cells, feet, region, nav.SAFE_DROP), want)
 
     def test_opener_for_a_pocket_only_cell(self):
-        """bag.opener: a cell open only into a pocket no body can stand in (search_night_resume 09:13:54: faces stone
-        but the top, whose cell has stone over it) — the jar never digs for sight, so the face on the body's side is
-        broken first; a standable or buried cell needs none."""
+        """bag.opener: a cell open only into a pocket no body can stand in (faces stone but the top, whose cell has
+        stone over it) — the jar never digs for sight, so the face on the body's side is broken first; a standable
+        or buried cell needs none."""
         from bonobo import bag
         from tests.world import FakeRegion
         cell = (10014, 199, 10003)

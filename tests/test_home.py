@@ -229,8 +229,8 @@ class Unbury(unittest.TestCase):
 
 
 class NoBuildingInsideTheHome(unittest.TestCase):
-    """fight_loop.batch: an answer that places a block the home may not hold inside it is no answer there (hello2
-    08:52:51: 'fight wall_in: posts place(granite), place(dirt)×5' in the bunker's hall)."""
+    """fight_loop.batch: an answer that places a block the home may not hold inside it is no answer there, even
+    when it would wall the body in against a threat."""
 
     def test_rows(self):
         from bonobo import brain, fight_loop, threat  # noqa: F401  (brain lends wall_in)

@@ -1,6 +1,6 @@
 """A mining batch that steps into a mined cell (nav.dig_order's "step") stands there next: its head room is broken
-first, so the chain's stand is 2 high and the door's stand test holds for the mines after it (accept9 02:41:52: "no
-stand reached" for stone 1–3 cells from the feet — the stepped-into cell's head in stone, the eye inside it). Built
+first, so the chain's stand is 2 high and the door's stand test holds for the mines after it — otherwise "no
+stand reached" for stone 1-3 cells from the feet, the stepped-into cell's head in stone, the eye inside it. Built
 by the production batch (gather.mine_segment_commands), judged by the gate's own test (nav.unstandable); imports
 only what the base has, so the row is red there by assertion."""
 import os
@@ -20,7 +20,7 @@ CELLS = [(12987, 98, 13084), (12989, 98, 13082), (12988, 99, 13081)]
 
 
 def accept9_ground():
-    """The hill as detail.log broke it (02:41:17–02:41:36): stone to y97, dirt to y99, the broken cells open."""
+    """The hill, broken: stone to y97, dirt to y99, the broken cells open."""
     lo, hi = (12980, 90, 13075), (12996, 106, 13092)
     blocks = {(x, y, z): "stone" if y <= 97 else "dirt" for x in range(lo[0], hi[0] + 1)
               for y in range(lo[1], 100) for z in range(lo[2], hi[2] + 1)}

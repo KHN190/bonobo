@@ -144,7 +144,7 @@ class Idle(unittest.TestCase):
         for why, hp, want in rows:
             with self.subTest(why):
                 self.assertEqual(runner.one_hp_damage(hp), want)
-        self.assertEqual(runner.health_of(["knh190 has the following entity data: 20.0f"]), 20.0)
+        self.assertEqual(runner.health_of(["player has the following entity data: 20.0f"]), 20.0)
 
     def test_recorded_apart(self):
         self.assertNotEqual(runner.IDLE_TABLE, TABLE)

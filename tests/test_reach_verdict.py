@@ -15,7 +15,7 @@ from tests.world import FakeRegion, inventory, memory, snapshot, state
 
 ORE = "iron_ore"
 
-# merged from test_accept3.py (accept3, 21:21): the trunk column this cell belonged to
+# the trunk column this cell belonged to
 X, Z, FLOOR_Y = 12986, 12999, 74
 LOGS = [(X, y, Z) for y in range(76, 80)]
 LO, HI = (X - 8, FLOOR_Y - 6, Z - 8), (X + 8, FLOOR_Y + 10, Z + 8)
@@ -67,7 +67,7 @@ class NotThere(unittest.TestCase):
 
 
 class ARefusedCellIsNotAskedAgain(unittest.TestCase):
-    """P2/K1 with E5 (merged from test_accept3.py): a cell the door could not reach stays refused until a state that
+    """P2/K1 with E5: a cell the door could not reach stays refused until a state that
     changes a way changes (blocks to place, a tool): a craft of planks and sticks between rounds is not one."""
 
     def test_rows(self):
