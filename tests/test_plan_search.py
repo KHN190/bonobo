@@ -113,6 +113,32 @@ class TheRoundsOnePlan(unittest.TestCase):
                 self.assertEqual(first.token == "minecraft:cooked_beef", first_food)
 
 
+class ThePlanRunsInItsOrder(unittest.TestCase):
+    """forward and walk_order keep every step after what it takes (P2): a placed step is never walked to after the
+    step that uses what it gets, a step is never merged forward past the step that makes its input."""
+
+    def test_walk_order_keeps_a_withdraw_before_its_use(self):
+        from types import SimpleNamespace
+        from bonobo.planner import Step, walk_order
+        steps = [Step("mine", "minecraft:raw_iron", 3, {}), Step("withdraw", "minecraft:oak_log", 1, {"pos": [40, 64, 0]}),
+                 Step("craft", "planks", 4, {"inputs": {"log": 1}}), Step("withdraw", "minecraft:cobblestone", 8,
+                                                                       {"pos": [2, 64, 0]})]
+        sites = {0: (30, 64, 0), 1: (40, 64, 0), 3: (2, 64, 0)}
+        cost = SimpleNamespace(snap=SimpleNamespace(feet=(0, 64, 0)), site=lambda s: sites.get(steps.index(s)))
+        order = walk_order(steps, cost)
+        # must fail: the log withdrawn after the planks it makes (a group read through its members: log ∋ oak_log)
+        self.assertLess(order.index(1), order.index(2))
+
+    def test_no_merge_past_the_input_maker(self):
+        from bonobo.planner import Step, forward
+        e = [(Step("smelt", "minecraft:iron_ingot", 3, {"inputs": {"minecraft:raw_iron": 3, "planks": 2}}), {}, 0),
+             (Step("craft", "planks", 8, {"inputs": {"log": 2}}), {}, 1),
+             (Step("smelt", "minecraft:iron_ingot", 1, {"inputs": {"minecraft:raw_iron": 1, "planks": 1}}), {}, 2)]
+        out, _ticks = forward(e, NullCost())
+        # must fail: the later smelt (fuel from the planks crafted after the first) merged into the first
+        self.assertEqual([s.kind for s in out], ["smelt", "craft", "smelt"])
+
+
 class TheBoundIsKeptAcrossRounds(unittest.TestCase):
     """planner.bound: one Bound while the producers and the measured durations hold; a duration measured builds it
     again (stale prices are wrong prices)."""

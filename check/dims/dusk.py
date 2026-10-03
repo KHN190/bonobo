@@ -14,8 +14,8 @@ DAWN_T = 0                           # the whole day ahead (625 s): the cheapest
 
 
 def valid(value, f):
-    # every shelter cooling (the bed alone) or a starving body: no way's prep fits a day, so never not-dusk
-    return value or not DEPENDS[0](f) or not (f["cooled"] or f["hunger"] == "starve")
+    # every shelter cooling (the bed alone): no way's prep fits a day, so never not-dusk
+    return value or not DEPENDS[0](f) or not f["cooled"]
 
 
 def instead(f):

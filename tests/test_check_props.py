@@ -49,6 +49,25 @@ class DuskByThePrep(unittest.TestCase):
                 self.assertAlmostEqual(got, want)
 
 
+class FreshFacts(unittest.TestCase):
+    """P1 (age): a fact the round decides on is no older than one perception cycle, by its age now and by how long its
+    cache may keep it."""
+
+    def test_rows(self):
+        from bonobo.perception import WATCH_S
+        from check.inv import effects
+        d = rnd.Decision("plan", "task", None, None, (), None, "task t1", ())
+        # (situation, {reading: (age now, kept at most)}) → flagged
+        rows = [("read this cycle, kept a cycle", {"look": (0.0, WATCH_S)}, False),
+                ("must fail: read two cycles ago", {"look": (2 * WATCH_S, WATCH_S)}, True),
+                ("must fail: a cache that keeps it longer than a cycle", {"look": (0.0, 15 * WATCH_S)}, True)]
+        for name, ages, flagged in rows:
+            with self.subTest(name):
+                got = effects.P1(of(), d, of(), {"fact_ages": ages})
+                self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), flagged)
+        self.assertIsInstance(effects.P1(of(), d, of(), {}), oracle.Unchecked)
+
+
 class AHazardMidPlan(unittest.TestCase):
     """S7: a danger written as the round plans stops the search at its next step and the round answers it."""
 

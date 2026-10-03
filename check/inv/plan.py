@@ -55,19 +55,18 @@ def _cheapest(ctx):
 
 def D6(b, d, a, ctx):
     """The estimate is the planned steps: the chosen candidate's seconds are its steps' prices summed, each step's
-    est is what the cost model prices that step at now, and no step that works is free (an unpriced step is hidden
-    work)."""
-    plan, price = _plan(ctx), ctx.get("price")
+    est is what the cost model prices it at as the plan runs (price_run: the tools had by then, the walk from the step
+    before, hunger's share), and no step that works is free (an unpriced step is hidden work)."""
+    plan, price = _plan(ctx), ctx.get("price_run")
     if ctx.get("candidates") and price is not None:
         from bonobo.beliefs import TICKS_PER_S
         name, seconds, steps = ctx["candidates"][0]
-        summed = sum(price(st) for st in steps) / TICKS_PER_S
+        summed = sum(price(steps)) / TICKS_PER_S
         if abs(seconds - summed) > TOL_S + TOL_TICKS * len(steps) / TICKS_PER_S:
             return f"chose {name} at {seconds:.2f} s, its steps priced {summed:.2f} s"
     if plan is None or price is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
-    for st in plan:
-        now = price(st)
+    for st, now in zip(plan, price(plan)):
         if st.kind not in ("wait",) and now > 0 and int(getattr(st, "est", 0) or 0) <= 0:
             return f"{st} carries no price (est 0) though the model prices it {now} ticks: hidden work"
         if abs(int(getattr(st, "est", 0) or 0) - int(now)) > TOL_TICKS:
@@ -209,8 +208,7 @@ def _station(st):
 
 
 def P2(b, d, a, ctx):
-    """The plan runs in its order: each step's inputs, tools and station are there when it starts — in the bag, made
-    by an earlier step, or (a station) remembered in this dimension."""
+    """The plan runs in its order:"""
     plan, inv = _plan(ctx), ctx.get("inv")
     if plan is None or inv is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
@@ -243,6 +241,10 @@ def P2(b, d, a, ctx):
             return f"step {i + 1} {st} works at a {bare(station)}, none held, made before it or remembered"
         if st.kind in MAKES:
             made[st.token] += int(st.count)
+        elif st.kind == "barter":                 # a barter's token names the trader; what it gives is the table's
+            from bonobo.data import PIGLIN_BARTER
+            for item in PIGLIN_BARTER:
+                made[item] += int(st.count)
         material, _, kind = bare(st.token).rpartition("_")
         if st.kind == "craft" and material in TIER_OF_MATERIAL:
             tools[kind] = max(tools.get(kind, -1), TIER_OF_MATERIAL[material])
@@ -250,8 +252,7 @@ def P2(b, d, a, ctx):
 
 
 def P3(b, d, a, ctx):
-    """The search's bound never overprices: what it says no plan can cost less than is at most the price of the plan
-    the planner chose (an overpricing bound prunes the cheapest)."""
+    """The search's bound never overprices:"""
     plan, bound = _plan(ctx), ctx.get("bound")
     if plan is None or bound is None or ctx.get("plan_hand_made"):
         return Unchecked("no planner plan with its bound this round")
@@ -267,8 +268,7 @@ ROUND_STEPS = int(ROUND_S / STEP_S)      # what P4 counts: steps, not the wall c
 
 
 def P4(b, d, a, ctx):
-    """A round thinks within ROUND_STEPS search steps: planning answers or refuses, never searches on unbounded (D1:
-    a step or a reason every round, in time)."""
+    """A round thinks within ROUND_STEPS search steps:"""
     took = ctx.get("search_steps")
     if took is None:
         return Unchecked("no counted decision this round")
@@ -276,14 +276,15 @@ def P4(b, d, a, ctx):
 
 
 def P5(b, d, a, ctx):
-    """G3/R1: the plan chosen is as fast as the cheapest the planner finds with no budget — a budget may cut the
-    search's time, never the plan's seconds."""
+    """G3/R1:"""
     plan, best = _plan(ctx), ctx.get("exact_s")
     if plan is None or best is None or ctx.get("plan_hand_made"):
         return Unchecked("no planner plan with its unbudgeted best this round")
     from bonobo.game import TICKS_PER_S
     chosen = sum(int(getattr(st, "est", 0) or 0) for st in plan) / TICKS_PER_S
     if chosen > best + TOL_S:
+        if ctx.get("budget_spent"):
+            return Unchecked(f"budget spent (P4 before P5): {chosen:.1f} s chosen, {best:.1f} s unbudgeted")
         return f"G3: the plan chosen takes {chosen:.1f} s, the unbudgeted search found {best:.1f} s"
     return None
 
