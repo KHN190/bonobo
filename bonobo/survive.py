@@ -223,7 +223,7 @@ def reach_land(ctx):
     # judged by where the body is: the walker calls a body beside the bank arrived
     if not nav.ashore(api.get("/state"), land) and not nav.climb_out(land):
         # the walker can't climb out: dig or pillar out instead
-        nav.arrived_near(land, ctx.policy, range_=nav.ASHORE_RANGE, attempts=1)
+        nav.arrived_near(land, dataclasses.replace(ctx.policy, escape=True), range_=nav.ASHORE_RANGE, attempts=1)
         if not nav.ashore(api.get("/state"), land):
             raise api.NavFailed(f"land at {land} not reachable")
     yield feet()

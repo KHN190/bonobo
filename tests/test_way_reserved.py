@@ -58,6 +58,26 @@ class AWayKeepsTheReservedStack(unittest.TestCase):
         self.assertLessEqual(len(treads(steps)), nav.place_budget(10))
 
 
+class AWayOutSpendsTheReserve(unittest.TestCase):
+    """S1: a way out (Policy.escape: unstuck, ashore) builds from the full bag — a stone pickaxe's reserve never
+    blocks an escape (reserve off: way_bag passes the bag through)."""
+
+    def test_rows(self):
+        rows = [("must fail: a way out held to the plan's reserve, no tread", False, True),
+                ("a planned way: the reserve kept", True, False)]
+        for name, reserve, bridged in rows:
+            with self.subTest(name), mock.patch.object(bag, "RESERVED", {COBBLE}):
+                steps, _why, _s = nav.plan_way(chasm(), FEET, ORE, "mine", bag_of(10), set(), reserve=reserve)
+                self.assertEqual(bool(treads(steps)), bridged)
+
+    def test_the_escape_policies(self):
+        """The two ways out the reflexes walk carry Policy.escape (reflexes.Maintain.unstuck, survive.reach_land)."""
+        import inspect
+        from bonobo import reflexes, survive
+        self.assertIn("escape=True", inspect.getsource(reflexes.Maintain.unstuck))
+        self.assertIn("escape=True", inspect.getsource(survive.reach_land))
+
+
 class WayBag(unittest.TestCase):
     """nav.way_bag: the one view of what a way may place (the reserved stacks out, as bag.reserved_stacks keeps them)."""
 

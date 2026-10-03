@@ -1,5 +1,6 @@
 """The maintenance reflexes: a fixed trigger in, a fixed action out — no planning, a second's work. One ordered table, the arbiter's MAINTAIN layer: faster than any plan, slower than a fight. eat on a hungry stomach with food carried · out of the water · home from the Nether when it turns bad · dug out in the morning · into a bed at night · the night's shelter from what is carried · a finished furnace or machine emptied · a full bag emptied · a way made where a walk was blocked · unstuck What must be PLANNED to be had — a bed, a tool, a bucket, blocks, the night's ore — is not here: those are PLAN proposals (upkeep's needs, `decompose`). A trigger reads only its view (`view`: readings made once per round, lazily); the action is the upkeep executor's."""
 
+import dataclasses
 import math
 import time
 from typing import Any, Callable
@@ -429,7 +430,8 @@ class Maintain:
                 continue
             log(f"no progress for {STUCK_LIMIT}s at {snap.feet} → unstuck by heading {label} {target}")
             self.history.clear()
-            nav.go_to(target, b.policy(snap, snap.night), range_=3, attempts=1)
+            # a way out: the plan's reserved blocks build it too (Policy.escape, S1)
+            nav.go_to(target, dataclasses.replace(b.policy(snap, snap.night), escape=True), range_=3, attempts=1)
             if math.dist(nav.feet(), snap.feet) >= UNSTUCK_MOVED:
                 # judged by the feet: "up" on open ground re-aims at the column's own ground and reports arrived
                 # without a step taken (upkeep__unstuck 20260928-082652: the way counted done, nothing moved)
