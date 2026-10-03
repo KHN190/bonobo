@@ -70,16 +70,19 @@ def cover(ctx, state):
     runner(ctx, *args)
 
 def night_options(inv, cost, facts=None, bed_too=True):
-    """[(way, its needs, the seconds it adds beyond its steps, of them the ones spent before dark)] every way through
-    a night — a bed (carried: the sleep row's; else made), the home's bed a walk reaches, a shelter waited in — the
-    first three one one-of target's options."""
-    out = [("bed", [] if inv.count("bed") > 0 else [("bed", 1)], 0.0, 0.0)] if bed_too else []
+    """[(way, its needs, the seconds it adds beyond its needs' steps, of them the ones spent before dark, its own
+    steps)] every way through a night — a bed (carried: the sleep row's; else made), the home's bed a walk reaches,
+    a shelter waited in. Its own steps (the shelter row runs them) are priced, never planned."""
+    out = [("bed", [] if inv.count("bed") > 0 else [("bed", 1)], 0.0, 0.0, [])] if bed_too else []
     for key in ("overnight bed", "overnight"):
         sources, why = decompose.offered_sources(key, 1, inv, cost, facts)
         if not sources:
             log(f"upkeep: no {key} way ({'; '.join(why)})")
-        out += [(src["name"], list(needs) + [("do", st) for st in own], decompose.extra_s(src.get("extra_s", ()), facts),
-                 decompose.day_extra_s(src.get("extra_s", ()), facts)) for src, needs, own in sources]
+        for src, needs, own in sources:
+            own_s = sum(st.est for st in own) / TICKS_PER_S
+            keys = src.get("extra_s", ())
+            out.append((src["name"], list(needs), own_s + decompose.extra_s(keys, facts),
+                        own_s + decompose.day_extra_s(keys, facts), own))
     return out
 
 def overnight(inv, cost, facts=None, bed_too=True):
@@ -87,7 +90,7 @@ def overnight(inv, cost, facts=None, bed_too=True):
     a one-of target (night_options) of one plan_round: the bed ways (a carried bed — the sleep row's: a room, light,
     the gate, taken back — or the home's bed a walk reaches, its open walk priced with the night's risk) against
     making a bed or a shelter waited in (the night ahead and a sheltered night's risk: night_facts): the cheapest
-    whole plan. A shelter is never paired with a sleep."""
+    whole plan. A shelter is never paired with a sleep. `seconds`: what it takes before dark."""
 
     options = night_options(inv, cost, facts, bed_too)
     if not options:
@@ -99,8 +102,8 @@ def overnight(inv, cost, facts=None, bed_too=True):
     except Unplannable as e:
         log(f"upkeep: no way through the night ({e})")
         return None, math.inf, []
-    way = chosen["night"]
-    return way, seconds + next(o[3] for o in options if o[0] == way), steps
+    _way, _needs, _extra, day_s, own = next(o for o in options if o[0] == chosen["night"])
+    return chosen["night"], seconds + day_s, steps + own
 
 def due_now(left_s, plan_s, known, at_threshold):
     """Pure: is it time to start getting something?"""
