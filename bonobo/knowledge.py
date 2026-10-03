@@ -225,6 +225,7 @@ def night_when(surface=False):
     return lambda step, facts: list(need) if facts.get("night") else []
 
 PRODUCERS = []  # the registered skills' producing tables, filled by the `skill` decorator
+CONTRACT_FACTS = set()  # every fact a registered contract makes true (its `state:` gives, its `sets`), filled likewise
 # loaded by name before the tables are read (a string, not an import: knowledge stays below the skills)
 SKILL_MODULES = ("brewing", "building", "combat", "dragon", "end", "explore", "farming", "fluids", "loot", "needs", "nether",
                  "reflexes", "skills", "ui", "wood")

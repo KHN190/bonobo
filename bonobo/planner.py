@@ -11,7 +11,7 @@ from . import api, lifecycle
 from .api import McError
 from .data import GROUPS, NIGHT_WORK, OVERWORLD, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_USES, bare, mid
 from .beliefs import CONFIG, TICKS_PER_S, fights_back
-from .knowledge import (ALL_FOOD, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
+from .knowledge import (ALL_FOOD, CONTRACT_FACTS, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 
 DIVE_NODES = 600      # nodes the dive weighs DIVE_WIDTH ways a choice (~0.07 s measured); then the first that can be had
@@ -281,13 +281,7 @@ BEST_TOOLS = {k: max(TOOL_MATERIAL_FOR_TIER) for k in TOOL_KINDS}
 
 def contract_facts():
     """Every fact a registered contract makes true (its `state:` gives, its `sets`): a link each a chain may take."""
-    from . import skill
-    out = set()
-    for c in skill.REGISTRY.values():
-        out |= {g for g in (getattr(c, "gives", None) or ()) if isinstance(g, str) and g.startswith("state:")}
-        for v in (getattr(c, "sets", None) or {}).values():
-            out |= set(v) if isinstance(v, dict) else set()
-    return out
+    return set(CONTRACT_FACTS)
 
 
 def least_prices(ways):
