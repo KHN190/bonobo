@@ -13,6 +13,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import brain  # noqa: E402,F401  (every skill registered)
 from bonobo import api, arbiter, goals, lifecycle, tasks, world  # noqa: E402
+from bonobo.knowledge import members  # noqa: E402
 from tests.world import brain_fixture, inventory, memory, round_ctx, state  # noqa: E402
 from tests.test_plan_run_order import brought_before  # noqa: E402  (the one P2 order check, reused)
 
@@ -64,6 +65,14 @@ def held_tokens(b):
     return [] if b.needs_plan is None else [st.token for st in b.needs_plan["steps"]]
 
 
+def provides(b, group):
+    """Does the round's held plan provide an item of `group` -- a step's own token naming `group` itself (the
+    planner often holds the group token, e.g. "wool", not one color), or one of its concrete members
+    (knowledge.members, the same grouping the planner resolves a token by)."""
+    held = set(held_tokens(b))
+    return group in held or bool(held & set(members(group)))
+
+
 class TheRoundTakesWhatIsOnTheWay(unittest.TestCase):
     """C (the plan with the detour's item added to the goal needs) is held only when it pays; else A (the plan
     without it) is held, unchanged."""
@@ -72,13 +81,13 @@ class TheRoundTakesWhatIsOnTheWay(unittest.TestCase):
         """Wool is a later milestone's (a bed's): a sheep 2 off the leg pays its hunt back -- C held."""
         got, b = proposals([sheep(20, 2)])
         # must fail on the base: the old side-act mechanism never merges wool into the held plan itself
-        self.assertIn("minecraft:wool", held_tokens(b), [(i.kind, i.key) for i in got])
+        self.assertTrue(provides(b, "wool"), [(i.kind, i.key) for i in got])
         self.assertEqual(len(got), 1, "one held plan proposed, not a second plan beside it")
 
     def test_a_sheep_far_off_the_leg_is_not(self):
         """The same sheep 30 off: its detour costs more than the wool is worth -- A held, unchanged."""
         got, b = proposals([sheep(20, 30)])
-        self.assertNotIn("minecraft:wool", held_tokens(b), [(i.kind, i.key) for i in got])
+        self.assertFalse(provides(b, "wool"), [(i.kind, i.key) for i in got])
 
     def test_a_chest_beside_the_leg_gives_its_diamond_not_its_logs(self):
         """The chest beside the iron leg, 64 logs already held: seen to hold diamond and logs, the diamond (the
@@ -87,8 +96,8 @@ class TheRoundTakesWhatIsOnTheWay(unittest.TestCase):
         chest, bag = (20, 64, 1), [("oak_log", 64)]
         got, b = proposals([], chest, [("minecraft:diamond", 2), ("minecraft:oak_log", 10)], bag)
         # must fail on the base: there, the chest's take is a separate "enroute" intent, never folded into the plan
-        self.assertIn("minecraft:diamond", held_tokens(b), [(i.kind, i.key) for i in got])
-        self.assertNotIn("minecraft:oak_log", held_tokens(b))
+        self.assertTrue(provides(b, "minecraft:diamond"), [(i.kind, i.key) for i in got])
+        self.assertFalse(provides(b, "minecraft:oak_log"))
         self.assertEqual(len(got), 1)
 
 
@@ -106,7 +115,7 @@ class ThePickedCCostsLessThanItsValue(unittest.TestCase):
                 # must fail on the base: there is no round-held record of (A seconds, C seconds, P, value) at all
                 # yet -- this is the one place that record is read, by name, once Opus's rework lands
                 choice = getattr(b, "enroute_choice", None)
-                if "minecraft:wool" not in held_tokens(b):
+                if not provides(b, "wool"):
                     continue      # A held: nothing was swapped in, nothing to check against its own price
                 self.assertIsNotNone(choice, "C held: the round must still record what it was weighed against")
                 a_s, c_s, p, value = choice
