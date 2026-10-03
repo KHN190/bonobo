@@ -77,6 +77,16 @@ class StepBudget(unittest.TestCase):
             with self.assertRaises(nav.Overrun):
                 self.way(10.0)
 
+    def test_a_safety_act_inside_pauses_the_steps_clock(self):
+        """A 30 s soft skill (eat, flee: step_budget(None)) inside a 10 s step: the step's clock paused for it, no
+        overrun after (must fail: the step's price refuted for time a safety act spent)."""
+        with nav.step_budget(10 * TICKS_PER_S) as budget:
+            self.clock[0] += 2.0
+            with nav.step_budget(None):
+                self.clock[0] += 30.0
+            nav.check_budget()
+            self.assertEqual(budget.spent(), 2.0)
+
     def test_no_step_no_budget(self):
         """A way outside a step (a reflex, a bench walk) is never held to a price it has none of."""
         self.way(1e6, part_s=1e6)

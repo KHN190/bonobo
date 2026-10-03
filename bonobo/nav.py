@@ -631,12 +631,15 @@ lifecycle.in_place(__name__, "BUDGET")
 @contextmanager
 def step_budget(est_ticks):
     """The step run inside is held to its budget (StepBudget); `est_ticks` None or 0 (unpriced, a reflex, a safety
-    skill nested in it): none while inside."""
-    before = BUDGET[0]
-    BUDGET[0] = StepBudget(time.time(), max(OVERRUN * est_ticks / TICKS_PER_S, OVERRUN_FLOOR_S)) if est_ticks else None
+    skill nested in it): none while inside, and the outer step's clock paused for it (a safety act's seconds are
+    never the step's)."""
+    before, t0 = BUDGET[0], time.time()
+    BUDGET[0] = StepBudget(t0, max(OVERRUN * est_ticks / TICKS_PER_S, OVERRUN_FLOOR_S)) if est_ticks else None
     try:
         yield BUDGET[0]
     finally:
+        if before is not None and BUDGET[0] is None:
+            before.began += time.time() - t0
         BUDGET[0] = before
 
 
