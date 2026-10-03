@@ -1141,14 +1141,16 @@ def dig_down(depth, policy, use_ladders):
         raise NotAvailable("digging down stopped: a block couldn't be reached")
     return safe
 
-def walk_sweep(ctx, radius=6, only=(), wait=30, tries=2):
-    """Pick up what is lying around; when something lies where nothing can stand, make a way and sweep again."""
+def walk_sweep(ctx, radius=6, only=(), wait=30, tries=2, near=()):
+    """Pick up what is lying around; when something lies where nothing can stand, make a way (to the jar's own
+    named cells, else `near` — a drop's actual position, known from a /entities read the collect itself never
+    reported — never just the feet, which only repeats the same failed radius) and sweep again."""
 
     for attempt in range(max(1, tries)):
         try:
             return api.run({"type": "collect", "radius": radius, **({'only': list(only)} if only else {})}, wait=wait, awaits="an Unreachable answer names the cells a way is made to before the next sweep")
         except api.Unreachable as out:
-            if attempt + 1 >= tries or not way_to(ctx, out.cells or [feet()], kind="stand"):
+            if attempt + 1 >= tries or not way_to(ctx, out.cells or near or [feet()], kind="stand"):
                 raise
     return None
 
@@ -1168,8 +1170,9 @@ def sweep_lying(ctx, only, settled, radius=6):
     if not left:
         return now
     log(f"   {len(left)} drop(s) left lying; sweeping again")
+    near = [(e["x"], e["y"], e["z"]) for e in left]      # the drops' own cells: a real way to reach, not the feet
     try:
-        walk_sweep(ctx, radius=radius, only=ids)
+        walk_sweep(ctx, radius=radius, only=ids, near=near)
     except api.Unreachable as e:
         log(f"   the drops lie out of reach: {e}")
     return settled()
