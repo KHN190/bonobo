@@ -48,6 +48,8 @@ def mid(name) -> str:
 
 # a pod on open ground: 4 sides at the feet, 4 at the head, the roof and the cap it is placed against (9 left an opening)
 POD_BLOCKS = 10
+# terrain facts: how long a read is kept (P1); a send that may change blocks drops it at once
+FACT_TTL_S = {"look": 3.0, "ground": 2.0, "kit": 2.0, "reach": 2.0}
 READ_EVERY_S = 0.1     # the fastest useful re-read of the game while waiting on it: two ticks (api waits on it; a fight's estimate charges it per target)
 
 # never thrown whatever a price says (an unpriced diamond went out as junk)

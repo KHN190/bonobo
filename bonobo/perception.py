@@ -8,7 +8,7 @@ from dataclasses import dataclass, field as _dc_field
 from typing import Any
 
 from . import api, arbiter, events, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat, world
-from .data import memo_ttl, is_night
+from .data import FACT_TTL_S, memo_ttl, is_night
 from .game import EYE_HEIGHT
 from .beliefs import COMMON_FOE_HP, CONFIG as _CONFIG, MOBS, hardest_hit, protection
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
@@ -133,7 +133,7 @@ REACH_KEPT = 64          # (body, mob) answers kept at most
 def reaches_us(here, now):
     """(pos, reach, kind) → can a mob there get at us: a ranged one by an open line of fire (world.line_of_fire,
     eye to eye), any other by a walk that comes to us (nav.walks_to at the walk's own arrive margin — its attack
-    reach is no walk: within it, the walk "arrives" before it starts). Kept READ_TTL_S per pair: this runs at 5 Hz."""
+    reach is no walk: within it, the walk "arrives" before it starts). Kept FACT_TTL_S["reach"] per pair: this runs at 5 Hz."""
     body = tuple(int(math.floor(c)) for c in here)
     eye = (here[0], here[1] + EYE_HEIGHT, here[2])
 
@@ -142,10 +142,10 @@ def reaches_us(here, now):
         if len(STATE.reach) > REACH_KEPT:
             STATE.reach.clear()          # the mobs round us change: old pairs are no answer to keep
         if MOBS.get(kind, {}).get("ranged"):
-            return memo_ttl(STATE.reach, (body, cell), READ_TTL_S,
+            return memo_ttl(STATE.reach, (body, cell, api.STATE.world_writes), FACT_TTL_S["reach"],
                             lambda: world.line_of_fire((pos[0], pos[1] + EYE_HEIGHT, pos[2]), eye), now)
         climber = kind in threat.CLIMBERS
-        return memo_ttl(STATE.reach, (body, cell), READ_TTL_S, lambda: nav.walks_to(cell, None, climber, body[1]), now)
+        return memo_ttl(STATE.reach, (body, cell, api.STATE.world_writes), FACT_TTL_S["reach"], lambda: nav.walks_to(cell, None, climber, body[1]), now)
     return ask
 
 
@@ -528,7 +528,6 @@ def watching():
     return fight_loop.wired() and any(t.name == "perception" and t.is_alive()
                                       for t in threading.enumerate())
 GRID_R = 8
-READ_TTL_S = 2.0       # a ground or kit read is reused this long: the field and the bag move slower than 5 Hz
 
 def dig_ok(ground, pick_tier):
     """Pure: the floor under us digs as deep as a hole must be to keep a walker off (melee_stop_blocks), with what we
@@ -561,7 +560,7 @@ def perceived(state, now, ground_of=None, kit_of=None):
     return out
 
 def field_around(state, now=None, radius=GRID_R, region_of=None):
-    """The walkable field around us, re-read at most every READ_TTL_S and only when we have moved."""
+    """The walkable field around us, re-read at most every FACT_TTL_S["ground"], when we moved or sent a dig."""
 
     from .world import Region
     region_of = region_of or Region
@@ -572,14 +571,14 @@ def field_around(state, now=None, radius=GRID_R, region_of=None):
         return _field.from_region(region, here, radius), region
     cache = STATE.ground              # one read: a reset may rebind it meanwhile
     try:
-        grid, region = memo_ttl(cache, here, READ_TTL_S, read, now, one=True)
+        grid, region = memo_ttl(cache, (here, api.STATE.world_writes), FACT_TTL_S["ground"], read, now, one=True)
     except (api.McError, api.PlayerTookControl, ValueError):
         return STATE.grid            # a failed read keeps the last field
     except Exception as e:  # guard: a field we cannot build keeps the last one (the answer runs at 5 Hz)
         return api.unexpected("perception: ground", e, "the last field is kept") or STATE.grid
     with STATE.lock:
         STATE.grid, STATE.region = grid, region
-        STATE.grid_at, STATE.grid_at_pos = cache.get(here, (now,))[0], here
+        STATE.grid_at, STATE.grid_at_pos = cache.get((here, api.STATE.world_writes), (now,))[0], here
     return grid
 
 def footing(state):
@@ -590,9 +589,11 @@ def footing(state):
 
 
 def kit_signature(state, now):
-    """Pure: when the kit must be read again — the held slot, a screen, the armour changed, or READ_TTL_S passed."""
+    """Pure: when the kit must be read again — the held slot, a screen, the armour changed, a dig sent, or
+    FACT_TTL_S["kit"] passed."""
 
-    return (state.get("selectedSlot"), state.get("screen"), state.get("armor"), int(now // READ_TTL_S))
+    return (state.get("selectedSlot"), state.get("screen"), state.get("armor"), api.STATE.world_writes,
+            int(now // FACT_TTL_S["kit"]))
 
 
 def kit(signature):
