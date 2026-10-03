@@ -172,12 +172,13 @@ class NavBanLiftsOnWayKindsOnly(unittest.TestCase):
                 ("an unrelated item gained: must fail, still banned (not a way kind)", (), (unrelated,), True),
                 ("a building block gained: lifts (E5, a changed way)", (), (made,), False),
                 ("the same building block count: still banned", (made,), (made,), True)]
+        cell = (5, FEET[1], 5)
         for name, before, after, want in rows:
             with self.subTest(name):
                 made_state = gather.ban_state(FEET, frozenset(s["id"] for s in before))
                 now_state = gather.ban_state(FEET, frozenset(s["id"] for s in after))
-                blacklist = {"k": Ban(time.time() + 600, made_state)}
-                self.assertEqual(banned(blacklist, "k", time.time(), now_state), want)
+                blacklist = {cell: Ban(time.time() + 600, made_state)}
+                self.assertEqual(banned(blacklist, cell, time.time(), now_state), want)
 
 
 PICK = {"id": "minecraft:diamond_pickaxe", "count": 1, "damage": 0, "maxDamage": 1561}
