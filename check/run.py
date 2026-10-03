@@ -11,6 +11,7 @@ from .facts import DOMAINS  # noqa: F401
 
 WORKERS = 6         # the machine is shared with other agents' test runs: at most this many processes
 SLOW_S = 10.0       # a state judged slower than this is named in the report
+CASES = 10          # the budget-cut rounds that lost most, named in the report
 
 
 def _shard(keys):
@@ -47,7 +48,7 @@ def main(argv):
     todo += sorted({explore.key(f) for f in fuzz.corpus()} - set(todo))
     todo = todo[:limit] if limit else todo
     shards = [todo[i::workers] for i in range(workers)]
-    rows, graph, roundtrip, first, slow, lost = defaultdict(list), {}, [], {}, [], []
+    rows, graph, roundtrip, first, slow, lost, cases = defaultdict(list), {}, [], {}, [], [], []
     gate = Gate()
     # spawn: each worker imports check afresh, so its memory, tasks and tape live in a data dir of its own
     with multiprocessing.get_context("spawn").Pool(workers) as pool:
@@ -55,7 +56,8 @@ def main(argv):
             gate.merge(hits)
             for k, after, d, progress, found, mismatch, got, loss, secs in results:
                 if loss is not None:
-                    lost.append(loss)
+                    lost.append(loss[0])
+                    cases.append((loss[0], dict(zip(explore.DOMAINS, k)), loss[1], loss[2]))
                 if secs > SLOW_S:
                     slow.append((secs, dict(zip(explore.DOMAINS, k))))
                 if after is not None:          # a crashed state has no successor
@@ -87,7 +89,9 @@ def main(argv):
     lines += ["", f"## states judged slower than {SLOW_S:.0f} s: {len(slow)}"]
     lines += [f"- {s:.1f} s: {f}" for s, f in sorted(slow, key=lambda p: -p[0])]
     lines += ["", "## P5 on budget-cut rounds (no violation): seconds the chosen plan loses to the unpruned reference"]
-    lines += [_spread(lost)]
+    lines += [_spread(lost), "", f"### the {CASES} largest losses (seconds lost, the plan chosen, the reference's, facts)"]
+    lines += [f"- {s:.1f} s: chose {chosen} | reference {ref} | {f}" for s, f, chosen, ref in
+              sorted(cases, key=lambda c: -c[0])[:CASES] if s > 0]
     lines += ["", f"## γ round-trip mismatches: {len(roundtrip)}"]
     lines += [f"- asked {f} → alpha {g}" for f, g in roundtrip[:20]]
     lines += ["", "## excluded from the denominator (execution, by structure: check/coverage.py)", "| why | functions |",

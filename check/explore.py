@@ -115,7 +115,7 @@ def judge(f):
     after = step(f, d, ctx)
     progress = made_progress(f, d, ctx)
     return (key(f), key(after), d, progress, oracle.violations(f, d, after, ctx), dict(got) != dict(f), dict(got),
-            ctx.get("p5_loss_s"))
+            None if ctx.get("p5_loss_s") is None else (ctx["p5_loss_s"], *ctx.get("p5_case", (None, None))))
 
 
 TIMEOUT_S = 60         # one state's judging past this is a TIMEOUT violation, wherever it hangs

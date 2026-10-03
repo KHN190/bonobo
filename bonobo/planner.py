@@ -1464,7 +1464,7 @@ def walk_order(steps, cost):
     return out
 
 
-def plan_name(steps):
+def plan_name(steps) -> str:
     """A complete plan's name: the ways it takes, in order, each once."""
     return " → ".join(dict.fromkeys(f"{s.kind} {bare(s.token)}" for s in steps)) or "nothing to do"
 
