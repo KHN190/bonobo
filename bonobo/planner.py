@@ -721,6 +721,7 @@ class Search:
         if feet is None:
             return 0.0
         req: set = set()
+        ways: list = []                 # each need: the walks of each of its ways
         for task in node.stack[floor:]:
             if task[0] == "emit" and task[1].kind != "await" and not (
                     (task[1].kind in MERGEABLE or (task[1].kind == "craft" and task[1].token in MERGEABLE_CRAFTS))
@@ -728,24 +729,52 @@ class Search:
                 site = self.cost.site(task[1])
                 if site is not None:
                     req.add(("at", tuple(site), float(self.cost.walk_lb(task[1]))))
-            if task[0] == "need" and held(task[1]) < task[2]:
-                req |= self.required(task[1], held, heldset, trips) or frozenset()
-            elif task[0] == "tool" and not node.inv.has_tool(task[1], task[2], task[3]):
-                req |= self.required(tool_item(task[1], task[2]), held, heldset, trips) or frozenset()
-        if not req:
+            token = task[1] if task[0] == "need" and held(task[1]) < task[2] else tool_item(task[1], task[2]) \
+                if task[0] == "tool" and not node.inv.has_tool(task[1], task[2], task[3]) else None
+            if token is not None:
+                req |= self.required(token, held, heldset, trips) or frozenset()
+                ways.append(self.alternatives(token, held, heldset, trips))
+        if not req and not ways:
             return 0.0
-        at: dict = {}
-        for r in req:
-            if r[0] == "at":
-                at[r[1]] = min(at.get(r[1], math.inf), r[2])
-        # the place before each: any a step can work at (planned or not: the route may pass one this bound skips)
-        points = set(at) | self.walked(node) | {tuple(feet)} | self.cost.places() | {
+        price = self.walk_of(node, feet)
+        # each need made one of its ways: the cheapest way's walks with what every way of the rest takes
+        return max([price(req)] + [min(price(req | w) for w in alts) for alts in ways if alts])
+
+    def walk_of(self, node, feet):
+        """{walks} → their ticks at the least, each place walked into once from the nearest place a route comes from."""
+        def price(req):
+            at: dict = {}
+            for r in req:
+                if r[0] == "at":
+                    at[r[1]] = min(at.get(r[1], math.inf), r[2])
+            # the place before each: any a step can work at (planned or not: the route may pass one this bound skips)
+            points = set(at) | base
+            # a source nowhere known is a search of its own (the model prices each, a repeat joining its first);
+            # each no more than the model's least walk to it (walk_lb: its nearest source may not be the place)
+            return float(sum(min(self.cost.walk_ticks(min(math.dist(r, p) for p in points if p != r)), lb)
+                             for r, lb in at.items())
+                         + sum(r[2] for r in req if r[0] == "search"))
+        base = self.walked(node) | {tuple(feet)} | self.cost.places() | {
             tuple(t[1].detail["pos"]) for t in node.stack if t[0] == "emit" and t[1].detail.get("pos")}
-        # a source nowhere known is a search of its own (the model prices each, a repeat joining its first)
-        # each no more than the model's least walk to it (walk_lb: from here, its nearest source may not be the place)
-        return float(sum(min(self.cost.walk_ticks(min(math.dist(r, p) for p in points if p != r)), lb)
-                         for r, lb in at.items())
-                     + sum(r[2] for r in req if r[0] == "search"))
+        return price
+
+    def alternatives(self, token, held, heldset, trips):
+        """[the walks one way of `token` takes] for each of its ways (its own, and what all ways of its inputs take):
+        one of them is taken, so the cheapest of their walks bounds it."""
+        if held(token) > 0 or self.stored(token):
+            return []
+        out = []
+        for step, _station, ins in self.lb.shapes.get(token, self.lb.shapes.get(mid(token), ())):
+            parts = [self.required(t, held, heldset, trips, frozenset({token})) for t in ins]
+            if any(p is None for p in parts):
+                continue
+            own: frozenset = frozenset()
+            if step.kind in ("gather", "mine", "hunt", "take") and token not in trips and mid(token) not in trips:
+                site = self.cost.site(step)
+                own = frozenset([("at", tuple(site), float(self.cost.walk_lb(step)))]) if site is not None else \
+                    frozenset([("search", step.key(), float(self.cost.walk_lb(step)))])
+            out.append(own.union(*parts))
+        return out
 
     def required(self, token, held, heldset, trips, seen=frozenset()):
         """The walks any making of `token` from here takes (each way's, intersected over its ways): ("at", a place)
@@ -1247,6 +1276,12 @@ class Search:
                 return math.inf
         return total
 
+    def first_run(self, item):
+        """Ticks the step that makes one `item` takes at its least (its craft's own work, once: the least prices
+        count a run's marginal work, a craft's none past the first)."""
+        ways = [w for w in (way(src, made, 1) for made, src in self.sources(item)) if w is not None]
+        return min((self.cost.work(w[0], BEST_TOOLS) for w in ways), default=0)
+
     def only_for(self, node, item):
         """The least of the tools making `item` takes that the bag lacks and nothing else left to plan asks for:
         made for this tool alone, so its price is the tool's too."""
@@ -1325,7 +1360,8 @@ class Search:
                     continue
                 # what it can save over all that is left (each need's ways at their most) cannot pay its least
                 if not self.exact and saved + self.saves_at_most(node, kind, held.get(kind, -1), t, step) \
-                        <= self.least(tool_item(kind, t), 1, node.inv) + self.only_for(node, tool_item(kind, t)):
+                        <= self.least(tool_item(kind, t), 1, node.inv) + self.only_for(node, tool_item(kind, t)) \
+                        + self.first_run(tool_item(kind, t)):
                     continue
                 opts.append(((t + 1, use_rank(kind), 1), [("tool", kind, t, self.uses(step, kind), depth)]))
         return self.options(node, opts, self.after(node, step))
