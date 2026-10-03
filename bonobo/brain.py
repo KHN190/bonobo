@@ -873,7 +873,9 @@ class Brain:
 
     def finish(self, task, state, reason):
         self.just_finished = True
-        self.task_writes.update(tasks.marked(state, reason))     # kept while deciding: the caller writes them
+        writes = self.task_writes
+        assert writes is not None, "a task finishes only while deciding (_collecting): the caller writes its fields"
+        writes.update(tasks.marked(state, reason))
         self.held.pop(task["id"], None)
         self.retry.succeeded(f"task {task['id']}")
         if state == "done":
