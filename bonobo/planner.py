@@ -335,29 +335,10 @@ def least_prices(ways):
     return price
 
 
-def covered_prices(ways, shapes, price):
-    """Pure: {token: ticks of one unit's cheapest derivation (by `price`) spent in steps done under cover
-    (data.NIGHT_WORK: mine, craft, smelt)} — what a night underground can be spent on along the way to it."""
-    def node(t):
-        return t if t in ways else mid(t) if mid(t) in ways else None
-
-    def total(asked, i):
-        per, ins, _n = ways[asked][i]
-        return per + sum(price.get(node(t), math.inf) * c for t, c in ins.items())
-    chosen = {a: min(range(len(w)), key=lambda i, a=a: total(a, i)) for a, w in ways.items() if w}
-    covered: dict = {}
-    for _ in range(len(ways) + 1):
-        changed = False
-        for asked, i in chosen.items():
-            per, ins, _n = ways[asked][i]
-            got = (per if shapes[asked][i][0].kind in NIGHT_WORK else 0.0) + \
-                sum(covered.get(node(t), 0.0) * c for t, c in ins.items())
-            if abs(got - covered.get(asked, -1.0)) > 1e-9:
-                covered[asked] = got
-                changed = True
-        if not changed:
-            break
-    return covered
+def covered_prices(ways, kinds):
+    """Pure: {token: the least ticks one unit takes made under cover alone (data.NIGHT_WORK ways: mine, craft, smelt,
+    their inputs the same)} — the route's work a night underground can be spent on; absent: none of it can."""
+    return least_prices({a: [w for w, k in zip(ws, kinds[a]) if k in NIGHT_WORK] for a, ws in ways.items()})
 
 
 class Bound:
@@ -373,6 +354,7 @@ class Bound:
     def __init__(self, cost):
         from .knowledge import producers
         self.ways = {}      # asked token → [(ticks per unit, {input: per unit}, {tool kind: tier})]
+        self.kinds = {}     # asked token → each way's step kind (as `ways`)
         self.shapes = {}    # asked token → [(its unit step, the station it works at or None, {input: per unit})]
         tokens = {t for g in producers() for t in g.keys()} | set(GROUPS) | {"food"}
         for asked in sorted(tokens):
@@ -399,11 +381,13 @@ class Bound:
                 if step.kind == "smelt":      # a smelt burns its fuel: one way per fuel, its share a unit
                     for fuel, burns in FUELS:
                         self.ways.setdefault(asked, []).append((per, {**ins, fuel: ins.get(fuel, 0) + 1 / burns}, need))
+                        self.kinds.setdefault(asked, []).append(step.kind)
                 else:
                     self.ways.setdefault(asked, []).append((per, ins, need))
+                    self.kinds.setdefault(asked, []).append(step.kind)
                 self.shapes.setdefault(asked, []).append((step, _station, ins))
         self.scratch = least_prices(self.ways)
-        self.covered = covered_prices(self.ways, self.shapes, self.scratch)
+        self.covered = covered_prices(self.ways, self.kinds)
         self.reach = {}     # token → every token its derivation may use (its inputs, theirs, …)
         for asked in self.ways:
             seen, todo = set(), [asked]
