@@ -817,14 +817,14 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
         if resume is not None:
             # The same work is already running: wait for it rather than starting it again.
             await_task(resume, wait)
-            done = [get(f"/task?id={resume}")]
+            done = [cast("TaskResult", get(f"/task?id={resume}"))]
         else:
             r = post("/task?wait=0", {"tasks": part, "stopOnFailure": stop_on_failure})
             queued = r.get("tasks") or []
             refuse_unqueued(r, queued=bool(queued))
             STATE.last_posted = (chain_signature(part), queued[-1]["id"])
             await_task(queued[-1]["id"], wait)
-            done = [get(f"/task?id={t['id']}") for t in queued]
+            done = [cast("TaskResult", get(f"/task?id={t['id']}")) for t in queued]
         for t in done:
             if t["status"] != "succeeded":
                 detail(f"  {t['type']:<9} {t['status']:<9} {t['message']}")

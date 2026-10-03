@@ -174,6 +174,7 @@ def one_step(ctx, kind, token, count=1, detail=None):
     from ..world import Snapshot
     snap = Snapshot.read(SOURCE_BLOCKS, survive.ROUND_GROUND)
     step = Step(kind, token, count, dict(detail or {}))
+    assert BRAIN is not None, "set_brain first: a priced step reads the brain's memory"
     step.est = int(Cost(snap, BRAIN.mem).estimate(step))
     if dispatch.runner_for(ctx, step) is not None:
         return dispatch.execute(ctx, step, snap.night)
@@ -188,12 +189,14 @@ def clock_ahead(ctx, ticks):
 
 def chest_known(ctx, chest, items):
     """The chest at `chest` as memory last saw it open: `items` [(id, count)] (the planner takes from it)."""
+    assert BRAIN is not None, "set_brain first"
     BRAIN.mem.note_container(chest, ctx.dimension, [{"id": i, "count": n} for i, n in items])
 
 
 def home_with_chest(ctx, chest, half=6):
     """A home round the origin holding one chest never opened (the look's case: its contents unknown)."""
     lo, hi = at(-half, -1, -half), at(half, 4, half)
+    assert BRAIN is not None, "set_brain first"
     BRAIN.mem.add_home("bench", [(lo, hi)], ctx.dimension, {tuple(chest): "chest"})
 
 # the engine under every sweep bench: cells, their build commands, what a row records, rules over the table
