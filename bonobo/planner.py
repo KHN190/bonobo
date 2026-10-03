@@ -665,11 +665,12 @@ class Search:
         return self.reach_c[key]
 
     def own_walk(self, token, i, step):
-        """The straight walk to the nearest known source of a way's own work (0 when none is known), once a search."""
+        """The walk a way's own work is priced with at the least (cost.walk_lb: the straight walk to the nearest known
+        source, the expected search where none is known — what the step's own price charges), once a search."""
         key = (token, i)
         if key not in self.walks:
-            known = step.kind in ("mine", "gather", "hunt", "take") and getattr(self.cost, "site", lambda s: None)(step)
-            self.walks[key] = float(self.cost.walk_lb(step)) if known else 0.0
+            sourced = step.kind in ("mine", "gather", "hunt", "take")
+            self.walks[key] = float(self.cost.walk_lb(step)) if sourced and hasattr(self.cost, "walk_lb") else 0.0
         return self.walks[key]
 
     def replay(self, root, needs, steps):
