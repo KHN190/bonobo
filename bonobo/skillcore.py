@@ -8,7 +8,7 @@ from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import BAN_MAX_S, REACH, bare
 from .game import EYE_HEIGHT
-from .world import BAG_SLOTS, Inventory, Region, cell_add, inventory_now, box, screen_slot
+from .world import BAG_SLOTS, Inventory, Region, Versioned, cell_add, inventory_now, box, screen_slot
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -85,7 +85,7 @@ class Context:
         # what a unit of each token costs another way this round (solve.reach_cost), injected so skills skip the planner
         self._prices = prices
         # position or (entity id, 0, 0) → expiry; the brain owns it so bans outlive a round
-        self.blacklist = blacklist if blacklist is not None else {}
+        self.blacklist = blacklist if blacklist is not None else Versioned()
         self.ban_counts = _BAN_COUNTS  # shared like the blacklist
 
     def prices(self):

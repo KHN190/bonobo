@@ -441,10 +441,27 @@ class ARoundReadsEachThingOnce(unittest.TestCase):
             first = c.site(step)
             self.assertEqual(first, (3, 64, 0))
             self.assertEqual(c.site(step), first)                       # same inputs: same answer
+            # a route answer flipped in place (the table's size unchanged): read again
+            key = world.route_key((3, 64, 0), 2.0, data.NAV_NODES)
+            costmod.ROUTES[key] = (True, 1.0)
+            self.assertEqual(c.site(step), (3, 64, 0))
+            costmod.ROUTES[key] = (False, None)
+            self.assertEqual(c.site(step), (6, 64, 0))      # must fail: kept by the table's size, the flip unseen
+            costmod.ROUTES[key] = (True, 1.0)
             c.blacklist[(3, 64, 0)] = time.time() + 60
             self.assertEqual(c.site(step), (6, 64, 0))      # must fail: a kept answer outliving the ban that changed it
             world._SIGHT["hits"] = {"stone": [dict(self.HITS[1], x=7)]}
             self.assertEqual(world.sight_pos(["stone"]), (7, 64, 0))   # must fail: a kept answer from the last look
+
+    def test_providers_follow_the_registry(self):
+        from unittest import mock
+        from bonobo import skill as skillkit
+        knowledge.producers()
+        before = skillkit.providers("item:log")
+        fake = type("C", (), {"provides": {"item:log": None}, "prefer": 99})()
+        with mock.patch.dict(skillkit.REGISTRY, {"_fake_chop": fake}):
+            self.assertIs(skillkit.providers("item:log")[0], fake)    # must fail: kept from before the write
+        self.assertEqual(skillkit.providers("item:log"), before)
 
     def test_a_rounds_repeats_cost_one_read(self):
         from unittest import mock

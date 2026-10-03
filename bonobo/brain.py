@@ -207,7 +207,7 @@ class Brain:
         self.retry = retry.Retry()
         self.planning = True                    # False for a round without the plan layer (Brain.round(plan=False))
         self.picks = collections.Counter()      # what the arbiter chose, by kind (arbiter.note_pick)
-        self.blacklist = {}           # unreachable targets, shared by every round's Context and the cost model
+        self.blacklist = world.Versioned()    # unreachable targets, shared by every round's Context and the cost model
         self.held = {}                # task id -> the round's plan it is in: {"steps", "sig", "event", "dim", "want", "ran"}
         self.round = None             # the round's plan when no task is queued (upkeep's needs alone)
         self.plan_switch = None       # (held_s, chosen_s, lost_s, switched) of the round's replan over a held plan
