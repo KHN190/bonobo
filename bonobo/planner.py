@@ -31,6 +31,10 @@ class Unplannable(McError):
     pass
 
 
+class Dearer(Unplannable):
+    """No plan under the cap the caller already has a way at."""
+
+
 @dataclass
 class Step:
     kind: str            # craft | smelt | mine | gather | hunt | ... — or any effect a skill provides (skill.providers)
@@ -1058,7 +1062,10 @@ class Search:
         for kind in {k for k in map(tool_kind, breaks) if k is not None} | ({"sword"} if kills else set()):
             if kind in held:
                 node.inv.wear(kind, 0, self.uses(step, kind))
-        ticks = self.cost.work(step, held) + self.cost.dig_to(step, held) + self.cost.walk_lb(step)
+        ticks = self.cost.work(step, held)
+        if not (step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)) \
+                or not any(st.key() == step.key() for st, _h, _s in node.steps):
+            ticks += self.cost.dig_to(step, held) + self.cost.walk_lb(step)    # a repeat joins the first (forward): one trip
         if self.hungry and not node.inv.facts.get("fed"):
             ticks += round(ticks * self.hungry)         # F1l: hunger's seconds until a step makes food
             node.inv.set_fact("fed", mid(step.token) in FOOD_IDS and step.kind in MAKES_FOOD)
@@ -1120,16 +1127,16 @@ class Search:
         self.memo[key] = (True, done.inv.clone(), tuple(done.steps[start:]), done.g - g0, done.tie[t0:])
         return done
 
-    def dive(self, root):
+    def dive(self, root, cap=math.inf):
         """The incumbent: every choice settled by its options' own cost (`settle`)."""
         self.greedy = True
         try:
-            node = self.settle(root)
+            node = self.settle(root, 0, cap)
         finally:
             self.greedy = False
         return None if node is None else self.finish(node)
 
-    def plan(self, root, needs, incumbent=None):
+    def plan(self, root, needs, incumbent=None, cap=math.inf):
         held, after, run = [], [], []       # run order: what is had, then counted back as held, then what is done
         for need in needs:
             if need[0] == "tool":
@@ -1151,7 +1158,7 @@ class Search:
         if self.h(root) == math.inf:
             raise Unplannable(self.no_bound(root))      # nothing in the tables makes it from here: no search at all
         replayed = self.replay(root, needs, incumbent) if incumbent else None
-        best = replayed if replayed is not None else self.dive(root.child())   # the held plan, priced today: the bar
+        best = replayed if replayed is not None else self.dive(root.child(), cap)   # the held plan, priced today: the bar
         first_reason = self.reasons[-1] if self.reasons else None
         heap: list[tuple[float, tuple, int]] = []
         open_ = {}                          # seq → (node, or None for a complete plan, its steps)
@@ -1166,7 +1173,7 @@ class Search:
         visited: dict = {}                  # the transposition table: (what is left, the bag, what is open) → least g
         while heap and (nodes <= MAX_NODES or self.exact):
             f, tie, n = heapq.heappop(heap)
-            if best is not None and (f, tie) >= (best[0], best[1]):
+            if (f, tie) >= ((best[0], best[1]) if best is not None else (cap, ())):
                 break
             node, steps = open_.pop(n)
             if steps is not None:
@@ -1186,10 +1193,12 @@ class Search:
                 continue
             for c in got:
                 fc = c.g + self.h(c)
-                if fc < math.inf and (best is None or (fc, c.tie) < (best[0], best[1])):
+                if fc < cap and (best is None or (fc, c.tie) < (best[0], best[1])):
                     push(fc, c.tie, c)
         if heap and nodes > MAX_NODES and not self.exact and (best is None or heap[0][0] < best[0]):
             SPENT["budget"] += 1              # stopped with cheaper possible: P5 may be missed, said (budget_spent)
+        if best is None and cap < math.inf:
+            raise Dearer(f"no plan under {cap:.0f} ticks")
         if best is None:
             raise Unplannable(first_reason or (self.reasons[0] if self.reasons else "no way found"))
         return best[2]
@@ -1339,7 +1348,8 @@ SPENT = {"steps": 0, "budget": 0}      # search steps advanced, searches a budge
 lifecycle.in_place(__name__, "SPENT")
 
 
-def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact=False, held=None) -> list:
+def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact=False, held=None,
+                    cap=math.inf) -> list:
     """The plans the search priced for `needs` from this bag, cheapest first:"""
     if not needs:
         return [(plan_name([]), 0.0, [])]
@@ -1355,9 +1365,9 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact
                 for name, seconds, steps in cache[key]]
     search = Search(cost, kinds, exact)
     try:
-        chosen = search.plan(root, list(needs), None if exact else held)
+        chosen = search.plan(root, list(needs), None if exact else held, cap)
     except Unplannable as e:
-        if cache is not None:
+        if cache is not None and not isinstance(e, Dearer):
             cache[key] = str(e)
         raise
     out = {plan_name(chosen): (plan_name(chosen), sum(s.est for s in chosen) / TICKS_PER_S, chosen)}
@@ -1370,9 +1380,9 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact
     return got
 
 
-def plan_needs(inv, needs, cost, pending=None, jobs=None, kinds=None, held=None, exact=False):
+def plan_needs(inv, needs, cost, pending=None, jobs=None, kinds=None, held=None, exact=False, cap=math.inf):
     """The cheapest steps that make `needs` held from this bag (`plan_candidates`' first); `held`:"""
-    return plan_candidates(inv, needs, cost, pending, jobs, kinds, exact, held)[0][2]
+    return plan_candidates(inv, needs, cost, pending, jobs, kinds, exact, held, cap)[0][2]
 
 
 @dataclass
@@ -1440,17 +1450,24 @@ class _After:
         return sum(s["count"] for s in self.slots if s["id"] == mid(item))
 
 
-def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False):
+def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False, cap=math.inf):
     """One level's steps in the order of its targets whose whole plan takes fewest seconds (forward's price:"""
     group = sorted(group, key=lambda t: t.rank)
     orders = itertools.permutations(group) if len(group) <= ORDER_MAX else [tuple(group)]
-    best = None
+    best, dearer = None, None
     for order in orders:
         needs = [n for t in order for n in t.needs]
-        steps = plan_needs(inv, needs, cost, pending, jobs, held=held, exact=exact) if needs else []
+        try:
+            bar = cap if best is None else min(cap, best[0][0] + 1)
+            steps = plan_needs(inv, needs, cost, pending, jobs, held=held, exact=exact, cap=bar) if needs else []
+        except Dearer as e:
+            dearer = e
+            continue
         key = (sum(s.est for s in steps), tuple(t.rank for t in order))
         if best is None or key < best[0]:
             best = (key, steps)
+    if best is None and dearer is not None:
+        raise dearer
     return best[1] if best else []
 
 
@@ -1469,14 +1486,16 @@ def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False):
             root.stack = [("tool", n[1], int(n[2]), 1, 0) if n[0] == "tool" else ("need", n[0], int(n[1]), 0, False)
                           for n in reversed(needs) if n[0] not in ("fact", "do")]
             floor[id(combo)] = search.h(root) / TICKS_PER_S + sum(opt[2] for opt in combo)
-        combos.sort(key=lambda c: floor[id(c)])
+        # what needs no search priced first: its seconds cap every search after it
+        combos.sort(key=lambda c: (any(opt[1] for opt in c) or bool(fixed), floor[id(c)]))
     for combo in combos:
         if best is not None and len(combos) > 1 and floor[id(combo)] >= best[0][0]:
             why.append(" + ".join(opt[0] for opt in combo) + ": dearer at the least than the way taken")
             continue
         picked = [Target(t.name, list(opt[1]), t.rank) for t, opt in zip(choices, combo)]
         try:
-            steps = _cheapest_order(_After(inv, []), fixed + picked, cost, pending, jobs, held, exact)
+            cap = math.inf if best is None or exact else (best[0][0] - sum(opt[2] for opt in combo)) * TICKS_PER_S + 1
+            steps = _cheapest_order(_After(inv, []), fixed + picked, cost, pending, jobs, held, exact, cap)
         except Unplannable as e:
             why.append(" + ".join(opt[0] for opt in combo) + f": {e}")
             continue
