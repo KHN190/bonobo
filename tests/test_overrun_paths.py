@@ -15,10 +15,10 @@ from bonobo.game import TICKS_PER_S  # noqa: E402
 SEGMENT = 6                       # api.run_chain's own segment size: its before_segment runs once per part
 
 
-class Accept7MineStep(unittest.TestCase):
-    """The production path (dispatch.run_priced → gather._go_way → nav), accept7's shape: an ore 67 off and 10 down
+class AMineStepWhoseWayRunsLong(unittest.TestCase):
+    """The production path (dispatch.run_priced → gather._go_way → nav): an ore 67 off and 10 down
     through stone, the step priced 61 s. Its way (~200 s of digging) is past 1.5× the price: refused before a block is
-    dug, a McError for the round (must fail: the whole way sent, accept7's ~138 s tunnel)."""
+    dug, a McError for the round (must fail: the whole way sent, the ~138 s tunnel)."""
 
     def test_the_way_past_the_price_is_never_dug(self):
         from bonobo import dispatch, gather, skillcore, world

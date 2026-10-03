@@ -57,26 +57,26 @@ class StepState(unittest.TestCase):
         self.assertEqual(c.find_ticks(["iron_ore"]), c.find_ticks(["iron_ore"], {"pickaxe": 1}, c.snap.feet))
 
 
-def _accept7():
-    """(cost, ore step's target, its read ground, bag) of accept7's raw_iron leg: the ore remembered 67 off and 10
+def _long_way_ore_scene():
+    """(cost, ore step's target, its read ground, bag) of a raw_iron leg: the ore remembered 67 off and 10
     down, the read ground the run's box (unread: _Ground's expected ground)."""
     import json
     from bonobo import world
     from bonobo.data import bare
-    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "accept7_ground.json")) as fh:
-        a7 = json.load(fh)
-    lo, hi = a7["lo"], a7["hi"]
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "long_way_ground.json")) as fh:
+        ground = json.load(fh)
+    lo, hi = ground["lo"], ground["hi"]
     cells = {(x, y, z): "stone" for x in range(lo[0], hi[0] + 1) for y in range(lo[1], hi[1] + 1)
              for z in range(lo[2], hi[2] + 1)}
-    cells.update({(x, y, z): n for x, y, z, n in a7["cells"]})
+    cells.update({(x, y, z): n for x, y, z, n in ground["cells"]})
     region = world.Region.of(lo, hi, {c: n for c, n in cells.items() if n != "air"})
-    inv = world.Inventory(inventory(*[(bare(i), n) for i, n in a7["inventory"]], ("stone_pickaxe", 1)))
-    return tuple(a7["feet"]), tuple(a7["target"]), region, inv
+    inv = world.Inventory(inventory(*[(bare(i), n) for i, n in ground["inventory"]], ("stone_pickaxe", 1)))
+    return tuple(ground["feet"]), tuple(ground["target"]), region, inv
 
 
 class OneTargetPerStep(unittest.TestCase):
     """A mine step's walk and its dig price the way to one target — the cell site() picks, remembered or in the
-    round's look (accept7 00:34: the walk to the remembered ore, the dig to none in sight: ~61 s priced, ~138 s run)."""
+    round's look (the walk to the remembered ore, the dig to none in sight: ~61 s priced, ~138 s run)."""
 
     def _cost(self, feet, target, region, inv, remembered, scanned, block="iron_ore"):
         from bonobo import cost as costmod, world
@@ -89,11 +89,11 @@ class OneTargetPerStep(unittest.TestCase):
         snap = world.Snapshot.from_readings(state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5), inv, hits, [], region)
         return costmod.Cost(snap, mem)
 
-    def test_accept7_priced_no_less_than_its_dug_way(self):
+    def test_priced_no_less_than_its_dug_way(self):
         from bonobo import cost as costmod
         from bonobo.game import TICKS_PER_S
         from bonobo.knowledge import held_tiers, work_s
-        feet, target, region, inv = _accept7()
+        feet, target, region, inv = _long_way_ore_scene()
         way = costmod.dug_way(feet, target, "iron_ore", 3, True, inv, (), region)
         floor = work_s(way, [], held_tiers(inv), TICKS_PER_S) * TICKS_PER_S
         self.assertGreater(len(way), 100)                   # a long tunnel: the run dug ~138 s of it
@@ -102,7 +102,7 @@ class OneTargetPerStep(unittest.TestCase):
                 c = self._cost(feet, target, region, inv, remembered, scanned)
                 self.assertEqual(c.site(IRON), target)
                 c.estimate(IRON)
-                # must fail (accept7): the dig priced 0, the remembered ore not in the round's look
+                # must fail: the dig priced 0, the remembered ore not in the round's look
                 self.assertGreaterEqual(IRON.parts["dig"], floor * 0.95)
                 # must fail: a seek priced as the walk only, no route known to it
                 self.assertGreaterEqual(c.seek_s(["iron_ore"]), floor / TICKS_PER_S * 0.95)

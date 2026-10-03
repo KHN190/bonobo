@@ -218,7 +218,7 @@ def _go_way(ctx, region, start, target, faces, drop, site=None):
     """Walk to an open face or dig the planned way toward `target` (nav.plan_way, said); False when there is none.
     `site`: the ore cell to price the overrun at (Cost.site's own, when it differs from `target`, the vein's nearer
     approach cell) — default `target`, so a mine step's afford/Overrun always keys on the cell Cost.refuted_ticks
-    reads back, else a refuted price is never found (G3/E5)."""
+    reads back, else a refuted price is never found."""
     site = target if site is None else site
     walks = nav.plan_walks(faces, WORK_REACH)
     steps, why, seconds = nav.plan_way(region, start, target, "mine", Inventory(), ctx.policy.protected, walks)

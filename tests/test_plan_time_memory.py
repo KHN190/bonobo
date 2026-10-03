@@ -1,6 +1,6 @@
 """A plan's time does not grow with memory: the planner's per-place bounds (Cost.dig_lb) read only the places the
 step's own price reads (Cost.places_for: its source's cells, its stations), branch and bound — never a dug_way per
-note memory holds (accept9: plan≈4.5 s a round, rising as notes filled memory). The same plan with 30 notes of
+note memory holds (plan≈4.5 s a round, rising as notes filled memory). The same plan with 30 notes of
 unrelated kinds as with 300. Production path (planner.plan_needs over a Cost), imports the base has: red there by
 the timing assertion."""
 import os
@@ -58,7 +58,7 @@ class PlanTimeIsFlatInMemory(unittest.TestCase):
         few_s, few = timed_plan(30)
         many_s, many = timed_plan(300)
         self.assertEqual(many, few, "the same plan: the notes are of no step's source")
-        # must fail (accept9): one dug_way per note — 300 notes several times 30's (generous: 2× and 0.3 s)
+        # must fail: one dug_way per note — 300 notes several times 30's (generous: 2× and 0.3 s)
         self.assertLess(many_s, 2 * few_s + 0.3, (few_s, many_s))
 
 

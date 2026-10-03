@@ -21,14 +21,14 @@ LOGS = [(X, y, Z) for y in range(76, 80)]
 LO, HI = (X - 8, FLOOR_Y - 6, Z - 8), (X + 8, FLOOR_Y + 10, Z + 8)
 
 
-def _accept3_scene():
+def _logged_column_scene():
     blocks = {(x, y, z): "dirt" for x in range(LO[0], HI[0] + 1) for z in range(LO[2], HI[2] + 1)
               for y in range(LO[1], FLOOR_Y)}
     blocks.update({c: "oak_log" for c in LOGS})
     return FakeRegion(LO, HI, blocks)
 
 
-def _accept3_cost(region, feet, carried, bans):
+def _logged_column_cost(region, feet, carried, bans):
     inv = inventory(*carried)
     hits = {"oak_log": [{"x": c[0], "y": c[1], "z": c[2], "distance": float(c[1] - feet[1])} for c in LOGS]}
     snap = world.Snapshot.from_readings(state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5), inv, hits, [], region)
@@ -67,21 +67,21 @@ class NotThere(unittest.TestCase):
 
 
 class ARefusedCellIsNotAskedAgain(unittest.TestCase):
-    """P2/K1 with E5: a cell the door could not reach stays refused until a state that
+    """A cell the door could not reach stays refused until a state that
     changes a way changes (blocks to place, a tool): a craft of planks and sticks between rounds is not one."""
 
     def test_rows(self):
         feet, banned = (X, FLOOR_Y, Z), LOGS[1]
         before = [("oak_log", 2)]
         crafted = [("oak_planks", 4), ("stick", 4)]
-        rows = [("must fail (accept3): planks and sticks crafted lift the no-stand ban", before + crafted, True),
+        rows = [("must fail: planks and sticks crafted lift the no-stand ban", before + crafted, True),
                 ("blocks to place change the way: asked again", before + [("cobblestone", 16)], False)]
         for name, carried, still in rows:
             with self.subTest(name):
                 bans = Versioned()
                 kinds_then = frozenset(Inventory(inventory(*before)).slots[i]["id"] for i in range(len(before)))
                 bans[banned] = skillcore.Ban(float("inf"), skillcore.ban_state(feet, kinds_then))
-                c = _accept3_cost(_accept3_scene(), feet, carried, bans)
+                c = _logged_column_cost(_logged_column_scene(), feet, carried, bans)
                 self.assertEqual(banned in c.not_there(True), still)
                 if still:
                     self.assertNotEqual(c.site(Step("gather", "log", 1, {})), banned)

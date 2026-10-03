@@ -1,7 +1,7 @@
-"""K3: every known source used up is never the end of a way — a sourced step is priced as a search (Q2's
-expected_find_s) for every need kind the planner's way table offers (knowledge.sources over the producers); and a
+"""Every known source used up is never the end of a way — a sourced step is priced as a search (expected_find_s)
+for every need kind the planner's way table offers (knowledge.sources over the producers); and a
 stand that holds for no way to a target fails AT that target (nav.reach_stand: `pos`), so it is banned and the next
-search finds another (accept 20:29: the tree it found unbanned, re-found, the milestone "unavailable")."""
+search finds another (the tree it found unbanned, re-found, the milestone "unavailable")."""
 import math
 import os
 import sys
@@ -61,7 +61,7 @@ class EveryKnownSourceBannedIsASearch(unittest.TestCase):
 
 class AStepWhoseSourcesFailedHereSeeks(unittest.TestCase):
     """brain.next_step: a sourced step cooled here (its known sources failed) gives way to the search for its kinds,
-    for every sourced kind the producers offer (accept 20:29: "no step of the plan can run from here", the milestone
+    for every sourced kind the producers offer ("no step of the plan can run from here", the milestone
     failed)."""
 
     def test_rows(self):
