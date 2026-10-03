@@ -625,7 +625,7 @@ class Cost:
         def want(item):
             return next((pn for w, pn in wanted.items() if w == item or mid(item) in members(w)), (0.0, 0))
 
-        def there(step, c):
+        def offered(step, c):
             # what the plan's own sources are held to: not banned, a way the door can make
             if tuple(c) in self.not_there(False):
                 return False
@@ -647,7 +647,7 @@ class Cost:
             for item, n in note_yields(kind).items():
                 p, need = want(item)
                 step = self.got_step(item, kind, min(n, need)) if p > 0 else None
-                step = step if step is not None and there(step, c) else None
+                step = step if step is not None and offered(step, c) else None
                 later = item_value(item, min(n, need), hidden(step, c)) if step is not None else None
                 if later is not None:
                     out.append((bound(p, later, step, c), step, c, item, min(n, need), p))
@@ -662,7 +662,7 @@ class Cost:
                     continue
                 chance = container_p(rec, {item}, time.time() - rec.get("at", time.time()), rate)
                 step = Step("withdraw", item, have, {"pos": list(c), "p": chance})
-                if not there(step, c):
+                if not offered(step, c):
                     continue
                 later = item_value(item, have, hidden(step, c))
                 if later is not None:
@@ -672,7 +672,7 @@ class Cost:
             if self.mem.container_record(c) is not None:
                 continue
             look = Step("look", "container", 1, {"pos": list(c)})
-            if not there(look, c):
+            if not offered(look, c):
                 continue
             for item, (p, n) in wanted.items():
                 held = sum(1 for r in records if any(mid(i) in members(item) or i == item for i in r["items"]))
@@ -743,7 +743,9 @@ class Cost:
         kind = self.way_kind(step)
         mobs = self._mobs(step.detail.get("types", ())) if k == "hunt" else ()
         mob = min(mobs, key=lambda m: m[0], default=(None, None))[1]
-        if site is not None and kind is not None and self.unfixable(site, kind, at, spent) is not None:
+        # from the feet too: a named site (a chest, a place) is never swapped for a reachable other
+        target = self.site(step) if kind is not None else None
+        if target is not None and self.unfixable(target, kind, at, spent) is not None:
             out["seek"] = self.find_ticks(step_kinds(step), held, at)
         elif mob is not None and (ways := self.reach_ticks(mob, "attack", at, spent)) is not None:
             out["walk"] = ways          # where it stands now (K7), not where it was noted
