@@ -15,14 +15,13 @@ class CoverCost(unittest.TestCase):
     def test_the_contexts_readings_reach_the_cost(self):
         seen = {}
 
-        def recorder(snap, mem, blacklist=None, policy=None, reserved=(),
-                     region=None, stop=None):
+        def recorder(snap, mem, blacklist=None, policy=None, reserved=(), stop=None):
             seen.update(mem=mem, blacklist=blacklist, policy=policy)
             raise NotAvailable("recorded")
-        from tests.world import inventory, state
+        from tests.world import inventory, snapshot, state
+        # the rescue's own read (Snapshot.read: /state, the bag, the look, the ground) answered by the row
         with mock.patch.object(needs, "Cost", recorder), \
-                mock.patch.object(needs.world, "look_around", lambda *a, **k: ({}, [])), \
-                mock.patch.object(needs, "Inventory", lambda: __import__("bonobo.world", fromlist=["Inventory"]).Inventory(inventory())):
+                mock.patch.object(needs.world.Snapshot, "read", lambda kinds, ground: snapshot(state(), inventory())):
             with self.assertRaises(NotAvailable):
                 needs.cover(Ctx(), state())
         # must fail on the old construction: no blacklist (None), no policy
