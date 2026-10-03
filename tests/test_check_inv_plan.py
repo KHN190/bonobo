@@ -30,7 +30,9 @@ class Bag:
         return [(t, d, f"minecraft:{TOOL_MATERIAL_FOR_TIER[t]}_{k}") for k, t, d in self.rows if k == kind]
 
     def count(self, item):
-        return self.items.get(item, 0)
+        from bonobo.data import GROUPS, mid
+        ids = GROUPS.get(item, [mid(item)])               # a group counts its members, as world.Inventory.count
+        return sum(n for i, n in self.items.items() if mid(i) in ids or i == item)
 
 
 class Mem:
