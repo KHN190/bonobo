@@ -13,6 +13,15 @@ def domain():
     return VALUES
 
 
+def valid(value, f):
+    """Inside a site's interior is inside its walls (a hut is built round it): the open sky (place open) is not."""
+    return value != "inside" or f["place"] != "open"
+
+
+def instead(f):
+    return "near"
+
+
 def _cells(origin):
     x, y, z = origin
     return [[x + dx, y, z + dz] for dx in (0, 1) for dz in (0, 1)]

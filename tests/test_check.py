@@ -330,6 +330,33 @@ class FactValuesOfOneType(unittest.TestCase):
                 sorted(vs)
 
 
+class AGrowingCropIsNotWaitedOn(unittest.TestCase):
+    """y-check's D7: task farm, a crop growing — the round chose `await` (stand by the plot) round after round. An
+    await runs only when its job is due by its clock within AWAIT_MAX_S (farming.awaitable); else the plan's other
+    work goes first."""
+
+    def test_rows(self):
+        import time
+        from bonobo import farming
+        from tests.world import memory
+        now = time.time()
+        rows = [("must fail: a crop ripe in an hour", now + 3600, False),
+                ("due within the wait", now + farming.AWAIT_MAX_S / 2, True),
+                ("due already", now - 1, True)]
+        for name, ready_at, want in rows:
+            with self.subTest(name):
+                mem = memory()
+                mem.add_job("crop", (0, 64, 0), "minecraft:overworld", "minecraft:wheat", 3, ready_at, False)
+                self.assertIs(farming.awaitable(mem, "minecraft:overworld", "minecraft:wheat", now), want)
+
+    def test_the_round_works_meanwhile(self):
+        from check import explore, round as rnd
+        f = of(task="farm", job="growing")
+        d, _got, ctx = rnd.decide(f, fail_then_again=False)
+        self.assertNotEqual(ctx.get("step_kind"), "await")
+        self.assertTrue(explore.made_progress(f, d, ctx))
+
+
 class StatesInTheirDomains(unittest.TestCase):
     """facts.of refuses a value outside its fact's domain or a fact no dimension defines: a state kept against an
     older domain (dusk's bools before its names; cooking and meat folded into job and carried) — r5's run crashed
@@ -345,6 +372,11 @@ class StatesInTheirDomains(unittest.TestCase):
                     self.assertRaises(ValueError, of, **kw)
                 else:
                     self.assertEqual(of(**kw)["dusk"], kw["dusk"])
+
+    def test_inside_a_site_is_not_the_open_sky(self):
+        # must fail: y-check's S4 (night, place open, site inside: an interior with no walls round it)
+        self.assertEqual(of(site="inside", place="open")["site"], "near")
+        self.assertEqual(of(site="inside", place="enclosed")["site"], "inside")
 
     def test_the_corpus_loads(self):
         from check import fuzz

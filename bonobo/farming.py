@@ -379,10 +379,17 @@ def job_due(job, tick=None):
         return bool(ripe_cells(Region(cell_add(c, (-1, 1, -1)), cell_add(c, (1, 1, 1)), props=True)))
     return job_ready(job, tick)
 
+def awaitable(mem, dimension, item, now=None):
+    """Pure over memory: a job making `item` is due by its own clock within AWAIT_MAX_S (world.job_ready on its
+    ready_at) — waiting in place for it pays; later, the plan's other work goes first (no round spent standing)."""
+    at = (time.time() if now is None else now) + AWAIT_MAX_S
+    return any(world.job_ready(j, now=at) for j in mem.jobs(dimension) if j.get("item") == item)
+
+
 @skill(gives=["state:job_collected"], remaining=_k.more_than_at_start(lambda c: c.args[1], lambda c: c.args[2]),
        needs={}, start=lambda c: Inventory().count(c.args[1]),
        verify=lambda c: Inventory().count(c.args[1]) > c.base, budget=120, stall=60,
-       provides={"await": lambda ctx, s: (s.token, s.count)})
+       provides={"await": lambda ctx, s: (s.token, s.count) if awaitable(ctx.mem, ctx.dimension, s.token) else None})
 def await_job(ctx, item, count):
     """What the plan takes from a running job (a sown crop, a furnace): waited for in place while it is near — then
     collected (jobs.collect) — or stepped aside from (NotAvailable) when it is not."""
