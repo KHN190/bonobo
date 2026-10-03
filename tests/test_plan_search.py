@@ -287,7 +287,7 @@ class TheAlternativesAreReported(unittest.TestCase):
         with mock.patch.object(planner, "MAX_NODES", 0):
             spent = plan_needs(bag(inventory()), needs, NullCost())
         search = planner.Search(NullCost())
-        root = planner.Node(planner.from_bag(bag(inventory())), [], [])
+        root = planner.Node(planner.from_bag(bag(inventory()), facts=NullCost().facts()), [], [])
         root.stack = [("tool", "pickaxe", 1, 1, 0)]
         self.assertEqual(spent, search.dive(root)[2])          # must fail: an empty plan or a raise when spent
 
