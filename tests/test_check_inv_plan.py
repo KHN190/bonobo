@@ -142,6 +142,7 @@ class Plan(unittest.TestCase):
         ("D4", {"switches": [], "holds": [("a", "b", "assumption")]}, False),
         ("P4", {"search_steps": 200}, False),
         ("P4", {"search_steps": plan.ROUND_STEPS}, False),                 # boundary: the budget itself
+        ("P4", {"search_steps": plan.ROUND_STEPS + 1}, True),             # must fail: one step over the cap
         ("P4", {"search_steps": 34000}, True),                             # must fail: a round searching on (GammaRoundTrip)
         ("P5", {"plan": BEEF_IN_ORDER, "exact_s": 7.75}, False),            # the plan's own 155 ticks
         ("P5", {"plan": BEEF_IN_ORDER, "exact_s": 5.0}, True),             # must fail: the budget cut a faster plan

@@ -297,5 +297,20 @@ class TheAlternativesAreReported(unittest.TestCase):
         self.assertIn("minecraft:bedrock", str(caught.exception))
 
 
+class TheBoundKnowsTheTrip(unittest.TestCase):
+    def test_a_gather_made_walks_once(self):
+        from tests.world import cost
+        snap = snapshot()
+        c = cost(snap, oak_log=30)
+        search = planner.Search(c)
+
+        def h(facts):
+            node = planner.Node(planner.from_bag(snap.inv, None, None, c.reserved, {**c.facts(), **facts}), [], [])
+            node.stack = [("need", "log", 4, 0, False)]
+            return search.h(node)
+        # must fail: the walk to the trees counted again where the plan has gathered there (forward merges the repeat)
+        self.assertLess(h({"trip log": True}), h({}))
+
+
 if __name__ == "__main__":
     unittest.main()

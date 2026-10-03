@@ -607,6 +607,10 @@ class Search:
                 _op, kind, tier, uses, _depth = task
                 if not inv.has_tool(kind, tier, uses):
                     tool = max(tool, fixed(tool_item(kind, tier)))
+        trips = {f[5:] for f, v in inv.facts.items() if v and f.startswith("trip ")}
+
+        def tripped(token):       # a step made already walks once: a repeat of it joins that trip
+            return held(token) or (1 if token in trips or mid(token) in trips else 0)
         station, walk = 0.0, 0.0
         for task in node.stack[floor:]:
             if task[0] != "need" or held(task[1]) >= task[2]:
@@ -614,7 +618,7 @@ class Search:
             for s in self.lb.tools_of(self.lb.stations, task[1]) or ():
                 if held(s) <= 0 and not self.near(s):
                     station = max(station, fixed(s))
-            walk = max(walk, self.walk_to(task[1], held, memo["held"]))
+            walk = max(walk, self.walk_to(task[1], tripped, memo["held"] | trips))
         return units + walk + max(tool, station)     # a tool or station made is work no unit's least counts
 
     def least(self, token, n, inv):
@@ -815,9 +819,14 @@ class Search:
         missing = n - have if not fresh else n
         if missing <= 0:
             return None
+        # the same thing asked again further down: one way chosen for all of it, the rest left in the bag for it
+        extra = 0 if fresh else sum(t[2] for t in node.stack if t[0] == "need" and t[1] == token and not t[4])
         if token in node.open:
             return self.dead(f"{token} asked again while it is being made (a cycle)")
-        opts = self.ways(node, token, missing, depth)
+        opts = self.ways(node, token, missing + extra, depth)
+        if extra:
+            opts = [(tie, [("use", token, missing) if t == ("use", token, missing + extra) else t for t in tasks])
+                    for tie, tasks in opts]
         if not opts:
             return self.dead(self.no_way(token))
         node.open = node.open + (token,)
@@ -1063,9 +1072,14 @@ class Search:
             if kind in held:
                 node.inv.wear(kind, 0, self.uses(step, kind))
         ticks = self.cost.work(step, held)
-        if not (step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)) \
+        if step.kind == "withdraw":         # walked to from where the step before ends, as forward prices it (D6)
+            at = next((p for p in (self.cost.site(st) for st, _h, _s in reversed(node.steps)) if p is not None), None)
+            ticks = self.cost.estimate(step, held, at=at)
+        elif not (step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)) \
                 or not any(st.key() == step.key() for st, _h, _s in node.steps):
             ticks += self.cost.dig_to(step, held) + self.cost.walk_lb(step)    # a repeat joins the first (forward): one trip
+            if step.kind in MERGEABLE or step.kind == "craft" and step.token in MERGEABLE_CRAFTS:
+                node.inv.set_fact("trip " + step.token, True)
         if self.hungry and not node.inv.facts.get("fed"):
             ticks += round(ticks * self.hungry)         # F1l: hunger's seconds until a step makes food
             node.inv.set_fact("fed", mid(step.token) in FOOD_IDS and step.kind in MAKES_FOOD)
@@ -1089,16 +1103,17 @@ class Search:
             got = self.advance(node, floor)
             if got is None:
                 return node
-            best, before = None, len(self.reasons)
+            best, best_f, before = None, math.inf, len(self.reasons)
             for k, c in enumerate(sorted(got, key=lambda c: (c.g + self.h(c, c.horizon), c.tie))):
                 width = DIVE_WIDTH if self.spent <= DIVE_NODES else 1      # the budget spent: the first way that can be had
                 if width == 1 and k == 1 and not self.exact:
                     SPENT["budget"] += 1
                 if best is not None and self.greedy and not self.exact and floor > 0 and k >= width:
                     break                     # inside a choice, the few least-bound ways; A* weighs the rest
-                done = self.settled(c, cap if best is None else min(cap, best.g))
-                if done is not None and (best is None or (done.g, done.tie) < (best.g, best.tie)):
-                    best = done
+                done = self.settled(c, cap if best is None else min(cap, best_f))
+                # weighed with what is left after it: a trip one way makes, the rest of the plan takes free
+                if done is not None and (best is None or (done.g + self.h(done), done.tie) < (best_f, best.tie)):
+                    best, best_f = done, done.g + self.h(done)
             if best is None:
                 if cap == math.inf and len(self.reasons) > before:      # every way died, not merely dearer
                     self.dead(f"no way to {got[0].asked}: " + "; ".join(dict.fromkeys(self.reasons[before:])))
