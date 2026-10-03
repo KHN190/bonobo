@@ -455,7 +455,7 @@ def recovery_worth(value_s, dist, since_s, speed, despawn_s):
     return (value_s if reached else 0.0) - trip
 
 
-def worth_recovering(b, snap, now=None):
+def worth_recovering(b, snap):
     """The last death (same dimension, drops not yet despawned) is worth the walk: its bag priced another way."""
     from .data import ITEM_DESPAWN_S      # data, not memory: the needs closure stays as it was
     death = b.mem.recent_death(snap.dimension)
@@ -463,7 +463,7 @@ def worth_recovering(b, snap, now=None):
         return False
     prices = b.price_table(snap)
     value = sum((prices.get(item) or 0.0) * n for item, n in death.get("carried", ()))
-    since = (now or time.time()) - death["t"]
+    since = time.time() - death["t"]
     return recovery_worth(value, math.dist(snap.feet, death["pos"]), since, nav.PLAYER_SPEED, ITEM_DESPAWN_S) > 0
 
 

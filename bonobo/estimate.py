@@ -224,7 +224,7 @@ def loss_q(mean_hp, hit_hp):
     """Pure: the engage.fight_line_q quantile of the health a fight takes — its hits a Poisson count of mean
     mean_hp / hit_hp, each `hit_hp`: the spread around fight_cost's mean, in the one place the fight is priced."""
     q = float(ENGAGE["fight_line_q"])
-    if mean_hp <= 0 or hit_hp <= 0:
+    if mean_hp <= 0:
         return 0.0
     lam = mean_hp / hit_hp
     n, p = 0, math.exp(-lam)

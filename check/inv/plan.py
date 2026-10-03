@@ -217,7 +217,7 @@ def _station(st):
         return "minecraft:furnace"
     from bonobo.knowledge import sources
     from bonobo.planner import way
-    shapes = [got for made, src in sources(st.token) if src[0] == "craft" and (got := way(src, made, 1)) is not None]
+    shapes = [way(src, made, 1) for made, src in sources(st.token) if src[0] == "craft"]
     named = set(st.detail.get("inputs") or ())
     return next((g[2] for g in shapes if {t for t, _c in g[1]} == named), shapes[0][2] if shapes else None)
 
