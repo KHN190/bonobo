@@ -211,6 +211,11 @@ def run_step(ctx, step, night, seek=True):
             return e
         raise
 
+def first_sought(steps):
+    """Pure: the plan's first step whose source a seek looks for (SEEK_KINDS), or None."""
+    return next((st for st in steps if st.kind in SEEK_KINDS), None)
+
+
 def go_find(ctx, step):
     """Where to look when nothing is in range: memory's sightings, then the kind's richest depth, then a spiral."""
 

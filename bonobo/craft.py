@@ -222,16 +222,26 @@ def sittings(steps):
             out.append((table, [st]))
     return out
 
+TABLE = "minecraft:crafting_table"
+TABLE_NEAR = 6            # a crafting table this near is the sitting's: used, or placed and left standing
+
+def made_count(item, inv, near=None):
+    """What the bag holds of `item`; a crafting table also where a sitting leaves it standing (`near`: the tables
+    found within TABLE_NEAR) — a placed table moved from the bag to the world, not lost."""
+    return inv.count(item) + (len(near if near is not None else find([TABLE], radius=TABLE_NEAR, limit=8))
+                              if mid(item) == TABLE else 0)
+
 def _plan_start(recipes):
     """`start` of both craft skills: the plan (raises on a missing input before anything moves) and the starting counts."""
 
     inv = Inventory()
     _, _, delta = craft_plan(recipes, inv)
-    return {i: (inv.count(i), n) for i, n in delta.items() if n > 0}
+    return {i: (made_count(i, inv), n) for i, n in delta.items() if n > 0}
 
 def _plan_made(c):
     """`verify` of both craft skills: the real bag gained every item the plan nets, by at least what it nets."""
-    return all(Inventory().count(i) >= have + n for i, (have, n) in c.base.items())
+    inv = Inventory()
+    return all(made_count(i, inv) >= have + n for i, (have, n) in c.base.items())
 
 CLOSE = {"type": "_close"}     # a split point in a chain: the screen is closed between two sends (no close task)
 
@@ -352,7 +362,7 @@ def _sitting(ctx, recipes, keep_table=False):
     # world reads only when a table sitting is planned: a table near, else a spot for one
     state = {"inv": inv, "table": None, "spot": None, "keep_table": keep_table}
     if any(table for table, _part in sittings(steps)):
-        near = find(["crafting_table"], radius=6, limit=1)
+        near = find([TABLE], radius=TABLE_NEAR, limit=1)
         mem = getattr(ctx, "mem", None)
         home = mem.home_part("stations", ctx.dimension, feet(), "crafting_table") if mem else None
         if home is not None and not near:

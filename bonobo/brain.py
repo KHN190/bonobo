@@ -721,6 +721,11 @@ class Brain:
             # the round that finished the last task proposes nothing: stocking in the same breath was momentum, not a decision
             return []
         if not closed:
+            # every step cooling here: a seek elsewhere changes the state the coolings hold in (E5), not a clock wait
+            sought = dispatch.first_sought(((getattr(self, "needs_plan", None) or {}).get("steps")) or ())
+            if sought is not None and self.ready(f"seek: {sought.kind} {bare(sought.token)}"):
+                act = Act("plan", f"seek: {sought.kind} {bare(sought.token)}", lambda: dispatch.go_find(ctx, sought))
+                return [arbiter.Intent("plan", act, kind="seek", key=act.name)]
             # no side act fills the time (D1): every step of the plan is cooling or unplannable here
             self.idle_why = "; ".join([idle_reason(entries, self.retry.cooling_now(time.time())), *barred])
             return []

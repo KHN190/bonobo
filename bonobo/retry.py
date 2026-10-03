@@ -12,7 +12,7 @@ BACKSTOP = {"game": 10, "tool": 20, "nav": 120, "unavailable": 180, "stuck": 120
 # the doubling's ceiling by cause: "not here" ages fast (mobs wander, we walk); a bug does not
 MAX_BACKSTOP = {"game": 60, "unavailable": 300, "nav": 300, "tool": 120, "stuck": 300, "error": 900}
 MAX_BACKSTOP_DEFAULT = 900
-SOURCES_TRIED = 3          # failures of one (task, cause) — each after changing source — before reporting upward
+SOURCES_TRIED = 3          # sources (distinct places a failure was cooled at) one (task, cause) failed at before reporting upward
 LOG_EVERY = 10
 NOT_FAILURES = ("interrupt", "replan")
 REPLAN_LIMIT = 2  # replanning this often in a row with nothing done is a failure ("unavailable")
@@ -59,7 +59,7 @@ class Verdict:
 
 class Retry:
     def __init__(self):
-        self.entries = {}   # (task, cause) -> {n, since, message, place}
+        self.entries = {}   # (task, cause) -> {n, since, message, place, sources}
         self.cooling = {}   # "cause@place" -> {until, n}
         self.holds = {}     # name -> time: explicit throttles ("deposit at most once a minute")
 
@@ -87,7 +87,8 @@ class Retry:
         e = self.entries.get((task, cause))
         n = e["n"] + 1 if e else 1
         worth_logging = e is None or e["message"] != message or n == SOURCES_TRIED or n % LOG_EVERY == 0
-        self.entries[(task, cause)] = {"n": n, "since": now, "message": message, "place": place}
+        sources = (e or {}).get("sources", frozenset()) | {place}
+        self.entries[(task, cause)] = {"n": n, "since": now, "message": message, "place": place, "sources": sources}
         key = cause_key(cause, place)
         c = self.cooling.get(key)
         ceiling = MAX_BACKSTOP.get(cause, MAX_BACKSTOP_DEFAULT)
@@ -99,7 +100,7 @@ class Retry:
             if other != place:
                 self.cooling[cause_key(cause, other)] = {"until": now + wait, "n": repeats,
                                                          "state": None if state is None else (other,) + state[1:]}
-        return Verdict(n, wait, n >= SOURCES_TRIED, worth_logging)
+        return Verdict(n, wait, len(sources) >= SOURCES_TRIED, worth_logging)
 
     def causes(self, task):
         """The causes this task has failed with since it last succeeded."""
@@ -139,8 +140,8 @@ class Retry:
         """(cause, message) once some cause has beaten SOURCES_TRIED sources for this task, else None."""
 
         worst = max(((cause, e) for (t, cause), e in self.entries.items() if t == task and cause != "replan"),
-                    key=lambda ce: ce[1]["n"], default=None)
-        if worst is None or worst[1]["n"] < SOURCES_TRIED:
+                    key=lambda ce: len(ce[1].get("sources", ())), default=None)
+        if worst is None or len(worst[1].get("sources", ())) < SOURCES_TRIED:
             return None
         return worst[0], worst[1]["message"]
 
