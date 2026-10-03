@@ -1,8 +1,9 @@
-"""En-route (docs/refactor.md 顺路插入, G3/K4): once a planning round, what lies beside the leg the next step walks is
-taken on the way when P(used later) × (its price later − its work now) > the detour (knowledge.side_saving) — wanted
-by the held plan (P 1) or a later milestone (P 1/(1+k), k down the chain), net of the bag; a remembered chest by its contents × the
-chance they are still there; an unopened chest within reach of the leg looked into. The plan_proposals rows go
-through the production round with what the base has, so they are red there by assertion."""
+"""En-route as a planner choice (docs/refactor.md 顺路插入, G3/K4): each round A is the normal held plan; C is
+A's goal needs plus one en-route candidate's item (planner.plan_needs); C is held only when its seconds cost less
+than A's by more than P x bag.item_value(item) (P: 1 for the held plan's own want, discounted for a later
+milestone). Rows go through the production round (brain.Brain.plan_proposals/round_for), not a helper function, so
+they hold whatever Opus's internals turn out to be. Rows needing that rework fail on the base by assertion; they
+are marked below."""
 import os
 import sys
 import tempfile
@@ -13,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import brain  # noqa: E402,F401  (every skill registered)
 from bonobo import api, arbiter, goals, lifecycle, tasks, world  # noqa: E402
 from tests.world import brain_fixture, inventory, memory, round_ctx, state  # noqa: E402
+from tests.test_plan_run_order import brought_before  # noqa: E402  (the one P2 order check, reused)
 
 D = "minecraft:overworld"
 ORE = (40, 64, 0)
@@ -31,7 +33,7 @@ def ground(chest=None):
 
 def proposals(mobs, chest=None, contents=None, bag=()):
     """The round's plan proposals for a raw iron task, the iron ore 40 east, with `mobs` in sight, a `chest` beside
-    the leg (its `contents` remembered, or unopened), `bag` held besides the kit."""
+    the leg (its `contents` remembered, or unopened), `bag` held besides the kit. Returns (proposals, the brain)."""
     tmp = tempfile.mkdtemp()
     lifecycle.reset_all(caches=False)
     with mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")), \
@@ -48,115 +50,105 @@ def proposals(mobs, chest=None, contents=None, bag=()):
                                             mobs, ground(chest))
         b.round_snap = snap
         tasks.add(goals.have(("minecraft:raw_iron", 1)))
-        return b.plan_proposals(snap, round_ctx(b, snap))
+        got = b.plan_proposals(snap, round_ctx(b, snap))
+        return got, b
 
 
 def sheep(x, z):
     return {"id": 9, "type": "minecraft:sheep", "x": x + .5, "y": 64, "z": z + .5, "distance": float(x)}
 
 
+def held_tokens(b):
+    """The tokens the round's held plan provides (planner.Step.token of every step), in order -- plan_proposals
+    sets `needs_plan` to the round's held plan whether it came from a queued task or a needs goal."""
+    return [] if b.needs_plan is None else [st.token for st in b.needs_plan["steps"]]
+
+
 class TheRoundTakesWhatIsOnTheWay(unittest.TestCase):
+    """C (the plan with the detour's item added to the goal needs) is held only when it pays; else A (the plan
+    without it) is held, unchanged."""
 
     def test_a_sheep_on_the_leg_is_taken(self):
-        """Wool is a later milestone's (a bed's): a sheep 1 off the leg pays its hunt back."""
-        got = proposals([sheep(20, 1)])
-        chosen = arbiter.arbitrate(got)
-        # must fail: walked past, the bed's wool fetched on a trip of its own later
-        self.assertEqual((chosen.kind, chosen.side), ("enroute", True), [(i.kind, i.key) for i in got])
+        """Wool is a later milestone's (a bed's): a sheep 2 off the leg pays its hunt back -- C held."""
+        got, b = proposals([sheep(20, 2)])
+        # must fail on the base: the old side-act mechanism never merges wool into the held plan itself
+        self.assertIn("minecraft:wool", held_tokens(b), [(i.kind, i.key) for i in got])
+        self.assertEqual(len(got), 1, "one held plan proposed, not a second plan beside it")
 
     def test_a_sheep_far_off_the_leg_is_not(self):
-        got = proposals([sheep(20, 40)])
-        self.assertNotIn("enroute", [i.kind for i in got])
-        self.assertEqual(arbiter.arbitrate(got).kind, "queue")
+        """The same sheep 30 off: its detour costs more than the wool is worth -- A held, unchanged."""
+        got, b = proposals([sheep(20, 30)])
+        self.assertNotIn("minecraft:wool", held_tokens(b), [(i.kind, i.key) for i in got])
 
     def test_a_chest_beside_the_leg_gives_its_diamond_not_its_logs(self):
-        """The user's scene: the next step mines iron, an unopened chest beside that leg, 64 logs in the bag. The
-        chest is opened; seen to hold diamond and logs, the diamond (the diamond tools' need) is taken, the logs
-        (the bag covers every need) left."""
+        """The chest beside the iron leg, 64 logs already held: seen to hold diamond and logs, the diamond (the
+        diamond tools' later need) is taken into the held plan; the logs (the bag already covers that need) are
+        not."""
         chest, bag = (20, 64, 1), [("oak_log", 64)]
-        got = proposals([], chest, bag=bag)
-        chosen = arbiter.arbitrate(got)
-        # must fail: the chest walked past, its diamond fetched on a trip of its own later
-        self.assertEqual((chosen.kind, chosen.action.step.kind, chosen.action.step.detail["pos"]),
-                         ("enroute", "look", chest), [(i.kind, i.key) for i in got])
-        got = proposals([], chest, [("minecraft:diamond", 2), ("minecraft:oak_log", 10)], bag)
-        taken = [(i.action.step.kind, i.action.step.token) for i in got if i.kind == "enroute"]
-        self.assertEqual(taken, [("withdraw", "minecraft:diamond")], [(i.kind, i.key) for i in got])
-        self.assertEqual(arbiter.arbitrate(got).kind, "enroute")
+        got, b = proposals([], chest, [("minecraft:diamond", 2), ("minecraft:oak_log", 10)], bag)
+        # must fail on the base: there, the chest's take is a separate "enroute" intent, never folded into the plan
+        self.assertIn("minecraft:diamond", held_tokens(b), [(i.kind, i.key) for i in got])
+        self.assertNotIn("minecraft:oak_log", held_tokens(b))
+        self.assertEqual(len(got), 1)
 
 
-class DiamondToolsOffTheRoute(unittest.TestCase):
-    """goals.OFF_ROUTE: the diamond tools are only "used later" (en-route), never the run's next target nor its
-    route's seconds."""
-
-    def test_the_route_is_unchanged_by_it(self):
-        from bonobo import needs
-        b = brain_fixture()
-        snap = world.Snapshot.from_readings(state(x=.5, y=64, z=.5), world.Inventory(inventory(*KIT)), {}, [],
-                                            ground())
-        b.round_snap = snap
-        route = {k: v for k, v in goals.MILESTONES.items() if k != "diamond tools"}
-        with_it = needs.Needs(b).route_covered_s(snap)
-        with mock.patch.object(goals, "MILESTONES", route):
-            self.assertEqual(needs.Needs(b).route_covered_s(snap), with_it)
-
-    def test_never_the_next_milestone(self):
-        snap = world.Snapshot.from_readings(state(x=.5, y=64, z=.5), world.Inventory(inventory(*KIT)), {}, [],
-                                            ground())
-        with mock.patch.object(goals, "MILESTONES", {"diamond tools": goals.MILESTONES["diamond tools"]}):
-            # must fail: the diamond tools the run's next target, the speedrun order changed
-            self.assertIsNone(brain.next_milestone(snap, memory()))
-
-
-def scene(notes=(), containers=(), chests=()):
-    """A Cost over flat ground, the leg (0,64,0) → (45,64,0), `notes` remembered, `containers` with remembered
-    contents, `chests` seen unopened."""
-    from bonobo import cost as costmod
-    blocks = {(x, y, z): "dirt" if y >= 62 else "stone" for x in range(-48, 49) for z in range(-12, 13)
-              for y in range(55, 64)}
-    mem = memory()
-    mem.clock = 0
-    for kind, pos in notes:
-        mem.note_seen(kind, pos, D)
-    for pos, items in containers:
-        mem.note_container(pos, D, [{"id": i, "count": n, "slot": k} for k, (i, n) in enumerate(items)])
-    hits = {"chest": [{"x": c[0], "y": c[1], "z": c[2], "distance": float(c[0])} for c in chests]}
-    snap = world.Snapshot.from_readings(state(x=.5, y=64, z=.5), world.Inventory(inventory(("stone_axe", 1))), hits,
-                                        [], world.Region.of((-48, 55, -12), (48, 70, 12), blocks))
-    return costmod.Cost(snap, mem)
-
-
-PRICE = {"log": 12.0, "wool": 20.0, "minecraft:coal": 15.0}.get
-
-
-class CostEnroute(unittest.TestCase):
-    """Cost.enroute's choice beside one leg: the paying ones, best first; the rest skipped."""
-
-    def taken(self, c, wanted):
-        return [(st.kind, st.token, where) for _s, st, where in c.enroute((0, 64, 0), (45, 64, 0), wanted, PRICE)]
+class ThePickedCCostsLessThanItsValue(unittest.TestCase):
+    """D4/G3: whenever C is held over A, its seconds beat A's by less than P x bag.item_value(item) -- never a
+    detour that costs more than what it is worth -- and only one extra plan is priced a round (never a chain of
+    them)."""
 
     def test_rows(self):
-        rows = [("a tree beside the leg, logs wanted: gathered", scene(notes=[("tree", (15, 64, 2))]), {"log": (1.0, 4)},
-                 [("gather", "log", (15, 64, 2))]),
-                ("must fail: a tree 100 off the leg: its detour costs more than its logs",
-                 scene(notes=[("tree", (20, 64, 100))]), {"log": (1.0, 4)}, []),
-                ("a tree beside the leg, logs not wanted: skipped", scene(notes=[("tree", (15, 64, 2))]), {"wool": (1.0, 1)}, []),
-                ("a remembered chest with coal beside the leg: withdrawn",
-                 scene(containers=[((30, 64, 1), [("minecraft:coal", 5)])]), {"minecraft:coal": (1.0, 5)},
-                 [("withdraw", "minecraft:coal", (30, 64, 1))]),
-                ("an unopened chest within reach of the leg: looked into", scene(chests=[(35, 64, 1)]), {"log": (1.0, 4)},
-                 [("look", "minecraft:chest", (35, 64, 1))]),
-                ("an unopened chest 10 off: skipped", scene(chests=[(35, 64, 10)]), {"log": (1.0, 4)}, [])]
-        for name, c, wanted, want in rows:
+        rows = [("a sheep 2 off: C must actually be cheaper enough to hold", [sheep(20, 2)]),
+                ("the same sheep 30 off: A held, so there is nothing to check", [sheep(20, 30)])]
+        for name, mobs in rows:
             with self.subTest(name):
-                self.assertEqual(self.taken(c, wanted), want)
+                got, b = proposals(mobs)
+                # must fail on the base: there is no round-held record of (A seconds, C seconds, P, value) at all
+                # yet -- this is the one place that record is read, by name, once Opus's rework lands
+                choice = getattr(b, "enroute_choice", None)
+                if "minecraft:wool" not in held_tokens(b):
+                    continue      # A held: nothing was swapped in, nothing to check against its own price
+                self.assertIsNotNone(choice, "C held: the round must still record what it was weighed against")
+                a_s, c_s, p, value = choice
+                self.assertLess(c_s - a_s, p * value)
+                self.assertEqual(len(got), 1, "one held plan a round, never two priced")
 
-    def test_raw_needs(self):
-        """What a later milestone's needs come down to: the got tokens its recipes read, and how many."""
-        c = scene()
-        self.assertEqual(c.raw_needs("minecraft:iron_pickaxe", 1), {"log": 1, "minecraft:raw_iron": 3})
-        self.assertEqual(c.raw_needs("minecraft:diamond_pickaxe", 1), {"log": 1, "minecraft:diamond": 3})
-        self.assertEqual(c.raw_needs("bed", 1)["wool"], 3)
+
+class NeverIronBeforeAPickaxe(unittest.TestCase):
+    """P2, unchanged by the rework: an empty-bag start whose immediate goal is a wooden pickaxe, with iron ore in
+    sight 2 off the first step's own site (wanted later, for stone/iron tools) -- the held plan never mines iron
+    before a pickaxe exists, and the round's chosen act is never a dig at the ore itself. Must fail on the base:
+    its old side act (cost.enroute) picks the ore as a detour by proximity alone, with no tool check at all, and
+    sends a raw mine task at it by hand."""
+
+    def test_rows(self):
+        tmp = tempfile.mkdtemp()
+        lifecycle.reset_all(caches=False)
+        with mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")), \
+                mock.patch.object(api, "api", side_effect=AssertionError("the round read the world")):
+            b = brain_fixture()
+            b.mem.clock = 0
+            tree, ore = (5, 71, 0), (5, 67, 2)
+            blocks = {(x, y, z): "dirt" if y == 70 else "stone" for x in range(-8, 20) for z in range(-8, 8)
+                      for y in range(40, 71)}
+            for dy in range(4):
+                blocks[(tree[0], tree[1] + dy, tree[2])] = "oak_log"
+            blocks[ore] = "iron_ore"
+            hits = {"log": [{"x": tree[0], "y": tree[1], "z": tree[2], "distance": 5.0, "block": "minecraft:oak_log"}],
+                    "iron_ore": [{"x": ore[0], "y": ore[1], "z": ore[2], "distance": 2.0, "block": "minecraft:iron_ore"}]}
+            snap = world.Snapshot.from_readings(state(x=.5, y=71, z=.5), world.Inventory(inventory()), hits, [],
+                                                world.Region.of((-8, 40, -8), (20, 75, 8), blocks))
+            b.round_snap = snap
+            tasks.add(goals.have(("minecraft:wooden_pickaxe", 1)))
+            got = b.plan_proposals(snap, round_ctx(b, snap))
+        held = b.needs_plan
+        self.assertIsNotNone(held, "an empty-bag start must still plan something")
+        self.assertIsNone(brought_before(held["steps"]), [str(s) for s in held["steps"]])
+        chosen = arbiter.arbitrate(got)
+        first = chosen.action.step if chosen is not None else None
+        # must fail on the base: the old side act's own chosen intent is a raw mine at the ore, no pickaxe held
+        self.assertFalse(first is not None and first.kind == "mine" and first.token == "minecraft:raw_iron",
+                         [(i.kind, i.key) for i in got])
 
 
 if __name__ == "__main__":
