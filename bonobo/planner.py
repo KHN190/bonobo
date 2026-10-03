@@ -269,6 +269,28 @@ def way(src, token, n, ripe=0):
 FUELS = (("coal", 8), ("planks", 1.5))      # what a furnace burns: items smelted per unit (Minecraft Wiki, Fuel)
 
 
+def uncovered(token, srcs):
+    """Pure: `srcs` less each member's way the group's own way makes alike (kind, count, station, an input of the
+    group's per input): the group's way takes any member, so the member's is the same plan searched again."""
+    own = [w for w in (way(src, made, 1) for made, src in srcs if made == token) if w is not None]
+
+    def alike(g, w):
+        left = list(g[1])
+        for t, c in w[1]:
+            hit = next((x for x in left if x[1] == c and (x[0] == t or mid(t) in members(x[0]))), None)
+            if hit is None:
+                return False
+            left.remove(hit)
+        where = all(set(w[0].detail.get(k) or ()) <= set(g[0].detail.get(k) or ()) for k in ("blocks", "types"))
+        return (g[0].kind == w[0].kind and g[0].count == w[0].count and g[2] == w[2] and not left and where
+                and w[0].detail.get("tier") == g[0].detail.get("tier"))
+
+    def covered(made, src):
+        w = way(src, made, 1) if made != token else None
+        return w is not None and any(alike(g, w) for g in own)
+    return [(made, src) for made, src in srcs if not covered(made, src)]
+
+
 def fuel_need(fuel, n):
     per = dict(FUELS)[fuel]
     return math.ceil(n / per)
@@ -561,7 +583,7 @@ class Search:
     def sources(self, token):
         """knowledge.sources, asked once a plan (the registry does not change within one)."""
         if token not in self._sources:
-            self._sources[token] = sources(token)
+            self._sources[token] = uncovered(token, sources(token))
         return self._sources[token]
 
     # -- what is left: its bound

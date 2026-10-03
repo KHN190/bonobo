@@ -297,6 +297,23 @@ class TheAlternativesAreReported(unittest.TestCase):
         self.assertIn("minecraft:bedrock", str(caught.exception))
 
 
+class AlikeWaysAreOne(unittest.TestCase):
+    def test_a_members_way_the_group_makes_alike_is_dropped(self):
+        from bonobo.knowledge import sources
+        # (group, the ways kept: (made, kind)) — must fail: twelve planks recipes searched one by one
+        rows = [("planks", [("planks", "craft")]), ("bed", [("bed", "craft"), ("bed", "take")]),
+                ("building", [(m, "mine") for m, _s in sources("building")])]
+        for group, kept in rows:
+            with self.subTest(group):
+                self.assertEqual([(m, s[0]) for m, s in planner.uncovered(group, sources(group))], kept)
+
+    def test_a_member_mined_elsewhere_is_kept(self):
+        group = ("mine", ["coal_ore"], 0)
+        member = ("mine", ["coal_ore", "deepslate_coal_ore"], 0)
+        # must fail: a member whose blocks the group's way does not mine dropped as alike
+        self.assertEqual(len(planner.uncovered("coal", [("coal", group), ("minecraft:coal", member)])), 2)
+
+
 class TheBoundKnowsTheTrip(unittest.TestCase):
     def test_a_gather_made_walks_once(self):
         from tests.world import cost
