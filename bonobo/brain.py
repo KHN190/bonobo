@@ -187,6 +187,8 @@ def craft_act(layer, name, ctx, steps, step, night, cost, task=None, inv=None):
     if len(run) > 1 or next_use is not None:
         recipes = [(s.token, s.detail.get("times", s.count)) for s in run]
         return Act(layer, name, lambda: craft.craft_chain(ctx, recipes, next_use), task=task, step=step, steps=run)
+    if step.kind == "smelt":
+        step.detail["next_use"] = craft.next_furnace_use(cost, steps, step)    # read by craft._smelt_args (D6)
     return Act(layer, name, lambda: dispatch.execute(ctx, step, night), task=task, step=step)
 
 class Act:

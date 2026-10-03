@@ -536,7 +536,7 @@ def furnace_takes(slots, input_ids, output):
 @skill(gives=["state:smelting"], remaining=_k.less_than_at_start(lambda c: c.args[2], lambda c: min(64, c.args[3])), needs={}, start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
        budget=180, stall=40,
        provides={"smelt": lambda ctx, s: _smelt_args(s) if s.count >= ASYNC_SMELT_MIN else None}, station="minecraft:furnace")
-def start_smelt_job(ctx, output, input_token, count, fuel):
+def start_smelt_job(ctx, output, input_token, count, fuel, next_use=None):
     """Spread the batch over the free furnaces within FURNACE_REACH (placing one if none), fuel each, and walk away."""
 
     count = min(64, count)
@@ -569,11 +569,11 @@ def start_smelt_job(ctx, output, input_token, count, fuel):
             move_into(fuels, 1, f)
         finally:
             api.post("/close")    # leave the furnace standing: that's the point
-        ready_at = time.time() + 10 * k + 5
+        ready_at = time.time() + SMELT_S_PER_ITEM * k + 5
         tick = api.get("/state").get("gameTime")
         job = ctx.mem.add_job("furnace", pos, ctx.dimension, output, k, ready_at, pos == placed,
                               input=inputs[0] if inputs else None, input_count=k,
-                              fuel=fuels[0] if fuels else None, fuel_count=f)
+                              fuel=fuels[0] if fuels else None, fuel_count=f, next_use=next_use)
         if tick is not None:
             job["ready_tick"] = tick + TICKS_PER_ITEM * k + 20
             ctx.mem.save()
@@ -585,7 +585,7 @@ def start_smelt_job(ctx, output, input_token, count, fuel):
     return {"ordered": output, "count": total, "ready_at": max(ready)}
 
 def _smelt_args(s):
-    return mid(s.token), s.detail["input"], s.count, s.detail["fuel"]
+    return mid(s.token), s.detail["input"], s.count, s.detail["fuel"], s.detail.get("next_use")
 
 def _smelter_for(ctx, s):
     """(machine, input, count, fuel, output) when an auto smelter within 64 blocks can take this batch, else None."""
