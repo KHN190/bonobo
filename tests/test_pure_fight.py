@@ -545,6 +545,25 @@ class HazardsAndStandableSpots(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(fight.admissible(state(solid), fight.action("dig_tunnel"))[0], allowed)
 
+    def test_the_dug_pit_stays_the_escape(self):
+        """S1: the cell a dig made is the escape the walls leave — the pit dug (its column read as air), its feet the
+        fight's cover: a commit in the walled pocket still allowed (must fail: the cover filtered as a wall)."""
+        import types
+        from bonobo import fight_plan
+        fight = fight_plan.Fight()
+        here = (10007.5, 200.0, 10000.5)
+        pit = {(10007, y, 10000) for y in range(196, 200)}
+        solid = lambda c: tuple(c) not in pit and (c[1] <= 199 or c[0] >= 10009 or c[2] >= 10001 or c[2] <= 9999)  # noqa: E731
+        state = {"self": {"pos": here, "hp": 20.0, "in_cover": False, "cover": (10007, 196, 10000),
+                          "hp_floor": fight_plan.CONFIG["combat"]["hp_floor"],
+                          "speed": fight_plan.CONFIG["combat"]["sprint_speed"]},
+                 "boss": {"phase": 0, "phase_elapsed_s": 0.0, "hp": 200.0},
+                 "threats": [((here[0] - 5.0, 200.0, here[2]), 3.0, (0.0, 0.0, 0.0), "minecraft:zombie")],
+                 "ground": types.SimpleNamespace(solid=solid),
+                 "resources": {"beds": 1, "obsidian": 0, "water": 0, "bow": 0, "arrows": 0},
+                 "terrain": {"tunnel_ready": True, "bed_placed": False, "reinforced": False, "crystals_open": 0}}
+        self.assertEqual(fight.admissible(state, fight.action("place_bed")), (True, ""))
+
 
 class StillWorth(unittest.TestCase):
     def test_table(self):
