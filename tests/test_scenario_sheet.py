@@ -680,7 +680,7 @@ class BrainGrid(unittest.TestCase):
         # (family, the cell's moved dimensions, the expectation it must get)
         rows = [("night_first", {}, "a day ahead: the task first, no bed made (must not)"),  # must fail: the (must not) expectations
                 ("night_first", {"dusk": "tight"}, "dusk or night on the surface, no bed: the night first"),
-                ("night_first", {"dusk": "night", "food": "low"}, "hungry: food before the task (cooking it counts)"),
+                ("night_first", {"dusk": "night", "food": "low"}, "hungry: never starved, food secured (cooking counts), the task done"),
                 ("tool_tier", {"tool": "one_use"}, "broken: the best tier this bag crafts (iron)"),
                 ("tool_tier", {}, "fresh: nothing crafted, the ingots kept (must not craft)"),
                 ("night_under", {"dusk": "night", "head": "underground"}, "night underground: work there (ore), no climb"),
@@ -694,34 +694,36 @@ class BrainGrid(unittest.TestCase):
                 self.assertEqual(words_brain.BRAIN_FAMILIES[fam][2](dict(words_brain.BRAIN_BASE, **moved))[1], want)
 
 
-class FoodFirstFromTheWorld(unittest.TestCase):
-    """night_first__low's check, from the world: a furnace holding the beef (or cooked beef in the bag) before any
-    log, and the bar no
-    lower at the end than the drain left it. Logs first with nothing cooking must fail."""
+class FedByTheInvariants(unittest.TestCase):
+    """night_first__low's food parts, by S8/G3 not the order: the bar never 0, food secured (a furnace holding the
+    beef, cooked beef in the bag, or the bar risen). Logs before the beef passes; nothing cooking or a 0 must fail."""
 
     def test_over_the_table(self):
         from types import SimpleNamespace
         check = words_brain.BRAIN_FAMILIES["night_first"][2](dict(words_brain.BRAIN_BASE, dusk="night", food="low"))[0]
-        rows = [("beef in a furnace at 2 s, logs at 9 s, food kept", {"furnace_beef": 2.0, "log": 9.0}, 12, True),
-                ("cooked beef in the bag before logs", {"minecraft:cooked_beef": 3.0, "log": 9.0}, 12, True),
-                ("must fail: logs first, nothing in a furnace", {"log": 4.0}, 12, False),
-                ("must fail: logs at 3 s, the beef in the furnace only at 8 s", {"furnace_beef": 8.0, "log": 3.0}, 12,
-                 False),
-                ("must fail: food first but the bar fell below the drain", {"furnace_beef": 2.0, "log": 9.0}, 7, False)]
-        for name, first, food_end, want in rows:
+        starved, secured = check.parts[0], check.parts[1]
+        rows = [("beef in a furnace at 2 s, logs at 9 s", {"furnace_beef": 2.0, "log": 9.0}, 9, 9, True),
+                ("logs at 3 s, the beef in the furnace at 8 s (order free)", {"furnace_beef": 8.0, "log": 3.0}, 9, 9,
+                 True),
+                ("cooked beef in the bag", {"minecraft:cooked_beef": 3.0}, 9, 9, True),
+                ("nothing cooking, the bar risen past the drain", {"log": 4.0}, 9, 12, True),
+                ("must fail: logs, nothing cooking, the bar not risen", {"log": 4.0}, 9, 10, False),
+                ("must fail: the bar hit 0 during the run", {"furnace_beef": 2.0}, 0, 4, False),
+                ("must fail: the bar 0 at the end", {"furnace_beef": 2.0}, None, 0, False)]
+        for name, first, low, food_end, want in rows:
             with self.subTest(name):
                 fake = SimpleNamespace(get=lambda path, _f=food_end: {"food": _f})
-                saved_first, saved_base = dict(words_checks.FIRST), dict(words_checks.BASE)
+                saved = dict(words_checks.FIRST), dict(words_checks.BASE), dict(words_brain.FIRST_WATCH)
                 try:
                     words_checks.FIRST.clear()
                     words_checks.FIRST.update(first)
                     words_checks.BASE["food_drained"] = 10
-                    self.assertIs(bool(check(fake, None)), want)
+                    words_brain.FIRST_WATCH["food_min"] = low
+                    self.assertIs(bool(starved(fake, None) and secured(fake, None)), want)
                 finally:
-                    words_checks.FIRST.clear()
-                    words_checks.FIRST.update(saved_first)
-                    words_checks.BASE.clear()
-                    words_checks.BASE.update(saved_base)
+                    for live, was in zip((words_checks.FIRST, words_checks.BASE, words_brain.FIRST_WATCH), saved):
+                        live.clear()
+                        live.update(was)
 
 
 class FurnaceSlots(unittest.TestCase):

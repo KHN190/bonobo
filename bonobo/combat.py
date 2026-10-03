@@ -10,7 +10,7 @@ from .game import EYE_HEIGHT
 from .data import NETHER
 from .api import McError, NotAvailable
 from .skill import budget_end, skill
-from .world import Inventory, cell_add, entities
+from .world import Inventory, cell_add, entities, find
 
 ARROW_SPEED = 3.0          # blocks per tick at full draw
 GRAVITY = 0.05             # blocks per tick² on arrows
@@ -46,6 +46,16 @@ def shoot(entity, hold_ticks=22, near=None):
         raise McError(f"shooting failed: {r['message']}")
 
 BLAZE_QUIET_S = 30      # no blaze and no rod in sight for this long: this is not a spawner
+SPAWNER_RANGE = 16      # the game's spawner activation range: no spawner this near, no blaze comes back
+
+def blaze_step(blazes, rods, spawners, quiet_s):
+    """Pure: "collect" (rods on the floor), "wait" (a blaze alive, or a spawner near not yet quiet for BLAZE_QUIET_S),
+    "end" (none alive, none lying, and no spawner near: nothing will come)."""
+    if rods:
+        return "collect"
+    if blazes:
+        return "wait"
+    return "wait" if spawners and quiet_s < BLAZE_QUIET_S else "end"
 
 def _rods_on_floor():
     return [e for e in entities(16, ["minecraft:item"]) if (e.get("item") or {}).get("id") == "minecraft:blaze_rod"]
@@ -68,8 +78,11 @@ def collect_blaze_rods(ctx, rods):
             seen = now_seen
         if not blazes and not floor:
             quiet_since = quiet_since or time.time()
-            if time.time() - quiet_since >= BLAZE_QUIET_S:
-                raise NotAvailable("no blazes here: not a spawner")
+            spawners = find(["minecraft:spawner"], radius=SPAWNER_RANGE, limit=1)
+            if blaze_step(blazes, floor, spawners, time.time() - quiet_since) == "end":
+                raise NotAvailable("no blaze within 24, no rod on the floor" + (
+                    f", quiet {BLAZE_QUIET_S} s by the spawner" if spawners else
+                    f", no spawner within {SPAWNER_RANGE}: none will come here"))
         else:
             quiet_since = None
         if floor:
