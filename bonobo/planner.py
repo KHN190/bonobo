@@ -533,6 +533,44 @@ class Node:
                     self.open, self.path)
 
 
+def _delta(before, after):
+    """Pure: what a sub-plan did to the bag — each table's count changes, the facts it set, the tools it left."""
+    out = {}
+    for name in ("counts", "produced", "pending", "awaited"):
+        a, b = getattr(before, name), getattr(after, name)
+        out[name] = {k: b.get(k, 0) - a.get(k, 0) for k in set(a) | set(b) if b.get(k, 0) != a.get(k, 0)}
+    out["facts"] = {k: v for k, v in after.facts.items() if before.facts.get(k, _UNSET) != v}
+    out["gone"] = [k for k in before.facts if k not in after.facts]
+    lost, got = Counter(before.tools), Counter(after.tools)
+    out["tools"] = (lost - got, got - lost)
+    return out
+
+
+def _applied(inv, delta):
+    """Pure: `inv` with a sub-plan's `delta` applied (`_delta`)."""
+    out = inv.clone()
+    for name in ("counts", "produced", "pending", "awaited"):
+        if delta[name]:
+            table = out._own(name)
+            for k, d in delta[name].items():
+                table[k] = table.get(k, 0) + d
+    if delta["facts"] or delta["gone"]:
+        facts = out._own("facts")
+        facts.update(delta["facts"])
+        for k in delta["gone"]:
+            facts.pop(k, None)
+    lost, got = delta["tools"]
+    if lost or got:
+        tools = Counter(out._own("tools"))
+        tools.subtract(lost)
+        tools.update(got)
+        out.tools[:] = sorted(t for t, n in tools.items() for _ in range(max(0, n)))
+    return out
+
+
+_UNSET = object()
+
+
 def _scaled(step, n):
     """Pure: `step` at `n` units (its breaks, kills and times with it): what a merged run of it does."""
     detail = dict(step.detail)
@@ -1347,7 +1385,9 @@ class Search:
             if got is None:
                 return node
             best, best_f, before = None, math.inf, len(self.reasons)
-            for k, c in enumerate(sorted(got, key=lambda c: (c.g + self.h(c, c.horizon), c.tie))):
+            # a container's goods tried first in the dive (only the order: the bound still weighs every way)
+            for k, c in enumerate(sorted(got, key=lambda c: (not (self.greedy and c.tie and c.tie[-1][:2] == (0, -1)),
+                                                             c.g + self.h(c, c.horizon), c.tie))):
                 width = DIVE_WIDTH if self.spent <= DIVE_NODES and not round_spent() else 1   # spent: the first way that can be had
                 if width == 1 and k == 1 and not self.exact:
                     SPENT["budget"] += 1
@@ -1364,26 +1404,51 @@ class Search:
             node = best
         return node
 
+    def touched(self, node):
+        """The item ids what is asked above `node`'s horizon can read or change: each token's derivation (Bound.reach),
+        a step's inputs and call, the fuels and stations — the part of the bag a sub-plan's price and steps depend on."""
+        out = set(STATIONS) | {mid(f) for f, _per in FUELS}
+        for t in node.stack[node.horizon:]:
+            tokens = []
+            if t[0] in ("need", "station", "use", "add"):
+                tokens.append(t[1])
+            elif t[0] == "tool":
+                tokens.append(tool_item(t[1], t[2]))
+            elif t[0] in ("emit", "prep", "speed", "fuel") and isinstance(t[1], Step):
+                tokens += [t[1].token, *t[1].detail.get("inputs", {}), *(d for d in self.call(t[1]) if ":" not in d)]
+            for tok in tokens:
+                out |= {tok, mid(tok)} | self.lb.reach.get(tok, set()) | self.lb.reach.get(mid(tok), set())
+        return {m for tok in out for m in (_MEMBERS.get(tok) or members(tok))} | out
+
     def settled(self, node, cap):
-        """`settle` of a node down to its horizon, memoised on what is asked and the bag it is asked from."""
-        key = (signature(node.stack[node.horizon:], self.task_keys), node.inv.signature(), node.open)
+        """`settle` of a node down to its horizon, memoised on what is asked, the part of the bag it reads (`touched`)
+        and the places walked to (the prefix's: a step at one walks nothing more): the same price under any other
+        items, its change to the bag applied to the asker's."""
+        near = self.touched(node)
+        inv = node.inv
+
+        def part(table):
+            return tuple(sorted((k, v) for k, v in table.items() if v and k in near))
+        key = (signature(node.stack[node.horizon:], self.task_keys), part(inv.counts), part(inv.produced),
+               tuple(sorted(inv.tools)), part(inv.pending), part(inv.awaited), tuple(sorted(inv.facts.items())),
+               node.open, self.walked(node))
         hit = self.memo.get(key)
         if hit is not None:
-            ok, inv, steps, g, tie, path = hit
+            ok, delta, steps, g, tie, path = hit
             if not ok or node.g + g > cap:
                 return None
             out = node.child()
-            out.inv, out.stack = inv.clone(), out.stack[:node.horizon]
+            out.inv, out.stack = _applied(node.inv, delta), out.stack[:node.horizon]
             out.steps, out.g, out.tie = node.steps + list(steps), node.g + g, node.tie + tie
             out.path = node.path + tuple((node.g + dg, h) for dg, h in path)
             return out
-        start, g0, t0, p0 = len(node.steps), node.g, len(node.tie), len(node.path)
+        start, g0, t0, p0, before = len(node.steps), node.g, len(node.tie), len(node.path), node.inv.clone()
         done = self.settle(node, node.horizon, cap)
         if done is None:
             if cap == math.inf:
                 self.memo[key] = (False, None, (), 0.0, (), ())
             return None
-        self.memo[key] = (True, done.inv.clone(), tuple(done.steps[start:]), done.g - g0, done.tie[t0:],
+        self.memo[key] = (True, _delta(before, done.inv), tuple(done.steps[start:]), done.g - g0, done.tie[t0:],
                           tuple((g - g0, h) for g, h in done.path[p0:]))
         return done
 

@@ -570,6 +570,23 @@ class APrepAloneStillCounts(unittest.TestCase):
         self.assertGreater(search.saves_at_most(node, "pickaxe", 0, 2, now), 0)
 
 
+class ASubPlanIsTheSameUnderOtherItems(unittest.TestCase):
+    def test_items_its_making_never_reads_still_find_it(self):
+        search = planner.Search(NullCost())
+        got = []
+        for extra in ([], [("beef", 5)], [("dirt", 9)]):
+            node = planner.Node(planner.from_bag(bag(inventory(*extra)), facts=NullCost().facts()), [], [])
+            node.stack = [("need", "minecraft:stick", 4, 0, False)]
+            size = len(search.memo)
+            done = search.settled(node, math.inf)
+            got.append((len(search.memo) - size, done.g, [(st.kind, st.token) for st in (s for s, _h, _x in done.steps)],
+                        {k: v for k, v in done.inv.counts.items() if k in ("minecraft:beef", "minecraft:dirt")}))
+        # must fail: searched again for a bag that differs only in beef or dirt (nothing sticks are made from)
+        self.assertEqual([g[0] for g in got[1:]], [0, 0])
+        self.assertEqual(len({(g[1], tuple(g[2])) for g in got}), 1)                  # the same plan, the same price
+        self.assertEqual([g[3] for g in got], [{}, {"minecraft:beef": 5}, {"minecraft:dirt": 9}])   # its own items kept
+
+
 class AFactLeftBoundsTheToolsPayback(unittest.TestCase):
     def test_a_diamond_axe_is_not_tried_for_four_logs(self):
         search = planner.Search(NullCost())
