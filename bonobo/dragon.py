@@ -1,6 +1,7 @@
 """The dragon fight's skills, contracts only: to be rewritten."""
 
 from . import knowledge as _k
+from .data import THE_END
 from .skill import skill
 
 
@@ -24,6 +25,7 @@ def shake_enderman(ctx):
     raise NotImplementedError("dragon: to be rewritten")
 
 
-@skill(gives=["state:dragon_dead"], remaining=_k.none_of("minecraft:ender_dragon", within=512.0), needs={}, budget=1800, stall=300, soft=True)
+@skill(gives=["state:dragon_dead"], remaining=_k.none_of("minecraft:ender_dragon", within=512.0), needs={}, budget=1800, stall=300, soft=True,
+       provides={"slay:dragon": lambda ctx, s: ()}, when=lambda s, f: [("dimension", THE_END)])
 def slay_dragon(ctx):
     raise NotImplementedError("dragon: to be rewritten")

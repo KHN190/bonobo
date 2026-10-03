@@ -86,7 +86,7 @@ ROWS = [
          # S5: an optional fight: the line held (diamond sword, iron chest + helmet, a shield)
          check=[('count', 'minecraft:blaze_rod', '>=', 1),
                 ('state', 'health', '>=', fight_line_hp('minecraft:blaze', 'minecraft:diamond_sword', IRON_CHEST + IRON_HELMET, True))],
-         budget=25,
+         est=('fight', ['blaze'], 3),
          dimension='minecraft:the_nether', combat=True,
          expect=[(('@', -8, -1, -8), ('@', 8, -1, 8), 'nether_bricks', 289, 289)],
          expect_entities=[('minecraft:blaze', 3)], skills=['collect_blaze_rods']),
@@ -97,7 +97,8 @@ ROWS = [
                 ('built', 'endermen_off_path', ('@', -WALK_X, 0, 0), ('@', WALK_X, 0, 0), 4)],
          run=('do', 'bonobo.nav.go_to', [('@', WALK_X, 0, 0), ('$ctx', 'policy')], {'range_': 1.5}),
          check=[('arrived', ('@', WALK_X, 0, 0), 1.5), ('endermen_calm',), ('alive', 20)],
-         budget=25, point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'enderman'},
+         est=('step', 'goto', '', 1, {'pos': ('@', WALK_X, 0, 0)}), point='B', combat=True, stochastic=True,
+         tags={'base': 'fight', 'enemy': 'enderman'},
          expect_entities=[('minecraft:enderman', 4, 4)],
          expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),
                  (('@', -9, 0, -9), ('@', 9, 3, 9), 'glass', 288, 288)]),

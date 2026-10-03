@@ -239,7 +239,24 @@ def recipes():
         r[f"minecraft:{material}_shovel"] = ([None, tok, None, None, s, None, None, s, None], 1)
         r[f"minecraft:{material}_sword"] = ([None, tok, None, None, tok, None, None, s, None], 1)
         r[f"minecraft:{material}_hoe"] = ([tok, tok, None, None, s, None, None, s, None], 1)
+    r.update(vanilla_recipes())
     return r
+
+def vanilla_recipes():
+    """The game's own recipe files (vanilla/recipe, copied from the 1.21.11 jar's data/minecraft/recipe): item →
+    (pattern, output count) in recipes()' form."""
+    import json
+    import os
+    out = {}
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vanilla", "recipe")
+    for name in sorted(os.listdir(folder)):
+        with open(os.path.join(folder, name), encoding="utf-8") as f:
+            got = json.load(f)
+        if got["type"] != "minecraft:crafting_shapeless":
+            raise ValueError(f"{name}: recipe type {got['type']} not read")
+        cells = list(got["ingredients"])
+        out[got["result"]["id"]] = (cells + [None] * ((4 if len(cells) <= 4 else 9) - len(cells)), got["result"]["count"])
+    return out
 
 RECIPES = recipes()
 

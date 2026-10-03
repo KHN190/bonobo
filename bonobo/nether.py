@@ -10,7 +10,7 @@ from .api import McError, NotAvailable, log
 from .skill import skill
 from .world import Inventory, entities, find, container
 from .knowledge import food_count
-from .data import NETHER, OVERWORLD
+from .data import NETHER, OVERWORLD, THE_END
 
 
 def portal_cell(origin, turns):
@@ -50,7 +50,8 @@ def _portal_known(c):
 
 
 @skill(gives=["state:crossed"], remaining=_k.is_in_dimension(lambda c: c.args[1]), needs={}, pre=[_portal_known], done=lambda c: api.get("/state")["dimension"] == c.args[1], budget=180, stall=90,
-       provides={"portal": lambda ctx, s: (s.token,)}, when=lambda s, f: [("portal", True)], sets={"*": {"dimension": "token"}})
+       provides={"portal": lambda ctx, s: (s.token,)}, sets={"*": {"dimension": "token"}},
+       when=lambda s, f: "a nether portal leads to the Nether or back" if s.token == THE_END else [("portal", True)])
 def use_portal(ctx, to_dimension):
     """Walk into the nearest known lit portal and stand in it until the dimension changes."""
 
