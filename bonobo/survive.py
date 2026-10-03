@@ -430,7 +430,7 @@ def bed_room_tasks(region, feet, protected, places, inv):
                 if not all(region.inside(c) for c in cells + [cell_add(foot, (0, -1, 0)), cell_add(head, (0, -1, 0))]):
                     continue
                 tasks, got = nav.open_tasks(region, cells, [cell_add(foot, (0, -1, 0)), cell_add(head, (0, -1, 0))], feet,
-                                            protected, list(places))
+                                            protected, list(places), at=feet)
                 if tasks is None:
                     why = got
                     continue
