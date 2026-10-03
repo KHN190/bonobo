@@ -380,7 +380,7 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
                {"footing": False, "hands_free": False}),
               ("boundary: one tick above drowning", {"air": knowledge.DROWNING_TICKS + 1},
                {"footing": True, "hands_free": True}),
-              ("falling", {"onGround": False, "fallDistance": knowledge.FALLING_BLOCKS + 1},
+              ("falling", {"onGround": False, "fallDistance": knowledge.FALL_TAKES_HANDS + 1},
                {"footing": False, "hands_free": False}),
               ("must fail: the player holds the controls", {"control": {"paused": True}},
                {"footing": True, "hands_free": False}),
