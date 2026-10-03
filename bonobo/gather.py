@@ -112,6 +112,13 @@ def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
         return None, f"{carried} blocks carried, {dug} dug on the way, {depth - JUMP_BLOCKS} to pillar back out"
     return tasks, None
 
+def pass_cells(vein, open_set, start: Cell, n) -> list[Cell]:
+    """Pure: the `n` cells one pass sends — those with an open face in WORK_REACH of `start` first (one chain from
+    where the body stands), then the rest nearest first."""
+    return sorted(vein, key=lambda p: (not (p in open_set and math.dist(p, start) <= WORK_REACH),
+                                       math.dist(p, start), p))[:n]
+
+
 def approach_cell(vein, open_set, start: Cell) -> Cell:
     """Pure: the vein cell a pass goes for first — an open-faced one within WORK_REACH of `start` (worked from where
     the body stands), else the nearest: a shaft or a tunnel only for a vein with no open face in reach."""
@@ -291,7 +298,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             continue
         # never open a block touching lava or water unless the goal wants the fluid; surface blocks keep 2 from any fluid
         want = breaks or max(1, target - have)
-        vein = set(sorted(vein, key=lambda p: math.dist(p, start))[: max(want, len(vein) if tier else want)])
+        vein = set(pass_cells(vein, open_set, start, max(want, len(vein) if tier else want)))
         # reach a vein by walking if there is a way, else by digging one: buried ore has no path, and banning it left coal inside a wall forever
         near = approach_cell(vein, open_set, start)
         if (FIND_AT.get(mid(drop)) is None and near not in open_set and near[1] < start[1]

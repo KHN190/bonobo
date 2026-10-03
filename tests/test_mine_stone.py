@@ -85,6 +85,23 @@ class AnOpenFaceIsWorkedWhereItStands(unittest.TestCase):
                 self.assertEqual(gather.approach_cell(vein, open_set, FEET), want)
 
 
+class OnePassTakesWhatItWants(unittest.TestCase):
+    """mine_stone__base: a pass of 3 took the 3 nearest cells — two buried under the supports — and sent the one open
+    among them: one block a chain, re-planned between. A pass takes its count from the open faces in reach first."""
+
+    def test_rows(self):
+        x, y, z = FEET
+        buried = {(x + 1, y - 2, z), (x - 1, y - 2, z)}
+        tops = {(x + 2, y - 1, z), (x - 2, y - 1, z), (x, y - 1, z + 2), (x, y - 1, z - 2)}
+        rows = [("must fail: three open faces in reach, not the nearer buried", buried | tops, tops, 3, 3),
+                ("one open face: it, then the nearest buried", buried | {(x + 2, y - 1, z)}, {(x + 2, y - 1, z)}, 3, 1)]
+        for name, vein, open_set, n, want_open in rows:
+            with self.subTest(name):
+                got = gather.pass_cells(vein, open_set, FEET, n)
+                self.assertEqual(len(got), n)
+                self.assertEqual(sum(1 for c in got if c in open_set), want_open)
+
+
 class NoShaftIsNoBan(unittest.TestCase):
     """mine_stone__base: a shaft that cannot be dug from here banned every cell of the connected vein (88 stone), and the
     next pass found nothing; the way in failed, not the vein — no ban, the next pass takes another way."""
