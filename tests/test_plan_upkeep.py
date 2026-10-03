@@ -1537,8 +1537,9 @@ WITHDRAW_SOME = [("must fail: the chest on the way to the trees: 2 taken, 2 chop
 # (situation, goal, what a chest holds, how far) → is anything withdrawn? Taking is a way like any other, at any depth
 # of the plan, priced against making it (V1: no rule for tools or intermediates).
 WITHDRAW_GOALS = [
-    ("must fail: sticks in a chest 2 away, a pickaxe asked: made from the planks the plan makes anyway (a craft is "
-     "cheaper than the fetch)", PICK1, {"minecraft:stick": 8}, 2, False),
+    # None: by seconds — the take merges into one trip and the planks are made anyway: whichever the model prices less
+    ("must fail: sticks in a chest 2 away, a pickaxe asked: fetched or made, whichever takes fewer seconds", PICK1,
+     {"minecraft:stick": 8}, 2, None),
     ("sticks in the chest, sticks asked: fetched", goals.have(("minecraft:stick", 4)), {"minecraft:stick": 8}, 2, True),
     ("a pickaxe in a chest 2 away: fetched, cheaper than making one", PICK1, {"minecraft:stone_pickaxe": 1}, 2, True),
     ("logs in the chest, logs asked, trees far: fetched", goals.have(("log", 4)), {"minecraft:oak_log": 8}, 2, True),
@@ -1558,6 +1559,11 @@ class Withdraw(unittest.TestCase):
                 m.note_container((far, 64, 0), OVER, [{"id": i, "count": n} for i, n in items.items()])
                 snap = snapshot()
                 steps = decompose.decompose(snap.inv, goal, cost(snap, mem=m, oak_log=30, stone=20))
+                if want is None:
+                    best = planner.plan_candidates(snap.inv, goals.needs(goal, snap.inv),
+                                                   cost(snap, mem=m, oak_log=30, stone=20), exact=True)[0][2]
+                    want = any(st.kind == "withdraw" for st in best)
+                    self.assertLessEqual(sum(st.est for st in steps), sum(st.est for st in best))
                 self.assertEqual(any(st.kind == "withdraw" for st in steps), want, list(map(str, steps)))
 
     def test_a_repeat_is_one_trip(self):
@@ -1567,10 +1573,11 @@ class Withdraw(unittest.TestCase):
             m = Memory(os.path.join(tmp, "notes.json"))
             m.note_container((far, 64, 0), OVER, [{"id": i, "count": n} for i, n in items.items()])
             snap = snapshot()
-            got = planner.plan_candidates(snap.inv, goals.needs(goal, snap.inv), cost(snap, mem=m, oak_log=30, stone=20),
-                                          exact=True)[0][2]
-        # must fail: the sticks fetched (67.7 s as run) over made (52.5 s), each gather of a log charged its own walk
-        self.assertFalse(any(st.kind == "withdraw" for st in got), list(map(str, got)))
+            found = planner.plan_candidates(snap.inv, goals.needs(goal, snap.inv),
+                                            cost(snap, mem=m, oak_log=30, stone=20), exact=True)
+        # must fail: a dearer plan taken while one the search priced was cheaper as run (the sticks fetched at 67.7 s
+        # over made at 52.5 s, each gather of a log charged its own walk)
+        self.assertEqual(found[0][1], min(s for _n, s, _st in found), [(n[:40], s) for n, s, _st in found])
 
     def test_part_taken_where_cheaper(self):
         for name, far in WITHDRAW_SOME:

@@ -528,6 +528,15 @@ class Node:
                     self.open)
 
 
+def _scaled(step, n):
+    """Pure: `step` at `n` units (its breaks, kills and times with it): what a merged run of it does."""
+    detail = dict(step.detail)
+    for k in ("breaks", "kills"):
+        if k in detail:
+            detail[k] = n * detail[k] // max(1, step.count)
+    return Step(step.kind, step.token, n, detail)
+
+
 def step_value(step):
     """Pure: what a step is, by value — the key its contracts' answers are kept under."""
     return step.kind, step.token, step.count, repr(sorted(step.detail.items())) if step.detail else ""
@@ -1234,14 +1243,20 @@ class Search:
             if kind in held:
                 node.inv.wear(kind, 0, self.uses(step, kind))
         ticks = self.cost.work(step, held)
-        repeat = any(st.key() == step.key() for st, _h, _s in node.steps)
-        if step.kind == "withdraw" and not repeat:     # walked to from where the step before ends, as forward prices it
-            at = next((p for p in (self.cost.site(st) for st, _h, _s in reversed(node.steps)) if p is not None), None)
-            ticks = self.cost.estimate(step, held, at=at)
-        elif not (step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)) or not repeat:
-            ticks += self.cost.dig_to(step, held) + self.cost.walk_lb(step)    # a repeat joins the first (forward): one trip
-            if step.kind in MERGEABLE or step.kind == "craft" and step.token in MERGEABLE_CRAFTS:
+        mergeable = step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)
+        made = "made " + repr(step.key())       # in the bag's facts: what a sub-plan is remembered by sees it too
+        if mergeable and node.inv.facts.get(made):
+            # a repeat joins the first (forward): no trip, and only the work its units add (a craft's is once)
+            ticks = max(0, ticks - self.cost.work(_scaled(step, 0), held))
+        else:
+            # at the least (from the nearest place it can be walked to from): forward may run it after any step
+            walk = self.cost.walk_lb(step)
+            ticks = round((ticks + walk) / step.detail["p"]) if step.kind == "withdraw" and step.detail.get("p") \
+                else ticks + self.cost.dig_to(step, held) + walk
+            if mergeable:
                 node.inv.set_fact("trip " + step.token, True)
+        if mergeable:
+            node.inv.set_fact(made, True)
         if self.hungry and not node.inv.facts.get("fed"):
             ticks += round(ticks * self.hungry)         # F1l: hunger's seconds until a step makes food
             node.inv.set_fact("fed", mid(step.token) in FOOD_IDS and step.kind in MAKES_FOOD)

@@ -12,7 +12,7 @@ from bonobo import planner  # noqa: E402
 from bonobo.cost import Cost  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import NullCost, Unplannable, plan_candidates, plan_needs  # noqa: E402
-from tests.world import bag, inventory, snapshot  # noqa: E402
+from tests.world import bag, inventory, snapshot, state  # noqa: E402
 
 OVER = "minecraft:overworld"
 
@@ -346,6 +346,36 @@ class TheBoundWalksEveryTripLeft(unittest.TestCase):
         search = planner.Search(cost(snapshot()))
         # must fail: iron ingots from an iron block (made of ingots) taken as a way that needs no walk
         self.assertTrue(search.required("minecraft:iron_ingot", lambda t: 0, set(), frozenset()))
+
+
+class TheSearchPricesAtTheLeast(unittest.TestCase):
+    """A*'s g never above what forward will price: forward may run a step after any other and merges repeats."""
+
+    def test_a_repeated_craft_adds_no_work(self):
+        search = planner.Search(NullCost())
+        node = planner.Node(planner.from_bag(bag(inventory(("oak_log", 2))), facts=NullCost().facts()), [], [])
+        added = []
+        for _ in range(2):
+            g0 = node.g
+            search.emit(node, planner.Step("craft", "planks", 4, {"inputs": {"log": 1}}), 0, 0)
+            added.append(node.g - g0)
+        # must fail: the second craft of planks charged a craft's work though forward merges it into the first
+        self.assertEqual(added[1], 0)
+        self.assertGreater(added[0], 0)
+
+    def test_a_walk_from_a_place_only_the_look_saw(self):
+        import os
+        import tempfile
+        from bonobo import world
+        from bonobo.cost import Cost, walk_ticks
+        hits = {"iron_ore": [{"x": 30, "y": 64, "z": 0, "distance": 30.0}],
+                "coal_ore": [{"x": 31, "y": 64, "z": 0, "distance": 31.0}]}
+        snap = world.Snapshot.from_readings(state(), inventory(), hits, [])
+        with tempfile.TemporaryDirectory() as tmp:
+            c = Cost(snap, Memory(os.path.join(tmp, "notes.json")))
+            step = planner.Step("mine", "minecraft:raw_iron", 1, {"blocks": ["iron_ore"], "tier": 1, "breaks": 1})
+            # must fail: walked from the feet (30 blocks) though the coal the look saw a block away may come first
+            self.assertLessEqual(c.walk_lb(step), walk_ticks(1.0))
 
 
 class TheRoundsBudgetIsShared(unittest.TestCase):

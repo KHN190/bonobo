@@ -53,5 +53,16 @@ class TheFeedbackIsBounded(unittest.TestCase):
         self.assertLess(got, 900 * TICKS_PER_S)
 
 
+class TheWaitIsTheNightLeft(unittest.TestCase):
+    def test_rows(self):
+        from bonobo.knowledge import dawn_s
+        from tests.world import state
+        for t in (13000, 18000, 22500):
+            with self.subTest(timeOfDay=t):
+                snap = snapshot(state(timeOfDay=t))
+                # must fail: a wait for day priced as a search for something never seen (seek_prior_s / exists_prior)
+                self.assertEqual(cost(snap).work(Step("wait", "day", 1, {})), round(dawn_s(snap.state) * TICKS_PER_S))
+
+
 if __name__ == "__main__":
     unittest.main()

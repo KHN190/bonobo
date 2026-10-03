@@ -305,7 +305,7 @@ class Cost:
         measured = self.measured(step)
         if measured is not None:
             return measured
-        if step.kind in ("seek", "wait"):
+        if step.kind == "seek":
             kinds = list(step.detail.get("kinds") or [step.token])
             return round(self.seek_s(kinds) / max(MIN_FIND_P, self.find_p(kinds)) * TICKS_PER_S)
         if step.kind == "wait":
@@ -390,14 +390,17 @@ class Cost:
 
     def walk_lb(self, step):
         """Ticks no walk to this step's site can beat (the digging to it aside: `dig_to`): from the nearest place a
-        plan may stand before it (the feet or any remembered spot); the walk from here when the site is unknown."""
+        plan may stand before it (the feet, a remembered spot, a container, the round's look); the walk from here
+        when the site is unknown."""
         site = self.site(step)
         if site is None:
             return self._walk(step, dig=False)
-        points = self._points()
-        near = min((math.dist(p, site) for p in points if tuple(p) != tuple(site)), default=math.inf)
-        near = min(near, math.dist(self.snap.feet, site))
-        return walk_ticks(near)
+        key = ("walk_lb", tuple(site))
+        if key not in self.cache:
+            # from every place a plan may stand before it: remembered, a container, the look's (site's own answers)
+            near = min((math.dist(p, site) for p in self.places() if tuple(p) != tuple(site)), default=math.inf)
+            self.cache[key] = walk_ticks(min(near, math.dist(self.snap.feet, site)))
+        return self.cache[key]
 
     def _points(self):
         """Every remembered spot in this dimension (memory: notes, stations, sites): where a plan can stand."""
