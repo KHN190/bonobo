@@ -233,8 +233,7 @@ def P2(b, d, a, ctx):
                 if not tool_ok(inv, kind, int(tier)) and tools.get(kind, -1) < int(tier):
                     return f"step {i + 1} {st} needs a tier-{tier} {kind}, none held or made before it"
         station = _station(st)
-        if station and have(station) <= 0 and (mem is None or not any(
-                bare(s.get("block") or "") in {bare(i) for i in ids(station)} for s in mem.stations(dim))):
+        if station and have(station) <= 0 and (mem is None or not mem.known_stations(station, dim)):
             return f"step {i + 1} {st} works at a {bare(station)}, none held, made before it or remembered"
         if st.kind in MAKES:
             made[st.token] += int(st.count)

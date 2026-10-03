@@ -1,6 +1,7 @@
 """check/inv/plan.py oracles over hand-made ctx."""
 import unittest
 
+from bonobo import memory
 from bonobo.planner import Step
 from check import oracle
 from check.facts import of
@@ -33,12 +34,19 @@ class Bag:
 
 
 class Mem:
-    def __init__(self, stored=(), stations=()):
-        self.rows = list(stored)
-        self.station_rows = list(stations)
+    """memory.Memory's readers over rows: stored (pos, item, n), stations by block, a home's beds by cell."""
 
-    def stations(self, dimension=None):
-        return [{"block": b} for b in self.station_rows]
+    def __init__(self, stored=(), stations=(), home_beds=()):
+        self.rows = list(stored)
+        self.data = {"stations": [{"block": b, "pos": [i, 64, 0], "dimension": "minecraft:overworld"}
+                                  for i, b in enumerate(stations)]}
+        self.home_rows = [{"parts": {"beds": [list(c) for c in home_beds]}}] if home_beds else []
+
+    def homes(self, dimension):
+        return self.home_rows
+
+    stations = memory.Memory.stations
+    known_stations = memory.Memory.known_stations
 
     def stored(self, token, dimension):
         return [r for r in self.rows if r[1].endswith(token.removeprefix("minecraft:"))]
@@ -138,6 +146,9 @@ class Plan(unittest.TestCase):
         ("P2", {"plan": [step("sleep", "bed", 400)], "inv": Bag(items={"minecraft:white_bed": 1}), "mem": Mem(),
                 "dimension": "minecraft:overworld"}, False),
         ("P2", {"plan": [step("sleep", "bed", 400)], "inv": Bag(), "mem": Mem(stations=["white_bed"]),
+                "dimension": "minecraft:overworld"}, False),
+        # only the home's bed: a known station all the same (must fail before memory.known_stations)
+        ("P2", {"plan": [step("sleep", "bed", 400)], "inv": Bag(), "mem": Mem(home_beds=[(5, 64, 5)]),
                 "dimension": "minecraft:overworld"}, False),
         # must fail: a smelt with no furnace held, made or remembered
         ("P2", {"plan": BEEF_IN_ORDER[:1], "inv": Bag(items=TWO_BEEF), "mem": Mem(),

@@ -215,8 +215,8 @@ class Maintain:
             return got
         view = View({
             "died_recently": lambda: worth_recovering(b, snap),
-            "meal": lambda: meal(s.get("food", 20), inv, lambda: can_cook(inv, any(
-                "furnace" in st["block"] for st in b.mem.stations(snap.dimension, near=snap.feet, within=STATION_R)))),
+            "meal": lambda: meal(s.get("food", 20), inv, lambda: can_cook(inv, bool(
+                b.mem.known_stations("minecraft:furnace", snap.dimension, near=snap.feet, within=STATION_R)))),
             "nether_bad": lambda: nether_retreat(snap) is not None,
             "enclosed": enclosed,
             "bed_works": lambda: survive.can_sleep(s) is None,
