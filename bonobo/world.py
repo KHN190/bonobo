@@ -208,12 +208,13 @@ class Snapshot:
     mobs: list           # the living entities around
     region: "Region | None"     # the ground round the feet, read with the round (None: not read: nothing known of it)
     region_at: float            # when that ground was read (round_ground: kept while fresh)
+    routes: dict                # the game's route answers known when it was read (ROUTES: asked by walks before it)
     read_seq: int
     read_at: float
 
     @classmethod
     def from_readings(cls, state: Mapping[str, Any], inventory: "Mapping[str, Any] | Inventory", hits=None,
-                      mobs=None, region=None, region_at=None) -> "Snapshot":
+                      mobs=None, region=None, region_at=None, routes=None) -> "Snapshot":
         """A snapshot of recorded readings (/state, /inventory, the look's `hits` and `mobs`, the ground `region`): no
         world read."""
         snap = cls.__new__(cls)
@@ -222,6 +223,7 @@ class Snapshot:
         snap.read_seq, snap.read_at = api.STATE.state_reads, api.STATE.state_read_at      # the last /state read then
         snap.hits, snap.mobs, snap.region = dict(hits or {}), list(mobs or []), region
         snap.region_at = snap.read_at if region_at is None else region_at
+        snap.routes = dict(routes or {})
         return snap
 
     @classmethod
@@ -232,7 +234,7 @@ class Snapshot:
         feet = (state["blockX"], state["blockY"], state["blockZ"])
         hits, mobs = look_around(feet, state.get("dimension"), kinds)
         region, at = round_ground(feet, ground)
-        return cls.from_readings(state, Inventory(), hits, mobs, region, at)
+        return cls.from_readings(state, Inventory(), hits, mobs, region, at, routes=ROUTES)
 
     @property
     def feet(self) -> Cell:

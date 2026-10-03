@@ -12,14 +12,14 @@ import math
 import os
 from typing import NoReturn
 
-from . import api, paths
+from . import api, memory, paths
 from .knowledge import left
 from .skill import skill
 from .data import DOOR_NEAR, home_box_of
 from .game import EYE_HEIGHT
 from .world import Region, to_segment
 
-FILE = paths.data("mechanisms.json")
+FILE = paths.data(memory.MECHANISMS_NAME)
 PRESS_S = 1.0             # the use itself, once in reach
 
 
@@ -30,6 +30,7 @@ def read_lessons(path=None):
 
 def write_lessons(mechs, path=None):
     paths.save_json(path or FILE, mechs)
+    memory.TAUGHT_WRITES[0] += 1          # every Memory reads the lessons again
 
 
 def learn(dimension, press, opens, close=False, path=None):

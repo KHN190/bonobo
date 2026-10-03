@@ -79,16 +79,9 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
                 m = mem()
                 m.note_here("stone", pos, "minecraft:overworld")
                 key = costmod.route_key(pos, 2.0, costmod.NAV_NODES)
-                saved = dict(costmod.ROUTES)
-                try:
-                    if answer is not None:
-                        costmod.ROUTES[key] = answer
-                    cost = Cost(Snap(), m)
-                    step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
-                    self.assertEqual((cost.estimate(step) - cost.work(step), cost.reachable(["stone"])), want)
-                finally:
-                    costmod.ROUTES.clear()
-                    costmod.ROUTES.update(saved)
+                cost = Cost(snapshot(Snap().state, routes={} if answer is None else {key: answer}), m)
+                step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
+                self.assertEqual((cost.estimate(step) - cost.work(step), cost.reachable(["stone"])), want)
 
 
 # ----------------------------------------------------------------------------------- what memory is for
@@ -445,7 +438,7 @@ class ARoundReadsEachThingOnce(unittest.TestCase):
         from bonobo import cost as costmod
         from bonobo.skillcore import banned
         step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
-        with mock.patch.dict(costmod.ROUTES, {}, clear=True):
+        with mock.patch.dict(world.ROUTES, {}, clear=True):
             c = Cost(Snap(stone=3.0), mem())
             c.snap.hits["stone"] = list(self.HITS)
             gone = c.not_there(True)
@@ -457,11 +450,13 @@ class ARoundReadsEachThingOnce(unittest.TestCase):
             self.assertEqual(c.site(step), first)                       # same inputs: same answer
             # a route answer flipped in place (the table's size unchanged): read again
             key = world.route_key((3, 64, 0), 2.0, data.NAV_NODES)
-            costmod.ROUTES[key] = (True, 1.0)
-            self.assertEqual(c.site(step), (3, 64, 0))
-            costmod.ROUTES[key] = (False, None)
-            self.assertEqual(c.site(step), (6, 64, 0))      # must fail: kept by the table's size, the flip unseen
-            costmod.ROUTES[key] = (True, 1.0)
+            # a route answer the walks write after the snapshot was read is not this round's (K10): unseen
+            world.ROUTES[key] = (False, None)
+            self.assertEqual(c.site(step), (3, 64, 0))      # must fail: the cost read the module table
+            refused = Cost(snapshot(c.snap.state, c.snap.inv, routes={key: (False, None)}, stone=3.0), mem())
+            refused.snap.hits["stone"] = list(self.HITS)
+            self.assertEqual(refused.site(step), (6, 64, 0))    # the snapshot's answer: not there
+            del world.ROUTES[key]
             c.blacklist[(3, 64, 0)] = time.time() + 60
             self.assertEqual(c.site(step), (6, 64, 0))      # must fail: a kept answer outliving the ban that changed it
 
@@ -479,7 +474,7 @@ class ARoundReadsEachThingOnce(unittest.TestCase):
         from unittest import mock
         from bonobo import cost as costmod
         step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
-        with mock.patch.dict(costmod.ROUTES, {}, clear=True):
+        with mock.patch.dict(world.ROUTES, {}, clear=True):
             c = Cost(Snap(stone=3.0), mem())
             with mock.patch.object(Cost, "_nearest", autospec=True, return_value=None) as read, \
                     mock.patch.object(costmod, "_Gone", wraps=costmod._Gone) as built:
