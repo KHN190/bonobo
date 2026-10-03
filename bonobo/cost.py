@@ -200,7 +200,9 @@ class Cost:
         """The why no way to `kind` (nav.stands_for) at `cell` exists (reach) whose cell was read or banned, or None
         (a way, or unknown past the read): what a plan refuses a source by, as the door fails by it."""
         reached = self.reach(cell, kind, at, spent)
-        named = getattr(reached.why, "cell", None) if reached is not None and reached.stand is None else None
+        if reached is None or reached.stand is not None:
+            return None
+        named = getattr(reached.why, "cell", None)
         if named is None or not (self.region.inside(named) or named in self.not_there(False).cells):
             return None
         return reached.why

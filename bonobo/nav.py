@@ -1436,7 +1436,7 @@ def took(region, steps, here):
             region.blocks[c] = "air"
         elif t["type"] == "place":
             region.blocks[c] = t["item"].rsplit(":", 1)[-1]
-        elif t["type"] == "goto":
+        elif t["type"] == "goto" and c is not None:
             here = c
     return tuple(here)
 

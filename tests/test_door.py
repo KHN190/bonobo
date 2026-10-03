@@ -96,13 +96,13 @@ class Gate(unittest.TestCase):
     MINE_FAR = {"type": "mine", "x": 5, "y": 64, "z": 0}
 
     def run_gate(self, tasks, region, moves_to=None, in_way=0):
-        at, ways = [(0, 64, 0)], []
+        here, ways = [(0, 64, 0)], []
 
-        def reach(task, policy):
+        def reach(task, policy, faces=None, at=None):
             ways.append((task["x"], task["y"], task["z"]))
             if moves_to is not None:
-                at[0] = moves_to
-        with mock.patch.object(nav, "feet", lambda: at[0]), mock.patch.object(nav, "_read_box", lambda *a, **k: region), \
+                here[0] = moves_to
+        with mock.patch.object(nav, "feet", lambda: here[0]), mock.patch.object(nav, "_read_box", lambda *a, **k: region), \
                 mock.patch.object(nav, "reach_stand", reach), mock.patch.object(nav, "_IN_WAY", [in_way]):
             return nav.gate(tasks, nav.Policy()), ways
 
