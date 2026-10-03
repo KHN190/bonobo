@@ -209,6 +209,7 @@ class Snapshot:
         snap = cls.__new__(cls)
         snap.state = cast("StateReading", dict(state))
         snap.inv = inventory if isinstance(inventory, Inventory) else Inventory(inventory)
+        snap.read, snap.read_at = api.STATE.state_reads, api.STATE.state_read_at      # the last /state read then
         return snap
 
     @property
