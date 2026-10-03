@@ -45,9 +45,7 @@ def trunk_base(trunk):
     return b["x"], b["y"], b["z"]
 
 def cheapest_trunk(trunks, start, walk_s):
-    """Pure given `walk_s` (cell → seconds, None: no way): (the trunk walked to soonest, the trunks refused) — every
-    trunk asked in the order of the least its walk can take (nav.least_way_s, plan_way's bound), none once that least
-    cannot beat the best priced."""
+    """Pure given `walk_s`: (the cheapest-walk trunk, the refused ones), asked in nav.least_way_s order."""
     best, refused = None, []
     for tr in sorted(trunks, key=lambda tr: nav.least_way_s(trunk_base(tr), start)):
         if best is not None and best[1] <= nav.least_way_s(trunk_base(tr), start):
@@ -78,7 +76,7 @@ def chop(ctx, n):
                 ctx.mem.forget_seen("tree", feet(), ctx.dimension, radius=48)
                 raise NotAvailable(f"no trees found nearby, even after exploring ({e})")
             continue
-        # the trunk whose walk is cheapest on this ground, not the nearest seen (one was walked to over a platform edge)
+        # by walk price, not the nearest seen
         here = feet()
 
         def walk_s(pos):

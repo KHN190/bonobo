@@ -1070,7 +1070,7 @@ def dig_cells(region, cells, start):
 
 def _path_blocked(region, cells, protected, placed=(), at=None, down=False):
     """Pure: why these cells may not be opened — a fluid in or beside one (but a floor the step places: a bridge
-    fills it), a protected or unbreakable one, one holding up the body standing `at` (bag.holds_up) — or None."""
+    fills it), a protected or unbreakable one, the body's support at `at` — or None."""
     for c in cells:
         if at is not None and holds_up(at, c, down):
             return f"support at {c}"
@@ -1101,8 +1101,7 @@ def open_tasks(region, cells, floors, start, protected, places, at=None, down=Fa
     return tasks, None
 
 def _step_tasks(region, step_cells, tread, stand, start, protected, places, at=None, down=False):
-    """Pure: (tasks, why) for one step of a dug way dug from `at`: its cells opened (open_tasks), then the walk onto
-    `stand`."""
+    """Pure: (tasks, why) for one dug step from `at`: its cells opened (open_tasks), then the walk onto `stand`."""
     tasks, why = open_tasks(region, step_cells, [tread], start, protected, places, at, down)
     if tasks is None:
         return None, why

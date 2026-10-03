@@ -184,8 +184,7 @@ def under(feet, cell):
     return cell[0] == feet[0] and cell[2] == feet[2] and cell[1] < feet[1]
 
 def holds_up(feet, cell, down=False):
-    """Pure: breaking `cell` could drop the body standing at `feet` — its floor (supports) or its own column below;
-    `down`: a staircase digging down on purpose, where only the own column counts."""
+    """Pure: breaking `cell` could drop the body at `feet` (its floor or own column; `down`: own column only)."""
 
     feet, cell = tuple(feet), tuple(cell)
     return under(feet, cell) or (not down and cell in supports(feet))

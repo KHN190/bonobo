@@ -22,7 +22,7 @@ STEP_SETS = None       # fn(step) → {fact: value} its run leaves (skill.sets_o
 STEP_USES = None       # fn(step) → {item: n} of its needs its run uses up (skill.step_uses)
 FIGHT_LINE = None      # fn(contract, args, state, inv) → (ok, why): S5's one judge (brain.fight_line_holds)
 FACT_STEPS = None      # fn(fact, value) → [(kind, token)] of the steps that set it (skill.steps_for_fact)
-STEP_STATION = None    # fn(step) → the station its contract works at, carried or standing, or None (skill.station_of_step)
+STEP_STATION = None    # fn(step) → its contract's station or None (skill.station_of_step)
 
 def step_call(step):
     """The needs of what carries out `step`, skill modules loaded first; {} when none is wired in."""
@@ -202,9 +202,7 @@ DROWNING_TICKS = 100     # ~5 s of air: below this a breath comes before any wor
 FALL_TAKES_HANDS = 2.0   # blocks: a fall longer than this takes the hands (the fall is under way)
 
 def body_facts(state):
-    """Pure: {"footing": standing on something, "hands_free": hands for work, "night": the night (is_night),
-    "covered": rock over the feet (under_rock)} from the snapshot's body — a body with no readings is a standing one,
-    by day, in the open."""
+    """Pure: footing, hands_free, night, covered from the body; no readings: standing, by day, in the open."""
     state = state or {}
     swimming = bool(state.get("inWater")) and not state.get("onGround", False)
     falling = float(state.get("fallDistance", 0) or 0) > FALL_TAKES_HANDS
@@ -216,14 +214,12 @@ def body_facts(state):
             "night": night, "covered": "skyLight" in state and under_rock(state["skyLight"])}
 
 def body_when(footing=True, surface=False):
-    """A contract's `when` for work done with the hands (and, `footing`, standing): the body facts it needs — at
-    night, `surface` work (out under the sky) the night over (S4), any other work under cover (R3 prices the two)."""
+    """A contract's `when` for hand work (`footing`: standing too), the night's added (night_when)."""
     need, at_night = [("hands_free", True)] + ([("footing", True)] if footing else []), night_when(surface)
     return lambda step, facts: list(need) + at_night(step, facts)
 
 def night_when(surface=False):
-    """A contract's `when` at night: `surface` work the night over (S4), any other work under cover (R3 prices the
-    two); nothing by day."""
+    """At night: `surface` work waits for day (S4), other work needs cover; by day nothing."""
     need = [("night", False)] if surface else [("covered", True)]
     return lambda step, facts: list(need) if facts.get("night") else []
 

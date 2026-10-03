@@ -327,7 +327,7 @@ class Bound:
     def __init__(self, cost):
         from .knowledge import producers
         self.ways = {}      # asked token → [(ticks per unit, {input: per unit}, {tool kind: tier})]
-        self.kinds = {}     # asked token → each way's step kind (as `ways`)
+        self.kinds = {}     # each way's step kind
         self.shapes = {}    # asked token → [(its unit step, the station it works at or None, {input: per unit})]
         tokens = {t for g in producers() for t in g.keys()} | set(GROUPS) | {"food"}
         for asked in sorted(tokens):
@@ -541,7 +541,7 @@ class Search:
         self.start_tools: list = []
         self.h_memo: dict = {}          # (what is left, the bag) → its bound
         self.greedy = False             # settle: every option weighed, or (the dive) the few least-bound ways inside a choice
-        self.stop = getattr(cost, "stop", None) or (lambda: False)     # injected: true ends the search (Interrupted)
+        self.stop = getattr(cost, "stop", None) or (lambda: False)
         self.cost = cost
         self.kinds = kinds              # step kinds allowed (None: all)
         self.lb = bound(cost)
@@ -721,7 +721,7 @@ class Search:
     # -- one node to its next choice: resolved in place; returns children, [] when it died, None when complete
     def advance(self, node, floor=0):
         if self.stop():
-            raise api.Interrupted("a hazard while planning")      # S7: read before every step, the dive's too
+            raise api.Interrupted("a hazard while planning")      # S7
         self.spent += 1
         SPENT["steps"] += 1
         while len(node.stack) > floor:

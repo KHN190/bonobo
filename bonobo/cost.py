@@ -82,11 +82,10 @@ class _Gone:
     def __init__(self, protected, blacklist, now=None):
         self.protected, self.blacklist = protected, blacklist
         now = time.time() if now is None else now
-        # built once: the banned cells and the refused routes as one set (the reading at `now`)
         self.cells = frozenset({tuple(p) for p in blacklist if banned(blacklist, p, now)}
                                | {k[0] for k, (found, _s) in ROUTES.items() if found is False
                                   and k[1:] == (2.0, NAV_NODES)})
-        self.memo_key = (self.cells, id(protected))      # world.sight_pos's memo: what this skip holds
+        self.memo_key = (self.cells, id(protected))      # sight_pos memo key
 
     def __contains__(self, p):
         p = tuple(p)
@@ -104,8 +103,7 @@ class Cost:
                  region=None, stop=None):
         """`known`: fn(kinds) -> distance or None, standing in for memory (offline: no snapshot, no world).
         `reserved`: item ids the held plans will consume (bag.RESERVED), kept from a better tool's material.
-        `region`: the blocks perception read (perception.price_inputs' ground), None when unread.
-        `stop`: () → True ends a search planning with this model (planner.Search), None never."""
+        `region`: perception's blocks (None: unread); `stop`: () → True ends a search."""
 
         self.snap, self.mem, self.region, self.stop = snap, mem, region, stop
         self.reserved = frozenset(reserved)
@@ -135,8 +133,7 @@ class Cost:
         return self.cache["protected"]
 
     def not_there(self, sources=False):
-        """The cells no estimate goes to: banned (no way there), and with `sources` the protected ones — built once
-        until either is written (world.Versioned; a plain dict is read afresh each ask)."""
+        """Cells no estimate goes to (banned; with `sources`, protected), rebuilt on a write."""
         version = getattr(self.blacklist, "version", None)
         stamp = None if version is None else (version, ROUTES.version)
         got = self.cache.get(("gone", sources))
@@ -368,7 +365,6 @@ class Cost:
         if not kinds:
             return None
         sources = k in ("gather", "mine", "take")
-        # one answer per (kind, sources) while the cells not there and the look stand as they are
         key = ("site", k == "hunt", sources, tuple(kinds), self.not_there(sources), self.not_there(True),
                sight_version())
         if key not in self.cache:
@@ -535,7 +531,7 @@ class Prices:
                 steps = plan_needs(tools, [(item, 1)], self.cost)
                 self.cache[item] = self.cost.plan_s(steps) if steps else None
             except Interrupted:
-                raise                     # a hazard while pricing: the round starts again from survival (S7)
+                raise                     # S7
             except (Unplannable, McError, KeyError, TypeError):
                 self.cache[item] = None
         got = self.cache[item]

@@ -116,13 +116,11 @@ def act_commit_s(act):
     return ticks / TICKS_PER_S if ticks > 0 else None
 
 def pays_switch(held_s, chosen_s, lost_s):
-    """Pure (D4): a new plan replaces the held one only when its seconds and the work the switch throws away beat
-    what is left of the held one."""
+    """Pure (D4): switch only when new seconds plus the work thrown away beat the held plan's rest."""
     return chosen_s + lost_s < held_s
 
 def repriced_s(steps, cost, inv):
-    """Seconds left of a held plan priced on the world now as a fresh plan is (planner.forward: each step with the
-    tools held by then, from where the one before leaves the body) — K4, no progress stored; each est updated."""
+    """Seconds left of a held plan, priced as a fresh one (planner.forward); each est updated."""
     from .knowledge import held_tiers
     from .planner import Step, forward
     held, entries = held_tiers(inv), []
@@ -138,8 +136,7 @@ def repriced_s(steps, cost, inv):
     return ticks / TICKS_PER_S
 
 def thrown_s(now=None):
-    """Seconds of the running plan act a switch throws away: its commit less what is left (arbiter.work_left_s);
-    nothing when none runs or it has run its course."""
+    """Seconds of the running plan act a switch throws away (0 when none runs or it is done)."""
     cur = arbiter.BODY.current()
     if cur is None or cur.layer != "plan" or cur.commit_s is None:
         return 0.0
@@ -214,7 +211,7 @@ class Brain:
         self.needs_plan = None        # the round's plan when no task is queued (upkeep's needs alone)
         self.unplannable: dict[str, str] = {}     # target or need name -> why it could not be planned (readout)
         self.abandoned: str | None = None         # E5: what the last skill given up declared follows (ABANDON_WAYS)
-        self.plan_switch = None       # (held_s, chosen_s, lost_s, switched) of the round's replan over a held plan
+        self.plan_switch = None       # D4: (held_s, chosen_s, lost_s, switched)
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
         perception.IN_SITE = self.reflexes.in_site      # nightfall asks the night way's judgement, every Brain built
@@ -599,7 +596,7 @@ class Brain:
         try:
             intents, facts = arbiter.first_live(layers, facts_of)
         except api.Interrupted as e:
-            # S1: a hazard seen while planning: the round starts again from survival, on the body read now
+            # S1: a hazard mid-plan: survival on a fresh read
             api.consume_interrupt()
             api.detail(f"   planning stopped: {e}")
             snap = Snapshot.from_readings(api.get("/state"), Inventory())
@@ -727,8 +724,7 @@ class Brain:
         return None
 
     def wait_why(self, snap):
-        """Why the night is waited out (D1): under cover, the night's work is done; in the open, the night's ways
-        that are cooling here, or that none can be had."""
+        """Why the night is waited out (D1)."""
         if not self.under_sky(snap):
             return "night under cover: waiting for day"
         cooled = decompose.cooled_ways(self.ready)

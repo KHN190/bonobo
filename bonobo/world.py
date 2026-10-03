@@ -285,7 +285,7 @@ def nearest(kinds, feet, dimension, radius: float = 48, union=(), skip=None):
         for b in ask:
             near.setdefault(b, None)
             hits_of.setdefault(b, [])
-        _SIGHT["memo"], _SIGHT["v"] = {}, _SIGHT.get("v", 0) + 1     # the look grew: what was read off it goes
+        _SIGHT["memo"], _SIGHT["v"] = {}, _SIGHT.get("v", 0) + 1
         for h in hits:
             b = bare(h["block"])
             hits_of.setdefault(b, []).append(h)
@@ -307,12 +307,11 @@ def sight_version():
 def sight_pos(kinds, skip=None):
     """The cell of the nearest of `kinds` the last look saw (`nearest`; `skip`: cells not there), or None: no read of
     its own."""
-    # a skip says what it holds (`memo_key`); one that does not is read each time
     held = None if skip is None else getattr(skip, "memo_key", None)
     key = (tuple(kinds), held) if skip is None or held is not None else None
     hits = _SIGHT.get("hits", {})
     memo = _SIGHT.setdefault("memo", {})
-    if memo.get("of") is not hits:          # read off another look: nothing kept
+    if memo.get("of") is not hits:
         memo.clear()
         memo["of"] = hits
     if key is not None and key in memo:
@@ -321,7 +320,7 @@ def sight_pos(kinds, skip=None):
            if skip is None or (h["x"], h["y"], h["z"]) not in skip]
     out = min(got)[1] if got else None
     if key is not None:
-        memo[key] = (out, skip)   # one look's answer, kept until the look changes (nearest); the skip held alive
+        memo[key] = (out, skip)   # skip kept alive
     return out
 
 def sight_y(kinds, skip=None):
