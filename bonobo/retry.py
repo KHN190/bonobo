@@ -12,7 +12,7 @@ BACKSTOP = {"game": 10, "tool": 20, "nav": 120, "unavailable": 180, "stuck": 120
 # the doubling's ceiling by cause: "not here" ages fast (mobs wander, we walk); a bug does not
 MAX_BACKSTOP = {"game": 60, "unavailable": 300, "nav": 300, "tool": 120, "stuck": 300, "error": 900}
 MAX_BACKSTOP_DEFAULT = 900
-SOURCES_TRIED = 3          # sources (distinct places a failure was cooled at) one (task, cause) failed at before reporting upward
+SOURCES_TRIED = 3          # sources (distinct targets; each failure with none) one (task, cause) failed at before reporting upward
 LOG_EVERY = 10
 NOT_FAILURES = ("interrupt", "replan")
 REPLAN_LIMIT = 2  # replanning this often in a row with nothing done is a failure ("unavailable")
@@ -71,7 +71,7 @@ class Retry:
         for key in [k for k in self.entries if k[0] == name]:
             self.entries.pop(key)
 
-    def failed(self, task, cause, message, now, place=None, also_at=(), state=None):
+    def failed(self, task, cause, message, now, place=None, also_at=(), state=None, target=None):
         """Record a failure of `task` for `cause`, cooled at `place` and at each of `also_at` (where the failure
         happened, when a long step walked away from where it began) while the `state` (state_signature) holds.
         Returns a Verdict, or None for what is not one."""
@@ -87,7 +87,9 @@ class Retry:
         e = self.entries.get((task, cause))
         n = e["n"] + 1 if e else 1
         worth_logging = e is None or e["message"] != message or n == SOURCES_TRIED or n % LOG_EVERY == 0
-        sources = (e or {}).get("sources", frozenset()) | {place}
+        # a source is the target failed at; one with no target is a source of its own
+        source = ("target", tuple(target)) if target is not None else ("n", n)
+        sources = (e or {}).get("sources", frozenset()) | {source}
         self.entries[(task, cause)] = {"n": n, "since": now, "message": message, "place": place, "sources": sources}
         key = cause_key(cause, place)
         c = self.cooling.get(key)
@@ -114,12 +116,13 @@ class Retry:
         return max(0.0, c["until"] - now)
 
     def ready(self, task, now, place=None, cause=None, state=None):
-        """May `task` be tried now? A cause cooling at `place` holds only while `state` is the failure's."""
+        """May `task` be tried now? A cause cooling at `place` holds only while `state` is the failure's (`state`: a
+        signature, or cause → its signature, each cause's state its own)."""
 
         if self.holds.get(task, 0) > now:
             return False
         for c in set(self.causes(task)) | ({cause} if cause else set()):
-            if self.cool(c, place, now, state) > 0:
+            if self.cool(c, place, now, state(c) if callable(state) else state) > 0:
                 return False
         return True
 

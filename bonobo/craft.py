@@ -229,7 +229,7 @@ def made_count(item, inv, near=None):
     """What the bag holds of `item`; a crafting table also where a sitting leaves it standing (`near`: the tables
     found within STATION_R) — a placed table moved from the bag to the world, not lost; one standing before the
     sitting is in its start count (_plan_start), so only a new one makes the craft (E2)."""
-    return inv.count(item) + (len(near if near is not None else find([TABLE], radius=STATION_R, limit=8))
+    return inv.count(item) + (len(near if near is not None else find([TABLE], radius=int(STATION_R), limit=8))
                               if mid(item) == TABLE else 0)
 
 def _plan_start(recipes):
@@ -363,7 +363,7 @@ def _sitting(ctx, recipes, keep_table=False):
     # world reads only when a table sitting is planned: a table near, else a spot for one
     state = {"inv": inv, "table": None, "spot": None, "keep_table": keep_table}
     if any(table for table, _part in sittings(steps)):
-        near = find([TABLE], radius=STATION_R, limit=1)
+        near = find([TABLE], radius=int(STATION_R), limit=1)
         mem = getattr(ctx, "mem", None)
         home = mem.home_part("stations", ctx.dimension, feet(), "crafting_table") if mem else None
         if home is not None and not near:

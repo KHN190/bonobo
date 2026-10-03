@@ -1652,6 +1652,7 @@ class Withdraw(unittest.TestCase):
 I, C = api.Interrupted("perception: lava"), api.CommitmentExpired("a faster layer took the body")
 B, P = api.BodyContested("another commander"), api.PlayerTookControl()
 NAV = api.NavFailed("no path found", pos=(9, 64, 0))
+NAV_AT = lambda x: api.NavFailed("no path found", pos=(x, 64, 0))     # noqa: E731  (a source each)
 GONE = api.NotAvailable("no sheep in range")
 TOOL = skillcore.ToolMissing("pickaxe", 1)
 STUCK = api.TaskStuck("no progress for 10s in mine")
@@ -1659,13 +1660,16 @@ HERE, THERE = PLACE, retry.place_signature((400, 64, 0), False)
 
 # (situation, [(task, exception, place)], expected {(task, cause): n}, escalated tasks, {task: ready now?})
 RETRY = [
-    ("three nav failures escalate on the third; the target cools, not the place: the task may try another target",
-     [("task t1", NAV, HERE)] * 3, {("task t1", "nav"): 3}, {"task t1"}, {"task t1": True}),
+    ("three nav failures at three targets escalate on the third; the target cools, not the place: the task may try "
+     "another target", [("task t1", NAV_AT(x), HERE) for x in (9, 10, 11)], {("task t1", "nav"): 3}, {"task t1"},
+     {"task t1": True}),
+    ("must fail: the same target thrice is one source tried: counted, not escalated (accept3 21:21:53)",
+     [("task t1", NAV, HERE)] * 3, {("task t1", "nav"): 3}, set(), {"task t1": True}),
     ("interruptions of every kind count nothing", [("task t1", e, HERE) for e in (I, C, B, P, I)], {}, set(),
      {"task t1": True}),
-    ("must fail: interleaved: interruptions do not reset or add", [("task t1", NAV, HERE), ("task t1", I, HERE),
-                                                        ("task t1", NAV, HERE), ("task t1", C, HERE),
-                                                        ("task t1", NAV, HERE)],
+    ("must fail: interleaved: interruptions do not reset or add", [("task t1", NAV_AT(9), HERE), ("task t1", I, HERE),
+                                                        ("task t1", NAV_AT(10), HERE), ("task t1", C, HERE),
+                                                        ("task t1", NAV_AT(11), HERE)],
      {("task t1", "nav"): 3}, {"task t1"}, {}),
     ("two causes are counted apart", [("task t1", NAV, HERE), ("task t1", GONE, HERE), ("task t1", NAV, HERE)],
      {("task t1", "nav"): 2, ("task t1", "unavailable"): 1}, set(), {}),

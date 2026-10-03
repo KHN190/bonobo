@@ -1037,3 +1037,9 @@ def way_kinds(kinds):
     blocks = {mid(b) for b in WAY_BLOCKS}
     return frozenset(k for k in kinds if mid(k) in blocks or bare(k).rpartition("_")[2] in TOOL_KINDS)
 
+
+
+def failure_kinds(cause, kinds):
+    """Pure: the bag kinds a failure's state holds in (E5): a way not found (nav) is lifted only by what makes a way
+    (way_kinds), any other failure by any change to the bag."""
+    return way_kinds(kinds) if cause == "nav" else frozenset(kinds)

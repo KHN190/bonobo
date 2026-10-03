@@ -82,7 +82,7 @@ def ban_state(feet, kinds):
     a way (way_kinds: blocks to place, tools to break with); None when unread."""
     if feet is None or kinds is None:
         return None
-    return state_signature(place_signature(feet, False), _know.way_kinds(kinds), True)
+    return state_signature(place_signature(feet, False), _know.failure_kinds("nav", kinds), True)
 
 
 def banned(blacklist, pos, now=None, state=None):
