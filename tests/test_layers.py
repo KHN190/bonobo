@@ -45,7 +45,7 @@ CLOSURE = {
     "data": 1,
     "decompose": 25,
     "dispatch": 23,
-    "dragon": 15,
+    "dragon": 25,            # the fight rewritten (G1): fight_plan, nav, combat.shoot, fluids (water at the feet)
     "end": 18,
     "estimate": 6,           # + data (READ_EVERY_S: fight_cost charges the loop's poll per target)
     "events": 2,             # the concise event log: paths only

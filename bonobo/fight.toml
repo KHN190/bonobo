@@ -5,7 +5,8 @@
 
 [geometry]
 # Blocks from the exit portal's centre, along the side the player approaches from.
-mouth_r = 5            # the shaft beside the fountain; the bed's top is 3.57 blocks from an eye here (reach 4.5)
+mouth_r = 5            # the pit beside the fountain, on the floor read at this column
+bed_r = 3              # the bed on the floor between pit and pillar: 2.2 blocks from the pit's eye (reach 4.5); unmeasured
 tunnel_len = 3         # corridor cells running outward from the mouth
 pit_depth = 2          # blocks below the floor plane: deep enough to put the eye under it
 fire_at = 0            # corridor index the bed is clicked from. 0 (the mouth) has 0.93 blocks of reach margin;

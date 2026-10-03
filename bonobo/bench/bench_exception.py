@@ -3,6 +3,7 @@ FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). 
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
 from ..explore import SEEK_RANGE, TRAVEL_RANGE
 from .core import KEPT_HP, ORIGIN
+from ..fight_plan import CONFIG as FIGHT_CONFIG
 
 FAMILIES = [
     # S6: the player's hold stops every reflex (the clutch among them); its twin: the agent driving, the clutch runs
@@ -261,6 +262,21 @@ ROWS = [
                 ('give', 'cooked_beef', 16), ('give', 'torch', 32), ('give', 'water_bucket')],
          run=('&portal_room_run',), before=[('&built_stronghold',)], check=[('call', 'portal_room_found', [])],
          est=('step', 'seek', 'portal_room', 1, {}), raw=True, release=True, skills=['find_portal_room']),
+    # measures fight.toml's bed_damage and the blast at the pit (the log's dragon hp per bomb, the body's health)
+    dict(name='dragon_perch_window', module='dragon',
+         doc=('The real End beside the exit portal, 6 beds, iron kit: the bed pit dug, the dragon made to land '
+              '(DragonPhase 3), it perches → the window bombed from the pit, the dragon hurt, alive.'),
+         scene=[('cmd', 'clear @p'), ('cmd', 'spreadplayers 0 0 6 10 false @p'), ('give', 'white_bed', 6),
+                ('give', 'cooked_beef', 16), ('give', 'diamond_pickaxe'),
+                ('cmd', 'item replace entity @p armor.chest with iron_chestplate'),
+                ('cmd', 'item replace entity @p armor.head with iron_helmet')],
+         before=[('do', 'bonobo.dragon.build_bed_pit', ['$ctx'], {}),
+                 ('do', 'chat', ['data merge entity @e[type=minecraft:ender_dragon,limit=1] {DragonPhase:3}'], {}),
+                 ('do', 'bonobo.dragon.await_perch', ['$ctx'], {})],
+         run=('do', 'bonobo.dragon.bed_bomb_window', ['$ctx'], {}),
+         check=[('call', 'dragon_health', [], '<', FIGHT_CONFIG['combat']['dragon_hp']), ('alive',)],
+         dimension='minecraft:the_end', combat=True, raw=True, release=True,
+         skills=['build_bed_pit', 'await_perch', 'bed_bomb_window']),
     dict(name='craft_chain_one_sitting', module='skills',
          doc=('3 logs and a table carried → planks, sticks and a wooden pickaxe crafted in one sitting (craft_chain: '
               'the table placed and taken back once, not per recipe)'),
