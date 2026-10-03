@@ -3038,13 +3038,26 @@ class TheRoundsPick(unittest.TestCase):
         rows = [("equal seconds: the queue's first place", carried, [sticks, planks], "task t1"),
                 ("equal seconds, the places swapped: the other", carried,
                  [("task t1", sticks[1], 1, sticks[3]), ("task t2", planks[1], 0, planks[3])], "task t2"),
-                ("must fail: unequal seconds: the cheaper first whatever the place", carried, [logs, sticks_later],
-                 "task t1"),
+                ("unequal seconds, the same total either way (G3): the queue's place, not the cheaper first", carried,
+                 [logs, sticks_later], "task t3"),
                 ("must fail: a plan that starves on the way: food first (its own step, not the task's)", hungry,
                  [pick], ("hunt", "minecraft:beef"))]
         for name, snap, offers, want in rows:
             with self.subTest(name):
                 self.assertEqual(self.pick(offers, snap, seen), want)
+
+    def test_the_order_is_the_least_total(self):
+        """G3: the round's plan costs no more than its targets in any other place order; equal totals keep the
+        queue's place (must fail: an order dearer in total than another taken)."""
+        import itertools
+        from bonobo.planner import NullCost, Target, plan_round
+        carried = bag(inventory(("oak_log", 1), ("oak_planks", 2)))
+        needs_ = [("logs", [("log", 6)]), ("sticks", [("minecraft:stick", 4)]), ("planks", [("planks", 4)])]
+        chosen = plan_round(carried, [Target(n, x, i) for i, (n, x) in enumerate(needs_)], NullCost())[2]
+        for order in itertools.permutations(needs_):
+            with self.subTest([n for n, _x in order]):
+                other = plan_round(carried, [Target(n, x, i) for i, (n, x) in enumerate(order)], NullCost())[2]
+                self.assertLessEqual(chosen, other + 1e-9)
 
 
 class WhatTheFurnaceHolds(unittest.TestCase):
