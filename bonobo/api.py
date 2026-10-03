@@ -111,6 +111,13 @@ class NotAvailable(McError):
 class NavFailed(NotAvailable):
     """The body couldn't get where a skill needed it."""
 
+class ToolMissing(NotAvailable):
+    """ARM cut a chain here: no held tool of `kind` (tier `tier`+) has enough uses left past `pos`. `done`: the
+    prefix ARM could still arm (run it, then let this propagate so the round plans a replacement, I2/R1/G3)."""
+    def __init__(self, kind, tier, pos=None, done=None):
+        super().__init__(f"no {kind} tier {tier}+ with uses enough left past {pos}", pos=pos)
+        self.kind, self.tier, self.done = kind, tier, done or []
+
 class TaskStuck(McError):
     """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled. `then`: what follows."""
 
@@ -852,7 +859,13 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
     results: list[TaskResult] = []
     chain_began = time.time()
     armed = [walk_only(dict(t)) for t in tasks]
-    armed = ARM(armed) if ARM else armed
+    tool_missing = None
+    try:
+        armed = ARM(armed) if ARM else armed
+    except ToolMissing as e:
+        if not e.done:
+            raise                  # the very first mine was cut: nothing armed, nothing to send
+        armed, tool_missing = e.done, e     # run the safe prefix now, raise after so the round plans a replacement
     for n, part in enumerate(segments(armed, segment)):
         if n:
             # an interrupt stops the chain at a segment boundary; the skill resumes by what the world lacks, never this index
@@ -893,6 +906,8 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
     if tasks:
         ok = sum(t["status"] == "succeeded" for t in results)
         detail(f"  chain: {ok}/{len(tasks)} succeeded")
+    if tool_missing is not None:
+        raise tool_missing          # the prefix ran; the round still owes a replacement tool, never a silent success
     return results
 
 

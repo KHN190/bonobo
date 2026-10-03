@@ -536,14 +536,16 @@ def _carried_tools(inv, min_left):
             if (bare(s["id"]).rpartition("_")[2] in TOOL_KINDS or bare(s["id"]) == "shears")
             and s.get("maxDamage", 0) - s.get("damage", 0) >= min_left]
 
-def tool_for(inv, block, min_left=2):
+def tool_for(inv, block, min_left=TOOL_USABLE):
     """Pure: the item a task that breaks `block` holds — of the hand and every tool carried, the lowest tier that
     breaks it in the fewest ticks (cheapest_equal over break_ticks)."""
     return cheapest_equal(["hand"] + _carried_tools(inv, min_left), lambda i: break_ticks(block, i), item_tier)
 
 def tool_uses_left(inv, item):
-    """Pure: uses `item` has left in the bag (maxDamage - damage), 0 when it isn't carried (arm: spare_uses/working)."""
-    return next((s.get("maxDamage", 0) - s.get("damage", 0) for s in getattr(inv, "slots", ()) if s["id"] == item), 0)
+    """Pure: uses `item` has left in the bag, summed over every slot that carries it — HOLD (skillcore.hold_clicks)
+    moves on to another same-id slot once the one in hand nears breaking, so the chain's real budget is their sum,
+    not whichever slot is first (arm: spare_uses/working)."""
+    return sum(s.get("maxDamage", 0) - s.get("damage", 0) for s in getattr(inv, "slots", ()) if s["id"] == item)
 
 def dig_ticks(blocks, inv):
     """Pure: ticks the breaks of `blocks` (a block name per cell) take, each with the item tool_for holds for it."""
