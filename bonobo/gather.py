@@ -602,7 +602,7 @@ def hunt(ctx, token, count, types, night):
             try:
                 got = api.run({"type": "attack", "entity": e["id"]}, wait=30, awaits="the mob dead")
             except api.NavFailed as why:
-                ctx.ban((e["id"], 0, 0), 120)          # no way to it as it stands now: the next prey
+                ctx.ban((e["id"], 0, 0))        # no way to it as it stands now (ban_state): the next prey
                 api.detail(f"   hunt: no way to prey {e['id']}: {why}")
                 continue
             api.detail(f"   hunt: attack {got.get('status')} {got.get('message', '')}; after: {_hunt_seen(types)}")
