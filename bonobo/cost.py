@@ -237,11 +237,14 @@ class Cost:
         return self.cache[key]
 
     def _entity(self, types):
+        """Blocks to the nearest of `types` in the round's look the door has a way to (refused "attack": a way to a
+        stand in reach of it as it stands now, the gate's own), not banned; else the nearest remembered."""
         key = ("ent", tuple(types))
         if key not in self.cache:
             ids = {mid(t) for t in types}
             near = [e["distance"] for e in self.snap.mobs if mid(e["type"]) in ids
-                    and (e.get("id") is None or not banned(self.blacklist, (e["id"], 0, 0)))]
+                    and (e.get("id") is None or not banned(self.blacklist, (e["id"], 0, 0)))
+                    and ("x" not in e or self.refused(tuple(math.floor(e[k]) for k in ("x", "y", "z")), "attack") is None)]
             self.cache[key] = min(near) if near else self._known(types)
         return self.cache[key]
 

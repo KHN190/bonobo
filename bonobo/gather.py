@@ -592,14 +592,19 @@ def hunt(ctx, token, count, types, night):
         if e["distance"] > 4:
             # walk and bridge to animals, never tunnel
             how, near = nav.chase(e["id"], types, approach_policy(ctx.policy), HUNT_REACH)
-            if how != "near" or near is None:
+            if near is None:
                 api.detail(f"   hunt: prey {e['id']} {how}: the nearest again")
                 continue
-            e = near
+            e = near        # still far: the attack's gate makes the way to where it is now (nav.reach, P2)
         api.detail(f"   hunt: prey {e['id']} at {(round(e['x'], 1), round(e['y'], 1), round(e['z'], 1))} "
                    f"{e['distance']:.1f} off; {_hunt_seen(types)}")
         try:
-            got = api.run({"type": "attack", "entity": e["id"]}, wait=30, awaits="the mob dead")
+            try:
+                got = api.run({"type": "attack", "entity": e["id"]}, wait=30, awaits="the mob dead")
+            except api.NavFailed as why:
+                ctx.ban((e["id"], 0, 0), 120)          # no way to it as it stands now: the next prey
+                api.detail(f"   hunt: no way to prey {e['id']}: {why}")
+                continue
             api.detail(f"   hunt: attack {got.get('status')} {got.get('message', '')}; after: {_hunt_seen(types)}")
             bagged = Inventory().count(token)
             # the drop can land where nothing stands: `sweep` makes a way to it before a kill is written off
