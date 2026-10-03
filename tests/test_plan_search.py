@@ -258,9 +258,9 @@ class EveryWayIsAnOption(unittest.TestCase):
         """Two of four logs in a chest by the body, trees far: the chest's two never taken twice."""
         with tempfile.TemporaryDirectory() as tmp:
             m = Memory(os.path.join(tmp, "notes.json"))
-            snap = snapshot()
+            snap = snapshot(oak_log=200.0)
             m.note_container((1, int(snap.feet[1]), 0), OVER, [{"id": "minecraft:oak_log", "count": 2}])
-            steps = plan_needs(snap.inv, [("log", 4)], Cost(snap, m, finds={"oak_log": 200.0}))
+            steps = plan_needs(snap.inv, [("log", 4)], Cost(snap, m))
             taken = sum(s.count for s in steps if s.kind == "withdraw")
             self.assertLessEqual(taken, 2, [str(s) for s in steps])          # must fail: 4 taken from a chest of 2
 

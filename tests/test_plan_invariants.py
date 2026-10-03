@@ -12,7 +12,7 @@ from bonobo.cost import Cost  # noqa: E402
 from bonobo.data import TICKS_PER_S, bare  # noqa: E402
 from bonobo.knowledge import tool_item  # noqa: E402
 from bonobo.planner import NullCost, Unplannable, plan_needs  # noqa: E402
-from tests.world import bag, cost, inventory, snapshot  # noqa: E402
+from tests.world import bag, cost, inventory, memory, snapshot  # noqa: E402
 
 TABLE = [("stick", 2), ("crafting_table", 1)]
 
@@ -46,7 +46,7 @@ class R1ToolsByPrice(unittest.TestCase):
                  None)]
         for name, carried, needs, reserved, want in rows:
             with self.subTest(name):
-                steps = plan_needs(bag(inventory(*carried)), needs, Cost(None, reserved=reserved))
+                steps = plan_needs(bag(inventory(*carried)), needs, Cost(snapshot(), memory(), reserved=reserved))
                 if want is None:
                     self.assertTrue(any(t.endswith("pickaxe") for t in made_tools(steps)), kinds(steps))
                 else:

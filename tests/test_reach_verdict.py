@@ -9,7 +9,7 @@ from unittest import mock
 from bonobo import world
 from bonobo.cost import Cost
 from bonobo.memory import Memory
-from tests.world import snapshot, state
+from tests.world import memory, snapshot, state
 
 ORE = "iron_ore"
 
@@ -29,10 +29,8 @@ class NotThere(unittest.TestCase):
         for name, banned, want in [("nothing banned: the near one", {}, 3.0),
                                    ("must fail: the near one banned (no way): the far one", {near: time.time() + 60},
                                     20.0)]:
-            with self.subTest(name), mock.patch.dict(world._SIGHT, {"key": (tuple(snap.feet), snap.dimension),
-                                                                    "t": time.time(), "near": {ORE: 3.0},
-                                                                    "y": {ORE: near[1]}, "hits": {ORE: hits}}):
-                c = Cost(snap, blacklist=banned)
+            with self.subTest(name):
+                c = Cost(world.Snapshot.from_readings(snap.state, snap.inv, {ORE: hits}), memory(), blacklist=banned)
                 self.assertEqual(c.distance([ORE], 48, sources=True), want)
 
     def test_remembered(self):

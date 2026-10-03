@@ -23,8 +23,7 @@ def known():
 
 
 class DuskByThePrep(unittest.TestCase):
-    """Dusk compares the chosen night way's preparation × LEAD with the light left, never the night itself; a night
-    underground is lost only where the route has no work under cover left."""
+    """Dusk: the chosen night way's prep × LEAD against the light left; the night lost only past the route's work."""
 
     def test_rows(self):
         # (situation, facts) → dusk read back (production's reading on the γ world)
@@ -110,8 +109,7 @@ class AHazardMidPlan(unittest.TestCase):
 
 
 class ColdIsWarm(unittest.TestCase):
-    """D8: a decision is the inputs' pure function: the cold round's and the warm round's (the declared caches filled by
-    another state) agree."""
+    """D8: the cold round and the warm round decide alike."""
 
     def test_rows(self):
         from check.inv import purity
@@ -150,8 +148,7 @@ class Generated(unittest.TestCase):
         self.assertIn("S4", {inv for inv, _ in oracle.violations(f, d, f, {})} - (known() - {"S4"}))
 
     def test_a_wait_in_the_open_needs_no_way_and_a_reason(self):
-        """S4 with D1: waiting in the open at night is lawful only when the round's night table offers no way and the
-        wait says why."""
+        """S4 with D1: a wait in the open at night only with no night way and a reason."""
         f = of(night=True, place="open")
         why = "night in the open, no way through it here: none can be had"
         # (situation, reason, the round's night way) → S4 flagged

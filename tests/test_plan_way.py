@@ -332,8 +332,7 @@ class AWayPassesItsOwnGate(unittest.TestCase):
 
 
 class NeverDigsItsFloor(unittest.TestCase):
-    """bag.holds_up in a dug way: no step breaks the floor the body stands on nor its own column below; a staircase
-    down digs its next step on purpose (only the own column counts there)."""
+    """bag.holds_up in a dug way: no step breaks the body's floor or own column (a staircase down: the column)."""
 
     def test_rows(self):
         from bonobo.bag import holds_up

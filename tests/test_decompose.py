@@ -568,7 +568,7 @@ class RipeFirst(unittest.TestCase):
                 from bonobo.memory import Memory
                 mem = Memory(os.path.join(tempfile.mkdtemp(prefix="ripe"), "notes.json"))
                 mem.data["jobs"] = [dict(j, dimension="minecraft:overworld") for j in jobs]
-                cost = Cost(snapshot(), mem=mem, known=lambda kinds: None, finds={})
+                cost = Cost(snapshot(), mem)
                 steps = plan([("minecraft:wheat", n)], cost, self.KIT)
                 self.assertEqual([s.kind for s in steps if s.token == "minecraft:wheat"], want)
 

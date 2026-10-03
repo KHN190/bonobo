@@ -8,6 +8,7 @@ model over the scene read offline) × the bench's slack — never a typed number
   ("on", scene_words, word)             `word` priced over another scene (a must-fail row: the work it was asked)
   ("sum", word, ...)                    the words one after another"""
 import math
+import os
 import re
 
 from ...data import TICKS_PER_S, bare
@@ -56,12 +57,16 @@ def scene_cost(world, dimension="minecraft:overworld"):
     state = {"x": fx + 0.5, "y": float(fy), "z": fz + 0.5, "blockX": fx, "blockY": fy, "blockZ": fz,
              "dimension": dimension, "timeOfDay": world["time"] if world["time"] is not None else 1000,
              "health": 20.0, "maxHealth": 20.0, "food": 20, "saturation": 5.0, "air": 300, "armor": 0}
-    finds = {}
-    for c, b in list(world["blocks"].items()) + [(p, m) for m, p in world["mobs"]]:
-        d = math.dist(c, world["feet"])
-        for k in (bare(b), f"minecraft:{bare(b)}"):
-            finds[k] = min(finds.get(k, math.inf), d)
-    return Cost(Snapshot.from_readings(state, _bag(world["slots"])), finds=finds)
+    import tempfile
+    from ...memory import Memory
+    hits: dict = {}
+    for c, b in world["blocks"].items():
+        hits.setdefault(bare(b), []).append({"x": c[0], "y": c[1], "z": c[2], "block": f"minecraft:{bare(b)}",
+                                            "distance": math.dist(c, world["feet"])})
+    mobs = [{"type": m, "id": i, "x": p[0], "y": p[1], "z": p[2], "distance": math.dist(p, world["feet"])}
+            for i, (m, p) in enumerate(world["mobs"])]
+    mem = Memory(os.path.join(tempfile.mkdtemp(prefix="scene-"), "notes.json"))      # a scene remembers nothing
+    return Cost(Snapshot.from_readings(state, _bag(world["slots"]), hits, mobs), mem)
 
 
 def _plan_s(needs, world, dimension):

@@ -7,7 +7,7 @@ import time
 from typing import TYPE_CHECKING
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, decompose, goals, survive
+from . import api, decompose, goals, survive, world
 from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
 from . import bag
@@ -54,8 +54,9 @@ def cover(ctx, state):
     # priced as the brain prices (brain.py's Cost: memory, the targets banned here, the movement policy): a banned
     # entity or block is no shelter's way (W3)
     from .perception import ground_read
-    snap = Snapshot.from_readings(state, Inventory())
-    cost = Cost(snap, getattr(ctx, "mem", None), getattr(ctx, "blacklist", None), policy=getattr(ctx, "policy", None),
+    snap = Snapshot.from_readings(state, Inventory(), *world.look_around(
+        (state["blockX"], state["blockY"], state["blockZ"]), state.get("dimension"), _k.SOURCE_BLOCKS))
+    cost = Cost(snap, ctx.mem, getattr(ctx, "blacklist", None), policy=getattr(ctx, "policy", None),
                 region=ground_read(snap), stop=api.stop_asked)
     ways = []
     for c in skillkit.REGISTRY.values():

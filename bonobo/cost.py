@@ -9,7 +9,7 @@ from .beliefs import CONFIG as _PLAY
 from .data import MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare, mid
 from .knowledge import food_count, soil_depth, dawn_s, MIN_FIND_P, body_facts, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
-from .world import ROUTES, Region, Versioned, entities, job_ready, nearest, route_key, sight_pos, sight_version, sight_y
+from .world import ROUTES, Region, Versioned, job_ready, route_key, seen_hit
 from .skill import MIN_SAMPLES
 from .planner import Unplannable, plan_needs
 
@@ -86,7 +86,6 @@ class _Gone:
         self.cells = frozenset({tuple(p) for p in blacklist if banned(blacklist, p, now)}
                                | {k[0] for k, (found, _s) in ROUTES.items() if found is False
                                   and k[1:] == (2.0, NAV_NODES)})
-        self.memo_key = (self.cells, id(protected))      # sight_pos memo key
 
     def __contains__(self, p):
         p = tuple(p)
@@ -100,27 +99,18 @@ def route_refused(where):
 class Cost:
     """The cost model a planner is given."""
 
-    def __init__(self, snap, mem=None, blacklist=None, known=None, finds=None, policy=None, ripe=None, reserved=(),
-                 region=None, stop=None):
-        """`known`: fn(kinds) -> distance or None, standing in for memory (offline: no snapshot, no world).
-        `reserved`: item ids the held plans will consume (bag.RESERVED), kept from a better tool's material.
-        `region`: perception's blocks (None: unread); `stop`: () → True ends a search."""
+    def __init__(self, snap, mem, blacklist=None, policy=None, reserved=(), region=None, stop=None):
+        """Over the snapshot (its look included) and memory only: no world read. `reserved`: item ids the held plans
+        consume (bag.RESERVED); `region`: perception's blocks (None: unread); `stop`: () → True ends a search."""
 
         self.snap, self.mem, self.region, self.stop = snap, mem, region, stop
         self.reserved = frozenset(reserved)
         self.blacklist = blacklist if blacklist is not None else Versioned()
         self.cache = {}
-        self._known_fn = known
-        self._finds = finds
         self.policy = policy
-        self._ripe = ripe            # offline: {token: ripe cells} standing in for memory and the world
 
     def plans(self):
         """The round's plan memo, shared by every cost model built on this snapshot with the same readings (memory,…"""
-        if self.snap is None or not hasattr(self.snap, "__dict__"):
-            return self.cache
-        if self._known_fn is not None or self._finds is not None or self._ripe is not None:
-            return self.cache
         shared = self.snap.__dict__.setdefault("_plans", {})
         return shared.setdefault((id(self.mem), tuple(sorted(self.blacklist)), self.reserved, id(self.region)), {})
 
@@ -129,8 +119,7 @@ class Cost:
         """The cells never broken (memory.protected_cells: sites, a home's box): never a source to gather from; None
         with no memory to ask."""
         if "protected" not in self.cache:
-            self.cache["protected"] = (self.mem.protected_cells(self.snap.dimension)
-                                       if self.mem is not None and self.snap is not None else None)
+            self.cache["protected"] = self.mem.protected_cells(self.snap.dimension)
         return self.cache["protected"]
 
     def not_there(self, sources=False):
@@ -146,8 +135,6 @@ class Cost:
         """(position, distance) of the nearest remembered one of these (memory.seen, "tree" for any log), or None;
         `sources`: a protected cell is not there."""
 
-        if self.mem is None or self.snap is None:
-            return None
         kinds = list(kinds) + (["tree"] if any(bare(k).endswith("log") for k in kinds) else [])
         here, dim = self.snap.feet, self.snap.dimension
         skip = self.not_there(sources)
@@ -160,22 +147,15 @@ class Cost:
 
         if token != "minecraft:wheat":
             return 0
-        if self._ripe is not None:
-            return self._ripe.get(token, 0)
         key = ("ripe", token)
         if key not in self.cache:
-            n = 0
-            if self.mem is not None and self.snap is not None:
-                n = sum(j.get("count", 0) for j in self.mem.jobs(self.snap.dimension)
-                        if j["kind"] == "crop" and j.get("item") == token
-                        and job_ready(j, self.snap.state.get("gameTime")))
-            self.cache[key] = n
+            self.cache[key] = sum(j.get("count", 0) for j in self.mem.jobs(self.snap.dimension)
+                                  if j["kind"] == "crop" and j.get("item") == token
+                                  and job_ready(j, self.snap.state.get("gameTime")))
         return self.cache[key]
 
     def _known(self, kinds, sources=False):
         """Distance to the nearest remembered one of these, or None."""
-        if self._known_fn is not None:
-            return self._known_fn(list(kinds))
         hit = self._nearest(kinds, sources)
         return hit[1] if hit else None
 
@@ -184,38 +164,27 @@ class Cost:
         None. `sources`: what a gather or a mine takes from — a protected cell (a home block) is not there."""
 
         key = ("find", tuple(blocks), radius, sources)
-        if key not in self.cache and self._finds is not None:
-            got = [self._finds[b] for b in blocks if b in self._finds and self._finds[b] <= radius]
-            self.cache[key] = min(got) if got else self._known(blocks, sources)
         if key not in self.cache:
             known = self._known(blocks, sources)
             if known is not None and known <= radius:
                 self.cache[key] = known
         if key not in self.cache:
-            # in sight: the round's one look (world.nearest), never a search of its own
-            seen = None
-            if self.snap is not None:
-                seen = nearest(list(blocks), self.snap.feet, self.snap.dimension, radius, union=SOURCE_BLOCKS,
-                               skip=self.not_there(sources))
-            self.cache[key] = seen if seen is not None else self._known(blocks, sources)
+            seen = seen_hit(self.snap.hits, blocks, self.not_there(sources), radius)
+            self.cache[key] = seen[0] if seen is not None else self._known(blocks, sources)
         return self.cache[key]
 
     def _entity(self, types):
         key = ("ent", tuple(types))
-        if key not in self.cache and self._finds is not None:
-            got = [self._finds[t] for t in types if t in self._finds]
-            self.cache[key] = min(got) if got else self._known(types)
         if key not in self.cache:
-            try:
-                es = [e for e in entities(64, list(types)) if e.get("id") is None or not banned(self.blacklist, (e["id"], 0, 0))]
-            except McError:
-                es = []
-            self.cache[key] = es[0]["distance"] if es else self._known(types)
+            ids = {mid(t) for t in types}
+            near = [e["distance"] for e in self.snap.mobs if mid(e["type"]) in ids
+                    and (e.get("id") is None or not banned(self.blacklist, (e["id"], 0, 0)))]
+            self.cache[key] = min(near) if near else self._known(types)
         return self.cache[key]
 
     def _surface_trip(self):
         """Under rock, getting out is part of any surface trip, and it scales with depth."""
-        if self.snap is None or not under_rock(self.snap.get("skyLight", 15)):
+        if not under_rock(self.snap.get("skyLight", 15)):
             return 0
         return 200 + 30 * max(0, 64 - int(self.snap.feet[1]))
 
@@ -223,29 +192,27 @@ class Cost:
     def facts(self):
         """What is true of the world for a plan, read once from the snapshot and memory (the contracts' `when` read
         these): the body (knowledge.body_facts), the dimension, a portal known here, the sites found, lava to pour."""
-        if self.snap is None:
-            return body_facts(None)
         dim, mem = self.snap.dimension, self.mem
-        sites = (lambda kind: bool(mem.sites(None, kinds=[kind]))) if mem is not None else (lambda kind: False)
-        lava_bucket = self.snap.inv.count("minecraft:lava_bucket") if getattr(self.snap, "inv", None) else 0
-        return {**body_facts(getattr(self.snap, "state", None)),
-                "dimension": dim, "portal": portal_known(mem, dim) if mem is not None else False,
+        sites = (lambda kind: bool(mem.sites(None, kinds=[kind])))
+        lava_bucket = self.snap.inv.count("minecraft:lava_bucket")
+        return {**body_facts(self.snap.state),
+                "dimension": dim, "portal": portal_known(mem, dim),
                 "state:fortress_found": sites("fortress"), "state:stronghold_known": sites("stronghold"),
                 "state:portal_room_found": sites("portal_room"),
-                "lava": bool(lava_bucket) or (mem is not None and bool(mem.seen("lava", dim)))}
+                "lava": bool(lava_bucket) or bool(mem.seen("lava", dim))}
 
     def fight_line(self, step, held=None):
         """(ok, why): an optional fight a step makes is planned only above the fight line (S5) — the brain's one judge
         (knowledge.FIGHT_LINE ← brain.fight_line_holds) over this snapshot; (True, None) with no judge or body."""
         from . import knowledge, skill
-        if knowledge.FIGHT_LINE is None or self.snap is None or not getattr(skill.provider_of(step), "fights", None):
+        if knowledge.FIGHT_LINE is None or not getattr(skill.provider_of(step), "fights", None):
             return True, None              # no optional fight in it: its call's args are never built here
         found = skill.step_contract(step)
         if found is None:
             return True, None
         inv = self.snap.inv if held is None else planned_bag(self.snap.inv, held)
         try:
-            return knowledge.FIGHT_LINE(found[0], found[1], getattr(self.snap, "state", {}) or {}, inv)
+            return knowledge.FIGHT_LINE(found[0], found[1], self.snap.state, inv)
         except (IndexError, KeyError, TypeError):
             return True, None              # args it cannot read: the runner refuses them
 
@@ -268,13 +235,11 @@ class Cost:
         """[(pos, item, count, the chance it still holds it)] of `token` in the containers seen here (memory), the
         nearest first."""
         mem, snap = self.mem, self.snap
-        if mem is None or snap is None or not hasattr(mem, "stored"):
-            return []
-        rate = mem.container_change_rate() if hasattr(mem, "container_change_rate") else 0.0
+        rate = mem.container_change_rate()
         ids = set(members(token))
         out = []
         for pos, item, have in sorted(mem.stored(token, snap.dimension), key=lambda r: math.dist(r[0], snap.feet)):
-            rec = mem.container_record(pos) if hasattr(mem, "container_record") else None
+            rec = mem.container_record(pos)
             p = container_p(rec, ids, time.time() - rec.get("at", time.time()), rate) if rec else 1.0
             out.append((pos, item, have, p))
         return out
@@ -282,19 +247,18 @@ class Cost:
     def station_near(self, block):
         """A station of `block` within STATION_R: one of ours (memory: stations, machines that provide it) or one in
         sight — used where it stands, never made again."""
-        if self.mem is not None and self.snap is not None:
-            feet, dim = self.snap.feet, self.snap.dimension
-            if self.mem.known_stations(block, dim, near=feet, within=STATION_R):
-                return True
-            if any(MACHINE_PROVIDES.get(tag) == mid(block) for m in self.mem.machines(dim)
-                   if math.dist(m["origin"], feet) <= STATION_R for tag in m.get("tags", ())):
-                return True
+        feet, dim = self.snap.feet, self.snap.dimension
+        if self.mem.known_stations(block, dim, near=feet, within=STATION_R):
+            return True
+        if any(MACHINE_PROVIDES.get(tag) == mid(block) for m in self.mem.machines(dim)
+               if math.dist(m["origin"], feet) <= STATION_R for tag in m.get("tags", ())):
+            return True
         near = self.distance([block], STATION_R)
         return near is not None and near <= STATION_R
 
     def measured(self, step):
         """Ticks the skill runner has measured for this step, or None until enough runs exist."""
-        if self.mem is None or step.kind not in STAT_KEYS:
+        if step.kind not in STAT_KEYS:
             return None
         key, units = STAT_KEYS[step.kind](step)
         per = self.mem.duration(key, min_samples=MIN_SAMPLES)
@@ -317,10 +281,9 @@ class Cost:
             kinds = list(step.detail.get("kinds") or [step.token])
             return round(self.seek_s(kinds) / max(MIN_FIND_P, self.find_p(kinds)) * TICKS_PER_S)
         if step.kind == "wait":
-            return round(dawn_s(getattr(self.snap, "state", None) or {}) * TICKS_PER_S)
+            return round(dawn_s(self.snap.state) * TICKS_PER_S)
         if held is None:
-            inv = getattr(self.snap, "inv", None)
-            held = held_tiers(inv) if inv is not None else {}
+            held = held_tiers(self.snap.inv)
         return prior_work_ticks(step, held, TICKS_PER_S)
 
     def soil(self):
@@ -331,7 +294,7 @@ class Cost:
         """(breaks, kills) a step is expected to make: its own work (knowledge.own_work) and (`reach`) the digging
         to the nearest in sight (dug_way)."""
         breaks, kills = own_work(step)
-        if reach and step.kind == "mine" and self.snap is not None:
+        if reach and step.kind == "mine":
             breaks = breaks + self._dug(step)
         return breaks, kills
 
@@ -339,17 +302,14 @@ class Cost:
         """The blocks the way to the nearest in sight breaks (dug_way), [] when none is in sight or no way is found."""
         blocks = step.detail.get("blocks") or ()
         feet = tuple(int(c) for c in self.snap.feet)
-        target = sight_pos(blocks, self.not_there(True))
-        if target is None:
-            y = sight_y(blocks, self.not_there(True))
-            target = None if y is None else (feet[0] + 1, int(y), feet[2])
-        if target is None:
+        hit = seen_hit(self.snap.hits, blocks, self.not_there(True))
+        if hit is None:
             return []
+        target = hit[1]
         key = ("dug", feet, tuple(target), tuple(blocks))
         if key not in self.cache:
-            inv = getattr(self.snap, "inv", None)
             got = dug_way(feet, target, blocks[0] if blocks else "stone", self.soil(),
-                          FIND_AT.get(step.token) is not None, inv, self.protected()) if inv is not None else None
+                          FIND_AT.get(step.token) is not None, self.snap.inv, self.protected())
             self.cache[key] = got or []
         return list(self.cache[key])
 
@@ -381,12 +341,11 @@ class Cost:
         if not kinds:
             return None
         sources = k in ("gather", "mine", "take")
-        key = ("site", k == "hunt", sources, tuple(kinds), self.not_there(sources), self.not_there(True),
-               sight_version())
+        key = ("site", k == "hunt", sources, tuple(kinds), self.not_there(sources), self.not_there(True))
         if key not in self.cache:
             hit = self._nearest(kinds, sources=sources)
-            self.cache[key] = hit[0] if hit is not None else (
-                sight_pos(kinds, self.not_there(True)) if self.snap is not None and k != "hunt" else None)
+            seen = seen_hit(self.snap.hits, kinds, self.not_there(True)) if hit is None and k != "hunt" else None
+            self.cache[key] = hit[0] if hit is not None else (seen[1] if seen is not None else None)
         return self.cache[key]
 
     def _kinds_of(self, step):
@@ -405,7 +364,7 @@ class Cost:
         """Ticks no walk to this step's site can beat (the digging to it aside: `dig_to`): from the nearest place a
         plan may stand before it (the feet or any remembered spot); the walk from here when the site is unknown."""
         site = self.site(step)
-        if site is None or self.snap is None:
+        if site is None:
             return self._walk(step, dig=False)
         points = self._points()
         near = min((math.dist(p, site) for p in points if tuple(p) != tuple(site)), default=math.inf)
@@ -415,12 +374,10 @@ class Cost:
     def _points(self):
         """Every remembered spot in this dimension (memory: notes, stations, sites): where a plan can stand."""
         if "points" not in self.cache:
-            out = []
-            if self.mem is not None and self.snap is not None:
-                dim = self.snap.dimension
-                out += [tuple(r["pos"]) for r in self.mem.data.get("seen", []) if r.get("dimension") == dim]
-                out += [tuple(s["pos"]) for s in self.mem.stations(dim)]
-                out += [tuple(s["pos"]) for s in self.mem.sites(dim) if s.get("pos")]
+            dim = self.snap.dimension
+            out = [tuple(r["pos"]) for r in self.mem.data.get("seen", []) if r.get("dimension") == dim]
+            out += [tuple(s["pos"]) for s in self.mem.stations(dim)]
+            out += [tuple(s["pos"]) for s in self.mem.sites(dim) if s.get("pos")]
             self.cache["points"] = out
         return self.cache["points"]
 
@@ -450,14 +407,13 @@ class Cost:
         """Ticks the digging to the nearest one in sight takes (work_of's breaks beyond the step's own), each break
         with the best of `held` ({tool kind: tier}; the bag's when None)."""
         if held is None:
-            inv = getattr(self.snap, "inv", None)
-            held = held_tiers(inv) if inv is not None else {}
+            held = held_tiers(self.snap.inv)
         return dig_to_ticks(self.work_of(step)[0], step, held, TICKS_PER_S)
 
     def door_s(self, where, at=None):
         """Seconds to `where` from `at` (the feet when None) through a taught door on the way (mechanisms, wired as
         DOOR_ROUTE), else None: the stored mechanisms, never a world read."""
-        if DOOR_ROUTE is None or self.snap is None:
+        if DOOR_ROUTE is None:
             return None
         return DOOR_ROUTE(tuple(self.snap.feet if at is None else at), tuple(where),
                           lambda d: walk_ticks(d) / TICKS_PER_S, dimension=self.snap.dimension)
@@ -469,17 +425,14 @@ class Cost:
     # -- seconds to a kind: where it is, the game's route to it, the chance a search finds one
     def hunger_rate(self):
         """The share of each step's seconds hunger adds until something is eaten (threat.hunger_slowed), 0 with food…"""
-        state = getattr(self.snap, "state", None) or {}
-        inv = getattr(self.snap, "inv", None)
-        if "food" not in state or inv is None or food_count(inv) > 0:
+        state, inv = self.snap.state, self.snap.inv
+        if "food" not in state or food_count(inv) > 0:
             return 0.0
         from . import threat
         return threat.hunger_slowed(state["food"])
 
     def reachable(self, kinds):
         """False only when the game's route to the nearest remembered one was asked and not found."""
-        if self.mem is None or self.snap is None:
-            return True
         spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, self.snap.dimension)]
         return not spots or not route_refused(min(spots, key=lambda p: math.dist(p, self.snap.feet)))
 

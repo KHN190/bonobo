@@ -202,15 +202,28 @@ class Snapshot:
     """One consistent read of the player: state + inventory, built from readings the caller took."""
     state: StateReading
     inv: Inventory
+    hits: dict           # the round's look: {block: [hit]}
+    mobs: list           # the living entities around
+    read: int
+    read_at: float
 
     @classmethod
-    def from_readings(cls, state: Mapping[str, Any], inventory: "Mapping[str, Any] | Inventory") -> "Snapshot":
-        """A snapshot of recorded readings (/state dict, /inventory dict or Inventory): no world read."""
+    def from_readings(cls, state: Mapping[str, Any], inventory: "Mapping[str, Any] | Inventory", hits=None,
+                      mobs=None) -> "Snapshot":
+        """A snapshot of recorded readings (/state, /inventory, the look's `hits` and `mobs`): no world read."""
         snap = cls.__new__(cls)
         snap.state = cast("StateReading", dict(state))
         snap.inv = inventory if isinstance(inventory, Inventory) else Inventory(inventory)
         snap.read, snap.read_at = api.STATE.state_reads, api.STATE.state_read_at      # the last /state read then
+        snap.hits, snap.mobs = dict(hits or {}), list(mobs or [])
         return snap
+
+    @classmethod
+    def read(cls, kinds) -> "Snapshot":
+        """The round's read: /state, the bag, and the look at `kinds` around the feet (look_around)."""
+        state = api.get("/state")
+        hits, mobs = look_around((state["blockX"], state["blockY"], state["blockZ"]), state.get("dimension"), kinds)
+        return cls.from_readings(state, Inventory(), hits, mobs)
 
     @property
     def feet(self) -> Cell:
@@ -241,7 +254,7 @@ class Snapshot:
     def get(self, key, default=None):
         return self.state.get(key, default)
 
-_SIGHT = {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}, "memo": {}, "v": 0}
+_SIGHT = {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}}
 SIGHT_PER_BLOCK = 4        # hits kept per block: a source is the nearest of them outside the protected cells
 # the round's route answers and the last look are about the world we stood in (a new row may stand at the same feet)
 lifecycle.in_place(__name__, "ROUTES", "_SIGHT")
@@ -270,7 +283,7 @@ def nearest(kinds, feet, dimension, radius: float = 48, union=(), skip=None):
     key = (tuple(feet), dimension, api.STATE.world_writes)
     fresh = _SIGHT["key"] == key and time.time() - _SIGHT["t"] < FACT_TTL_S["look"]
     if not fresh:
-        _SIGHT.update(key=key, t=time.time(), near={}, y={}, hits={}, memo={}, v=_SIGHT.get("v", 0) + 1)
+        _SIGHT.update(key=key, t=time.time(), near={}, y={}, hits={})
     near, hits_of = _SIGHT["near"], _SIGHT.setdefault("hits", {})
     missing = [n for n in names if n not in near]
     if missing:
@@ -285,7 +298,6 @@ def nearest(kinds, feet, dimension, radius: float = 48, union=(), skip=None):
         for b in ask:
             near.setdefault(b, None)
             hits_of.setdefault(b, [])
-        _SIGHT["memo"], _SIGHT["v"] = {}, _SIGHT.get("v", 0) + 1
         for h in hits:
             b = bare(h["block"])
             hits_of.setdefault(b, []).append(h)
@@ -300,39 +312,24 @@ def nearest(kinds, feet, dimension, radius: float = 48, union=(), skip=None):
         got = [near[n] for n in names if near.get(n) is not None and near[n] <= radius]
     return min(got) if got else None
 
-def sight_version():
-    """The look's generation: changes whenever `nearest` reads the world again or the look grows."""
-    return _SIGHT.get("v", 0), id(_SIGHT.get("hits"))
+def look_around(feet, dimension, kinds, radius=64):
+    """The round's one look (P1: read into the snapshot, the estimates read it, never the world): ({block: [hit]} of
+    `kinds` in sight, [living entities within `radius`])."""
+    nearest(kinds, feet, dimension, union=kinds)
+    try:
+        mobs = entities(radius)
+    except api.McError as e:
+        api.swallowed("world.look_around", e)
+        mobs = []
+    return {k: list(v) for k, v in _SIGHT.get("hits", {}).items()}, mobs
 
-def sight_pos(kinds, skip=None):
-    """The cell of the nearest of `kinds` the last look saw (`nearest`; `skip`: cells not there), or None: no read of
-    its own."""
-    held = None if skip is None else getattr(skip, "memo_key", None)
-    key = (tuple(kinds), held) if skip is None or held is not None else None
-    hits = _SIGHT.get("hits", {})
-    memo = _SIGHT.setdefault("memo", {})
-    if memo.get("of") is not hits:
-        memo.clear()
-        memo["of"] = hits
-    if key is not None and key in memo:
-        return memo[key][0]
+
+def seen_hit(hits, kinds, skip=None, radius=math.inf):
+    """Pure: (distance, cell) of the nearest of `kinds` in a look's `hits`, none in `skip`, within `radius`; or None."""
     got = [(h["distance"], (h["x"], h["y"], h["z"])) for k in kinds for h in hits.get(bare(k), ())
-           if skip is None or (h["x"], h["y"], h["z"]) not in skip]
-    out = min(got)[1] if got else None
-    if key is not None:
-        memo[key] = (out, skip)   # skip kept alive
-    return out
+           if h["distance"] <= radius and (skip is None or (h["x"], h["y"], h["z"]) not in skip)]
+    return min(got) if got else None
 
-def sight_y(kinds, skip=None):
-    """The y of the nearest of `kinds` the last look saw (`nearest`; `skip`: cells not there), or None: no read of its
-    own."""
-    if skip is not None:
-        got = [(h["distance"], h["y"]) for k in kinds for h in _SIGHT.get("hits", {}).get(bare(k), ())
-               if (h["x"], h["y"], h["z"]) not in skip]
-        return min(got)[1] if got else None
-    near, ys = _SIGHT["near"], _SIGHT["y"]
-    got = [(near[n], ys[n]) for n in (bare(k) for k in kinds) if near.get(n) is not None and n in ys]
-    return min(got)[1] if got else None
 
 def find(blocks, radius=32, limit=50, exposed=False):
     """What `/find` sees."""
