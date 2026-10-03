@@ -21,6 +21,22 @@ def ticks(steps):
     return sum(s.est for s in steps)
 
 
+class OneStationOfAKind(unittest.TestCase):
+    """A station is required, never used up: one the goal asks for stands from when it is had, so a later step that
+    works at it never makes another (station kit: the table asked and the pickaxe crafted at it)."""
+
+    ROWS = [("a table and a wooden pickaxe asked", [("minecraft:crafting_table", 1), ("minecraft:wooden_pickaxe", 1)]),
+            ("must fail: the station kit (table and furnace): one table, not two",
+             [("minecraft:crafting_table", 1), ("minecraft:furnace", 1)])]
+
+    def test_one_table(self):
+        for name, needs in self.ROWS:
+            with self.subTest(name):
+                steps = plan_needs(bag(inventory()), needs, NullCost())
+                self.assertEqual(sum(s.count for s in steps if s.kind == "craft"
+                                     and s.token == "minecraft:crafting_table"), 1)
+
+
 class TheBoundNeverOverprices(unittest.TestCase):
     """Bound.least (what is held credited at every level) is at most what the plan the planner finds pays: A* and
     the incumbent's pruning drop nothing cheaper."""

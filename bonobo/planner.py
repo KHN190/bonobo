@@ -29,6 +29,7 @@ MAX_DEPTH = 14
 MAX_NODES = 400       # A* expansions past the incumbent (~0.1 s measured): spent, the best complete plan found
                       # stands — the incumbent at least (D1: an answer, never a hang)
 MERGEABLE = {"mine", "gather", "hunt", "smelt"}
+STATIONS = frozenset(("minecraft:crafting_table", "minecraft:furnace"))     # what way() works at, never used up
 FOOD_IDS = frozenset(mid(f) for f in ALL_FOOD)          # what the eat reflex eats
 MAKES_FOOD = ("smelt", "craft", "take", "withdraw", "trade", "await")   # steps that put food in the bag
 MERGEABLE_CRAFTS = {"planks", "minecraft:stick", "minecraft:torch", "minecraft:ladder"}
@@ -835,6 +836,9 @@ class Search:
                 after.append(("fact", need[1], need[2], 0))
             elif need[0] == "do":
                 after += [("prep", need[1], 0), ("emit", need[1], 0, 0)]
+            elif mid(need[0]) in STATIONS:
+                # a station the goal asks for stands from when it is had: every later step reuses it, none makes another
+                run += [("need", need[0], int(need[1]), 0, False), ("add", need[0], int(need[1]))]
             else:
                 # a goal's items are to be held: had, then counted back for what the plan does after them
                 run.append(("need", need[0], int(need[1]), 0, False))
