@@ -261,7 +261,12 @@ def P2(b, d, a, ctx):
 
 
 def P3(b, d, a, ctx):
-    """The search's bound never overprices:"""
+    """The search's bound never overprices: at no node on the way to each plan the round's searches took is g + h
+    above that plan's price as run (planner.PATHS: a g priced high midway, an h above what is left), nor at the root."""
+    for paid_ticks, path in ctx.get("paths") or ():
+        worst = max((g + h for g, h in path), default=0.0)
+        if worst > paid_ticks + TOL_TICKS:
+            return f"g + h {worst:.0f} ticks on the way to a plan priced {paid_ticks:.0f} as run ({len(path)} nodes)"
     plan, bound = _plan(ctx), ctx.get("bound")
     if plan is None or bound is None or ctx.get("plan_hand_made"):
         return Unchecked("no planner plan with its bound this round")

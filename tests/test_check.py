@@ -330,6 +330,39 @@ class FactValuesOfOneType(unittest.TestCase):
                 sorted(vs)
 
 
+class TheWayThereIsNotOverpriced(unittest.TestCase):
+    """P3 on every node of the way to each plan the round's searches took (planner.PATHS: g + h ≤ the plan as run),
+    not only the root's bound: a g priced high midway shows there, with no exact reference run."""
+
+    def test_rows(self):
+        from check.inv.plan import P3
+        f = of()
+        rows = [("the way under its price", [(100, [(0.0, 60.0), (40.0, 50.0), (100.0, 0.0)])], False),
+                ("must fail: a node midway above the price", [(100, [(0.0, 60.0), (90.0, 40.0), (100.0, 0.0)])], True)]
+        for name, paths, fires in rows:
+            with self.subTest(name):
+                got = P3(f, None, f, {"paths": paths})
+                self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), fires, got)
+
+    def test_a_round_whose_g_runs_high(self):
+        from unittest import mock
+        from bonobo import planner
+        from check import round as rnd
+        from check.inv.plan import P3
+        real = planner.Search.emit
+
+        def high(self, node, *a, **k):
+            out = real(self, node, *a, **k)
+            node.g += 10 ** 5           # a step priced far above what it takes, midway
+            return out
+        f = of(task="tool")
+        d, _got, ctx = rnd.decide(f, fail_then_again=False)
+        self.assertIsNone(P3(f, d, f, ctx))
+        with mock.patch.object(planner.Search, "emit", high):
+            d, _got, ctx = rnd.decide(f, fail_then_again=False)
+        self.assertIsInstance(P3(f, d, f, ctx), str)           # must fail: the inflated g unseen
+
+
 class UnplannableIsThisRounds(unittest.TestCase):
     """review-brain 12: `unplannable` (D1's reason when nothing is proposed) was never cleared — a round that planned
     still read the last failed round's reason."""
