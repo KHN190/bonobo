@@ -730,7 +730,8 @@ class Brain:
                 picked = arbiter.Intent("plan", act, kind=kind, key=act.name,
                                         surface=act_on_surface(act) or (closed and self.under_sky(snap)))
                 if arbiter.viable(picked, {"surface_closed": closed}):
-                    return [picked]
+                    side = self.enroute_intent(snap, ctx, cost, act, held)
+                    return [side, picked] if side is not None else [picked]
         if self.just_finished and not any(t["state"] in tasks.LIVE for t in tasks.load()):
             # the round that finished the last task proposes nothing: stocking in the same breath was momentum, not a decision
             return []
@@ -1012,6 +1013,43 @@ class Brain:
         later_s = sum(st.est for st in act.plan) / TICKS_PER_S
         return act, _k.side_saving(1.0 if needs[0][0] in planned else 0.0, later_s,
                                    max(0.0, later_s - _k.dawn_s(snap.state)), 0.0)
+
+    def enroute_wanted(self, snap, cost, held, own=None):
+        """{item: P it is used later}: what the held plan's other steps get (P 1), and what each later milestone's needs
+        come down to (Cost.raw_tokens), P falling with its distance down the chain (1 / (1 + k), the k-th after the
+        current one)."""
+        wanted = {st.token: 1.0 for st in held["steps"] if st.kind in cost.GOT and st is not own}
+        later = [name for name in goals.MILESTONES
+                 if goals.remainder(goals.make("milestone", name=name), snap, self.mem) != {}][1:]
+        for k, name in enumerate(later, start=1):
+            rows = goals.MILESTONES[name]
+            for need in rows if isinstance(rows, list) else ():
+                token = _k.tool_item(need[1], need[2]) if need[0] == "tool" else need[0]
+                for t in cost.raw_tokens(token):
+                    wanted[t] = max(wanted.get(t, 0.0), 1.0 / (1 + k))
+        return wanted
+
+    def enroute_intent(self, snap, ctx, cost, act, held):
+        """A side act on the way (K4, G3), asked once a round: the best thing beside the leg the next step walks (the
+        feet to its site, Cost.enroute) that saves seconds taken now, or None. Taken by its own step through the one
+        door (dispatch.execute), the plan resuming after."""
+        there = cost.site(act.step) if act.step is not None else None
+        if there is None:
+            return None
+        wanted = self.enroute_wanted(snap, cost, held, own=act.step)
+        for saving, step, where in cost.enroute(snap.feet, there, wanted, self.price_table(snap).get):
+            name = f"enroute: {step.kind} {bare(step.token)} at {where}"
+            if not self.ready(name):
+                continue
+
+            def run(step=step, where=where):
+                if step.kind in cost.GOT:
+                    nav.arrived_near(where, ctx.policy, attempts=1)     # the one beside the leg, not another
+                dispatch.execute(ctx, step, snap.night)
+            side = Act("plan", name, run, step=step)
+            return arbiter.Intent("plan", side, kind="enroute", key=name, side=True, saving=saving, seq=-1,
+                                  surface=act_on_surface(side))
+        return None
 
     def light_intent(self, snap, ctx):
         """An open dark area underground (never the surface, a short shaft or a sealed hole): lit first where work
