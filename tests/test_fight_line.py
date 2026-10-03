@@ -126,5 +126,21 @@ class FightLine(unittest.TestCase):
             self.assertFalse(brain.Brain.valid(me, step, snap, ctx=object()))
 
 
+class BlazeStep(unittest.TestCase):
+    """collect_blaze_rods ends when nothing can come: no blaze, no rod, no spawner within the game's activation range
+    (collect_blaze_rods 175208: 12 s of waits after the last kill, spawn_mobs off)."""
+
+    def test_table(self):
+        rod, blaze, spawner = [{"id": 1}], [{"id": 2}], [{"x": 0}]
+        rows = [("rods on the floor: collect", blaze, rod, [], 0, "collect"),
+                ("a blaze alive: wait", blaze, [], [], 99, "wait"),
+                ("must fail: none alive, no spawner near: end at once", [], [], [], 0, "end"),
+                ("a spawner near, quiet briefly: wait", [], [], spawner, 5, "wait"),
+                ("a spawner near, quiet past BLAZE_QUIET_S: end", [], [], spawner, combat.BLAZE_QUIET_S, "end")]
+        for name, blazes, rods, spawners, quiet, want in rows:
+            with self.subTest(name):
+                self.assertEqual(combat.blaze_step(blazes, rods, spawners, quiet), want)
+
+
 if __name__ == "__main__":
     unittest.main()

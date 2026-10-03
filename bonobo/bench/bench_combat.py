@@ -71,12 +71,13 @@ FAMILIES = [
 ]
 ROWS = [
     dict(name='collect_blaze_rods', module='combat',
-         doc=('Nether platform, 3 blazes, sword + shield + iron armor → fight_loop fights them, the step picks up at '
-              'least one rod.'),
+         # Looting III: no rod from a blaze (1/2)^4, from all three ≈ 2e-4
+         doc=('Nether platform, 3 blazes, Looting III sword + shield + iron armor → fight_loop fights them, the step '
+              'picks up at least one rod.'),
          scene=[('floor', 'nether_bricks', 8, 2),
                 ('at', 'fill {0} {1} nether_bricks hollow', ('@', -9, 0, -9), ('@', 9, 5, 9)),
                 ('fill', ('@', -8, 0, -8), ('@', 8, 4, 8), 'air'), ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'),
-                ('give', 'diamond_sword'), ('cmd', 'item replace entity @p weapon.offhand with shield'),
+                ('cmd', 'give @p diamond_sword[enchantments={"minecraft:looting":3}]'), ('cmd', 'item replace entity @p weapon.offhand with shield'),
                 ('cmd', 'item replace entity @p armor.chest with iron_chestplate'),
                 ('cmd', 'item replace entity @p armor.head with iron_helmet'), ('give', 'cooked_beef', 16),
                 ('give', 'cobblestone', 32), ('summon', 'blaze', ('@', 3, 1, 0), '{PersistenceRequired:1b,Health:4f}'),
@@ -103,14 +104,12 @@ ROWS = [
          expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),
                  (('@', -9, 0, -9), ('@', 9, 3, 9), 'glass', 288, 288)]),
     dict(name='fight_enderman_provoked', module='fight_loop',
-         doc=('One enderman provoked (hit by the player through the console), no sword, a 2-high alcove 4 off → '
+         doc=('One enderman provoked (stared at until the jar reads it angry), no sword, a 2-high alcove 4 off → '
               'under it within 5 s, no hit after, alive'),
          scene=[('sheet', '_ARENA'), ('cmd', 'clear @p minecraft:iron_sword'),
                 ('built', 'alcove', *ALCOVE),
                 ('summon', 'enderman', ('@', -ALCOVE[0], 0, 0), '{PersistenceRequired:1b}')],
-         before=[('start', 'fight_enderman_provoked'),
-                 ('do', 'chat', ['damage @e[type=minecraft:enderman,limit=1] 1 minecraft:player_attack by @p'], {}),
-                 ('&record_bids',)],
+         before=[('&provoke_by_stare',), ('start', 'fight_enderman_provoked'), ('&record_bids',)],
          run=('fight_until', ['minecraft:enderman'], 14, False),
          check=[('took_cover_alcove', *ALCOVE, 5.0), ('alive',)],
 point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'enderman'},
