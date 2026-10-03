@@ -121,7 +121,7 @@ class UsedAsItStands(unittest.TestCase):
         from bonobo import gather
         p = memory.Protected((), [(LO, HI)])
         found = [{"x": 3, "y": 65, "z": 3, "block": "minecraft:oak_log"}, {"x": 30, "y": 65, "z": 3, "block": "minecraft:oak_log"}]
-        hits = gather.seek_hits(["minecraft:oak_log"], found, 16, lambda p: False, p)
+        hits, _why = gather.seek_hits(["minecraft:oak_log"], found, lambda p: False, p)
         self.assertEqual([h["x"] for h in hits], [30], "must fail: a log in the home offered for gathering")
 
 

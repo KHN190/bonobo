@@ -192,13 +192,13 @@ def craft_act(layer, name, ctx, steps, step, night, cost, task=None, inv=None):
         # round (round_act, need_act, _task_act) before one runs, so ctx.next_use is never shared across their builds
         furnace_use = craft.next_furnace_use(cost, steps, step)
 
-        def run(ctx=ctx, step=step, night=night, next_use=furnace_use):
+        def smelt_run(ctx=ctx, step=step, night=night, next_use=furnace_use):
             ctx.next_use = next_use
             try:
                 return dispatch.execute(ctx, step, night)
             finally:
                 ctx.next_use = None
-        return Act(layer, name, run, task=task, step=step)
+        return Act(layer, name, smelt_run, task=task, step=step)
     return Act(layer, name, lambda: dispatch.execute(ctx, step, night), task=task, step=step)
 
 class Act:
@@ -253,6 +253,7 @@ class Brain:
         self.round_snap = None        # the round's snapshot: what a failure's state and a cooling's are read from
         self.fail_target = {}         # failure key → the target it failed at (None: none), for its state (E5)
         self.idle_why = ""            # D1: why the round proposes nothing
+        self.step_whys = []            # D1: a queued task's own "no step can run" reason (_task_act may run before plan_proposals resets it)
         self.last_light = self.last_offhand = self.last_scan = self.last_track = self.last_hold_log = 0
         self.lit_place = None      # where the last first lighting was done (a place signature)
         fight_loop.wire(self.mem, lambda snap: self.policy(snap, snap.night), self.blacklist,

@@ -54,14 +54,20 @@ def takes_back(block, has_pickaxe):
 
     return has_pickaxe or bare(block).endswith(HAND_MINEABLE_SUFFIX)
 
+def _break_ticks_held(block, inv):
+    """Pure: ticks to break `block` with the best of the hand and what the bag holds (knowledge.work_s's own
+    min-over-held) — never a chosen item (E1, test_one_bag: skillcore.arm alone picks what a task holds)."""
+    held = _k.held_tiers(inv)
+    items = ["hand"] + [_k.tool_item(k, t) for k, t in held.items()]
+    return min(_k.break_ticks(bare(block), i) for i in items)
+
 def station_kept(block, pos, next_use, inv, extra_s=0.0):
     """Pure (G3): left standing pays when walking back from `next_use` (D6: the plan's own place for it) costs
     fewer ticks than breaking `block`, carrying it, and placing it again there; `extra_s` counts in a furnace
     still smelting (waited out or collected before it can break). False with no known next use: always carry."""
     if next_use is None:
         return False
-    tool = _k.tool_for(inv, bare(block))
-    rebuild = _k.break_ticks(bare(block), tool) + _k.break_overhead() + round((nav.PLACE_S + extra_s) * TICKS_PER_S)
+    rebuild = _break_ticks_held(block, inv) + _k.break_overhead() + round((nav.PLACE_S + extra_s) * TICKS_PER_S)
     return _k.walk_ticks(math.dist(pos, next_use)) < rebuild
 
 def _next_use_at(cost, steps, last, needs):
