@@ -23,7 +23,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import world  # noqa: E402
-from bonobo import brain, data, knowledge, loot, memory, nav, skillcore  # noqa: E402,F401
+from bonobo import brain, data, knowledge, loot, memory, nav, skill, skillcore  # noqa: E402,F401
 from bonobo.cost import Cost, walk_ticks  # noqa: E402
 from bonobo.planner import Step, plan_needs  # noqa: E402
 from tests.world import FakeRegion, bag, flat, inventory, places_by  # noqa: E402
@@ -394,7 +394,7 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
     def test_every_step_that_touches_the_world_says_what_body_it_needs(self):
         for name, (step, needs) in self.STEPS.items():
             with self.subTest(step=name):
-                asked = dict(knowledge.step_when(step, {}))
+                asked = dict(skill.when_of_step(step, {}))
                 for fact in needs:
                     self.assertIs(asked.get(fact), True, f"{name} does not say it needs {fact}")
 
@@ -530,7 +530,7 @@ class TheNightIsAFact(unittest.TestCase):
         steps = TheBodyIsAStateLikeAnyOther.STEPS
         for name, kind, night, want in self.STEPS:
             with self.subTest(name):
-                asked = dict(knowledge.step_when(steps[kind][0], {"night": night}))
+                asked = dict(skill.when_of_step(steps[kind][0], {"night": night}))
                 got = next(((f, asked[f]) for f in ("night", "covered") if f in asked), None)
                 self.assertEqual(got, want)
 
