@@ -1,4 +1,10 @@
-"""What a bench cell IS: the dimensions a situation can vary along, and one way to move along them. The sheets used to carry their own dimensions as dictionaries of setup commands, and the offline sweep carried its own as dictionaries of state vectors. Two vocabularies for one idea: a dimension added to one was missing from the other, and a relation that should hold "wherever this varies" quietly held in half the places. So the names live here, once. A cell is a typed thing with a `with_` that moves exactly one dimension — which is how every rule in a sheet is phrased: the same situation, one variable moved, and the number may only go one way. The sheets say how to BUILD each value in a running game; `tests/world.py` says how to build it as a state vector. Neither owns the vocabulary."""
+"""What a bench cell IS: the dimensions a situation can vary along, and one way to move along them, named once here
+so a sheet (setup commands, a running game) and the offline sweep (state vectors) share one vocabulary — a
+dimension known to only one side would let a relation that should hold "wherever this varies" quietly hold in only
+half the places. A cell is a typed thing with a `with_` that moves exactly one dimension — which is how every rule
+in a sheet is phrased: the same situation, one variable moved, and the number may only go one way. The sheets say
+how to BUILD each value in a running game; `tests/world.py` says how to build it as a state vector. Neither owns
+the vocabulary."""
 
 # name → values; the first is the baseline relations are stated against
 DIMENSIONS = {

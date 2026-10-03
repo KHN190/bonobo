@@ -457,8 +457,8 @@ def api(method, path, body=None, timeout=1200):
     except (ConnectionError, TimeoutError, OSError) as e:
         if isinstance(e, ConnectionResetError) and _game_up():
             # the game is up and closed THIS request unanswered (RemoteDisconnected is a ConnectionResetError): the
-            # jar's error on this request, not a lost game — combat__dig_in's attack(entity=None) 500s read as
-            # "connection to the game lost" ×3 (jar ≥ 0.1.63 answers them as a 400/500 with the reason)
+            # jar's error on this request, not a lost game (jar ≥ 0.1.63 answers such a request as a 400/500 with
+            # the reason, not silence)
             raise McError(f"{path}: the game closed the request without an answer ({e.__class__.__name__}): "
                           "the jar's error, its log names it")
         raise GameUnreachable(f"connection to the game lost ({e.__class__.__name__})")

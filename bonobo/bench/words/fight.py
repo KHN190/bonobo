@@ -159,8 +159,8 @@ def _combat_intent(state: dict[str, Any]):
         swallowed("fight._combat_intent", e)
     sstate = perception.price_inputs(state)
     price = lambda dhp: threat.hp_seconds(sstate, dhp)
-    # the entity ids with the rows, as perception bids: without them every fight option named no target, and the
-    # held decision this seeds posted attack(entity=None) into the live fight (combat__dig_in 01:03:09, a 500 ×3)
+    # the entity ids with the rows, as perception bids: without them every fight option names no target, and the
+    # held decision this seeds would post attack(entity=None) into the live fight
     ids = threat.ids_by_row(near, rows)
     st = fight_loop.threat_state(state, rows, ids=ids)
     horizon, opts = threat.horizon_for(st), threat.options(st)
@@ -294,9 +294,8 @@ def _combat_execute(seconds, until=None, cell=None):
     ENGAGED_INTENT.clear()
     watcher = threading.Thread(target=_sampler, args=(stop, trace, began), daemon=True)
     watcher.start()
-    # ONE layer drives: the planner takes no round in the window (Brain.not_taking_part, which this used, went in
-    # fda0116 — every cell since raised SetupInvalid 'no way to stand down' at 1 s: combat__block_gap ×3); the threat
-    # layer answers from the perception thread as always
+    # ONE layer drives: the planner takes no round in the window (Brain.not_taking_part); the threat layer answers
+    # from the perception thread as always
     try:
         while time.time() - began < seconds and (until is None or until()):
             state = Snapshot.from_readings(api.get("/state"), bag_now()).state
@@ -773,8 +772,7 @@ def kills_while_engaged(samples, bids=()):
     """Pure: the mobs the fight is proven to have killed — `samples` [(when, [(id, hp, distance)])] in order, `bids`
     the threat layer's [(when, engaged, kind)]. A mob counts when it went between two samples, was last seen hurt
     (hp below the first reading of it) and within KILL_REACH, and the fight was engaged at a bid in between. A mob
-    that vanished at full health, far off, or while nothing fought is no kill (fight_skeleton_1 20260928-225429:
-    'killed' 10 blocks off in 1.3 s)."""
+    that vanished at full health, far off, or while nothing fought is no kill."""
     first, kills = {}, 0
     for a, b in zip(samples, samples[1:]):
         for mid, hp, _d in a[1]:
@@ -1137,8 +1135,8 @@ def escape_row(name, enemy, ground, kit, seed=None):
     seed = random.randrange(1 << 30) if seed is None else seed
     cell = dict(UNARMED, enemy=enemy, ground=ground, kit=kit, run=0, seed=seed)
     kind = ENEMY[enemy]
-    # the enemy held still (NoAI) where it was summoned and woken as the window opens: free, a walker 11 off reached
-    # the body during setup and the window began under its hits (escape__walker_open_blocks: 20 → 17 hp at 0.2 s)
+    # the enemy held still (NoAI) where it was summoned and woken as the window opens: free, a mob some way off
+    # could otherwise reach the body during setup and the window would begin already under its hits
     hold = [("cmd", f"data merge entity @e[type={kind},limit=1,sort=nearest] {{NoAI:1b}}")] if kind else []
     wake = {"before": [("loose", kind.split(":")[-1])]} if kind else {}
     return _fight_row(name, f"No weapon, no armour, {enemy} on {ground} ground with {kit}, {ESCAPE_SECONDS:.0f} s: the "

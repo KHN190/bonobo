@@ -685,7 +685,7 @@ def soft_spot():
 def dig_in_site(region, feet_at, protected=(), inv=None):
     """Pure: can a dig-in finish here — DIG_IN_DEPTH cells safe to dig under the column (nav.safe_depth, from
     where a started dig began: dig_in_start), so its lid sits below the ground line? A 3-thick floor over air
-    gives 2: not offered (search_night_resume chose it, then 'only 2 of 3 safe'). With the bag known, the dig-in's
+    gives 2: not offered (only 2 of 3 safe is not enough). With the bag known, the dig-in's
     own plan decides (dig_in_plan: a lid to seal with, room for it): the plan's test is the run's."""
     if inv is not None:
         return dig_in_plan({"region": region, "inv": inv, "feet": tuple(feet_at), "protected": set(protected)})[0] is not None

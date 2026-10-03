@@ -471,7 +471,7 @@ class Brain:
     def round(self, plan=True):
         """One round. `plan=False`: reflexes and safety only (the upkeep reflexes — eat, reach land — and the yield to
         the fight), no needs' goals and no queue or milestone: a fight row's rounds (bench fight_until), where the
-        plan layer took the body after the fight and mined coal for 14 s (combat__low_hp_eat 23:33:02)."""
+        plan layer takes the body only after the fight ends."""
         intent.clear()
         self.planning = plan
         try:

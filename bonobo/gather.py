@@ -191,7 +191,7 @@ def _cheapest_seed(ctx, hits, start, open_set):
     """The vein to go for: every candidate, by the seconds of the door's own way to it (nav.reach: walked to when its
     cell is open, else dug, its treads from the bag held now, P2) — asked in the order of the least each could take,
     none asked once that least cannot beat the best priced (a buried vein near beat an exposed one a little
-    farther); one reach refuses (no tread to place: accept5's y70 stone) is never picked; all refused: NotAvailable
+    farther); one reach refuses (no tread to place) is never picked; all refused: NotAvailable
     at the nearest's cause (E5: the round looks further, not walks into a known failure)."""
     cells = sorted(((h["x"], h["y"], h["z"]) for h in hits), key=lambda c: nav.least_way_s(c, start))
     inv, priced, refused = Inventory(), [], []
@@ -255,8 +255,8 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     for _ in range(nav.MINE_PASSES):
         have = Inventory().count(drop)
         if have >= target:
-            # the count met: the notes of what was mined are spent (only a whole pass's end retired them — a count met
-            # at the top of the next pass kept a mined diamond's note: seen_store__noted 10:16 "the note retired" False)
+            # the count met: the notes of what was mined are spent (only a whole pass's end retires them — a count
+            # met at the top of the next pass would otherwise keep a mined vein's note as if still there)
             if ctx.mem is not None and sent:
                 seen_now = region_around(sorted(sent), pad=0)
                 for p in spent_cells(sent, (lambda c: seen_now.name(c)) if seen_now is not None else None, blocks):
@@ -408,8 +408,8 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             api.detail(f"  mine {bare(drop)} refused by the jar ({out}): feet {feet()}, cells "
                        + "; ".join(f"{c} {n} faces {[region.name(cell_add(c, d)) for d in nav.NEIGHBOURS6]}" for c, n in around.items()))
             # "cannot hold a stand spot": the jar found no spot that keeps the cell in sight (a top face seen only
-            # from a pit's rim, search_night_resume 09:17:19) — open a side face once, then ask again; a ban only
-            # when the opened cell is refused too
+            # from a pit's rim) — open a side face once, then ask again; a ban only when the opened cell is
+            # refused too
             held = stand_refused(out.cells or (), opened, str(out))
             sides = opener_pairs(region, held, feet(), ctx.policy.protected, forced=True)
             if sides:
@@ -454,9 +454,9 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                     _reach_budget(unreachable, blocks)
                 continue
             if not dug_out and "failed" not in (r.get("message") or ""):
-                # the batch broke its cells ("succeeded") and the bag gained nothing: the drop lies where the pickup
-                # never went (a sealed cavity: brain__base "collecting items (0)") — open the cavity toward the body
-                # once and sweep, not a silent success nor a ban of cells that are air now
+                # the batch broke its cells ("succeeded") and the bag gained nothing: the drop lies in a sealed
+                # cavity the pickup never entered — open it toward the body once and sweep, not a silent success
+                # nor a ban of cells that are air now
                 now = Region(tuple(min(c[i] for c in vein) - 1 for i in range(3)),
                              tuple(max(c[i] for c in vein) + 1 for i in range(3)))
                 broken = [c for c in vein if not now.solid(c)]
@@ -705,7 +705,7 @@ def take(ctx, token, count, blocks):
         if not hits:
             raise NotAvailable(f"no {bare(blocks[0])} within reach to take")
         # the nearest the door's own predicate (nav.reach, the bag held now) gets to; one it refuses is banned with
-        # the state it failed in (ban_state: lifted once the bag changes, accept5's table), never as gone
+        # the state it failed in (ban_state: lifted once the bag changes), never as gone
         here, inv, hit, stand, why = feet(), Inventory(), None, None, None
         for h in hits:
             c = (h["x"], h["y"], h["z"])

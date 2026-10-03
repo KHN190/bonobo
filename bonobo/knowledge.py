@@ -951,7 +951,7 @@ PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 
                "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
                "withdraw": 40, "look": 40, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
                "farm": 1200, "trade": 600,         # farm: without the growth (GROW_S)
-               "reach": 200, "breed": 400, "eat": EAT_TICKS, "pickup_each": 20,   # pickup: mine_stone__base 181618, ~1 s a drop
+               "reach": 200, "breed": 400, "eat": EAT_TICKS, "pickup_each": 20,   # pickup: measured, ~1 s a drop
                "shelter:dig_in": 500, "shelter:pod": 800, "shelter:hut": 2400,
                "room:tidy": 300, "room:deposit": 1200,
                "surface": 200, "surface_per_block": 30,     # out from under rock: a base and per block below SURFACE_Y
@@ -972,7 +972,7 @@ PRICE_SOURCE = {
         "reach": "prior", "breed": "prior", "eat": "game", "pickup_each": "measured", "shelter:dig_in": "prior", "shelter:pod": "prior",
         "shelter:hut": "prior", "room:tidy": "prior", "room:deposit": "prior", "surface": "prior",
         "surface_per_block": "prior",
-        "break_task": "measured", "hostile_per_min": "prior", "equip": "prior"},      # bench q5 ticks (readiness: mine_stone__base, ore_buried, chop__base)
+        "break_task": "measured", "hostile_per_min": "prior", "equip": "prior"},      # measured ticks
     "knowledge.SURFACE_Y": "game", "data.MEASURED_BAND": "policy", "knowledge.GROW_S": {"crop": "prior", "animal": "game"}, "knowledge.NIGHT_S": "game",
     "knowledge.FIND_AT": "game", "knowledge.FIND_DENSITY": {"tree": "prior", "water": "prior", "sand": "prior", "clay": "prior", "other": "prior"}, "knowledge.TUNNEL_FACES": "game",
     "data.ORE_VEINS": "game", "data.TREES_PER_CHUNK": "game", "data.BIOME_CREATURES": "game", "data.VILLAGE_BIOMES": "game", "data.BIOME_PATCH": "prior", "data.CREATURE_CHUNK_P": "game", "data.VILLAGE_REGION_BLOCKS": "game", "data.SOIL_DEPTH": "prior", "data.DEEPSLATE_TOP": "game",

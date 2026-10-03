@@ -159,7 +159,7 @@ def low_cover_at(region, here, radius=6, mob_width=TALL_WIDTH):
 
 def stand_level(solid, x, z, y, span=4) -> int | None:
     """Pure: the y a body stands at in column (x, z) nearest `y` (floor under, feet and head clear), or None (a wall).
-    Nearest, not highest: the top of a ceiling overhead is no ground a walker reaches (escape__walker_open_blocks)."""
+    Nearest, not highest: the top of a ceiling overhead is no ground a walker reaches."""
     for yy in sorted(range(y - span, y + span + 1), key=lambda v: (abs(v - y), v)):
         if solid((x, yy - 1, z)) and not solid((x, yy, z)) and not solid((x, yy + 1, z)):
             return yy
@@ -191,7 +191,7 @@ def shape_at(region, here) -> tuple:
 
 def blocks_in_passage(region, here, reach=4):
     """Pure: blocks already filling our 1-wide passage, per side ({unit step along it: feet + head of its first
-    filled cell}) — a plug behind us seals nothing in front (combat__block_gap died to that); {} elsewhere."""
+    filled cell}) — a plug behind us seals nothing in front; {} elsewhere."""
     x, y, z = (int(math.floor(v)) for v in here)
     solid = region.solid
     for dx, dz in ((1, 0), (0, 1)):

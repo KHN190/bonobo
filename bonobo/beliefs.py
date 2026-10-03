@@ -27,7 +27,7 @@ def _with_dps(kind, row):
 CONFIG["engage"].setdefault("fuse_s", game.CREEPER_FUSE_TICKS / TICKS_PER_S)
 CONFIG["engage"].setdefault("fuse_stop_blocks", game.CREEPER_STOP_BLOCKS)
 MOBS = {kind: _with_dps(kind, row) for kind, row in CONFIG["mobs"].items()}
-# a creeper is kept off past where its fuse stops (fight_creeper_1: backed to 6.9, blew)
+# a creeper is kept off past where its fuse stops, with a margin
 MOBS["minecraft:creeper"]["keep_out"] = float(CONFIG["engage"]["fuse_stop_blocks"]) + 0.5
 PLAYER = CONFIG["player"]
 PLAYER.setdefault("speed", game.PLAYER_SPRINT)     # the jar walks and chases sprinting (AttackTask, GotoTask)

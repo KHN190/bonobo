@@ -437,7 +437,7 @@ def prebuild(name):
                 time.sleep(0.5)
             _batch([ow + f"fill {lo} {hi} air"] + [ow + shift(c) for c in world], fb, settle=1.0)
             PREBUILT["ok"] = True
-        except Exception as e:  # guard: a prebuild thread's failure must not kill the bench; the old way still works
+        except Exception as e:  # guard: a prebuild thread's failure must not kill the bench
             PREBUILT["why"] = f"{e} @ {traceback_of(e)}"
         finally:
             done.set()
@@ -521,7 +521,7 @@ def _setup(name, sc, feedback):
     glass = _c(at(0, BOX[1][1] + 2, 0))
     # waiting glass, the body onto it, the previous row's mobs — one batch, before anything is built or summoned.
     # Everything within LEFTOVER_R of the site, not just the box: a scene's actors are counted within 40 of the body
-    # (_setup_settled), and a zombie left from the last row outside the box made fight_zombie_3 "4 on the server"
+    # (_setup_settled), and a mob left from the last row outside the box would otherwise still count as live
     _batch([ex(f"fill {glass} {glass} glass"), ex(f"tp @p {_c(at(0, BOX[1][1] + 3, 0))}"),
             ex(f"execute positioned {_c(at(0, 0, 0))} run kill @e[type=!player,distance=..{LEFTOVER_R}]")], feedback)
     if moved:
@@ -687,7 +687,7 @@ CUT = "CUT: the run ended before its verdict (stopped or killed); its trace, log
 def start_report(name, now=None):
     """The row's own report folder, made as the row starts, holding a report that says the run was cut until the
     verdict replaces it (a failure) or removes it (a pass): the newest report is always this run's, never an older
-    run's left standing (accept3's report was accept2's)."""
+    run's left standing."""
     folder = os.path.join(BENCH, name, time.strftime("%Y%m%d-%H%M%S", time.localtime(now)))
     os.makedirs(folder, exist_ok=True)
     _write_report(folder, {"scenario": name, "note": CUT})

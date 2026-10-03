@@ -433,8 +433,8 @@ class Maintain:
             # a way out: the plan's reserved blocks build it too (Policy.escape, S1)
             nav.go_to(target, dataclasses.replace(b.policy(snap, snap.night), escape=True), range_=3, attempts=1)
             if math.dist(nav.feet(), snap.feet) >= UNSTUCK_MOVED:
-                # judged by the feet: "up" on open ground re-aims at the column's own ground and reports arrived
-                # without a step taken (upkeep__unstuck 20260928-082652: the way counted done, nothing moved)
+                # judged by the feet: "up" on open ground re-aims at the column's own ground and can report
+                # arrived without a step taken
                 b.retry.succeeded(name)
                 return
             # the next way in this same call: the stuck clock was just cleared, so a refusal here waited another

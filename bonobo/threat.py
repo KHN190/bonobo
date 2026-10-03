@@ -74,8 +74,8 @@ def threat_rows(near, memory, now, kinds, here, context=None, reaches=None):
         if kind not in kinds:
             continue
         if e.get("health") is not None and float(e["health"]) <= 0:
-            # dying: listed through its death animation (~1 s), no longer a target — as the nearest row it was
-            # chosen again and again, 'target not found' with a live zombie beside us (fight_zombie_3 23:46:01)
+            # dying: listed through its death animation (~1 s), no longer a target — as the nearest row it would
+            # otherwise be chosen again and again, 'target not found' even with a live one beside us
             continue
         pos = (e["x"], e["y"], e["z"])
         vel = (0.0, 0.0, 0.0)
@@ -143,8 +143,8 @@ def fuse_lit(e) -> bool:
 
 
 def dodgeable(kind):
-    """Pure: a hit worth side-stepping — a projectile or a blast; a melee lunge follows us (dodging it only postpones:
-    escape__walker_open_blocks sidestepped a walker to death)."""
+    """Pure: a hit worth side-stepping — a projectile or a blast; a melee lunge follows us, so dodging it only
+    postpones it rather than avoiding it."""
     return kind in ARROWS or bool(MOBS.get(kind, {}).get("burst"))
 
 def impacts_of(near) -> list:
@@ -271,8 +271,8 @@ DETOUR_WALK_BLOCKS = 2.0     # a block that seals nothing is walked round: about
 def delayed_pressure(here, hazards, prot, before, after, work_s):
     """Pure: hp/s over the work that the mobs still coming put on us once `after` delays them: each one's rate now
     (over `before`), for the share of the work left after its new arrival. A block that seals nothing costs a mob
-    its detour round it (DETOUR_WALK_BLOCKS at its speed), not a multiple of its whole walk: 1.8^4 read four blocks on
-    open ground as a 30 s wall and the walker as never coming (escape__walker_open_blocks walled in the open)."""
+    its detour round it (DETOUR_WALK_BLOCKS at its speed), not a multiple of its whole walk: 1.8^4 would read four
+    blocks on open ground as a 30 s wall, the walker as never coming at all."""
     added = (after.blocks - before.blocks) if after is not None and before is not None else 0
     total = 0.0
     for h in hazards:
@@ -332,7 +332,7 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
             if where == "between":
                 # blocks in the way buy time, they kill nothing: what still comes is the pressure from its new, later
                 # arrival to the end of the work — a seal buys it all (0), a delay part of it (neither 0 nor full; a
-                # delay past the 4 s look-ahead read as a seal: escape__walker_open_blocks walled in the open)
+                # delay past the 4 s look-ahead would read as a seal)
                 leaves = delayed_pressure(here, coming, prot, grid, after, work_s)
             else:
                 follows = pressure(here, coming, prot, ground=grid) * float(ENGAGE["follow_p"]) if coming else 0.0
@@ -375,7 +375,7 @@ def _evade_option(here, spot, hazards, prot, press, out, ground=None):
     """Pure: the evade column to `spot`, priced against the options already in `out` (a fight on offer)."""
     walk_s = round(math.dist(here, spot) / float(beliefs.PLAYER["speed"]), 2)
     # leaving costs the walk out and back; what follows is the next round's account — unless every threat still reaches us there and a fight is on offer (then leaving only postpones it)
-    # a melee follower walks after us: leaving only postpones it, fight or not (combat__dig_in evaded instead of digging)
+    # a melee follower walks after us: leaving only postpones it, fight or not
     melee = all(not MOBS[h[3]].get("ranged") and not MOBS[h[3]].get("burst") for h in hazards)
     postpones = (melee or any(o.kind == "fight" for o in out)) and all(estimate.follows_to(spot, h) for h in hazards)
     follows = round(press if postpones else press * float(ENGAGE["follow_p"]), 3)
@@ -410,7 +410,7 @@ def options(state):
     clear = float(MOBS["minecraft:creeper"]["keep_out"])
     lit = set(state.get("lit") or ())
     # armed, lit or not: hit-and-back — the jar's keepoff steps out past keep_out while it swells and strikes again
-    # once it stops (a baited creeper blows up: no kill, fight_creeper_1 05:07)
+    # once it stops, before a baited creeper's own blast lands
     if creepers and sword and all(MOBS[h[3]].get("burst") is None or i in creepers
                                        for i, h in enumerate(hazards)):
         first = min(creepers, key=lambda i: math.dist(here, hazards[i][0]))

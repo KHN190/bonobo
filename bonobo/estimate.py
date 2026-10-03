@@ -55,8 +55,8 @@ def reaches_share(shape, mob):
     if mob.get("ranged"):
         return max(0.0, 1.0 - float(ENGAGE["hide_per_block"]) * n) if where == "down" else 1.0
     # a step, not a slope: a walking mob hits while its attack box meets ours — one block down (or up) the boxes still
-    # overlap and every hit lands; at melee_stop_blocks they no longer do. A 1-deep hole was priced as halving the
-    # zombies' damage, chosen at 12 hp, and the bot died in it (combat__dig_in 01:38:51)
+    # overlap and every hit lands; at melee_stop_blocks they no longer do. A 1-deep hole is not a safe halving of a
+    # zombie's damage: every hit still lands at that depth
     return 0.0 if n >= float(ENGAGE["melee_stop_blocks"]) else 1.0
 
 def share_of(shapes, mob):

@@ -377,8 +377,7 @@ def _when(progress, act, limit_s=120):
         def watch():
             from ... import api
             t0 = time.time()
-            # this row's only: a watcher left from search_night_resume set the clock to night inside
-            # upkeep__collect_job (20260928-082806: "collect job interrupted (night)")
+            # this row's only: a watcher left from an earlier row can set the clock to night inside this one
             while time.time() - t0 < limit_s and BASE.get("name") == row:
                 try:
                     if progress():

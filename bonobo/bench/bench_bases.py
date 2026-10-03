@@ -74,7 +74,7 @@ CONDITIONS = {
                      scene=[('fill', ('@', -8, -3, -8), ('@', -3, -1, 8), 'air'), ('stand', -1)]),
     'nether': dict(axis='terrain', doc='the same job in the Nether', bases=['craft', 'mine_stone', 'nav', 'smelt'],
                  dimension='minecraft:the_nether'),
-    # the job in the dark: covered (no open sky), so nightfall's policy (brain__night's claim) stays out of it
+    # the job in the dark: covered (no open sky), so nightfall's own policy stays out of it
     'night': dict(axis='terrain', doc='at night, under cover', bases=['chop', 'hunt', 'loot', 'mine_stone', 'nav'],
                 scene=[('at', 'fill {0} {1} stone outline', ('@', -9, -1, -9), ('@', 15, TREE_HEIGHT + 2, 9)),
                        ('time', 18000)]),

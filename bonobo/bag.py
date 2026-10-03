@@ -286,8 +286,7 @@ def opener(region, cell, feet, drop, forced=False):
     if region is None or (not forced and standable_face(region, cell, drop)):
         return None
     # buried: the jar's approach digs a way to it, but the drop then lies in a sealed cavity its collect never
-    # enters (brain__base 09:17:59: DIAMOND_UP mined, "collecting items (0)", then a shaft dug for the next seed) —
-    # a side face on the body's side is opened first, the way in for the eye and for the pickup
+    # enters — a side face on the body's side is opened first, the way in for the eye and for the pickup
     forced = forced or buried(region, cell)
     # `forced`: the jar refused every stand it tried (NO_STAND) though a face looked standable — a side face then
     # (the one above would put the body on the cell's own column, which the jar's mine never stands on)

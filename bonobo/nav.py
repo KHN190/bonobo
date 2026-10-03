@@ -133,7 +133,7 @@ def mine_batch(cells: list[Cell], start=None, require_drops=False, collect=True,
     """Pure: many cells to break as one chain — single mines in mine_order, or, collecting from a known stand, in
     dig_order with its steps (each drop at the feet); the closing sweep (batch_sweep) last when `collect`. A step
     into a mined cell is a stand: its head room is broken first where `solid` (the ground read) says it is solid —
-    2 high, the eye never in stone (accept9: "no stand reached" for stone beside the feet)."""
+    2 high, the eye never in stone."""
     plan = dig_order(cells, start) if collect and start is not None else [(c, None) for c in mine_order(cells, start)]
     tasks, mined = [], set()
 
@@ -586,7 +586,7 @@ def stand_candidates(region, target, kind):
 
 def reach_stand(task, policy, faces=None, at=None):
     """The way to a stand for `task` (I4) on its cell (`at`: target_of, a mob's where it is now): read the box,
-    plan_way (a88's: explicit mine/place/goto steps) over the game's walks (break off) to the stand candidates
+    plan_way (its explicit mine/place/goto steps) over the game's walks (break off) to the stand candidates
     (`faces`, else stand_candidates), each asked as plan_way reads it, send them through the door, and again until
     the stand holds; plan_way's None → NavFailed with its why. The live twin of reach's loop. Within the running
     step's budget (api.afford, run_way: the whole way priced first, its digging timed)."""
@@ -1289,7 +1289,7 @@ def falling_above(region, cell):
 
 def dig_cells(region, cells, start):
     """Pure: what to break so `cells` stand open — each with the falling blocks over it, top down per column
-    (mine_order): a cell dug under sand drops it into the next one (hello2 11:11 "nothing to mine (air)")."""
+    (mine_order): a cell dug under sand drops it into the next one, else that cell is no longer there to mine."""
     want = set(cells)
     for c in cells:
         want.update(falling_above(region, c))
@@ -1410,7 +1410,7 @@ def tunnel_steps(region, feet, target, protected=(), places=(), done=None):
             else:
                 region.blocks[cell] = was
 
-PLACE_S = 0.25           # one place task (detail.log: "placed minecraft:torch (0.25s)")
+PLACE_S = 0.25           # seconds one place task takes
 
 def way_s(region, feet, steps, inv):
     """Pure: seconds a planned way takes — its breaks (knowledge.dig_ticks, the held tool per block), its places,

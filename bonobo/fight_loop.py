@@ -1,4 +1,4 @@
-"""Hostiles: fight or flight. Perception sees a threat and offers the answer it chose (`offer`); this module takes the body for it and carries it out on its OWN thread (`_engagement`), so perception keeps sensing while the fight runs — an attack used to hold the perception thread for up to 45 s. Environmental hazards are not here (hazard.py). One engagement at a time. While it runs, a new answer from perception is not a second commander: it replaces what the engagement wants (`STATE.want`), and the engagement appends (same answer: the posted task keeps running) or /stops and posts the new one. It ends when the lease says answering has stopped paying, and `disengage` always runs: what it posted is stopped, the lease handed back, the plan drives again."""
+"""Hostiles: fight or flight. Perception sees a threat and offers the answer it chose (`offer`); this module takes the body for it and carries it out on its OWN thread (`_engagement`), so perception keeps sensing while the fight runs instead of an attack holding the perception thread itself. Environmental hazards are not here (hazard.py). One engagement at a time. While it runs, a new answer from perception is not a second commander: it replaces what the engagement wants (`STATE.want`), and the engagement appends (same answer: the posted task keeps running) or /stops and posts the new one. It ends when the lease says answering has stopped paying, and `disengage` always runs: what it posted is stopped, the lease handed back, the plan drives again."""
 
 import math
 import threading
@@ -112,7 +112,7 @@ def carrying():
 def offer(option, worth, key, now, release, held, seen_at):
     """Answer a threat now."""
 
-    # never BODY.holder() under STATE.lock: its release check bids, and bid takes STATE.lock (hello2 11:56 deadlock)
+    # never BODY.holder() under STATE.lock: its release check bids, and bid takes STATE.lock (that order deadlocks)
     with STATE.lock:
         running = engaged()
     if running is not None and arbiter.BODY.holder() is running:
@@ -166,7 +166,7 @@ def carry(want_of, answer, going, held, again=False, stale=None, failed=None):
         if want is None:
             return
         # a one-shot answer done is done: posted again only when perception decides it afresh (a new decision, not
-        # the held one) — re-posting a finished dig mined the air it had just dug (combat__dig_in 01:38:51)
+        # the held one) — re-posting a finished dig would mine the air it had just dug
         fresh = (want.kind not in CONTINUING and held["task_id"] is None and held["done"] is not None
                  and want is not held["done"])
         if not same(want, held["done"]) or fresh:
@@ -193,7 +193,7 @@ def carry(want_of, answer, going, held, again=False, stale=None, failed=None):
             if r.get("status") != "running":
                 api.trail_end(r)
                 # what the jar says the task did (hits, a weapon it could not hold): an attack posted that landed
-                # nothing left no trace (fight_zombie_1: the zombie 2 blocks off at 20 hp every sample)
+                # nothing would otherwise leave no trace
                 api.detail(f"  fight {want.kind}: task {r.get('status')} — {r.get('message')} {r.get('result') or ''}")
                 held["task_id"] = None
                 if stale is not None and any(w in str(r.get("message") or "") for w in STALE):
@@ -226,8 +226,8 @@ def _engagement(intent, failure):
         failure["failed"] = f"{type(e).__name__}: {e}"
         # and the answer it carried is not bid again as it was: refused a while, the held choice dropped
         _mark_failed(STATE.want or held.get("done"))
-        # said, not only recorded: an engagement that dies at once re-bid every round with nothing reaching the jar
-        # (fight_zombie_1 20260928-224501: four 'threat: fight_shielded … worth 194s', no task posted, no step taken)
+        # said, not only recorded: an engagement that dies at once would otherwise re-bid every round with nothing
+        # reaching the jar at all, no task posted and no step taken
         # broad on purpose: the engagement's own thread, whatever ends it the body is handed back (finally) — and the
         # traceback kept, or a bug here reads as a fight that simply stopped
         api.log(f"!! fight: {getattr(STATE.want or held.get('done'), 'kind', '?')} failed: {failure['failed']}")
@@ -245,7 +245,7 @@ def _failed_key(option):
 
 def _mark_failed(option, now=None):
     """Refuse `option` (its kind and target) for FAILED_S and drop the held choice: the next decision is a fresh one
-    without it. A failed fight was bid again as the same fight each second (combat__dig_in 01:03:09-11, ×3)."""
+    without it — a failed fight is never bid again as the same fight each second."""
     if option is None:
         return
     STATE.failed[_failed_key(option)] = (now if now is not None else time.time()) + FAILED_S
@@ -384,14 +384,14 @@ def bid(state, rows, price, work_s=None, now=None, ids=()) -> tuple[threat.Optio
     return option, round(worth, 1)        # chosen over the default: its score, the same saving, is > 0
 
 # the jar's word that the named mob is no target any more: dead ("defeated or gone" — the kill) or not found; the
-# next target is decided at once, not after one more post at the dead id (fight_zombie_3 23:45:58: 0.4 s idle)
+# next target is decided at once, never after one more post at the dead id
 STALE = ("target not found", "target defeated or gone")
 
 def redecide(gone):
     """The held answer named a mob the jar cannot find (`gone`: its entity id): drop the held choice and decide
     again at once on the latest reading without it — the option now wanted, or None when nothing pays. Waiting for
-    perception's next offer (a key repeats once a second) posted the dead id again and again: 'target not found',
-    0 hits, many times a second (detail.log 23:32:53)."""
+    perception's next offer (a key repeats once a second) would otherwise post the dead id again and again:
+    'target not found', 0 hits, many times a second."""
     STATE.held = None
     rows, ids = threat.threats_seen()
     kept = [(r, i) for r, i in zip(rows, ids) if gone is None or i != gone] if ids else [(r, None) for r in rows]
@@ -447,14 +447,13 @@ def still_worth(choice, field_model, price, horizon):
     alive = (getattr(field_model, "field", None) or {}).get("alive") or set()
     if held is not None and held.kind in TARGETED and held.target is not None and held.target not in alive:
         # the held attack names a mob the reading no longer lists alive (dead, despawned, out of radius — the list
-        # is x-ray, so one behind a wall stays): 'target not found' every half second (fight_zombie_1
-        # 20260928-230218) — decide again. A mob still there is kept though another is nearer (fight_zombie_3
-        # 23:49:29-33: the switch left 0.4 s idle). A position target (a reshape, an evade spot) is never an id:
-        # checked against the ids it dropped every held wall and pillar each bid (escape__walker_open_blocks 01:38)
+        # is x-ray, so one behind a wall stays): decide again rather than keep posting at a mob not there. A mob
+        # still there is kept though another is nearer. A position target (a reshape, an evade spot) is never an
+        # id: checked against the ids it dropped every held wall and pillar each bid
         return False
     if held is not None and held.target is None and held.kind in TARGETED:
         # an attack naming no mob cannot be posted (the jar needs its entity id): never kept, decided again on a
-        # reading that names them (combat__dig_in 01:03:09: attack(entity=None) three times, a 500 each)
+        # reading that names one
         return False
     return threat.saves(same, options, price, horizon) > 0
 
@@ -590,7 +589,7 @@ def engage(decision, s, ctx):
     mines = [(t["x"], t["y"], t["z"]) for t in tasks if t.get("type") == "mine"]
     if mines:
         # the blocks as they are NOW: a cell already dug is no task (it was posted and read back as air), and the
-        # pick is chosen for the block really there — not a hand for a cell last read as air (combat__dig_in 01:38:51)
+        # pick is chosen for the block really there — never a hand for a cell last read as air
         from .world import Region
         region = Region(tuple(min(c[i] for c in mines) for i in range(3)),
                         tuple(max(c[i] for c in mines) for i in range(3)))
