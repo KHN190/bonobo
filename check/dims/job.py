@@ -1,5 +1,5 @@
 """Background work in memory (one fact: memory.jobs and memory.machines): none; a furnace job still running — meat
-cooking (food) or iron smelting (iron): memory.pending_outputs, needs.food_on_its_way, the planner's awaited outputs;
+cooking (food) or iron smelting (iron): memory.pending_outputs, the planner's awaited outputs;
 a furnace job due (world.job_ready: the collect row); a crop job growing (kind crop: cost.ripe, the await); an auto
 smelter whose loaded order is due (craft.pending_ready: the collect-machine row)."""
 import time

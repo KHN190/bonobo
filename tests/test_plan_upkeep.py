@@ -33,7 +33,7 @@ from bonobo import brain as brainmod  # noqa: E402  (imports every skill module:
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.data import bare  # noqa: E402
 from bonobo.knowledge import under_rock  # noqa: E402
-from bonobo.knowledge import food_count, members  # noqa: E402
+from bonobo.knowledge import members  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import Unplannable  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
@@ -1150,8 +1150,8 @@ class Row:
 UPKEEP = [
     Row("fed, day, a bed and a pickaxe: nothing to do", None),
     Row("hungry with food carried", "eat", food=10),
-    Row("hungry, nothing edible, nothing seen: food to the front", None, queued=[[("food", 8)]], food=4,
-        inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={}),
+    Row("hungry, nothing edible, nothing seen: no stock need (the round's plan keeps the bar above empty)", None,
+        food=4, inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={}),
     Row("eating failed here a moment ago: the next row", None, food=10, cooling=("eat",)),
     Row("in the Nether with two meals left", "leave the Nether", dimension=NETHER, skyLight=0,
         inv=[("cooked_beef", 2), ("stone_pickaxe", 1)]),
@@ -1226,10 +1226,8 @@ UPKEEP = [
         inv=[("bread", 4), ("white_bed", 1), ("stone_pickaxe", 1)]),
     Row("hungry, cooked beef carried: eat", "eat", food=10, inv=[("cooked_beef", 2), ("white_bed", 1)]),
     Row("starving, only raw beef: eat it raw", "eat", food=4, inv=[("beef", 2), ("white_bed", 1)]),
-    Row("hungry, nothing edible, cows near: no eat row, food to the front", None, food=10,
-        queued=[[("food", 8)]], inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={"cow": 8}),
-    Row("starving slowly, cows far away: food to the front (LEAD)", None, queued=[[("food", 8)]], food=3,
-        inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={"cow": 45, "oak_log": 10, "stone": 2}),
+    Row("must fail: hungry, nothing edible, cows near: no eat row and no food count rule", None, food=10,
+        inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={"cow": 8}),
     Row("full stomach, no meals, cows near: no hurry", None, food=20, inv=[("white_bed", 1), ("stone_pickaxe", 1)]),
     Row("a furnace job is done nearby", "collect job", job=((6, 64, 0), -5)),
     Row("the furnace job is still cooking", None, job=((6, 64, 0), 60)),
@@ -1275,7 +1273,7 @@ def run_upkeep(row, tmp):
         rx.failed("nav", api.NavFailed("no path found", pos=row.blocked), row.place)
     c, plan_s = cost(snap, **row.seen), {}
     table.cost = lambda _snap: c                    # the row's readings stand in for /find and /entities
-    for goal in (goals.have(("food", 8)), goals.have(("bed", 1))):     # fixture: the two upkeep prices
+    for goal in (goals.have(("bed", 1)),):     # fixture: the upkeep price
         try:
             steps = decompose.decompose(snap.inv, goal, c)
             secs, known = c.plan_s(steps), all(c.known_source(st) for st in steps)
@@ -1293,7 +1291,7 @@ def run_upkeep(row, tmp):
     table.propose(snap, None, reads=dict(reads))
     if got:                                     # MAINTAIN outranks PLAN (arbiter.SCALES): no need acted this round
         table.needs_now = []
-    # What upkeep wants got is proposed, never queued (arbiter.PLAN_ORDER ranks it): read off the proposals.
+    # What upkeep wants got is proposed, never queued (planned with the queue in the round's one plan).
     queued = [tuple(tuple(n) for n in goal["args"]["needs"]) for _kind, goal, _why in table.needs_now]
     return (got[0] if got else None), queued, plan_s
 
@@ -1310,7 +1308,7 @@ class Upkeep(unittest.TestCase):
                     self.assertEqual(set(queued), row.queued)
 
     def test_lead_time_over_the_sweep(self):
-        """Bed and food go to the front exactly when the time left (dusk_s, food_lasts_s) is shorter than the plan
+        """The bed goes to the front exactly when the time left (dusk_s) is shorter than the plan
         that would get them (Σ est) × LEAD — swept over around × body × bag × clock, and for three values of LEAD so
         the table cannot be reading a constant of its own."""
         from tests.world import RESOURCES
@@ -1331,13 +1329,8 @@ class Upkeep(unittest.TestCase):
                 bed_due = needs.dusk_s(snap) < secs * lead if plan_s["overnight:known"] else needs.dusk_s(snap) <= 0
                 bed = over and not snap.night and snap.inv.count("bed") == 0 and way == "bed" and bed_due \
                     and not under_rock(snap.get("skyLight", 15))
-                food_due = needs.food_lasts_s(snap) < plan_s["food"] * lead if plan_s["food:known"] \
-                    else snap.get("food", 20) < reflexes.EAT_BELOW
-                food = food_count(snap.inv) < 8 and food_due
                 self.assertEqual(((("bed", 1),) in queued), bed, f"dusk in {needs.dusk_s(snap)} s, {way} plan "
                                                                   f"{secs:.0f} s × {lead}")
-                self.assertEqual(((("food", 8),) in queued), food, f"food lasts {needs.food_lasts_s(snap):.0f} s, "
-                                                                    f"plan {plan_s['food']:.0f} s × {lead}")
 
     def test_lead_moves_the_verdict(self):
         """The same dusk, the same bag: a longer lead inserts the bed, a shorter one does not."""
@@ -1354,12 +1347,6 @@ class Upkeep(unittest.TestCase):
                           (DAY_END, 0.0), (18000, 0.0), (24000 + 6000, (DAY_END - 6000) / 20)):
             with self.subTest(timeOfDay=tod):
                 self.assertEqual(needs.dusk_s(snapshot(state(timeOfDay=tod))), secs)
-
-    def test_food_clock_grows_with_food(self):
-        ladder = [needs.food_lasts_s(snapshot(state(food=f), inventory(("cooked_beef", m))))
-                  for f, m in ((2, 0), (10, 0), (20, 0), (20, 4))]
-        self.assertEqual(ladder, sorted(ladder))
-        self.assertEqual(len(set(ladder)), len(ladder))
 
     def test_nether_retreat(self):
         rows = [({}, [("cooked_beef", 8)], None),  # must fail: not in the Nether, no retreat
@@ -1947,8 +1934,8 @@ class Queue(unittest.TestCase):
 
 # ------------------------------------------------------------------------------------------ the night's work
 class OneArbiter(unittest.TestCase):
-    """Every layer proposes, arbiter.arbitrate chooses: the faster layer, then arbiter.PLAN_ORDER, then the place in
-    line. The day's failures, as the proposals each situation makes (brain.decide / needs.proposals)."""
+    """Every layer proposes, arbiter.arbitrate chooses: the faster layer, then the place in line (within PLAN the
+    round's one plan chose: TheRoundsPick). The day's failures, as the proposals each situation makes."""
 
     @staticmethod
     def intent(layer, kind=None, seq=0, deadline_s=None, at=None):
@@ -1974,20 +1961,7 @@ class OneArbiter(unittest.TestCase):
                 ("raw meat and a furnace, food queued: the queue's head (smelt), no hunt proposed", [P("queue")],
                  "queue"),
                 ("the queue's head before the second in line", [P("queue", 1), P("queue", 0)], "queue"),
-                ("a tool broke under a held plan, a task queued: the tool first (proposed, not queued)",
-                 [P("queue"), P("broken tool")], "broken tool"),
-                ("a fall in the plan and no bucket, a task queued: the bucket first", [P("queue"), P("water bucket")],
-                 "water bucket"),
-                ("dusk soon, a bed or shelter parts to get, a task queued: the night's parts first",
-                 [P("queue"), P("night prep")], "night prep"),
-                ("path blocked, no blocks, a task queued: bridge blocks first", [P("queue"), P("bridge stock")],
-                 "bridge stock"),
-                ("food running out before it could be had, a task queued: food first", [P("queue"), P("food stock")],
-                 "food stock"),
-                ("hungry and food running out: eat what is carried (reflex) before getting more (plan)",
-                 [P("food stock"), M("eat")], "eat"),
-                ("a broken tool vs the night's parts at dusk: the night first", [P("broken tool"), P("night prep")],
-                 "night prep"),
+                ("hungry: eat what is carried (reflex) before the round's plan", [P("round"), M("eat")], "eat"),
                 ("afloat with the night's parts due: land first", [P("night prep"), land], "rescue swimming"),
                 ("night underground, nothing queued, a pickaxe: dig for ore before waiting",
                  [P("wait for day"), P("night stock")], "night stock"),
@@ -2030,18 +2004,6 @@ class OneArbiter(unittest.TestCase):
         from bonobo import arbiter
         order = ["reflex", "safety", "tactic", "maintain", "plan"]
         self.assertEqual(sorted(arbiter.SCALES, key=arbiter.SCALES.get), order)
-
-    def test_the_order_is_one_table(self):
-        from bonobo import arbiter
-        rows = [("the night's parts before a broken tool", "night prep", "broken tool"),
-                ("a tool before food stock", "broken tool", "food stock"),
-                ("upkeep's needs before the queue", "food stock", "queue"),
-                ("the queue before the night's ore", "queue", "night stock"),
-                ("the queue before idle stocking", "queue", "idle"),
-                ("must fail: an unknown kind after all of them", "idle", "made up")]
-        for name, first, then in rows:
-            with self.subTest(name):
-                self.assertLess(arbiter.plan_rank(first), arbiter.plan_rank(then))
 
     # (situation, night, dimension) → surface work closed
     # the surface is closed exactly when it is night (data.is_night: the Overworld's only), sheltered or not
@@ -3045,35 +3007,57 @@ class ToolsThatPayForThemselves(unittest.TestCase):
         self.assertLessEqual(chosen, forced)
 
 
-class FoodOnItsWay(unittest.TestCase):
-    """needs.food_on_its_way / food_lasts_s: ready food a background job is making counts — meals and points."""
+class TheRoundsPick(unittest.TestCase):
+    """brain.round_pick: the queue's goals and upkeep's needs in the round's one plan (planner.plan_round): at equal
+    seconds the queue's place, else the seconds; a plan whose clock runs the bar out is not the one taken."""
 
-    def test_over_the_table(self):
-        rows = [("two cooked beef in the furnace: 2 meals, 16 points", {"minecraft:cooked_beef": 2}, (2, 16)),
-                ("must fail: raw iron smelting: no food", {"minecraft:iron_ingot": 3}, (0, 0)),
-                ("bread and beef: both", {"minecraft:bread": 1, "minecraft:cooked_beef": 1}, (2, 13)),
-                ("nothing on its way", {}, (0, 0))]
-        for name, pending, want in rows:
+    def pick(self, offers, snap, seen):
+        from bonobo.planner import Target
+        q = Held(goals.have(("log", 1)), seen=seen)
+        try:
+            acts = [(brainmod.Act("task", name, None, step=planner.Step(kind, token, 1, {})), "queue")
+                    for name, _needs, _rank, (kind, token) in offers]
+            targets = [Target(name, needs_, rank) for name, needs_, rank, _own in offers]
+            act, _kind = q.b.round_pick(acts, targets, snap, None, cost(snap, mem=q.b.mem, **seen))
+            if act is None:
+                return None
+            return act.name if act.name in [o[0] for o in offers] else (act.step.kind, act.step.token)
+        finally:
+            q.restore()
+
+    def test_rows(self):
+        carried = snapshot(state(), inventory(("oak_log", 1), ("oak_planks", 2)))
+        sticks = ("task t1", [("minecraft:stick", 4)], 0, ("craft", "minecraft:stick"))
+        planks = ("task t2", [("planks", 4)], 1, ("craft", "planks"))
+        logs = ("task t3", [("log", 6)], 0, ("gather", "log"))
+        sticks_later = ("task t1", [("minecraft:stick", 4)], 1, ("craft", "minecraft:stick"))
+        hungry = snapshot(state(food=3), inventory())
+        pick = ("task t1", [("tool", "pickaxe", 2)], 0, ("gather", "log"))
+        seen = {"cow": 8, "oak_log": 6, "stone": 2}
+        # (situation, snapshot, offers, what the round lets drive: an offer's name, or the round's own step)
+        rows = [("equal seconds: the queue's first place", carried, [sticks, planks], "task t1"),
+                ("equal seconds, the places swapped: the other", carried,
+                 [("task t1", sticks[1], 1, sticks[3]), ("task t2", planks[1], 0, planks[3])], "task t2"),
+                ("unequal seconds, the same total either way (G3): the queue's place, not the cheaper first", carried,
+                 [logs, sticks_later], "task t3"),
+                ("must fail: a plan that starves on the way: food first (its own step, not the task's)", hungry,
+                 [pick], ("hunt", "minecraft:beef"))]
+        for name, snap, offers, want in rows:
             with self.subTest(name):
-                self.assertEqual(needs.food_on_its_way(pending), want)
-        snap = snapshot(state(food=10), inventory())
-        self.assertGreater(needs.food_lasts_s(snap, {"minecraft:cooked_beef": 2}), needs.food_lasts_s(snap))
+                self.assertEqual(self.pick(offers, snap, seen), want)
 
-    def test_no_food_stock_while_it_cooks(self):
-        """Food 10, nothing ready carried, 2 cooked beef on their way: no food stock need (it was a pig hunt)."""
-        for pending, want in ((True, False), (False, True)):
-            with self.subTest(pending=pending), tempfile.TemporaryDirectory() as tmp:
-                b = brainmod.Brain.__new__(brainmod.Brain)
-                b.mem = Memory(os.path.join(tmp, "notes.json"))
-                b.retry, b.blacklist, b.place, b.held = retry.Retry(), {}, PLACE, {}
-                b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
-                if pending:
-                    b.mem.add_job("smelt", (3, 64, 0), OVER, "minecraft:cooked_beef", 2, time.time() + 20, [])
-                snap = snapshot(state(food=10), inventory(("oak_planks", 4)))
-                c = cost(snap, cow=30)
-                b.needs.cost = lambda _s: c
-                b.needs.propose(snap, None, reads={"enclosed": False, "bed_near": False, "soft_ground": False})
-                self.assertEqual(any(k == "food stock" for k, _g, _w in b.needs.needs_now), want)
+    def test_the_order_is_the_least_total(self):
+        """G3: the round's plan costs no more than its targets in any other place order; equal totals keep the
+        queue's place (must fail: an order dearer in total than another taken)."""
+        import itertools
+        from bonobo.planner import NullCost, Target, plan_round
+        carried = bag(inventory(("oak_log", 1), ("oak_planks", 2)))
+        needs_ = [("logs", [("log", 6)]), ("sticks", [("minecraft:stick", 4)]), ("planks", [("planks", 4)])]
+        chosen = plan_round(carried, [Target(n, x, i) for i, (n, x) in enumerate(needs_)], NullCost())[2]
+        for order in itertools.permutations(needs_):
+            with self.subTest([n for n, _x in order]):
+                other = plan_round(carried, [Target(n, x, i) for i, (n, x) in enumerate(order)], NullCost())[2]
+                self.assertLessEqual(chosen, other + 1e-9)
 
 
 class WhatTheFurnaceHolds(unittest.TestCase):

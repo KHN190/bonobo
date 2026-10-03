@@ -40,7 +40,7 @@ class Intent:
             raise ValueError(f"an intent needs a key (its retry name): {layer} {reason!r}")
         self.layer = layer
         self.action = action
-        # within PLAN: the proposal's kind (PLAN_ORDER) and its place among several of one kind
+        # within PLAN: the proposal's kind (what it is for: a readout) and its place among several
         self.kind, self.seq = kind, seq
         # What the round's facts know this proposal by (a need's or a task's retry name): `viable` reads it.
         self.key = key
@@ -69,7 +69,7 @@ class Intent:
     def __repr__(self):
         return f"Intent({self.layer}, {self.reason!r})"
 
-# PLAN_ORDER ranks every planned proposal here only; RESUME_RULES: one declared rule per interrupt source (the offline sweep refuses a source without one)
+# RESUME_RULES: one declared rule per interrupt source (the offline sweep refuses a source without one)
 RESUME_RULES: dict[Rule, tuple[bool, str | None]] = {
     "same": (True, None),             # the same target, the next frontier; nothing cooled, nothing banned
     "recheck": (True, "recheck"),     # the bag changed under it: re-read the remaining amount first
@@ -99,9 +99,6 @@ RESUME_OF: dict[str, Rule] = {      # every key a shapes.Source (tests/test_type
 def resume_of(source: Source) -> tuple[bool, str | None]:
     """Pure: (resumes, what first) for work interrupted by `source` — KeyError for a source nobody declared."""
     return RESUME_RULES[RESUME_OF[source]]
-
-PLAN_ORDER = ("night prep", "broken tool", "water bucket", "bridge stock", "food stock",
-              "queue", "night stock", "wait for day", "idle")
 
 # offered only when nothing else is (`gate`)
 LAST_RESORT = ("wait for day", "idle")
@@ -140,10 +137,6 @@ def waits(picks):
     """Rounds spent on a waiting kind."""
     return sum(picks.get(k, 0) for k in WAIT_KINDS)
 
-def plan_rank(kind):
-    """Pure: a PLAN proposal's place in PLAN_ORDER (an unknown kind after all of them)."""
-    return PLAN_ORDER.index(kind) if kind in PLAN_ORDER else len(PLAN_ORDER)
-
 def first_live(groups, facts_of):
     """Pure: the proposals of the first group that still has one after the gate."""
 
@@ -161,7 +154,7 @@ def arbitrate(intents, now=None, facts=None):
     live = gate_intents([i for i in intents if not i.expired(now)], facts)
     if not live:
         return None
-    return min(live, key=lambda i: (i.scale, plan_rank(i.kind) if i.layer == "plan" else 0, i.seq, -i.at))
+    return min(live, key=lambda i: (i.scale, i.seq, -i.at, i.key))
 
 def work_left_s(intent, now):
     """Pure: seconds left of the committed work; None when uncommitted or overrun."""

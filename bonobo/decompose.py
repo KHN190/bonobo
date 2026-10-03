@@ -224,26 +224,35 @@ def _decompose(inv, goal, cost, pending) -> list[Step]:
     template, args = goal["goal"], goal.get("args", {})
     jobs = dict(pending or {})           # what the caller passed: running jobs' outputs (memory.pending_outputs)
     if template in goals.ITEM_GOALS:
-        needs = goals.needs(goal, inv)
+        look = look_first(inv, goals.needs(goal, inv), cost, pending)
+        if look:
+            return look
+    if template in ("goto", "road"):
+        return [need[1] for need in round_needs(goal, inv, cost)]
+    return solve_needs(inv, round_needs(goal, inv, cost), cost, pending, jobs)
+
+def round_needs(goal, inv, cost):
+    """`goal` as the planner's needs (plan_needs / plan_round take them): items, a fact, or the step that does it."""
+    template, args = goal["goal"], goal.get("args", {})
+    if template in goals.ITEM_GOALS:
         then = THEN.get(args.get("name")) if template == "milestone" else None
-        look = look_first(inv, needs, cost, pending)
-        return look or solve_needs(inv, needs + ([("fact",) + then] if then else []), cost, pending, jobs)
+        return list(goals.needs(goal, inv)) + ([("fact",) + then] if then else [])
     if template == "goto":
-        return [_action("goto", "pos", cost, pos=list(args["pos"]), range=float(args.get("range", 2)))]
+        return [("do", _action("goto", "pos", cost, pos=list(args["pos"]), range=float(args.get("range", 2))))]
     if template == "road":
-        return [_action("goto", "pos", cost, pos=list(args["a"]), range=4.0),
-                _action("goto", "pos", cost, pos=list(args["b"]), range=4.0)]
+        return [("do", _action("goto", "pos", cost, pos=list(args["a"]), range=4.0)),
+                ("do", _action("goto", "pos", cost, pos=list(args["b"]), range=4.0))]
     if template == "build":
         bp = args["bp"]
         if bp != "shelter" and bp not in blueprints.REGISTRY:
             raise Unplannable(f"no blueprint {bp!r} to build")
         if bp == "nether_portal":
-            return solve_needs(inv, [("fact", "portal", True)], cost, pending, jobs)   # built, or cast in place
-        return _prepared(inv, Step("build", bp, 1, {"at": args.get("at")}), cost, pending)
+            return [("fact", "portal", True)]       # built, or cast in place
+        return [("do", Step("build", bp, 1, {"at": args.get("at")}))]
     if template == "sleep":
-        return _prepared(inv, Step("sleep", "bed", 1, {}), cost, pending)
+        return [("do", Step("sleep", "bed", 1, {}))]
     if template == "skill":
-        return _prepared(inv, Step("skill", args["name"], 1, {"args": list(args.get("args", []))}), cost, pending)
+        return [("do", Step("skill", args["name"], 1, {"args": list(args.get("args", []))}))]
     if template == "effect":
         # any effect a skill provides, by name ("repair:pickaxe" → Step("repair", "pickaxe")); refused when nobody provides it
         kind, _, token = args["effect"].partition(":")
@@ -253,12 +262,8 @@ def _decompose(inv, goal, cost, pending) -> list[Step]:
         missing = missing_detail(step)
         if missing:
             raise Unplannable(f"effect {args['effect']} needs {missing} in its detail")
-        return _prepared(inv, step, cost, pending)
+        return [("do", step)]
     raise Unplannable(f"no way to decompose a {template!r} goal")
-
-def _prepared(inv, step, cost, pending):
-    """`step` and what its call needs first (its contract's needs and facts), planned as one."""
-    return solve_needs(inv, [("do", step)], cost, pending)
 
 def night_left_s(snap):
     """Seconds of night still ahead: (NIGHT_END − timeOfDay) / 20 at night, a whole night before dusk (None)."""
