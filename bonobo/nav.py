@@ -947,7 +947,7 @@ def dig_down(depth, policy, use_ladders):
     here = feet()
     tasks, safe = dig_down_tasks(dig_down_region(here, depth), here, depth, policy.protected, use_ladders)
     if safe == 0:
-        raise NotAvailable("unsafe to dig down here")
+        raise NotAvailable("unsafe to dig down here", pos=(here[0], here[1] - 1, here[2]))
     # stop at the first failure: a mine that failed leaves stone where the next ladder goes
     results = api.run_chain(tasks, stop_on_failure=True, before_segment=policy.before_segment)
     if any(r["status"] != "succeeded" for r in results):

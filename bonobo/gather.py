@@ -108,7 +108,7 @@ def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
     depth = feet_at[1] - target[1]
     tasks, safe = nav.dig_down_tasks(region, feet_at, depth, protected)
     if safe < depth:
-        return None, f"lava, water or a cave {safe + 1} down"
+        return None, nav.Why(f"lava, water or a cave {safe + 1} down", (feet_at[0], feet_at[1] - safe - 1, feet_at[2]))
     x, y, z = feet_at
     dug = sum(1 for i in range(1, depth + 1) if region.solid((x, y - i, z))
               and mid(PLACEABLE_AS.get(bare(region.name((x, y - i, z))), bare(region.name((x, y - i, z)))))

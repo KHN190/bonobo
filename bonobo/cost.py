@@ -31,9 +31,10 @@ def walk_ticks(distance):
 class _Ground(Region):
     """The ground as expected where nothing is read:"""
 
-    def __init__(self, feet, target, block, soil, ore, read=None):
+    def __init__(self, feet, target, block, soil, ore, read=None, void=()):
         pad = 3
         self.read = read                # the round's ground (Snapshot.region): what it read, it says
+        self.void = frozenset(void)     # unread cells a failure named (banned): never expected ground
         self.lo = tuple(min(feet[i], target[i]) - pad for i in range(3))
         self.hi = tuple(max(feet[i], target[i]) + pad for i in range(3))
         self.blocks, self.props = {}, {}
@@ -46,6 +47,8 @@ class _Ground(Region):
             return self.blocks[p]           # what the way being planned changed
         if self.read is not None and self.read.inside(p):
             return self.read.name(p)
+        if tuple(p) in self.void:
+            return "air"
         k = self.feet_y - p[1]
         if k <= 0:
             return "air"
@@ -182,7 +185,7 @@ class Cost:
         key = ("refused", tuple(cell), kind, gone)
         if key not in self.cache:
             feet = tuple(int(c) for c in self.snap.feet)
-            ground = _Ground(feet, cell, self.region.name(cell), self.soil(), False, self.region)
+            ground = _Ground(feet, cell, self.region.name(cell), self.soil(), False, self.region, gone.cells)
             self.cache[key] = nav.known_refusal(ground, feet, tuple(cell), kind, self.snap.inv,
                                                 set(self.protected() or ()) | gone.cells,
                                                 lambda p: self.region.inside(p) or p in gone.cells)

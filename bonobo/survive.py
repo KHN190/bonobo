@@ -651,7 +651,7 @@ def dig_in_plan(state):
     x, y, z = start = dig_in_start(region, tuple(state["feet"]))
     tasks, safe = nav.dig_down_tasks(region, start, DIG_IN_DEPTH, state["protected"], False, dug_to=state["feet"][1])
     if safe < DIG_IN_DEPTH:
-        return None, f"only {safe} of {DIG_IN_DEPTH} safe to dig here: no lid below the ground line"
+        return None, nav.Why(f"only {safe} of {DIG_IN_DEPTH} safe to dig here: no lid below the ground line", (x, y - safe - 1, z))
     block = next((b for b in GROUPS["building"] if inv.count(b)), None)
     if block is None:
         # nothing to seal with: the roof is what the dig brings up (an empty bag dug a hole with no lid)
@@ -671,7 +671,7 @@ def dig_in_commands(state, args=()) -> "list[Task]":
     """Pure: dig_in_plan's tasks, or NotAvailable with its why."""
     tasks, why = dig_in_plan(state)
     if tasks is None:
-        raise NotAvailable(why)
+        raise NotAvailable(why, pos=getattr(why, "cell", None))
     return tasks
 
 def soft_spot():

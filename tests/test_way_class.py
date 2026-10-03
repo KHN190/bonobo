@@ -192,6 +192,12 @@ class APlanReadNeverRaises(unittest.TestCase):
                 # must fail: NotAvailable("unsafe to dig down here") out of a fact read
                 self.assertIs(survive.dig_in_site(region, FEET, inv=inventory_of(CARRIED)), False)
                 self.assertIs(survive.dig_in_site(region, FEET), False)
+                state_ = {"region": region, "inv": inventory_of(CARRIED), "feet": FEET, "protected": set()}
+                _tasks, why = survive.dig_in_plan(state_)
+                with self.assertRaises(api.NotAvailable) as e:
+                    survive.dig_in_commands(state_)
+                # must fail: the run's refusal keyed by no cell (the fluid under the feet)
+                self.assertEqual((why.cell, e.exception.pos), ((FEET[0], FEET[1] - 1, FEET[2]),) * 2)
 
 
 class AWallInThePlanIsTheRunsWallIn(unittest.TestCase):
