@@ -682,15 +682,33 @@ def take(ctx, token, count, blocks):
             hits = [h for h in hits if (h["x"], h["y"], h["z"]) in ripe]
         if not hits:
             raise NotAvailable(f"no {bare(blocks[0])} within reach to take")
-        cell = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
-        if not nav.arrived_near(cell, ctx.policy, range_=3, attempts=2):
+        # the nearest the door's own predicate (nav.reach, the bag held now) gets to; one it refuses is banned with
+        # the state it failed in (ban_state: lifted once the bag changes, accept5's table), never as gone
+        here, inv, hit, stand, why = feet(), Inventory(), None, None, None
+        for h in hits:
+            c = (h["x"], h["y"], h["z"])
+            region = region_around([here, c], pad=math.ceil(nav.REACH))
+            got = nav.reach(region, here, c, "mine", inv, ctx.policy.protected) if region is not None else None
+            if got is None or got.stand is not None:
+                hit, stand = h, (got.stand if got is not None else None)
+                break
+            why = got.why
+            ctx.ban(c)
+        if hit is None:
+            raise NotAvailable(f"no {bare(blocks[0])} a way reaches to take: {why}", pos=getattr(why, "cell", None))
+        cell = (hit["x"], hit["y"], hit["z"])
+        if stand is not None and stand != tuple(here):
+            nav.arrived_near(stand, ctx.policy, range_=0.6, attempts=1)
+        try:
+            # the walk short of the stand: the gate makes the way (reach_stand), as reach planned it
+            mine_cell(ctx.policy, cell, wanted=[token], require_drops=False, wait=60)
+        except api.NavFailed:
             ctx.ban(cell)
             continue
-        mine_cell(ctx.policy, cell, wanted=[token], require_drops=False, wait=60)
         api.run({"type": "collect", "radius": 4}, wait=20, awaits="the drops the break left, counted after")
         yield None
         got += 1
         # the block is gone whether or not the drop reached the bag: forget it, or we walk back to an empty square
-        ctx.mem.forget_seen(bare(hits[0]["block"]), cell, ctx.dimension, radius=1)
+        ctx.mem.forget_seen(bare(hit["block"]), cell, ctx.dimension, radius=1)
         log(f"took {bare(token)} at {cell} ({got}/{want})")
     return got
