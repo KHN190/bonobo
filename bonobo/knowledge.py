@@ -185,19 +185,21 @@ def _area_s(per_block2):
 def _density(cls, k, biome=None):
     """Pure: per block² of `k` (of class `cls`) in `biome` (the biome tables), or everywhere when the biome is not
     known (None or in no table): the global density."""
-    known = biome is not None and biome in KNOWN_BIOMES
-    if cls == "tree" and known:
-        return TREES_PER_CHUNK.get(biome, FIND_DENSITY["tree"]) / CHUNK_BLOCKS ** 2
-    if cls == "animal" and known and biome in BIOME_CREATURES:
-        spawns = BIOME_CREATURES[biome]
-        return CREATURE_CHUNK_P / CHUNK_BLOCKS ** 2 * spawns.get(k, 0) / sum(spawns.values())
+    if biome is not None and biome in KNOWN_BIOMES:
+        if cls == "tree":
+            return TREES_PER_CHUNK.get(biome, FIND_DENSITY["tree"]) / CHUNK_BLOCKS ** 2
+        if cls == "animal":
+            spawns = BIOME_CREATURES.get(biome, {})
+            return CREATURE_CHUNK_P / CHUNK_BLOCKS ** 2 * spawns.get(k, 0) / sum(spawns.values()) if spawns else 0.0
+        if cls == "village":
+            return 1.0 / VILLAGE_REGION_BLOCKS ** 2 if biome in VILLAGE_BIOMES else 0.0
+        patch = BIOME_PATCH.get(cls, {})
+        if biome in patch:
+            return patch[biome] / CHUNK_BLOCKS ** 2
     if cls == "animal":
-        return 0.0 if known else CREATURE_CHUNK_P / CHUNK_BLOCKS ** 2 * PASSIVE_WEIGHT[k] / sum(PASSIVE_WEIGHT.values())
+        return CREATURE_CHUNK_P / CHUNK_BLOCKS ** 2 * PASSIVE_WEIGHT[k] / sum(PASSIVE_WEIGHT.values())
     if cls == "village":
-        return 1.0 / VILLAGE_REGION_BLOCKS ** 2 if not known or biome in VILLAGE_BIOMES else 0.0
-    patch = BIOME_PATCH.get(cls, {})
-    if known and biome in patch:
-        return patch[biome] / CHUNK_BLOCKS ** 2
+        return 1.0 / VILLAGE_REGION_BLOCKS ** 2
     return FIND_DENSITY.get(cls, FIND_DENSITY["other"]) / CHUNK_BLOCKS ** 2
 
 

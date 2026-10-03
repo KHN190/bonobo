@@ -593,7 +593,7 @@ def hunt(ctx, token, count, types, night):
             nav.arrived_near((math.floor(e["x"]), math.floor(e["y"]), math.floor(e["z"])), approach_policy(ctx.policy),
                       range_=3, attempts=2)
             step, near = after_approach(entities(64, types), e["id"], HUNT_REACH)
-            if step != "attack":
+            if step != "attack" or near is None:
                 api.detail(f"   hunt: prey {e['id']} {'moved on' if step == 'chase' else 'lost'}: the nearest again")
                 continue
             e = near
