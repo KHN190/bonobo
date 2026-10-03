@@ -570,10 +570,13 @@ class Search:
         reach = self.lb.reach.get(token)
         if reach is None:
             reach = self.lb.reach.get(mid(token), set())
-        had = tuple(sorted((t, inv.available(t)) for t in reach | {token} if inv.available(t) > 0))
+        relevant = reach | {token, mid(token)}
+        had = (tuple(sorted((k, v) for k, v in inv.counts.items() if v > 0 and k in relevant)),
+               tuple(sorted((k, v) for k, v in inv.produced.items() if v > 0 and k in relevant)))
         key = (token, n, had)
         if key not in self.least_c:
-            self.least_c[key] = self.lb.least(token, n, inv.available, {"held": {t for t, _n in had} or set()})
+            held = {k for k, _v in had[0]} | {k for k, _v in had[1]}
+            self.least_c[key] = self.lb.least(token, n, inv.available, {"held": held})
         return self.least_c[key]
 
     def stored(self, token):
