@@ -398,7 +398,7 @@ def tool_for(inv, block, min_left=2):
 
 def dig_ticks(blocks, inv):
     """Pure: ticks the breaks of `blocks` (a block name per cell) take, each with the item tool_for holds for it."""
-    return sum(break_ticks(b, tool_for(inv, b)) for b in blocks)
+    return sum(break_ticks(b, tool_for(inv, b)) + PRIOR_TICKS["break_task"] for b in blocks)
 
 def tool_item(kind, tier):
     """Pure: the tool of `kind` at `tier` ("minecraft:stone_shovel")."""
@@ -408,7 +408,7 @@ def work_s(breaks, kills, held, ticks_per_s):
     """Pure: seconds the work takes — each block of `breaks` broken, each hp of `kills` dealt — with the best of the
     hand and `held` ({tool kind: tier}) for each."""
     items = ["hand"] + [tool_item(k, t) for k, t in held.items()]
-    return (sum(min(break_ticks(b, i) for i in items) for b in breaks) / ticks_per_s
+    return (sum(min(break_ticks(b, i) for i in items) + PRIOR_TICKS["break_task"] for b in breaks) / ticks_per_s
             + sum(min(kill_s(i, hp) for i in items) for hp in kills))
 
 def own_work(step):
@@ -788,7 +788,8 @@ PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 
                "shelter:dig_in": 500, "shelter:pod": 800, "shelter:hut": 2400,
                "room:tidy": 300, "room:deposit": 1200,
                "surface": 200, "surface_per_block": 30,     # out from under rock: a base and per block below SURFACE_Y
-               "unknown_walk": 6000, "unknown_water": 1200}  # nothing known nearby: a search's walk; water's
+               "unknown_walk": 6000, "unknown_water": 1200,  # nothing known nearby: a search's walk; water's
+               "break_task": 8}     # a mine task's own time per block past the game's break: the swing, the drops
 SURFACE_Y = 64
 GROW_S = {"crop": 900, "animal": 1200}     # seconds (jobs.DURATION)
 NIGHT_S = 420.0               # a night, when the clock is not read
@@ -802,7 +803,8 @@ PRICE_SOURCE = {
         "take": "prior", "withdraw": "prior", "look": "prior", "cast": "prior", "farm": "prior", "trade": "prior",
         "reach": "prior", "breed": "prior", "eat": "game", "shelter:dig_in": "prior", "shelter:pod": "prior",
         "shelter:hut": "prior", "room:tidy": "prior", "room:deposit": "prior", "surface": "prior",
-        "surface_per_block": "prior", "unknown_walk": "prior", "unknown_water": "prior"},
+        "surface_per_block": "prior", "unknown_walk": "prior", "unknown_water": "prior",
+        "break_task": "measured"},      # bench f1 traces: a stone break 0.95 s against the game's 0.56 s
     "knowledge.SURFACE_Y": "game", "data.MEASURED_BAND": "policy", "knowledge.GROW_S": {"crop": "prior", "animal": "game"}, "knowledge.NIGHT_S": "game",
     "knowledge.MIN_FIND_P": "policy", "knowledge.FIND_AT": "game",
     "data.WALK_BLOCKS_PER_TICK": "prior", "data.ROUTE_FACTOR": "prior", "data.HARDNESS": "game",

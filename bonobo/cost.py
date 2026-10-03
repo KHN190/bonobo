@@ -7,18 +7,19 @@ from . import api
 from .api import Interrupted, McError
 from .beliefs import CONFIG as _PLAY
 from .data import MEASURED_BAND, MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare, mid
-from .knowledge import SURFACE_Y, food_count, soil_depth, dawn_s, MIN_FIND_P, body_facts, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
+from .knowledge import SURFACE_Y, sources, step_station, work_s, food_count, soil_depth, dawn_s, MIN_FIND_P, body_facts, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
 from .world import Region, Versioned, job_ready, route_key, seen_hit
 from .skill import MIN_SAMPLES
-from .planner import Unplannable, plan_needs
+from .planner import Unplannable, plan_needs, way
 
 from .game import TICKS_PER_S
 
 WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~12.5 ticks a block, walking with detours
 DOOR_ROUTE = None      # (taught, here, there, walk_s) → seconds through a door, or None: mechanisms.door_route_s,
 #                        a pure function wired by the brain (no import: the cost prices, the mechanisms module acts)
-UNKNOWN_WALK_TICKS = PRIOR_TICKS["unknown_walk"]   # nothing known nearby: what a search usually costs
+UNKNOWN_WALK_TICKS = PRIOR_TICKS["unknown_walk"]
+TABLE = "minecraft:crafting_table"   # nothing known nearby: what a search usually costs
 # work per unit before anything is measured, in ticks, bare-handed: a held tool's declared speed is taken off (_sped_up)
 # step kind → (statistics key, units): the keys the skill runner records under
 STAT_KEYS = {"mine": lambda s: (f"mine:{s.token}", s.count), "gather": lambda s: ("chop", s.count),
@@ -313,7 +314,19 @@ class Cost:
             return round(dawn_s(self.snap.state) * TICKS_PER_S)
         if held is None:
             held = held_tiers(self.snap.inv)
-        return prior_work_ticks(step, held, TICKS_PER_S)
+        ticks = prior_work_ticks(step, held, TICKS_PER_S)
+        if step.kind == "craft" and self.made_at(step) == TABLE and not self.station_near(TABLE):
+            # the table placed for it is broken and carried on after (craft.takes_back): its break by what is held
+            ticks += round(work_s([bare(TABLE)], [], held, TICKS_PER_S) * TICKS_PER_S)
+        return ticks
+
+    def made_at(self, step):
+        """The station a craft of `step` works at by its recipe (planner.way's), or the contract's; None for none."""
+        key = ("made_at", step.token)
+        if key not in self.cache:
+            ways = [w for w in (way(src, made, 1) for made, src in sources(step.token)) if w is not None]
+            self.cache[key] = next((w[2] for w in ways if w[0].kind == step.kind and w[2]), None) or step_station(step)
+        return self.cache[key]
 
     def soil(self):
         """The soil under the feet (knowledge.soil_depth) in `region`, the blocks perception read (never read here);…"""

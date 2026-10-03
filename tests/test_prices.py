@@ -64,5 +64,25 @@ class TheWaitIsTheNightLeft(unittest.TestCase):
                 self.assertEqual(cost(snap).work(Step("wait", "day", 1, {})), round(dawn_s(snap.state) * TICKS_PER_S))
 
 
+class TheWorkAsTheJarRunsIt(unittest.TestCase):
+    def test_a_break_is_a_task(self):
+        from bonobo.knowledge import PRIOR_TICKS, break_ticks, work_s
+        # must fail: a stone broken in the game's 0.6 s (12 ticks) though the jar's mine task takes ~0.95 s
+        # (bench ore_buried, cave_escape): the swing start, the drops, the task boundary
+        self.assertEqual(work_s(["stone"], [], {"pickaxe": 1}, TICKS_PER_S) * TICKS_PER_S,
+                         break_ticks("stone", "minecraft:stone_pickaxe") + PRIOR_TICKS["break_task"])
+
+    def test_a_table_placed_for_a_craft_is_taken_back(self):
+        from tests.world import cost
+        step = Step("craft", "minecraft:wooden_pickaxe", 1, {})
+        with tempfile.TemporaryDirectory() as tmp:
+            m = Memory(os.path.join(tmp, "notes.json"))
+            m.add_station("minecraft:crafting_table", (1, 64, 1), "minecraft:overworld")
+            near = cost(snapshot(), mem=m).work(step)
+        # must fail: the craft priced alone though no table stands near: the one placed is broken by hand after
+        # (bench craft__base: 3.75 s of its 5)
+        self.assertGreater(cost(snapshot()).work(step), near)
+
+
 if __name__ == "__main__":
     unittest.main()
