@@ -129,17 +129,27 @@ def dig_order(cells, feet, n=None) -> "list[tuple[Cell, str | None]]":
     return out
 
 
-def mine_batch(cells: list[Cell], start=None, require_drops=False, collect=True, only=None):
+def mine_batch(cells: list[Cell], start=None, require_drops=False, collect=True, only=None, solid=None):
     """Pure: many cells to break as one chain — single mines in mine_order, or, collecting from a known stand, in
-    dig_order with its steps (each drop at the feet); the closing sweep (batch_sweep) last when `collect`."""
+    dig_order with its steps (each drop at the feet); the closing sweep (batch_sweep) last when `collect`. A step
+    into a mined cell is a stand: its head room is broken first where `solid` (the ground read) says it is solid —
+    2 high, the eye never in stone (accept9: "no stand reached" for stone beside the feet)."""
     plan = dig_order(cells, start) if collect and start is not None else [(c, None) for c in mine_order(cells, start)]
-    tasks = []
-    for c, how in plan:
+    tasks, mined = [], set()
+
+    def mine(c, how=None):
+        mined.add(c)
         tasks.append({"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False, "requireDrops": require_drops,
                       **({"down": True} if how == "down" else {})})
+    for c, how in plan:
+        head = (c[0], c[1] + 1, c[2])
+        if how == "step" and solid is not None and head not in mined and solid(head):
+            mine(head)                       # top down: the head room, then the cell stepped into
+        if c not in mined:
+            mine(c, how)
         if how == "step":
             tasks.append({"type": "goto", "x": c[0], "y": c[1], "z": c[2], "range": 0.5, "partial": True})
-    return tasks + ([batch_sweep([c for c, _h in plan], only)] if collect else [])
+    return tasks + ([batch_sweep(sorted(mined), only)] if collect else [])
 
 
 def build_batch(blocks, start=None):
