@@ -315,10 +315,11 @@ def verdict(table, name, code):
 def load_table(path=None):
     return paths.read_json(path or TABLE, {})
 
-def record(table, scenario, code, ok, seconds, note="", cls="skill"):
-    """Pure: append one result (last 10 kept per scenario and code version)."""
+def record(table, scenario, code, ok, seconds, note="", cls="skill", e4=None):
+    """Pure: append one result (last 10 kept per scenario and code version); `e4`: (holds, misses) of its steps."""
     runs = table.setdefault(scenario, {}).setdefault(code, [])
-    runs.append({"ok": bool(ok), "s": round(seconds, 1), "note": note[:120], "cls": cls, "t": int(time.time())})
+    runs.append({"ok": bool(ok), "s": round(seconds, 1), "note": note[:120], "cls": cls, "t": int(time.time()),
+                 **({"e4": e4[0], "e4_miss": e4[1][:5]} if e4 is not None else {})})
     del runs[:-10]
     return table
 
@@ -331,6 +332,14 @@ def status(table, scenario, code):
     passes = sorted(r["s"] for r in runs if r["ok"])
     median = passes[len(passes) // 2] if passes else None
     return ("scenario" if verdict_of([r["ok"] for r in runs]) == "pass" else "failing"), median
+
+def e4_status(table, scenario, code):
+    """Pure: the E4 column — 'in' / 'out' by the latest counted run that priced a step, '-' when none did."""
+    runs = [r for r in table.get(scenario, {}).get(code, []) if r.get("cls", "skill") not in UNCOUNTED
+            and r.get("e4") is not None]
+    if not runs:
+        return "-"
+    return "in" if max(runs, key=lambda r: r.get("t", 0))["e4"] else "out"
 
 def failed_last(table):
     """Pure: the rows whose latest counted run (any code version) failed — FAIL or TIMEOUT — sorted."""
@@ -899,6 +908,13 @@ def one_hp_damage(hp):
     """Pure: the damage that leaves 1 hp (never kills, never heals)."""
     return max(0.0, round(float(hp) - 1.0, 2))
 
+def row_e4(name, since, path=None):
+    """(holds, misses) of the row's priced steps since `since` (e4.row_verdict over prices.jsonl)."""
+    from .. import dispatch
+    from . import e4
+    return e4.row_verdict(e4.read_lines(path or dispatch.PRICES, name, since))
+
+
 def run_named(name, make_ctx):
     """Set up and run one scenario (test world only)."""
 
@@ -919,6 +935,8 @@ def run_named(name, make_ctx):
     # a wait on the game's clock alone (a furnace cooking, api.waiting_for_clock) runs the clock ahead: the row's
     # work and checks stay the same, only the real-time wait for the furnace goes (smelting is 10 s an item)
     _api.CLOCK_HOOK = lambda s: _command(f"tick sprint {max(TICKS_PER_S, int(s * TICKS_PER_S))}", feedback)
+    os.environ["MC_BENCH_ROW"], row_t0 = name, time.time()      # each step's price line names the row (E4)
+    os.environ["MC_BENCH_TICK_RATE"] = str(rate or TICKS_PER_S)
     try:
         if rate:
             # waiting-heavy rows run the game faster: skills wait in ticks, only wall time shrinks; reset below
@@ -956,12 +974,15 @@ def run_named(name, make_ctx):
         if rate:
             _command(f"tick rate {WORLD_NORMAL['tick rate']}", feedback)
         _api.CLOCK_HOOK = None
+        os.environ.pop("MC_BENCH_ROW", None)
+        os.environ.pop("MC_BENCH_TICK_RATE", None)
+    e4_row = row_e4(name, row_t0)
     cls = classify(exc, ok)
     if not ok and cls not in UNCOUNTED and generic_failure(note):
         # a failure without a reason is recorded as such
         note = f"NO REASON: {note or type(exc).__name__}"
     if cls not in UNCOUNTED:
-        save_table(record(load_table(), name, code, ok, seconds, note, cls))
+        save_table(record(load_table(), name, code, ok, seconds, note, cls, e4=e4_row))
     if not ok:
         folder = _report(name, failure_record(name, code, cls, note, seconds, feedback, trace, console.lines))
         note = f"{note} [{cls}] → {folder}"
