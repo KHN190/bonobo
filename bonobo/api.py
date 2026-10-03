@@ -111,19 +111,20 @@ class NotAvailable(McError):
 class NavFailed(NotAvailable):
     """The body couldn't get where a skill needed it."""
 
-class ToolMissing(NotAvailable):
-    """ARM cut a chain here: no held tool of `kind` (tier `tier`+) has enough uses left past `pos`. `done`: the
-    prefix ARM could still arm (run it, then let this propagate so the round plans a replacement, I2/R1/G3)."""
-    def __init__(self, kind, tier, pos=None, done=None):
-        super().__init__(f"no {kind} tier {tier}+ with uses enough left past {pos}", pos=pos)
-        self.kind, self.tier, self.done = kind, tier, done or []
-
 class TaskStuck(McError):
     """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled. `then`: what follows."""
 
     def __init__(self, message="", then="replan"):
         super().__init__(message)
         self.then = then
+
+class ToolMissing(McError):
+    """No held tool of `kind` (tier `tier`+) is enough (skill.needs_of's hard check, or ARM cutting a chain where
+    its tool would not outlast `pos`'s worth of mines). `done`: the prefix ARM could still arm (run_chain runs it,
+    then lets this propagate so the round plans a replacement, I2/R1/G3) — empty outside ARM's own use."""
+    def __init__(self, kind, tier, pos=None, done=None):
+        super().__init__(f"need a tier-{tier} {kind}" if pos is None else f"no {kind} tier {tier}+ with uses enough left past {pos}", pos=pos)
+        self.kind, self.tier, self.done = kind, tier, done or []
 
 class CommitmentExpired(McError):
     """The running task outlived the commitment its plan was made under: the world owes the planner a new decision."""

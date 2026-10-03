@@ -4,7 +4,7 @@ import math
 import time
 
 from . import api, beliefs, knowledge as _know, lifecycle, tape
-from .api import McError, NotAvailable
+from .api import McError, NotAvailable, ToolMissing  # noqa: F401  (ToolMissing: re-exported, the one class lives in api)
 from .bag import pickup_whitelist
 from .data import BAN_MAX_S, REACH, bare, place_signature, state_signature
 from .game import EYE_HEIGHT, SUFFOCATION
@@ -61,11 +61,6 @@ class NeedMissing(McError):
     def __init__(self, missing):
         super().__init__("missing " + ", ".join(f"{k} {v}" for k, v in sorted(missing.items())))
         self.missing = dict(missing)
-
-class ToolMissing(McError):
-    def __init__(self, kind, tier):
-        super().__init__(f"need a tier-{tier} {kind}")
-        self.kind, self.tier = kind, tier
 
 _BAN_COUNTS = {}
 lifecycle.in_place(__name__, "_BAN_COUNTS")     # in place: every Context shares it; bans name the last life's cells
