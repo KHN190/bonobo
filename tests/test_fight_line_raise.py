@@ -21,8 +21,10 @@ def inside(kinds, snap, rows):
     sword = f"minecraft:{TOOL_MATERIAL_FOR_TIER[max(tiers)]}_sword" if tiers else \
         brain._k.attack_weapon(snap.inv, beliefs.COMMON_FOE_HP)
     points = float(snap.state.get("armor", 0)) + sum(
-        ARMOR_POINTS[r[0].removeprefix("minecraft:").split("_")[0]][r[0].rsplit("_", 1)[1]] for r in rows if r[0] != "tool")
-    mean, hit = estimate.melee_loss(kinds, sword, beliefs.protection(points, hit=beliefs.hardest_hit(kinds)))
+        ARMOR_POINTS[r[0].removeprefix("minecraft:").split("_")[0]][r[0].rsplit("_", 1)[1]] for r in rows
+        if r[0] not in ("tool", "building"))
+    lid = (("roof", brain.threat.ROOF_BLOCKS),) if any(r[0] == "building" for r in rows) else ()
+    mean, hit = estimate.melee_loss(kinds, sword, beliefs.protection(points, hit=beliefs.hardest_hit(kinds)), shapes=lid)
     return estimate.fight_line_ok(float(snap.state["health"]), critical_hp(snap.state), mean, hit)
 
 
@@ -34,7 +36,9 @@ class Raisers(unittest.TestCase):
         ("a zombie, bare hands: a sword or armour", Z, body(), True),
         ("must fail: a spider already inside the line needs nothing raised", S, body(items=[("iron_sword", 1)]), None),
         ("must fail: no kit when health itself is the wall (2 hp)", ["minecraft:piglin"], body(health=2.0), False),
-        ("must fail: an enderman (7 per 20 ticks): no sword or iron armour clears it", E, body(), False),
+        ("must fail: an enderman (7 per 20 ticks): no sword or iron armour clears it, the lid's blocks do", E, body(), True),
+        ("must fail: an enderman, the lid's blocks carried: inside the line already", E,
+         body(items=[("cobblestone", brain.threat.ROOF_BLOCKS)]), None),
     ]
 
     def test_rows(self):
@@ -50,6 +54,11 @@ class Raisers(unittest.TestCase):
                 self.assertEqual(bool(got), want, got)
                 for rows in got:
                     self.assertTrue(inside(kinds, snap, rows), rows)      # each raiser meets the line it claims
+
+    def test_an_enderman_is_fought_under_the_lid(self):
+        got = brain.line_raisers(E, body().state, body().inv)
+        # must fail: a sword or armour alone offered against an enderman (q 0.9 loss above 20 hp at diamond and iron)
+        self.assertTrue(got and all(("building", brain.threat.ROOF_BLOCKS) in rows for rows in got), got)
 
     def test_worn_armour_is_not_asked_again(self):
         snap = body(armor=6, items=[("iron_sword", 1)], chest="iron_chestplate")

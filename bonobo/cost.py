@@ -3,6 +3,7 @@
 import math
 import time
 
+from . import api
 from .api import Interrupted, McError
 from .beliefs import CONFIG as _PLAY
 from .data import MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare, mid
@@ -214,6 +215,21 @@ class Cost:
             return knowledge.FIGHT_LINE(found[0], found[1], self.snap.state, inv)
         except (IndexError, KeyError, TypeError):
             return True, None              # args it cannot read: the runner refuses them
+
+    def line_kit(self, step, held=None):
+        """[needs rows] of kit that each put the step's fight over the line (knowledge.LINE_KIT), from the bag as planned."""
+        from . import knowledge, skill
+        if knowledge.LINE_KIT is None:
+            return []
+        found = skill.step_contract(step)
+        if found is None:
+            return []
+        inv = self.snap.inv if held is None else planned_bag(self.snap.inv, held)
+        try:
+            return knowledge.LINE_KIT(found[0], found[1], self.snap.state, inv)
+        except (IndexError, KeyError, TypeError) as e:
+            api.swallowed("cost.line_kit", e)       # args it cannot read: no kit, the fight stays refused
+            return []
 
     def stored(self, token):
         """[(pos, item, count, the chance it still holds it)] of `token` in the containers seen here (memory), the

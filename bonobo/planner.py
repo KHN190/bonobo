@@ -701,7 +701,7 @@ class Search:
         lost = [t[1] for t in root.stack if t[0] == "need" and self.lb.least(t[1], t[2], held, {}) == math.inf]
         lost += [tool_item(t[1], t[2]) for t in root.stack if t[0] == "tool"
                  and self.lb.least(tool_item(t[1], t[2]), 1, held, {}) == math.inf]
-        return "no way to obtain " + ", ".join(dict.fromkeys(bare(t) for t in lost)) if lost else "no way found"
+        return "no way to obtain " + ", ".join(dict.fromkeys(lost)) if lost else "no way found"
 
     def reach_lb(self, token, held, seen):
         """Ticks no plan for `token` can walk less than:"""
@@ -1039,12 +1039,20 @@ class Search:
                 opts.append(((t + 1, use_rank(kind), 1), [("tool", kind, t, self.uses(step, kind), depth)]))
         return self.options(node, opts, self.after(node, step))
 
-    def emit(self, node, step, depth, start):
+    def emit(self, node, step, depth, start, raised=False):
         held = node.inv.held()
         # S5: an optional fight only above the line, with the weapon the plan holds by then (brain's one judge)
-        ok, why = self.cost.fight_line(step, held)
+        ok, why = (True, None) if raised else self.cost.fight_line(step, held)
         if not ok:
-            return self.dead(f"{step.kind}: {why}")
+            # under the line: each kit that clears it (brain.line_raisers) made first, priced like any need
+            kits = self.cost.line_kit(step, held)
+            opts = [((k + 1, 0, 1), [("tool", r[1], int(r[2]), self.uses(step, r[1]), depth) if r[0] == "tool"
+                                     else ("need", r[0], int(r[1]), depth + 1, False) for r in rows]
+                     + [("emit", step, depth, start, True)]) for k, rows in enumerate(kits)]
+            if not opts:
+                return self.dead(f"{step.kind}: {why}")
+            self.reasons.append(f"{step.kind}: {why}")
+            return self.options(node, opts)
         step = Step(step.kind, step.token, step.count, dict(step.detail))
         breaks, kills = own_work(step)
         for kind in {k for k in map(tool_kind, breaks) if k is not None} | ({"sword"} if kills else set()):
@@ -1506,7 +1514,6 @@ def p_unknown(k, n):
 
 def look_first(inv, needs, cost, pending=None):
     """[the look into an unopened home container] when its expected seconds beat making what is short — the look, th…"""
-    from . import goals
     mem, snap = cost.mem, cost.snap
     if mem is None:
         return []
@@ -1519,7 +1526,7 @@ def look_first(inv, needs, cost, pending=None):
             continue
         token, n = need[0], int(need[1])
         held = {token: sum(have for _p, _i, have, _pr in cost.stored(token))}
-        short = goals.have_remainder(inv, [[token, n]], {**(pending or {}), **held}).get(token, 0)
+        short = have_remainder(inv, [[token, n]], {**(pending or {}), **held}).get(token, 0)
         if short <= 0:
             continue
         try:
@@ -1589,6 +1596,9 @@ class NullCost:
 
     def fight_line(self, step, held=None):
         return True, None
+
+    def line_kit(self, step, held=None):
+        return []
 
     def station_near(self, block):
         return False

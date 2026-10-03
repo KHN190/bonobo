@@ -31,9 +31,13 @@ class HuntAboveTheLine(unittest.TestCase):
              [("craft", "minecraft:iron_sword"), ("hunt", "minecraft:string")]),
             ("full health, cobblestone: a stone sword made, hunted", 20, [("cobblestone", 2)] + TABLE,
              [("craft", "minecraft:stone_sword"), ("hunt", "minecraft:string")]),
-            ("must fail: a stone sword carried under the line", SPLIT, [("stone_sword", 1)], None),
-            ("must fail: the only sword the plan can make is under the line", SPLIT, [("cobblestone", 2)] + TABLE,
-             None),
+            # (…, a tuple: what the plan ends with) — the iron is mined and smelted first
+            ("must fail: a stone sword carried under the line: an iron one made before the hunt", SPLIT,
+             [("stone_sword", 1)], (("craft", "minecraft:iron_sword"), ("hunt", "minecraft:string"))),
+            ("must fail: the sword the bag makes is under the line: an iron one made before the hunt", SPLIT,
+             [("cobblestone", 2)] + TABLE, (("craft", "minecraft:iron_sword"), ("hunt", "minecraft:string"))),
+            ("must fail: no kit clears the line (critical health + a spider's loss above 5): refused, said", 5,
+             [("stone_sword", 1)], None),
             ("must fail: a stone sword carried under the line, iron at hand: the plan raises the line itself",
              SPLIT, [("stone_sword", 1), ("iron_ingot", 2)] + TABLE,
              [("craft", "minecraft:iron_sword"), ("hunt", "minecraft:string")])]
@@ -47,8 +51,8 @@ class HuntAboveTheLine(unittest.TestCase):
                     with self.assertRaisesRegex(Unplannable, "fight line"):
                         planner.plan_needs(bag(inv), [("minecraft:string", 1)], c)
                 else:
-                    steps = planner.plan_needs(bag(inv), [("minecraft:string", 1)], c)
-                    self.assertEqual([(s.kind, s.token) for s in steps], want)
+                    got = [(s.kind, s.token) for s in planner.plan_needs(bag(inv), [("minecraft:string", 1)], c)]
+                    self.assertEqual(tuple(got[-len(want):]) if isinstance(want, tuple) else got, want)
 
 
 class PlannedBag(unittest.TestCase):
