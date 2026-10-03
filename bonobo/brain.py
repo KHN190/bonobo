@@ -1058,7 +1058,7 @@ class Brain:
         (knowledge.side_saving), else A; held, it runs like any plan (dispatch.run_priced: its budget covers every
         walk). A plan already chosen so is kept until it is planned again. Said and kept (enroute_choice)."""
         self.enroute_choice = None
-        if held.get("enroute"):
+        if "enroute" in held:          # already checked (round_for's own cache: unchanged since), not asked twice
             return held
         sites = [at for at in map(cost.site, held["steps"]) if at is not None]
         prices = self.price_table(snap)
@@ -1068,7 +1068,7 @@ class Brain:
         _bound, step, where, item, n, p = next((r for r in got if tuple(r[2]) not in map(tuple, sites)),
                                                (None,) * 6)
         if step is None:
-            return held
+            return dict(held, enroute=None)
         name = f"en-route: {step.kind} {bare(step.token)} at {where}"
         if step.kind == "look":
             a = [planner.Step(st.kind, st.token, st.count, dict(st.detail)) for st in held["steps"]]
@@ -1080,14 +1080,14 @@ class Brain:
             if c is None:
                 self.enroute_choice = EnrouteChoice(name, sum(st.est for st in held["steps"]) / TICKS_PER_S, None, p,
                                                     None, False)
-                return held
+                return dict(held, enroute=None)
             steps = c["steps"]
             a_s, c_s = (sum(st.est for st in s) / TICKS_PER_S for s in (held["steps"], steps))
         value = bag.item_value(item, n, self.hidden_prices(snap, step, where).get)
         chosen = _k.side_saving(p, value or 0.0, 0.0, c_s - a_s) > 0
         self.enroute_choice = EnrouteChoice(name, a_s, c_s, p, value, chosen)
         api.detail(f"   {name}: A {a_s:.0f}s, C {c_s:.0f}s, P {p:.2f} × value {value or 0:.0f}s → {'C' if chosen else 'A'}")
-        return dict(held, steps=steps, enroute=name) if chosen else held
+        return dict(held, steps=steps, enroute=name) if chosen else dict(held, enroute=None)
 
     def hidden_prices(self, snap, step, where):
         """Prices (price_table's) with the en-route candidate hidden — its cell, a mob's entity, banned (the ban mask

@@ -73,10 +73,9 @@ def _break_ticks_held(block, inv):
     return min(_k.break_ticks(bare(block), i) for i in items)
 
 def station_kept(block, pos, next_use, inv, extra_s=0.0):
-    """Pure (G3): left standing pays when the ticks back from `next_use` (place, real dig-path ticks — the
-    `_next_use_at` Cost replay, never less than the straight line, a floor only, never the price itself) cost
-    fewer than breaking `block`, carrying it, and placing it again there; `extra_s` counts in a furnace still
-    smelting (waited out or collected before it can break). False with no known next use: always carry."""
+    """Pure: left standing pays when the real ticks back from `next_use` (place, ticks; the straight line only a
+    floor, never the price) cost fewer than breaking `block`, carrying it, and placing it again there; `extra_s`
+    counts in a furnace still smelting. False with no known next use: always carry."""
     if next_use is None:
         return False
     place, ticks_back = next_use
@@ -93,11 +92,10 @@ def station_left(block, pos, next_use, inv, extra_s=0.0):
     return True
 
 def _next_use_at(cost, steps, last, needs):
-    """Pure: (place, ticks) for the first step after `last` that `needs` it, else None — `place` the planned place
-    (D6: price_as_run's own at-chain), `ticks` the real cost home from it to `last`'s own site (dug_way's breaks,
-    knowledge.work_s, atop the walk: a buried station's way is not its straight line). Starts from the station's
-    own place (`last`'s site, else the feet): no sited step in between means no move at all, not an unknown place
-    (station_kept must read "here" as 0 ticks back, not as "never keep")."""
+    """Pure: (place, ticks) for the first step after `last` that `needs` it, else None. `ticks` is the real seconds
+    of the way back to the station (cost.reach, the same door the run itself walks through) — no way found (or the
+    place unread) prices it unaffordable, since tearing the station down and placing a new one is always possible.
+    No sited step in between the station and the next use reads as standing right there, not an unknown place."""
     station = cost.site(last)
     if station is None:
         station = cost.feet()
@@ -108,9 +106,8 @@ def _next_use_at(cost, steps, last, needs):
             site = cost.site(s)
             at = site if site is not None else at
             if needs(s):
-                blocks = cost._way_breaks(tuple(at), tuple(station), "stone", True)
-                ticks = _k.walk_ticks(math.dist(at, station)) + round(
-                    _k.work_s(blocks, [], _k.held_tiers(cost.snap.inv), TICKS_PER_S) * TICKS_PER_S)
+                r = cost.reach(station, "use", at=at)
+                ticks = round(r.seconds * TICKS_PER_S) if r is not None and r.stand is not None else math.inf
                 return (at, ticks)
         after = after or s is last
     return None

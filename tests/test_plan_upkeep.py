@@ -2200,14 +2200,16 @@ class OneArbiter(unittest.TestCase):
         b.round_for = lambda entries, snap, cost, old=None: {"steps": [chop.step], "sig": None, "event": False,
                                                              "dim": snap.dimension, "want": ()}
         b.task_act = lambda task, snap, ctx, cost, held=None: (chop, {})
-        b.mem, b.blacklist, b.policy_cache, b.held = None, {}, None, {}
-        b.prepare = lambda snap, ctx: brainmod.Act("idle", "prepare", None)
-        snap = snapshot(state(timeOfDay=NIGHT), inventory())
-        task = {"id": "t1", "state": "running", **goals.have(("log", 2))}
-        with mock.patch.object(api.STATE, "mode", "normal"), mock.patch.object(brainmod.hazard, "rescue_due", return_value=None), \
-                mock.patch.object(tasks, "load", return_value=[task]), \
-                mock.patch.object(tasks, "expire", return_value=False):
-            act = b.decide(snap, round_ctx(b, snap))
+        # a real Memory: decide's own Cost (built regardless of round_for being stubbed) asks it for protected cells
+        with tempfile.TemporaryDirectory() as tmp:
+            b.mem, b.blacklist, b.policy_cache, b.held = Memory(os.path.join(tmp, "notes.json")), {}, None, {}
+            b.prepare = lambda snap, ctx: brainmod.Act("idle", "prepare", None)
+            snap = snapshot(state(timeOfDay=NIGHT), inventory())
+            task = {"id": "t1", "state": "running", **goals.have(("log", 2))}
+            with mock.patch.object(api.STATE, "mode", "normal"), mock.patch.object(brainmod.hazard, "rescue_due", return_value=None), \
+                    mock.patch.object(tasks, "load", return_value=[task]), \
+                    mock.patch.object(tasks, "expire", return_value=False):
+                act = b.decide(snap, round_ctx(b, snap))
         self.assertEqual((act.layer, act.name), ("idle", "wait for day"))
 
     def test_night_stock_plans_under_cover(self):
@@ -3373,8 +3375,9 @@ class TheRoundsPick(unittest.TestCase):
                 counted.clear()
                 q.b.plan_proposals(snap, round_ctx(q.b, snap))
                 return first, len(counted)
-        self.assertEqual(calls(2), (1, 0))
-        self.assertEqual(calls(6), (1, 0))
+        # round 1: 2 calls (the round's plan, plus the en-route check beside it, by design); round 2: 0 (both held)
+        self.assertEqual(calls(2), (2, 0))
+        self.assertEqual(calls(6), (2, 0))
 
     def test_the_order_is_the_least_total(self):
         """G3: the round's plan costs no more than its targets in any other place order; equal totals keep the

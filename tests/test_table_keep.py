@@ -48,8 +48,8 @@ def rebuild_ticks(block, inv, extra_s=0.0):
 
 def flat_next_use(place):
     """A plain next use, no dig in the way: `_next_use_at`'s own (place, ticks) shape with the straight line as
-    the (here, exact) ticks — these rows are about the price comparison, not the dig path (test_buried_next_use_
-    forces_take_back below is)."""
+    the (here, exact) ticks — these rows are about the price comparison, not the real reach price
+    (NextUseWalksThePlanForward.test_buried_rows is)."""
     return (place, walk_ticks(math.dist(POS, place)))
 
 
@@ -91,15 +91,13 @@ class StationKeptPricesTheCheaperChoice(unittest.TestCase):
 
 
 class NextUseWalksThePlanForward(unittest.TestCase):
-    """next_table_use / next_furnace_use: (place, ticks) of the first later step that needs the station —
-    price_as_run's own at-chain (cost.site, carried forward past steps with none) for `place`, the real dig path
-    home from it (Cost._way_breaks) for `ticks`; None past the plan's end."""
+    """next_table_use / next_furnace_use: (place, ticks) of the first later step that needs the station — the
+    planned place for `place` (cost.site, carried forward past steps with none), cost.reach's own seconds home
+    from it for `ticks` (test_buried_rows below); None past the plan's end."""
 
     class _FakeCost:
-        """A cost stub: `site` answers from a {id(step): place} map, as price_as_run's own cost.site would; `feet`
-        is the fallback start when `last` has no site of its own; `_way_breaks` stubbed empty (no dig: these rows
-        exercise the at-chain only, not the real dig price — StationKeptPricesTheCheaperChoice.
-        test_buried_next_use_forces_take_back below is)."""
+        """A cost stub: `site` answers from a {id(step): place} map; `feet`/`reach` are the fallback start and a
+        free, always-reachable way home (these rows exercise the at-chain only, not the real reach price)."""
 
         def __init__(self, sites, feet=(0, 0, 0)):
             self.sites = sites
@@ -112,8 +110,8 @@ class NextUseWalksThePlanForward(unittest.TestCase):
         def feet(self):
             return self._feet
 
-        def _way_breaks(self, feet, target, block, ore):
-            return []
+        def reach(self, cell, kind, at=None, spent=0, extra=0):
+            return nav.Reached(tuple(at), None, 0, walk_ticks(math.dist(at, cell)) / TICKS_PER_S)
 
     def test_rows(self):
         gather = Step("gather", "minecraft:oak_log", 4)
@@ -156,15 +154,14 @@ class NextUseWalksThePlanForward(unittest.TestCase):
         self.assertEqual(craft.next_table_use(cost, steps, table_now),
                          ((9, 9, 9), walk_ticks(math.dist((9, 9, 9), (0, 0, 0)))))
 
-    def test_buried_next_use_forces_take_back(self):
-        """D: a next use buried under rock (the ore a mine between two smelts remembers) prices far more than its
-        straight line (dug_way's breaks, knowledge.work_s, atop the walk) — real enough to flip a furnace that the
-        straight line alone would call cheap to leave standing into one taken back."""
+    def _buried_next_use(self, depth):
+        """A furnace at the surface, the next smelt's ore (between two smelts) `depth` blocks straight down in
+        solid stone: next_furnace_use's own (place, ticks) for it."""
         lo, hi = (-5, 50, -5), (5, 75, 5)
         blocks = {(x, y, z): "stone" for x in range(lo[0], hi[0] + 1) for z in range(lo[2], hi[2] + 1)
                  for y in range(51, 70)}
         region = FakeRegion(lo, hi, blocks)
-        furnace_pos, buried = (0, 70, 0), (0, 58, 0)     # the ore 12 blocks straight down, in solid stone
+        furnace_pos, buried = (0, 70, 0), (0, 70 - depth, 0)
         m = memory()
         m.note_seen("iron_ore", buried, OVER)
         snap = snapshot(state(x=furnace_pos[0] + 0.5, y=float(furnace_pos[1]), z=furnace_pos[2] + 0.5), region=region)
@@ -174,9 +171,19 @@ class NextUseWalksThePlanForward(unittest.TestCase):
         smelt_again = Step("smelt", "minecraft:iron_ingot", 1)
         steps = [smelt_now, mine, smelt_again]
         with mock.patch.object(craft._k, "step_station", lambda s: FURNACE if s is smelt_again else None):
-            next_use = craft.next_furnace_use(c, steps, smelt_now)
-        self.assertFalse(craft.station_kept(FURNACE, furnace_pos, next_use, TOOLS["hand"]),
-                         f"must fail on base: the straight line alone reads this as a cheap walk back: {next_use}")
+            return furnace_pos, craft.next_furnace_use(c, steps, smelt_now)
+
+    # (situation, depth, the ticks cost.reach's own seconds give — the hand-rolled "stone"-always dig guess gave a
+    # different number at both: 1586 (not 1419) at 5, a finite 2060 (not inf: no way within the real run's own
+    # tries) at 6)
+    BURIED_ROWS = [("reachable: the real seconds, not the hand-rolled dig guess", 5, 1419),
+                   ("past the run's own tries: no way, so unaffordable, not a cheap guess", 6, math.inf)]
+
+    def test_buried_rows(self):
+        for name, depth, want in self.BURIED_ROWS:
+            with self.subTest(name):
+                _, next_use = self._buried_next_use(depth)
+                self.assertEqual(next_use[1], want, f"must fail on base: {next_use}")
 
 
 class OwnTableReusedIsAlwaysTakenBack(unittest.TestCase):
