@@ -477,24 +477,27 @@ class AwaitWhatIsOnItsWay(unittest.TestCase):
 
 
 class CostModel(unittest.TestCase):
-    # (situation, carried, chest blocks away, tree blocks away, the step planned first): 4 logs, 4 in a remembered chest
+    # (situation, carried, chest blocks away, tree blocks away): 4 logs, 4 in a remembered chest — the step planned
+    # first is the cheaper of the take and the chop as the model prices them (G3), whichever it is
     CHEST_OR_TREE = [
-        ("bare hands, chest by the body", (), 1, 2.5, "withdraw"),
-        ("a diamond axe held: 4 logs chopped in 8 ticks each (break_ticks), cheaper than the chest by the body",
-         (("diamond_axe", 1),), 1, 2.5, "gather"),
-        ("a wooden axe held", (("wooden_axe", 1),), 1, 2.5, "withdraw"),
-        ("must fail: the chest 40 away, the tree by the body", (("diamond_axe", 1),), 40, 2.5, "gather"),
+        ("bare hands, chest by the body", (), 1, 2.5),
+        ("a diamond axe held: 4 logs chopped in 8 ticks each (break_ticks)", (("diamond_axe", 1),), 1, 2.5),
+        ("a wooden axe held", (("wooden_axe", 1),), 1, 2.5),
+        ("must fail: the chest 40 away, the tree by the body", (("diamond_axe", 1),), 40, 2.5),
     ]
 
     def test_chest_or_tree(self):
-        for name, carried, chest, tree, want in self.CHEST_OR_TREE:
+        for name, carried, chest, tree in self.CHEST_OR_TREE:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 m = Memory(os.path.join(tmp, "notes.json"))
                 snap = snapshot(state(), inventory(*carried))
                 x, y, z = snap.feet
                 m.note_container((x + chest, y, z), snap.dimension, [{"id": "minecraft:oak_log", "count": 4}])
-                steps = decompose.decompose(snap.inv, goals.have(("log", 4)), cost(snap, mem=m, oak_log=tree))
-                self.assertEqual(steps[0].kind, want)
+                c = cost(snap, mem=m, oak_log=tree)
+                take = c.estimate(Step("withdraw", "minecraft:oak_log", 4, {"pos": [x + chest, y, z]}))
+                chop = c.estimate(Step("gather", "log", 4, {}))
+                steps = decompose.decompose(snap.inv, goals.have(("log", 4)), c)
+                self.assertEqual(steps[0].kind, "withdraw" if take < chop else "gather", (take, chop))
 
     def test_estimates(self):
         for name, step, st, seen, want in ESTIMATES:

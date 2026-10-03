@@ -74,7 +74,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 110)           # the minimal bench (bench-a06, bench-a46) + a must-fail row each for nav, chop, craft, smelt, eat, loot, hunt, night_first + a proving row per unproven skill; + 25 more proving rows restored verbatim (a88, a46)
+        self.assertEqual(len(rec), 119)           # the minimal bench (bench-a06, bench-a46) + a must-fail row each for nav, chop, craft, smelt, eat, loot, hunt, night_first + a proving row per unproven skill; + 25 more proving rows restored verbatim (a88, a46); + E4's 9 rows
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):

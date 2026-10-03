@@ -49,7 +49,7 @@ STONE = "minecraft:stone_sword"
 
 
 def mob(kind, x):
-    return ((x, 64, 0), 3.0, (0.0, 0.0, 0.0), f"minecraft:{kind}")
+    return estimate.row((x, 64, 0), 3.0, (0.0, 0.0, 0.0), f"minecraft:{kind}")      # the row as perception builds it
 
 
 class AFightExactly(unittest.TestCase):
