@@ -30,6 +30,11 @@ def step_call(step):
     producers()
     return STEP_CALL(step) if STEP_CALL is not None else {}
 
+def step_when(step, facts):
+    """[(fact, value)] `step` needs first, or why it cannot run from `facts` ([] when nothing is wired in)."""
+    producers()
+    return STEP_WHEN(step, facts) if STEP_WHEN is not None else []
+
 def step_station(step):
     """The station `step`'s contract works at, carried or standing (None when none, or none is wired in)."""
     producers()

@@ -249,11 +249,13 @@ def _provider(step):
 
 def when_of_step(step, facts):
     """Pure: the facts `step` needs first ([(fact, value)]) over the contracts that may carry it out (as its needs
-    are merged, `step_call`), or why none of them can run from `facts`."""
+    are merged, `step_call`), or why none of them can run from `facts` — or that none is registered."""
     if step.kind == "skill" and step.token in REGISTRY:
         found = [REGISTRY[step.token]]
     else:
         found = next((providers(e) for e in step_keys(step) if providers(e)), [])
+    if not found:
+        return f"no skill carries out {step.kind} {step.token}"      # nothing can run it: never planned
     asks, reasons = [], []
     for c in found:
         got = [] if c.when is None else c.when(step, facts)
