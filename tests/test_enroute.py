@@ -115,8 +115,11 @@ class ThePickedCCostsLessThanItsValue(unittest.TestCase):
 
 
 class NeverIronBeforeAPickaxe(unittest.TestCase):
-    """P2, unchanged by the rework: the held plan from an empty bag never mines iron before a pickaxe exists, and
-    the round's first act is never a dig toward the ore itself."""
+    """P2, unchanged by the rework: an empty-bag start whose immediate goal is a wooden pickaxe, with iron ore in
+    sight 2 off the first step's own site (wanted later, for stone/iron tools) -- the held plan never mines iron
+    before a pickaxe exists, and the round's chosen act is never a dig at the ore itself. Must fail on the base:
+    its old side act (cost.enroute) picks the ore as a detour by proximity alone, with no tool check at all, and
+    sends a raw mine task at it by hand."""
 
     def test_rows(self):
         tmp = tempfile.mkdtemp()
@@ -125,26 +128,27 @@ class NeverIronBeforeAPickaxe(unittest.TestCase):
                 mock.patch.object(api, "api", side_effect=AssertionError("the round read the world")):
             b = brain_fixture()
             b.mem.clock = 0
-            tree, ore = (5, 71, 0), (30, 67, 0)
-            blocks = {(x, y, z): "dirt" if y == 70 else "stone" for x in range(-8, 40) for z in range(-8, 8)
+            tree, ore = (5, 71, 0), (5, 67, 2)
+            blocks = {(x, y, z): "dirt" if y == 70 else "stone" for x in range(-8, 20) for z in range(-8, 8)
                       for y in range(40, 71)}
             for dy in range(4):
                 blocks[(tree[0], tree[1] + dy, tree[2])] = "oak_log"
             blocks[ore] = "iron_ore"
             hits = {"log": [{"x": tree[0], "y": tree[1], "z": tree[2], "distance": 5.0, "block": "minecraft:oak_log"}],
-                    "iron_ore": [{"x": ore[0], "y": ore[1], "z": ore[2], "distance": 30.0, "block": "minecraft:iron_ore"}]}
+                    "iron_ore": [{"x": ore[0], "y": ore[1], "z": ore[2], "distance": 2.0, "block": "minecraft:iron_ore"}]}
             snap = world.Snapshot.from_readings(state(x=.5, y=71, z=.5), world.Inventory(inventory()), hits, [],
-                                                world.Region.of((-8, 40, -8), (40, 75, 8), blocks))
+                                                world.Region.of((-8, 40, -8), (20, 75, 8), blocks))
             b.round_snap = snap
-            tasks.add(goals.have(("minecraft:raw_iron", 1)))
+            tasks.add(goals.have(("minecraft:wooden_pickaxe", 1)))
             got = b.plan_proposals(snap, round_ctx(b, snap))
         held = b.needs_plan
         self.assertIsNotNone(held, "an empty-bag start must still plan something")
         self.assertIsNone(brought_before(held["steps"]), [str(s) for s in held["steps"]])
         chosen = arbiter.arbitrate(got)
-        first = chosen.action.step if chosen is not None and hasattr(chosen.action, "step") else None
+        first = chosen.action.step if chosen is not None else None
+        # must fail on the base: the old side act's own chosen intent is a raw mine at the ore, no pickaxe held
         self.assertFalse(first is not None and first.kind == "mine" and first.token == "minecraft:raw_iron",
-                         "must fail: the first act must not be a dig at the ore with no pickaxe yet")
+                         [(i.kind, i.key) for i in got])
 
 
 if __name__ == "__main__":
