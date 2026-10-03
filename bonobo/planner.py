@@ -980,12 +980,23 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None):
     if not needs:
         return [(plan_name([]), 0.0, [])]
     root = Node(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()), [], [])
+    # one plan per question a round asks (the same needs from the same bag: needs, upkeep, queue, night)
+    cache = getattr(cost, "cache", None)
+    key = ("plan", tuple(tuple(n) if isinstance(n, (list, tuple)) else n for n in needs), root.inv.signature(),
+           tuple(sorted(kinds)) if kinds else None)
+    if cache is not None and key in cache:
+        return [(name, seconds, [Step(s.kind, s.token, s.count, dict(s.detail), s.est) for s in steps])
+                for name, seconds, steps in cache[key]]
     search = Search(cost, kinds)
     chosen = search.plan(root, list(needs))
     out = {plan_name(chosen): (plan_name(chosen), sum(s.est for s in chosen) / TICKS_PER_S, chosen)}
     for name, seconds, steps in sorted(search.considered, key=lambda c: c[1]):
         out.setdefault(name, (name, seconds, steps))
-    return list(out.values())
+    got = list(out.values())
+    if cache is not None:
+        cache[key] = [(name, seconds, [Step(s.kind, s.token, s.count, dict(s.detail), s.est) for s in steps])
+                      for name, seconds, steps in got]
+    return got
 
 
 def plan_needs(inv, needs, cost, pending=None, jobs=None, kinds=None):

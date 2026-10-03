@@ -28,6 +28,8 @@ def look_first(inv, needs, cost, pending=None):
     mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
     if mem is None or snap is None or not hasattr(mem, "home_containers"):
         return []
+    if all(mem.container_record(c) is not None for c in mem.home_containers(snap.dimension)):
+        return []                     # no unopened container to look into: nothing to price a make against
     for need in needs:
         if need[0] in ("tool", "fact"):
             continue
