@@ -330,6 +330,27 @@ class FactValuesOfOneType(unittest.TestCase):
                 sorted(vs)
 
 
+class StatesInTheirDomains(unittest.TestCase):
+    """facts.of refuses a value outside its fact's domain or a fact no dimension defines: a state kept against an
+    older domain (dusk's bools before its names; cooking and meat folded into job and carried) — r5's run crashed
+    sorting a bool beside a str."""
+
+    def test_rows(self):
+        rows = [("a value of the domain", {"dusk": "dusk"}, False),
+                ("must fail: dusk's old bool", {"dusk": True}, True),
+                ("must fail: a removed fact", {"cooking": "iron"}, True)]
+        for name, kw, refused in rows:
+            with self.subTest(name):
+                if refused:
+                    self.assertRaises(ValueError, of, **kw)
+                else:
+                    self.assertEqual(of(**kw)["dusk"], kw["dusk"])
+
+    def test_the_corpus_loads(self):
+        from check import fuzz
+        self.assertTrue(fuzz.corpus())          # must fail: a kept file outside today's domains
+
+
 class GammaRoundTrip(unittest.TestCase):
     def test_every_value_of_every_fact(self):
         from check import round as rnd
