@@ -11,7 +11,9 @@ module-state write; R10 no bench budget or estimate written as a number; R11 (E5
 only one of skill.ABANDON_WAYS, cover only for a soft or fight skill;
 R12 (K9, over check/) a checker function that prices (its name says a price, a cost, an estimate, seconds or ticks)
 calls production for it, never a model of its own; R13 a bonobo function check/ calls declares its return type
-(a tuple's element count included)."""
+(a tuple's element count included); R14 every price says where it comes from (knowledge.PRICE_SOURCE,
+a play.toml tag): game, measured, prior or policy — and pricing code (cost.py) holds no number of its own.
+`--priors` lists what is still a prior: E4's to do."""
 import ast
 import os
 import re
@@ -721,13 +723,104 @@ def r13(trees):
     return sorted(out)
 
 
+# -- R14 a price says where it comes from ----------------------------------------------------------------------------
+PRICE_TABLES = ("knowledge.PRIOR_TICKS", "knowledge.SURFACE_Y", "data.MEASURED_BAND", "knowledge.GROW_S", "knowledge.NIGHT_S",
+                "knowledge.MIN_FIND_P", "knowledge.FIND_AT", "data.WALK_BLOCKS_PER_TICK", "data.ROUTE_FACTOR",
+                "data.HARDNESS", "data.TOOL_SPEED", "data.BREAK_DIVISOR", "data.PASSIVE_WEIGHT", "data.SEARCH_LEGS",
+                "data.SEARCH_LOOK_R", "game.EAT_TICKS", "game.PLAYER_SPRINT")
+PRICE_TOML = {"play.toml": ("time", "water", "plan", "engage", "mobs")}
+LABELS = ("game", "measured", "prior", "policy")
+PRICED = ("cost.py",)
+TOML_TAG = re.compile(r"#\s*\[(\w+)")
+
+
+def _top(tree, name):
+    """The value a module-level assignment binds `name` to, or None."""
+    for n in tree.body:
+        targets = n.targets if isinstance(n, ast.Assign) else [n.target] if isinstance(n, ast.AnnAssign) else []
+        if any(isinstance(t, ast.Name) and t.id == name for t in targets) and n.value is not None:
+            return n.value
+    return None
+
+
+def _toml_keys(src, sections):
+    """[(line number, section, key, its tag or None)] of the keys under `sections`."""
+    out, sec = [], None
+    for i, line in enumerate(src.split("\n"), 1):
+        head = re.match(r"^\[([\w.]+)\]", line)
+        if head:
+            sec = head.group(1)
+            continue
+        key = re.match(r'^("?[\w:.]+"?)\s*=', line)
+        if key and sec in sections:
+            tag = TOML_TAG.search(line[line.index("#"):]) if "#" in line else None
+            out.append((i, sec, key.group(1).strip('"'), tag.group(1) if tag else None))
+    return out
+
+
+def price_tags(trees):
+    """{"module.NAME": its tag(s)} (knowledge.PRICE_SOURCE) and {(toml, section, key): tag}."""
+    tags, toml = {}, {}
+    for path, (tree, src) in trees.items():
+        if tree is not None and _top(tree, "PRICE_SOURCE") is not None:
+            tags = ast.literal_eval(_top(tree, "PRICE_SOURCE"))
+        elif tree is None and os.path.basename(path) in PRICE_TOML:
+            for _i, sec, key, tag in _toml_keys(src, PRICE_TOML[os.path.basename(path)]):
+                toml[(os.path.basename(path), sec, key)] = tag
+    return tags, toml
+
+
+def r14(trees):
+    """[(path:line, what)]: a price with no source tag, or a number written in pricing code."""
+    out = []
+    tags, _toml = price_tags(trees)
+    for name in PRICE_TABLES:
+        mod, var = name.split(".")
+        found = [(p, t) for p, (t, _s) in trees.items() if t is not None and os.path.basename(p) == mod + ".py"]
+        value = _top(found[0][1], var) if found else None
+        if value is None:
+            continue
+        tag = tags.get(name)
+        if isinstance(value, ast.Dict):
+            keys = [ast.literal_eval(k) for k in value.keys if k is not None]
+            out += [(f"{found[0][0]}:{value.lineno}", f"{var}[{k!r}] untagged") for k in keys
+                    if tag not in LABELS and (not isinstance(tag, dict) or tag.get(k) not in LABELS)]
+        elif tag not in LABELS:
+            out.append((f"{found[0][0]}:{value.lineno}", f"{var} untagged"))
+    for path, (tree, src) in trees.items():
+        base = os.path.basename(path)
+        if tree is None and base in PRICE_TOML:
+            out += [(f"{path}:{i}", f"[{sec}] {key} untagged") for i, sec, key, tag in _toml_keys(src, PRICE_TOML[base])
+                    if tag not in LABELS]
+        elif tree is not None and base in PRICED:
+            for n in ast.walk(tree):
+                parts = [n.left, n.right] if isinstance(n, ast.BinOp) else [n.body, n.orelse] if isinstance(n, ast.IfExp) \
+                    else [n.value] if isinstance(n, ast.Return) else []
+                out += [(f"{path}:{c.lineno}", f"the number {c.value} in pricing code") for c in parts
+                        if isinstance(c, ast.Constant) and isinstance(c.value, (int, float))
+                        and not isinstance(c.value, bool) and abs(c.value) >= 10]
+    return sorted(out)
+
+
+def priors():
+    """[name] of every price still a prior."""
+    trees = parse(sources())
+    for name in PRICE_TOML:
+        with open(os.path.join(ROOT, name)) as fh:
+            trees[name] = (None, fh.read())
+    tags, toml = price_tags(trees)
+    out = [f"{n}[{k}]" for n, t in tags.items() if isinstance(t, dict) for k, v in t.items() if v == "prior"]
+    out += [n for n, t in tags.items() if t == "prior"]
+    return out + [f"{f}[{s}] {k}" for (f, s, k), t in toml.items() if t == "prior"]
+
+
 RULES = {"R1": r1, "R2": r2, "R3": r3, "R4": r4, "R5": r5, "R6": r6, "R7": r7, "R8": r8, "R9": r9, "R10": r10,
-         "R11": r11, "R12": r12, "R13": r13}
+         "R11": r11, "R12": r12, "R13": r13, "R14": r14}
 ENTRY = "mc.py"         # production beside bonobo/: its uses keep code alive (R6)
 
 
 def parse(srcs):
-    return {p: (ast.parse(s), s) for p, s in srcs.items()}
+    return {p: (ast.parse(s) if p.endswith(".py") else None, s) for p, s in srcs.items()}
 
 
 def hits():
@@ -738,8 +831,13 @@ def hits():
     checker = parse(sources(CHECK))
     both = {**{os.path.join("bonobo", k): v for k, v in trees.items()},
             **{os.path.join("check", k): v for k, v in checker.items()}}
+    priced = dict(trees)
+    for name in PRICE_TOML:
+        with open(os.path.join(ROOT, name)) as fh:
+            priced[name] = (None, fh.read())
     return {k: (fn(trees, production) if fn is r6 else fn(checker) if fn is r12 else fn(both) if fn is r13
-                else fn(trees)) for k, fn in RULES.items()}
+                else fn(priced) if fn is r14 else fn(trees))
+            for k, fn in RULES.items()}
 
 
 def run_row(rule, srcs):
@@ -760,6 +858,16 @@ ROWS = [
     ("R13", {"bonobo/m.py": "def f(x):\n return x", "check/c.py": "def g():\n pass"}, False),     # not called
     ("R13", {"bonobo/m.py": "def f(x) -> tuple[Any, int]:\n return x, 1", "check/c.py": "from bonobo.m import f\nf(1)"},
      True),                                                                          # must fail: Any hides the shape
+    ("R14", {"knowledge.py": "PRIOR_TICKS = {'a': 1, 'b': 2}\nPRICE_SOURCE = {'knowledge.PRIOR_TICKS': {'a': 'prior'}}"},
+     True),                                                                         # must fail: 'b' says no source
+    ("R14", {"knowledge.py": "PRIOR_TICKS = {'a': 1}\nPRICE_SOURCE = {'knowledge.PRIOR_TICKS': {'a': 'guess'}}"},
+     True),                                                                         # must fail: no such source
+    ("R14", {"knowledge.py": "PRIOR_TICKS = {'a': 1, 'b': 2}\nPRICE_SOURCE = {'knowledge.PRIOR_TICKS': 'game'}"}, False),
+    ("R14", {"play.toml": "[plan]\nseek_prior_s = 300.0   # seconds to find one"}, True),   # must fail: untagged
+    ("R14", {"play.toml": "[plan]\nseek_prior_s = 300.0   # [prior] seconds to find one"}, False),
+    ("R14", {"cost.py": "def f(d):\n return 200 + d"}, True),                     # must fail: a price written inline
+    ("R14", {"cost.py": "def f(d):\n return g(d, 32)"}, False),                    # a radius, not a price
+
     ("R12", {"c.py": "def exact_s(x):\n from bonobo.planner import plan_candidates\n return plan_candidates(x)[0][1]"},
      False),
     ("R12", {"c.py": "def walk_s(d):\n return d / 4.3"}, True),                    # must fail: a model of its own
@@ -860,6 +968,9 @@ def grew(found, baseline):
 
 
 def main():
+    if "--priors" in sys.argv:
+        print("\n".join(priors()))
+        return 0
     found = hits()
     for rule, rows in found.items():
         print(f"{rule}: {len(rows)}")

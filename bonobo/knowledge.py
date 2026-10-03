@@ -782,14 +782,32 @@ def sheltered(sky_light, enclosed, in_site=lambda: False):
 PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 60,
                "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
                "withdraw": 40, "look": 40, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
-               # withdraw: open the chest, shift-click out (game; not measured yet — E4 on the bench)
                "farm": 1200, "trade": 600,         # farm: without the growth (GROW_S)
                "reach": 200, "breed": 400, "eat": EAT_TICKS,
                "shelter:dig_in": 500, "shelter:pod": 800, "shelter:hut": 2400,
-               "room:tidy": 300, "room:deposit": 1200}
+               "room:tidy": 300, "room:deposit": 1200,
+               "surface": 200, "surface_per_block": 30,     # out from under rock: a base and per block below SURFACE_Y
+               "unknown_walk": 6000, "unknown_water": 1200}  # nothing known nearby: a search's walk; water's
+SURFACE_Y = 64
 GROW_S = {"crop": 900, "animal": 1200}     # seconds (jobs.DURATION)
 NIGHT_S = 420.0               # a night, when the clock is not read
 MIN_FIND_P = 0.02
+# where each price comes from (static R14): game (the game's own data), measured (fitted from runs), prior (a guess,
+# E4's to do), policy (a choice, not a measurable price)
+PRICE_SOURCE = {
+    "knowledge.PRIOR_TICKS": {
+        "craft": "prior", "smelt_each": "game", "smelt_setup": "prior", "mine_each": "prior", "gather_each": "prior",
+        "hunt_each": "prior", "fill": "prior", "goto": "policy", "build": "prior", "sleep": "prior", "skill": "prior",
+        "take": "prior", "withdraw": "prior", "look": "prior", "cast": "prior", "farm": "prior", "trade": "prior",
+        "reach": "prior", "breed": "prior", "eat": "game", "shelter:dig_in": "prior", "shelter:pod": "prior",
+        "shelter:hut": "prior", "room:tidy": "prior", "room:deposit": "prior", "surface": "prior",
+        "surface_per_block": "prior", "unknown_walk": "prior", "unknown_water": "prior"},
+    "knowledge.SURFACE_Y": "game", "data.MEASURED_BAND": "policy", "knowledge.GROW_S": {"crop": "prior", "animal": "game"}, "knowledge.NIGHT_S": "game",
+    "knowledge.MIN_FIND_P": "policy", "knowledge.FIND_AT": "game",
+    "data.WALK_BLOCKS_PER_TICK": "prior", "data.ROUTE_FACTOR": "prior", "data.HARDNESS": "game",
+    "data.TOOL_SPEED": "game", "data.BREAK_DIVISOR": "game", "data.PASSIVE_WEIGHT": "game", "data.SEARCH_LEGS": "prior",
+    "data.SEARCH_LOOK_R": "prior", "game.EAT_TICKS": "game", "game.PLAYER_SPRINT": "game",
+}
 
 
 def dawn_s(state):
