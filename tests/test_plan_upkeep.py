@@ -679,9 +679,9 @@ class Repairs(unittest.TestCase):
                 self.assertEqual((held, why.split(":")[0]), (None, "unplannable"))
 
     def test_done_is_read_off_the_world(self):
-        from types import SimpleNamespace
         here, there = snapshot(), snapshot(state(x=40.5, z=0.5))
-        walked = SimpleNamespace(data={"roads": {OVER: [{"a": [0, 64, 0], "b": [40, 64, 0], "s": 9.0, "used": 0}]}})
+        walked = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
+        walked.data.setdefault("roads", {})[OVER] = [{"a": [0, 64, 0], "b": [40, 64, 0], "s": 9.0, "used": 0}]
         road = goals.make("road", a=[0, 64, 0], b=[40, 64, 0])
         # (situation, goal, snapshot, memory) → done? None: the goal's own step, accepted by its contract, ends it
         rows = [("a road walked, the body at its end", road, there, walked, True),

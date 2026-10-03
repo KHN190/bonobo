@@ -1,5 +1,6 @@
 """Needs: what must be PLANNED to be had — a bed or the night's parts before dark, a tool that broke under a held plan, a water bucket before a fall, blocks where the path is blocked, the night's ore underground. Each is PROPOSED (`need` → `needs_now`), never queued: the brain plans it with the queue in the round's one plan (planner.plan_round, by seconds). The fixed maintenance reflexes (eat, land, the night's shelter, the bag…) are reflexes.py. Also the tool-repair skill and the one choice of how to get through a night (`overnight`). Pure `repair_pair`, `dusk_s`, `due_now`, `overnight` are offline-tested."""
 
+import copy
 import json
 import math
 import time
@@ -75,7 +76,7 @@ def night_options(inv, cost, facts=None, bed_too=True):
     a shelter waited in. Its own steps (the shelter row runs them) are priced, never planned."""
     out = [("bed", [] if inv.count("bed") > 0 else [("bed", 1)], 0.0, 0.0, [])] if bed_too else []
     for key in ("overnight bed", "overnight"):
-        sources, why = decompose.offered_sources(key, 1, inv, cost, facts)
+        sources, why = decompose.offered_sources(key, cost, facts)
         if not sources:
             log(f"upkeep: no {key} way ({'; '.join(why)})")
         for src, needs, own in sources:
@@ -95,10 +96,11 @@ def overnight(inv, cost, facts=None, bed_too=True):
     options = night_options(inv, cost, facts, bed_too)
     if not options:
         return None, math.inf, []
-    chosen = {}
+    chosen, dusk = {}, copy.copy(cost)
+    dusk.facts = lambda: {**cost.facts(), "night": False}      # the preparation runs before dark (the dusk lead)
     try:
-        _first, steps, seconds = plan_round(inv, [Target("night", [], 0, tuple(o[:3] for o in options))], cost,
-                                            chosen=chosen)
+        night = Target("night", [], 0, options=tuple(o[:3] for o in options))
+        _first, steps, seconds = plan_round(inv, [night], dusk, chosen=chosen)
     except Unplannable as e:
         log(f"upkeep: no way through the night ({e})")
         return None, math.inf, []
@@ -266,8 +268,7 @@ class Needs:
         facts = self._facts[1] if self._facts is not None and self._facts[0] is snap else None
         cost = self.cost(snap)
         free = [secs + decompose.day_extra_s(extra, facts) for key in ("overnight bed", "overnight")
-                for _n, secs, _st, extra in decompose.priced_ways(key, 1, list, snap.inv, cost, facts=facts,
-                                                                  free_only=True)[0]]
+                for _n, secs, _st, extra in decompose.free_ways(key, cost, facts)]
         return min(free) if free else None
 
     def bed_tonight(self, snap):
