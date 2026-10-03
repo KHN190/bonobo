@@ -16,8 +16,46 @@ from .data import (DAY_END, DAY_TICKS, is_night, DOOR_SUFFIX, GROUPS, HAZARD, NI
 if TYPE_CHECKING:
     from .shapes import Cell, EntityReading, Equipment, InventoryReading, Slot, StateReading
 
+class Versioned(dict):
+    """A dict whose `version` grows on every write: what is read off it is kept until it is written."""
+
+    version = 0
+
+    def _wrote(self):
+        self.version += 1
+
+    def __setitem__(self, k, v):
+        super().__setitem__(k, v)
+        self._wrote()
+
+    def __delitem__(self, k):
+        super().__delitem__(k)
+        self._wrote()
+
+    def clear(self):
+        super().clear()
+        self._wrote()
+
+    def update(self, *a, **kw):
+        super().update(*a, **kw)
+        self._wrote()
+
+    def pop(self, *a):
+        self._wrote()
+        return super().pop(*a)
+
+    def popitem(self):
+        self._wrote()
+        return super().popitem()
+
+    def setdefault(self, k, default=None):
+        if k not in self:
+            self._wrote()
+        return super().setdefault(k, default)
+
+
 # the round's route answers ({key: (found, seconds)}), kept here so the cost model prices a route without importing movement
-ROUTES = {}
+ROUTES = Versioned()
 
 
 def route_key(cell, range_, nodes):
