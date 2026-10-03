@@ -185,11 +185,13 @@ def pick_seed(priced):
     return best[0] if best else None
 
 def _cheapest_seed(ctx, hits, start, open_set):
-    """The vein to go for: every candidate, by the way plan_way prices for it (walked to when its cell is open, else
-    dug) — asked in the order of the least each could take, none asked once that least cannot beat the best
-    priced (a buried vein near beat an exposed one a little farther)."""
+    """The vein to go for: every candidate, by the seconds of the door's own way to it (nav.reach: walked to when its
+    cell is open, else dug, its treads from the bag held now, P2) — asked in the order of the least each could take,
+    none asked once that least cannot beat the best priced (a buried vein near beat an exposed one a little
+    farther); one reach refuses (no tread to place: accept5's y70 stone) is never picked; all refused: NotAvailable
+    at the nearest's cause (E5: the round looks further, not walks into a known failure)."""
     cells = sorted(((h["x"], h["y"], h["z"]) for h in hits), key=lambda c: nav.least_way_s(c, start))
-    inv, priced = Inventory(), []
+    inv, priced, refused = Inventory(), [], []
     for c in cells:
         lb = nav.least_way_s(c, start)
         if any(p[1] is not None and p[1] <= lb for p in priced):
@@ -198,8 +200,15 @@ def _cheapest_seed(ctx, hits, start, open_set):
         seconds = None
         if region is not None:
             walks = nav.plan_walks([c] if c in open_set else [], WORK_REACH)
-            seconds = nav.plan_way(region, start, c, "mine", inv, ctx.policy.protected, walks)[2]
+            got = nav.reach(region, start, c, "mine", inv, ctx.policy.protected, walks=walks)
+            if got.stand is None:
+                refused.append((c, got.why))
+                continue
+            seconds = got.seconds
         priced.append((c, seconds, lb))
+    if not priced and refused:
+        c, why = refused[0]
+        raise NotAvailable(f"no way to any {len(refused)} vein(s) from {start}: {why}", pos=getattr(why, "cell", None) or c)
     return pick_seed(priced) or cells[0]
 
 def _go_way(ctx, region, start, target, faces, drop):

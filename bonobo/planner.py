@@ -1596,9 +1596,11 @@ def price_as_run(steps, tools, cost, held=None) -> list:
     have: list[tuple] = list(tools or ())
     hungry = cost.hunger_rate()      # F1l: hunger's seconds until a step makes food
     table = False                    # a table placed and carried on already: its break is paid once
+    spent, way_spent = 0, getattr(cost, "way_spent", None)     # way blocks the steps before spent (D6)
     for i, step in enumerate(steps):
         tiers = held[i] if held is not None else _tiers(have)
-        est = cost.estimate(step, tiers, at, table_back=not table)
+        est = cost.estimate(step, tiers, at, table_back=not table, **({"spent": spent} if spent else {}))
+        spent += way_spent(step, at, spent) if way_spent is not None else 0
         table = table or cost.table_back(step)
         if hungry:
             est += round(est * hungry)
