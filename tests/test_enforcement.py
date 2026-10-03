@@ -17,6 +17,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api, nav  # noqa: E402
+from tests.world import round_ctx  # noqa: E402
 
 PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo")
 
@@ -315,7 +316,7 @@ class OneDecisionPoint(unittest.TestCase):
                     mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "running", "goal": "have",
                                                                     "args": {"needs": [["log", 2]]}}]), \
                     mock.patch.object(tasks, "expire", return_value=False):
-                act = b.decide(snap, None)
+                act = b.decide(snap, round_ctx(b, snap))
                 self.assertEqual(asked, want_asked)
                 taker = None if act is None else {"L0": "hazard", "upkeep": "upkeep", "task": "queue",
                                                   "idle": "prepare"}[act.layer]

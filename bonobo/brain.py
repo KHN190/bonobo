@@ -833,12 +833,10 @@ class Brain:
                 else held["steps"][-1] in act.steps
         return act
 
-    def valid(self, step, snap, ctx=None):
+    def valid(self, step, snap, ctx):
         """The cheap per-round check: inputs held, and the skill's own preconditions pass."""
         if not (runnable(step, snap.inv) and self.ready(step_key(step))):
             return False
-        if ctx is None:
-            return True
         found = dispatch.runner_for(ctx, step)
         if found is not None and not fight_line_holds(found[0].contract, (ctx,) + tuple(found[1]), snap.state, snap.inv)[0]:
             return False

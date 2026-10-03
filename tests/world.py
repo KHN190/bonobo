@@ -153,6 +153,12 @@ def memory():
     return Memory(os.path.join(tempfile.mkdtemp(prefix="mem-"), "notes.json"))
 
 
+def round_ctx(b, snap):
+    """The skills' context a round decides with (brain.Brain.context over the round's snapshot): its can_run reads the
+    snapshot's bag, never the world (K10)."""
+    return b.context(snap.dimension)
+
+
 def handles(step):
     """The test oracle: a registered skill carries out `step` (a named skill, or a provider of one of its effects)."""
     from bonobo import skill
