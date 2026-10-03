@@ -316,9 +316,10 @@ class AlikeWaysAreOne(unittest.TestCase):
 
 class AFasterToolPaysOrIsNotTried(unittest.TestCase):
     def test_the_tiers_offered_by_the_work(self):
-        def tiers(n):
+        def tiers(n, later=0):
             search = planner.Search(NullCost())
             node = planner.Node(planner.from_bag(bag(inventory(("wooden_pickaxe", 1))), facts=NullCost().facts()), [], [])
+            node.stack = [("need", "minecraft:cobblestone", later, 0, False)] if later else []
             step = planner.Step("mine", "minecraft:cobblestone", n, {"blocks": ["stone"], "tier": 0, "breaks": n})
             got = search.speed(node, step, 0)
             return {t[2] for c in (got or [node]) for t in c.stack if t[0] == "tool" and t[1] == "pickaxe"}
@@ -326,6 +327,7 @@ class AFasterToolPaysOrIsNotTried(unittest.TestCase):
         # above what it saves there)
         self.assertNotIn(2, tiers(10))
         self.assertIn(2, tiers(500))        # must fail: never tried where 500 blocks pay for it
+        self.assertIn(2, tiers(10, 500))    # must fail: cut for these 10 blocks though 500 more are still to mine
 
 
 class AlikeOrdersAreOne(unittest.TestCase):
