@@ -238,23 +238,17 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
         from bonobo import tasks as tasklist
         live_before = {t["id"] for t in tasklist.load() if t["state"] in tasklist.LIVE}     # D1: what this round finishes
         from bonobo.planner import SPENT
-<<<<<<< HEAD
         began, cut = SPENT["steps"], SPENT["budget"]
-        act = b.decide(snap, bctx)
-        ctx["search_steps"] = SPENT["steps"] - began            # the round's own thinking, the checker's readings apart
-        ctx["budget_spent"] = SPENT["budget"] > cut              # a search stopped by its budget this round
-        planned = plan_ctx(b, act, snap, mem, world)          # read now: the checker's later readings move what is seen
-=======
-        began = SPENT["steps"]
         with contextlib.ExitStack() as stack:
             if hazard:
                 stack.enter_context(mock.patch.object(planner.Search, "advance", _hazard_at(ctx, world)))
             act = b.decide(snap, bctx)
         ctx["search_steps"] = SPENT["steps"] - began            # the round's own thinking, the checker's readings apart
+        ctx["budget_spent"] = SPENT["budget"] > cut              # a search stopped by its budget this round
         ctx["fact_ages"] = fact_ages()
         if ctx.get("hazard_at") is not None:
             ctx["search_steps_after"] = SPENT["steps"] - ctx["hazard_at"]
->>>>>>> f1-a46
+        planned = plan_ctx(b, act, snap, mem, world)          # read now: the checker's later readings move what is seen
         if offered:
             option, worth = offered[-1]
             d = Decision(layer="tactic", kind="threat", token=option.kind, target=getattr(option, "target", None),

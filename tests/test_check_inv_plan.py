@@ -123,10 +123,7 @@ class Plan(unittest.TestCase):
         ("R1", {"candidates": [("stone", 3.0, [STONE_PICK]), ("iron", 3.0, [IRON_PICK])]}, False),
         ("D6", {"candidates": [("stick", 3.0, [step("craft", "minecraft:stick", 60)])], "price_run": run}, False),
         # must fail: the chosen plan's seconds are not its steps' prices
-<<<<<<< HEAD
         ("D6", {"candidates": [("stick", 1.0, [step("craft", "minecraft:stick", 60)])], "price_run": run}, True),
-=======
-        ("D6", {"candidates": [("stick", 1.0, [step("craft", "minecraft:stick", 60)])], "price": price}, True),
         # M1: (pos, item, the step's chance, production's chance now, the world's block)
         ("M1", {"withdraws": [((3, 64, 3), "minecraft:oak_log", 0.8, 0.8, "chest")]}, False),
         ("M1", {"withdraws": [((3, 64, 3), "minecraft:oak_log", 1.0, 0.8, "chest")]}, True),   # must fail: undiscounted
@@ -136,7 +133,6 @@ class Plan(unittest.TestCase):
         ("S8", {"plan": [step("smelt", "minecraft:cooked_beef", 100), step("mine", "minecraft:cobblestone", 400)],
                 "food_left_s": 10.0}, False),
         ("S8", {"plan": [step("mine", "minecraft:cobblestone", 400)], "food_left_s": None}, False),   # food carried
->>>>>>> f1-a46
         ("R4", {"way": (3.0, 5.0, 3.0)}, False),
         ("R4", {"way": (6.0, 5.0, 3.0)}, True),          # must fail: a dug way taken over a cheaper walk
         ("R4", {"way": (None, 5.0, None)}, True),        # must fail: a way exists, none taken
