@@ -38,6 +38,21 @@ class Generated(unittest.TestCase):
         d = rnd.Decision("plan", "wait", "day", None, (), None, "wait for day", ())
         self.assertIn("S4", {inv for inv, _ in oracle.violations(f, d, f, {})} - (known() - {"S4"}))
 
+    def test_a_wait_in_the_open_needs_no_way_and_a_reason(self):
+        """S4 with D1: waiting in the open at night is lawful only when the round's night table offers no way and the
+        wait says why."""
+        f = of(night=True, place="open")
+        why = "night in the open, no way through it here: none can be had"
+        # (situation, reason, the round's night way) → S4 flagged
+        rows = [("no way here, the reason written", why, None, False),
+                ("must fail: a way to take (dig in), waited instead", why, "dig in", True),
+                ("must fail: no reason written", None, None, True)]
+        for name, reason, way, flagged in rows:
+            with self.subTest(name):
+                d = rnd.Decision("plan", "idle", None, None, (), reason, "wait for day", ())
+                ctx = {"night_way": way, "night_steps": []}
+                self.assertEqual(oracle.S4(f, d, f, ctx) is not None, flagged)
+
 
 class Fuzz(unittest.TestCase):
     def test_a_short_search(self):

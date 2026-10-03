@@ -666,7 +666,7 @@ class Brain:
             act = self.prepare(snap, ctx)
             return [arbiter.Intent("plan", act, kind="idle", key=act.name, surface=True)] if act else []
         out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: survive.wait_for_day(ctx)),
-                              kind="wait for day", key="wait for day")]
+                              self.wait_why(snap), kind="wait for day", key="wait for day")]
         if "pickaxe" in self.needs.working:
             act = self.night_stock(snap, ctx)
             if act is not None:
@@ -724,6 +724,18 @@ class Brain:
                     and not open_air:
                 return craft_act("plan", f"round: {step_key(st)}", ctx, steps, st, snap.night, inv=snap.inv)
         return None
+
+    def wait_why(self, snap):
+        """Why the night is waited out (D1): under cover, the night's work is done; in the open, the night's ways
+        that are cooling here, or that none can be had."""
+        if not self.under_sky(snap):
+            return "night under cover: waiting for day"
+        cooled = decompose.cooled_ways(self.ready)
+        way, _secs, _steps = self.needs.overnight(snap)
+        if way is not None and not cooled:
+            return f"night in the open: {way} is the night's way"
+        return "night in the open, no way through it here: " + (
+            f"{', '.join(cooled)} failed here lately" if cooled else "none can be had")
 
     def under_sky(self, snap):
         """The body stands under the open sky (reflexes.sheltered: not under rock, walled in, nor inside a site): by
