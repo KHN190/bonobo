@@ -4,10 +4,9 @@ import math
 import time
 
 from . import api, beliefs, knowledge as _know, lifecycle, tape
-from . import retry
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
-from .data import BAN_MAX_S, REACH, bare
+from .data import BAN_MAX_S, REACH, bare, place_signature, state_signature
 from .game import EYE_HEIGHT, SUFFOCATION
 from .world import BAG_SLOTS, Inventory, Region, Versioned, cell_add, inventory_now, box, screen_slot
 from typing import TYPE_CHECKING, NamedTuple, cast
@@ -79,10 +78,10 @@ class Ban(NamedTuple):
 
 
 def ban_state(feet, kinds):
-    """Pure: what a ban holds while (E5, retry.state_signature): the place, the kinds carried; None when unread."""
+    """Pure: what a ban holds while (E5, data.state_signature): the place, the kinds carried; None when unread."""
     if feet is None or kinds is None:
         return None
-    return retry.state_signature(retry.place_signature(feet, False), kinds, True)
+    return state_signature(place_signature(feet, False), kinds, True)
 
 
 def banned(blacklist, pos, now=None, state=None):

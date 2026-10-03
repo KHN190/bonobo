@@ -569,3 +569,14 @@ HUNT_YIELD = {"minecraft:beef": 2, "minecraft:porkchop": 2, "minecraft:mutton": 
 # items per block broken (average)
 MINE_YIELD = {"minecraft:flint": 0.12, "minecraft:redstone": 4.5, "minecraft:lapis_lazuli": 6,
               "minecraft:wheat_seeds": 0.125}
+
+
+def place_signature(feet, night, bin_size=16):
+    """Where we are, coarsely, and whether it is dark. What a cause is cooled against."""
+    return tuple(int(c) // bin_size for c in feet), bool(night)
+
+
+def state_signature(place, bag_kinds, target_present):
+    """Pure: what a failure is tied to: the place, the kinds carried, whether its target is still there. A cooling
+    lifts once the state differs (E5): the clock is only its cap."""
+    return place, frozenset(bag_kinds), bool(target_present)
