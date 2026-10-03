@@ -1110,6 +1110,28 @@ class HeldPlans(unittest.TestCase):
             self.assertEqual((first, second), ((4, 64, 0), (9, 64, 0)))   # must fail: the first tree again
             self.assertTrue(q.b.ready("step:gather:log"))
 
+    def test_a_failed_step_cools_only_itself(self):
+        """A task's step failed (counted under the task and the step): the round's gate drops only that step, the
+        task's next step is offered at once."""
+        # (situation, the keys the failure was counted under) → (kind, token) of the step the round runs
+        rows = [("must fail: the take failed, the task's tree still offered", ("task t1", "step:take:log"),
+                 ("gather", "log")),
+                ("must fail: the tree step failed, its search offered", ("task t1", "step:gather:log"),
+                 ("seek", "log"))]
+        for name, keys, want in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q, \
+                    mock.patch.object(q.b.reflexes, "proposals", return_value=[]), \
+                    mock.patch.object(q.b.needs, "propose"), \
+                    mock.patch.object(brainmod.hazard, "rescue_due", return_value=None), \
+                    mock.patch.object(api.STATE, "mode", "normal"):
+                q.task(goals.have(("log", 4)))
+                snap = snapshot(state(), inventory())
+                q.b.round_snap = snap
+                for key in keys:
+                    q.b.failed(key, NotAvailable("nothing to take here"))
+                act = q.b.decide(snap, round_ctx(q.b, snap))
+                self.assertEqual(None if act is None else (act.step.kind, bare(act.step.token)), want)
+
     def test_a_cooling_lifts_once_the_target_is_back_or_the_bag_changed(self):
         """E5 wired: a step cooled at its target while the target is gone is ready once it is back (or the bag
         changed), before its clock runs out."""

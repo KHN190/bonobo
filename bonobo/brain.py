@@ -469,7 +469,8 @@ class Brain:
                 pass
         else:
             log("!! crash in " + name + "\n" + trace)
-            self.retry.hold(name, 300, time.time())
+            for key in (name, *also):
+                self.retry.hold(key, 300, time.time())
         return outcome
 
     # -- one round
@@ -733,7 +734,8 @@ class Brain:
             if act is None and not queued:
                 act, kind = self.round_act(held["steps"], snap, ctx, cost), "round"
             if act is not None:
-                picked = arbiter.Intent("plan", act, kind=kind, key=act.name,
+                # gated by its step's key: a failed step cools that step, never its whole task
+                picked = arbiter.Intent("plan", act, kind=kind, key=step_key(act.step),
                                         surface=act_on_surface(act) or (closed and self.under_sky(snap)))
                 if arbiter.viable(picked, {"surface_closed": closed}):
                     return [picked]
