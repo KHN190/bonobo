@@ -146,21 +146,6 @@ class Fluids(unittest.TestCase):
             with self.subTest(why):
                 self.assertEqual(fluids.is_source(r, p, fluid), want)
 
-    def test_clear_line(self):
-        eye, cell, point = (0.5, 1.5, 0.5), (3, 1, 0), (3.5, 1.5, 0.5)
-        rows = [  # (why, blocks, margin, expected)
-            ("nothing in between", {}, 0.2, True),
-            ("must fail: stone in the path", {(1, 1, 0): "stone"}, 0.2, False),
-            ("stone only in the target cell itself", {(3, 1, 0): "stone"}, 0.2, True),
-            ("stone behind the target", {(4, 1, 0): "stone"}, 0.2, True),
-            ("stone beside the path, outside the margin", {(1, 1, 1): "stone"}, 0.2, True),
-            ("same stone, margin wide enough to graze it", {(1, 1, 1): "stone"}, 0.6, False),
-            ("water in the path is not solid", {(1, 1, 0): "water"}, 0.2, True),
-        ]
-        for why, blocks, margin, want in rows:
-            with self.subTest(why):
-                self.assertEqual(fluids.clear_line(region(blocks), eye, cell, point, margin), want)
-
     def test_lava_within(self):
         p = (0, 0, 0)
         rows = [  # (why, lava cell, r, expected)

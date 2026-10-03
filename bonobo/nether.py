@@ -10,7 +10,7 @@ from .api import McError, NotAvailable, log
 from .skill import skill
 from .world import Inventory, entities, find, container
 from .knowledge import food_count
-from .data import NETHER, OVERWORLD, THE_END
+from .data import ENTITY_REACH, NETHER, OVERWORLD, THE_END
 
 
 def portal_cell(origin, turns):
@@ -178,7 +178,7 @@ def _not_gold():
     """Everything carried except the gold being traded away: what a barter brings back raises this."""
     return sum(int(s.get("count", 1)) for s in Inventory().slots if s["id"] != "minecraft:gold_ingot")
 
-PIGLIN_REACH = 3        # a piglin this near is tossed to where it stands
+PIGLIN_REACH = ENTITY_REACH     # a piglin this near is tossed to where it stands (the door's mob reach)
 
 @skill(gives=[_k.GIVES_BARTER, "state:bartered"], remaining=_k.bartered, needs={"minecraft:gold_ingot": 1, "minecraft:golden_helmet": 1}, pre=[skillcore.in_dimension(NETHER)], start=lambda c: _not_gold(), verify=lambda c: _not_gold() > c.base, budget=600, stall=180,
        provides={"barter": lambda ctx, s: (int(s.detail.get("ingots", 8)),)}, when=lambda s, f: [("dimension", NETHER)])
