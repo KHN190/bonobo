@@ -554,7 +554,7 @@ class CostModel(unittest.TestCase):
                 ("no route asked: the walk", ("iron_ore", (10, 64, 0)), ["iron_ore"], {}, {}, round(WT(10) / 20 + 2.0, 1)),
                 ("must fail: a route the game found none for: not there (cost._Gone), the prior",
                  ("iron_ore", (10, 64, 0)), ["iron_ore"], {key((10, 64, 0)): (False, None)}, {}, prior),
-                ("must fail: the only spot is banned", ("iron_ore", (10, 64, 0)), ["iron_ore"], {}, {(10, 64, 0): time.time() + 600},
+                ("must fail: the only spot is banned", ("iron_ore", (10, 64, 0)), ["iron_ore"], {}, {(10, 64, 0): skillcore.Ban(time.time() + 600)},
                  prior),
                 ("logs are found where a tree was noted", ("tree", (20, 64, 0)), ["oak_log"], {}, {},
                  round(WT(20) / 20 + 2.0, 1)),
@@ -597,7 +597,7 @@ class CostModel(unittest.TestCase):
                 ("must fail: asked, no route found", True, {key: (False, None)}, {}, pol, None),
                 ("not asked this round", True, {}, {}, pol, None),
                 ("nothing remembered to route to", False, {key: (True, 7.3)}, {}, pol, None),
-                ("the spot is banned", True, {key: (True, 7.3)}, {(10, 64, 0): time.time() + 600}, pol, None),
+                ("the spot is banned", True, {key: (True, 7.3)}, {(10, 64, 0): skillcore.Ban(time.time() + 600)}, pol, None),
                 ("another policy: the same walk's price", True, {key: (True, 7.3)}, {},
                  nav.Policy(allow_dig=not pol.allow_dig), 7.3)]
         for name, noted, routes, banned, policy, want in rows:
@@ -2201,8 +2201,9 @@ class OneArbiter(unittest.TestCase):
 
 # ------------------------------------------------------------------------------------------------ a night's way
 def night_prices(inv, c, facts, bed_too):
-    """{way: seconds} of each night way priced alone, as needs.overnight prices them (before dark): the G3 reference a
-    choice is held to, not a route named in a row (K12)."""
+    """{way: (its whole price, its seconds before dark)} of each night way priced alone, as needs.overnight prices them:
+    the G3 reference a choice is held to, not a route named in a row (K12). The whole price counts the night a
+    shelter is waited out in (its `extra`): a bed ends it."""
     import copy
     from bonobo.planner import Target, plan_round
     dusk = copy.copy(c)
@@ -2213,7 +2214,7 @@ def night_prices(inv, c, facts, bed_too):
             _first, _steps, secs = plan_round(inv, [Target("night", [], 0, options=((way, need, extra),))], dusk)
         except Unplannable:
             continue
-        out[way] = secs + day_s
+        out[way] = (secs + extra, secs + day_s)
     return out
 
 
@@ -2221,8 +2222,8 @@ def assert_cheapest_night(t, inv, c, facts, bed_too=True):
     """G3: the way taken is the one whose whole plan is cheapest; its seconds are that plan's."""
     got, secs, _steps = needs.overnight(inv, c, facts, bed_too=bed_too)
     prices = night_prices(inv, c, facts, bed_too)
-    t.assertEqual(got, min(prices, key=prices.get))
-    t.assertAlmostEqual(secs, prices[got], places=1)
+    t.assertEqual(got, min(prices, key=lambda w: prices[w][0]))
+    t.assertAlmostEqual(secs, prices[got][1], places=1)
     return got
 
 

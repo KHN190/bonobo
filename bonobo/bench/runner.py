@@ -737,7 +737,7 @@ def _report(folder, data):
         except McError as e:
             data["report_error"] = str(e)
         _write_report(folder, data)
-    th = threading.Thread(target=write, daemon=True, name=f"report {name}")
+    th = threading.Thread(target=write, daemon=True, name=f"report {folder}")
     th.start()
     REPORTING[:] = [th]
     return folder
