@@ -490,8 +490,9 @@ class ARoundReadsEachThingOnce(unittest.TestCase):
             self.assertLessEqual(built.call_count, 2)          # one per kind of skip, not one per ask
 
 
-class TheSoilIsWhatPerceptionRead(unittest.TestCase):
-    """Cost's dig price reads the soil column in the blocks perception read, never the world again; unread: the prior."""
+class TheSoilIsWhatTheRoundRead(unittest.TestCase):
+    """Cost's dig price reads the soil column in the round's ground (snap.region), never the world again; unread: the
+    prior."""
 
     def test_rows(self):
         from unittest import mock
@@ -501,17 +502,14 @@ class TheSoilIsWhatPerceptionRead(unittest.TestCase):
             blocks = {(0, y, 0): "stone" for y in range(50, 64 - dirt)}
             blocks.update({(0, y, 0): "dirt" for y in range(64 - dirt, 64)})
             return FakeRegion((-1, 50, -1), (1, 70, 1), blocks)
-        # (situation, perception's region) → the soil the cost model prices
+        # (situation, the round's ground) → the soil the cost model prices
         rows = [("nothing read: the prior", None, data.SOIL_DEPTH),
                 ("must fail: two dirt over rock, read", column(2), 2),
                 ("seven dirt over rock, read", column(7), 7)]
         for name, region, want in rows:
-            with self.subTest(name), mock.patch.object(perception.STATE, "region", region):
-                ground = perception.price_inputs(state(timeOfDay=0))["ground"]
-                self.assertEqual(Cost(Snap(), mem(), region=ground).soil(), want)
-            with self.subTest(f"{name}: priced from its input alone"), \
-                    mock.patch.object(perception.STATE, "region", column(5)):
-                self.assertEqual(Cost(Snap(), mem(), region=region).soil(), want)
+            with self.subTest(name), mock.patch.object(perception.STATE, "region", column(5)):
+                snap = world.Snapshot.from_readings(state(), inventory(), region=region)
+                self.assertEqual(Cost(snap, mem()).soil(), want)      # must fail: perception's blocks read instead
 
 
 class TheNightIsAFact(unittest.TestCase):

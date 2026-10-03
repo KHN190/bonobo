@@ -17,10 +17,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api, hazard, retry  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402
 from bonobo import perception as P  # noqa: E402
-from bonobo.world import Snapshot  # noqa: E402
 
 DRY = {"health": 20, "food": 20, "control": {}, "inWater": False, "air": 300, "onGround": True,
-       "dimension": "minecraft:overworld", "blockX": 0, "blockY": 64, "blockZ": 0, "timeOfDay": 2000}
+       "dimension": "minecraft:overworld", "x": 0.5, "y": 64.0, "z": 0.5, "blockX": 0, "blockY": 64, "blockZ": 0,
+       "timeOfDay": 2000}
 # The water beliefs the table below is computed from (play.toml [water]): 4.0 s to surface, 1.5 s to notice, a floor
 # at 120 ticks. Slack = air / 20 − 5.5; inside a task: slack ≤ 0 or air < 120; between tasks: slack ≤ 2.0.
 WATER = {"surface_s": 4.0, "reaction_s": 1.5, "air_floor": 120}          # fixture: the water beliefs the clock uses
@@ -81,12 +81,12 @@ class TheBrainAsksTheSameTable(unittest.TestCase):
             if due is None:
                 continue
             with self.subTest(name):
-                b = brainmod.Brain.__new__(brainmod.Brain)
+                b = brain_fixture()
                 b.unplannable = {}
                 b.abandoned = None
                 b.retry, b.place, b.blacklist = retry.Retry(), None, {}
                 b.reflexes = __import__("bonobo.reflexes", fromlist=["Maintain"]).Maintain(b)
-                snap = Snapshot.from_readings(st, {"slots": [], "equipment": {}})
+                snap = snapshot(st, inventory())        # the round's read: its ground too
                 act = b.decide(snap, ctx=round_ctx(b, snap))
                 self.assertEqual((act.layer, act.name), ("L0", f"rescue {due}"))
 
@@ -94,7 +94,7 @@ class TheBrainAsksTheSameTable(unittest.TestCase):
 # ------------------------------------------------------------------------------------------ where to go to breathe
 from bonobo import survive  # noqa: E402
 from bonobo.terrain import air_route  # noqa: E402
-from tests.world import FakeRegion, round_ctx  # noqa: E402
+from tests.world import FakeRegion, brain_fixture, inventory, round_ctx, snapshot  # noqa: E402
 
 LO, HI = (-8, 56, -8), (8, 72, 8)
 PILLAR_WHY = "no land within reach: a block placed underfoot at the surface"

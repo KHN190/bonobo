@@ -649,7 +649,7 @@ class Brain:
             if self.ready(name):
                 entries.append((name, goal, len(live) + len(entries)))
         if entries:
-            cost = Cost(snap, self.mem, self.blacklist, region=perception.ground_read(snap), stop=api.stop_asked,
+            cost = Cost(snap, self.mem, self.blacklist, stop=api.stop_asked,
                         policy=self.policy_cache)
             old = self.held.get(queued[0]["id"]) if queued else getattr(self, "needs_plan", None)
             held = self.round_for(entries, snap, cost, old)
@@ -760,7 +760,7 @@ class Brain:
         name = f"{kind}: {goals.describe(goal)}"
         if not self.ready(name):
             return None
-        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED, region=perception.ground_read(snap),
+        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED,
                     stop=api.stop_asked)
         try:
             steps = decompose.decompose(snap.inv, goal, cost, pending=self.mem.pending_outputs(snap.dimension))
@@ -912,7 +912,7 @@ class Brain:
         except McError as e:
             api.swallowed("brain.price_table", e)
             return {}
-        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, region=perception.ground_read(snap),
+        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache,
                            stop=api.stop_asked), snap.inv)
 
     # -- bookkeeping

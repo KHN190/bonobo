@@ -98,11 +98,11 @@ def route_refused(where):
 class Cost:
     """The cost model a planner is given."""
 
-    def __init__(self, snap, mem, blacklist=None, policy=None, reserved=(), region=None, stop=None):
-        """Over the snapshot (its look included) and memory only: no world read. `reserved`: item ids the held plans
-        consume (bag.RESERVED); `region`: perception's blocks (None: unread); `stop`: () → True ends a search."""
+    def __init__(self, snap, mem, blacklist=None, policy=None, reserved=(), stop=None):
+        """Over the snapshot (its look and its ground included) and memory only: no world read. `reserved`: item ids
+        the held plans consume (bag.RESERVED); `stop`: () → True ends a search."""
 
-        self.snap, self.mem, self.region, self.stop = snap, mem, region, stop
+        self.snap, self.mem, self.region, self.stop = snap, mem, snap.region, stop
         self.reserved = frozenset(reserved)
         self.blacklist = blacklist if blacklist is not None else Versioned()
         self.cache = {}

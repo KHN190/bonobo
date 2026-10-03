@@ -153,6 +153,20 @@ def memory():
     return Memory(os.path.join(tempfile.mkdtemp(prefix="mem-"), "notes.json"))
 
 
+def brain_fixture(**fields):
+    """The one test Brain: built without its start-up (no world read), every field a round reads set — memory in a
+    dir of its own, a movement policy, no bans, no held plans, its needs and reflexes; `fields` set over them."""
+    from bonobo import brain, nav, needs, reflexes, retry
+    b = brain.Brain.__new__(brain.Brain)
+    b.unplannable, b.abandoned, b.held, b.blacklist = {}, None, {}, {}
+    b.policy_cache, b.mem, b.retry, b.place = nav.Policy(), memory(), retry.Retry(), None
+    b.last_failure, b.committed, b.last_hold_log, b.task_writes, b.just_finished = None, None, 0, None, False
+    b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
+    for k, v in fields.items():
+        setattr(b, k, v)
+    return b
+
+
 def round_ctx(b, snap):
     """The skills' context a round decides with (brain.Brain.context over the round's snapshot): its can_run reads the
     snapshot's bag, never the world (K10)."""

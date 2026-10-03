@@ -638,11 +638,12 @@ def _bonobo_calls(tree):
     names, mods = {}, {}
     for n in ast.walk(tree):
         if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] == "bonobo":
+            module = n.module or ""
             for a in n.names:
-                if n.module == "bonobo":
+                if module == "bonobo":
                     mods[a.asname or a.name] = a.name
                 else:
-                    names[a.asname or a.name] = (n.module.split(".", 1)[1], a.name)
+                    names[a.asname or a.name] = (module.split(".", 1)[1], a.name)
         elif isinstance(n, ast.Import):
             for a in n.names:
                 if a.name.startswith("bonobo.") and a.asname:
@@ -762,8 +763,9 @@ def price_tags(trees):
     """{"module.NAME": its tag(s)} (knowledge.PRICE_SOURCE) and {(toml, section, key): tag}."""
     tags, toml = {}, {}
     for path, (tree, src) in trees.items():
-        if tree is not None and _top(tree, "PRICE_SOURCE") is not None:
-            tags = ast.literal_eval(_top(tree, "PRICE_SOURCE"))
+        value = _top(tree, "PRICE_SOURCE") if tree is not None else None
+        if value is not None:
+            tags = ast.literal_eval(value)
         elif tree is None and os.path.basename(path) in PRICE_TOML:
             for _i, sec, key, tag in _toml_keys(src, PRICE_TOML[os.path.basename(path)]):
                 toml[(os.path.basename(path), sec, key)] = tag

@@ -225,10 +225,6 @@ def in_site_here(s):
 KIT_PRICED = ("sword", "shield", "food_items", "bed", "torches", "bag_free")
 
 
-def ground_read(snap) -> world.Region | None:
-    """The blocks perception read (price_inputs' ground): the region a Cost prices digging over."""
-    return price_inputs(snap.state)["ground"]
-
 def price_inputs(state) -> dict:
     """threat.price_state from the perceived state; walls unread (a reached body is not walled in)."""
     t, dim = int(state["timeOfDay"]), state.get("dimension", "minecraft:overworld")

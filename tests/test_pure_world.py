@@ -14,6 +14,7 @@ from bonobo import skill as skillkit  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
 from bonobo.world import Region  # noqa: E402
 from tests.world import FakeRegion, flat  # noqa: E402
+from tests.world import brain_fixture  # noqa: E402
 
 
 def region(blocks, props=None, lo=(-8, -8, -8), hi=(8, 8, 8)):
@@ -1003,7 +1004,7 @@ class Frontier(unittest.TestCase):
                         next(explore._search(ctx, [self.S], lambda: [], 48, 3))
                     next(explore._search(ctx, [self.S], lambda: [], 48, 3))      # the resume
                 self.assertEqual(went[1], went[0])                                # the same next section
-                b = brainmod.Brain.__new__(brainmod.Brain)
+                b = brain_fixture()
                 b.unplannable = {}
                 b.abandoned = None
                 b.retry, b.place, b.mem = retry.Retry(), ("here", False), m
@@ -1260,7 +1261,7 @@ class IdleWait(unittest.TestCase):
                 ("must fail: queued at once still waits one slice, never the whole 5 s", False, [True], 1)]
         for name, finished, queued, want in rows:
             posted = []
-            b = brainmod.Brain.__new__(brainmod.Brain)
+            b = brain_fixture()
             b.unplannable = {}
             b.abandoned = None
             b.just_finished = finished

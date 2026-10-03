@@ -37,8 +37,8 @@ from bonobo.knowledge import members  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import Unplannable  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
-from tests.world import (PLANNER_DIMS, bag, cost, full_bag, handles, inventory, memory, round_ctx, slot,  # noqa: E402
-                         snapshot, state, worlds)
+from tests.world import (PLANNER_DIMS, bag, brain_fixture, cost, full_bag, handles, inventory, memory, round_ctx,  # noqa: E402
+                         slot, snapshot, state, worlds)
 
 OVER, NETHER = "minecraft:overworld", "minecraft:the_nether"
 
@@ -348,7 +348,7 @@ class CanStart(unittest.TestCase):
                     lambda ctx, *a: None)
                 step = planner.Step("craft", "minecraft:stick", 4, {"inputs": {"planks": 2}})
                 bag_ = inventory(("oak_planks", 2)) if inv is not None else inventory()
-                b = brainmod.Brain.__new__(brainmod.Brain)
+                b = brain_fixture()
                 b.unplannable = {}
                 b.abandoned = None
                 b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
@@ -371,7 +371,7 @@ class CanStart(unittest.TestCase):
                 ("it succeeded: offered", None, "idle: have sword tier 1", True)]
         for name, err, _goal, want in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
-                b = brainmod.Brain.__new__(brainmod.Brain)
+                b = brain_fixture()
                 b.unplannable = {}
                 b.abandoned = None
                 b.retry, b.place, b.mem = retry.Retry(), ("here", False), Memory(tmp + "/notes.json")
@@ -724,7 +724,7 @@ class Held:
     def __init__(self, goal, plan=None, seen=TREES):
         lifecycle.reset_all(caches=False)          # a fresh life: no reservation of an earlier row
         self.seen, self.after_inv, self.act, self.first = seen, inventory(), None, None
-        b = self.b = brainmod.Brain.__new__(brainmod.Brain)
+        b = self.b = brain_fixture()
         b.unplannable = {}
         b.abandoned = None
         b.policy_cache = nav.Policy()
@@ -769,7 +769,7 @@ class Queue_:
 
     def __init__(self, tmp, seen=TREES):
         self.tmp, self.seen, self.after_inv = tmp, seen, inventory()
-        b = self.b = brainmod.Brain.__new__(brainmod.Brain)
+        b = self.b = brain_fixture()
         b.unplannable = {}
         b.abandoned = None
         b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
@@ -982,7 +982,7 @@ class HeldPlans(unittest.TestCase):
         self.assertTrue(planner.plan_needs(bag(inventory()), [("log", 4)], planner.NullCost()))   # no stop: never stops
         q = Held(goals.have(("log", 4)))
         b = q.b
-        reads = [state(inWater=True)]             # the body read again once planning stops
+        reads = [snapshot(state(inWater=True), inventory())]       # the round read again once planning stops
 
         def planning(snap, ctx):
             api.request_interrupt("drowning")
@@ -991,8 +991,7 @@ class HeldPlans(unittest.TestCase):
             with mock.patch.object(b, "plan_proposals", side_effect=planning), \
                     mock.patch.object(b.reflexes, "proposals", return_value=[]), \
                     mock.patch.object(b.needs, "propose"), mock.patch.object(b.needs, "needs_now", [], create=True), \
-                    mock.patch.object(api, "get", side_effect=lambda path, *a, **k: reads.pop(0)), \
-                    mock.patch.object(brainmod, "Inventory", lambda: bag(inventory())), \
+                    mock.patch.object(brainmod.Snapshot, "read", lambda kinds, ground: reads.pop(0)), \
                     mock.patch.object(api, "mode", return_value="normal"), \
                     mock.patch.object(brainmod.arbiter.BODY, "holder", return_value=None), \
                     mock.patch.object(hazard, "rescue_due",
@@ -1251,7 +1250,7 @@ UPKEEP = [
 def run_upkeep(row, tmp):
     """The real upkeep table, one round, on a real unstarted Brain. Returns (row name, [queued needs])."""
     lifecycle.reset_all(caches=False)
-    b = brainmod.Brain.__new__(brainmod.Brain)
+    b = brain_fixture()
     b.unplannable = {}
     b.abandoned = None
     b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
@@ -1690,7 +1689,7 @@ class Ledger(unittest.TestCase):
 
 
 def new_brain(tmp):
-    b = brainmod.Brain.__new__(brainmod.Brain)
+    b = brain_fixture()
     b.unplannable = {}
     b.abandoned = None
     b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
@@ -2073,7 +2072,7 @@ class OneArbiter(unittest.TestCase):
     def test_night_in_the_open_does_not_chop(self):
         """Night, exposed, empty bag, a tree in the queue: the round waits for day, it does not walk to the tree."""
         from unittest import mock
-        b = brainmod.Brain.__new__(brainmod.Brain)
+        b = brain_fixture()
         b.unplannable = {}
         b.abandoned = None
         b.retry, b.place = retry.Retry(), PLACE
@@ -2153,7 +2152,7 @@ class Overnight(unittest.TestCase):
                 ("a pickaxe: dig in at once", [("cooked_beef", 8), ("stone_pickaxe", 1)])]
         for name, carried in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
-                b = brainmod.Brain.__new__(brainmod.Brain)
+                b = brain_fixture()
                 b.unplannable = {}
                 b.abandoned = None
                 b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
@@ -2180,7 +2179,7 @@ class Overnight(unittest.TestCase):
         """Every night way cooled here: the shelter row still takes the cheapest (S1 over D5), never the open night."""
         from bonobo import decompose
         with tempfile.TemporaryDirectory() as tmp:
-            b = brainmod.Brain.__new__(brainmod.Brain)
+            b = brain_fixture()
             b.unplannable = {}
             b.abandoned = None
             b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
@@ -2456,7 +2455,7 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
         from bonobo import arbiter
         for name, holder, mode, due, busy, want, asked_want in self.ROWS:
             asked = []
-            b = brainmod.Brain.__new__(brainmod.Brain)
+            b = brain_fixture()
             b.unplannable = {}
             b.abandoned = None
             b.retry, b.place = retry.Retry(), PLACE
@@ -2489,7 +2488,7 @@ class GivenUpThenANextStep(unittest.TestCase):
                 ("given up, replan declared: the round plans again", "replan", ["prepare", "prepare"]),
                 ("must fail: nothing given up: no cover", None, ["prepare", "prepare"])]
         for name, then, want in rows:
-            b = brainmod.Brain.__new__(brainmod.Brain)
+            b = brain_fixture()
             b.unplannable, b.abandoned = {}, None
             b.retry, b.place, b.held = retry.Retry(), PLACE, {}
             b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
@@ -2916,7 +2915,7 @@ class NeedsAndReflexesAreIndependent(unittest.TestCase):
 
     def run_order(self, row, needs_first):
         with tempfile.TemporaryDirectory() as tmp:
-            b = brainmod.Brain.__new__(brainmod.Brain)
+            b = brain_fixture()
             b.unplannable = {}
             b.abandoned = None
             b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
@@ -2956,7 +2955,7 @@ class TheNightIsPricedOncePerBag(unittest.TestCase):
                 ("back and forth: each new bag once", [WELL_FED, [("stick", 1)], WELL_FED], 2)]
         for name, bags, want in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
-                b = brainmod.Brain.__new__(brainmod.Brain)
+                b = brain_fixture()
                 b.unplannable = {}
                 b.abandoned = None
                 b.mem = Memory(os.path.join(tmp, "notes.json"))

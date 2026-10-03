@@ -18,6 +18,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api, nav  # noqa: E402
 from tests.world import round_ctx  # noqa: E402
+from tests.world import brain_fixture  # noqa: E402
 
 PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo")
 
@@ -283,10 +284,8 @@ class OneDecisionPoint(unittest.TestCase):
     def over(self, rows, planning):
         from unittest import mock
         from bonobo import api, brain, retry, tasks
-        from bonobo.world import Snapshot
-        snap = Snapshot.from_readings({"dimension": "minecraft:overworld", "timeOfDay": 2000, "blockX": 0,
-                                       "blockY": 64, "blockZ": 0},
-                                      {"slots": [], "equipment": {}})
+        from tests.world import inventory, snapshot, state
+        snap = snapshot(state(timeOfDay=2000), inventory())          # the round's read: its ground too
         for busy, want_asked, want_taker in rows:
             asked = []
 
@@ -295,7 +294,7 @@ class OneDecisionPoint(unittest.TestCase):
                     asked.append(name)
                     return result if name in busy else None
                 return ask
-            b = brain.Brain.__new__(brain.Brain)
+            b = brain_fixture()
             b.unplannable = {}
             b.abandoned = None
             b.retry, b.place, b.planning = retry.Retry(), None, planning

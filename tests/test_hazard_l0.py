@@ -23,6 +23,7 @@ from bonobo import brain as brainmod  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from tests.world import state  # noqa: E402
 from bonobo.data import CRITICAL_HP  # noqa: E402
+from tests.world import brain_fixture  # noqa: E402
 
 W = hazard._W
 DROWN_AIR = int((W["surface_s"] + W["reaction_s"]) * hazard.TICKS_PER_S)     # the clock's own zero, in ticks
@@ -170,7 +171,7 @@ class Rescue(unittest.TestCase):
     def test_rounds(self):
         for name, changes, buried, does, rounds in RESCUES:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
-                b = brainmod.Brain.__new__(brainmod.Brain)
+                b = brain_fixture()
                 b.unplannable = {}
                 b.abandoned = None
                 b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()

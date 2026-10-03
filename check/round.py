@@ -328,11 +328,10 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
 def plan_ctx(b, act, snap, mem, world, spent):
     """The plan's invariants' readings (check/inv/plan.py), taken while the stub is the transport: the task's held plan,
     the production cost model's price of a step on this state, the bag and memory, and the ways to a mine target."""
-    from bonobo.perception import ground_read
     from bonobo.cost import Cost
     task = getattr(act, "task", None)
     held = b.held.get(task["id"]) if task is not None else None
-    cost = Cost(snap, mem, b.blacklist, policy=b.policy_cache, region=ground_read(snap))
+    cost = Cost(snap, mem, b.blacklist, policy=b.policy_cache)
     for st in held["steps"] if held is not None else ():
         cost.estimate(st)          # warm the cache while the stub answers
     from bonobo.game import TICKS_PER_S

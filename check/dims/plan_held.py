@@ -52,11 +52,10 @@ def held_for(value, goal, snap, mem, key=None, blacklist=None):
     production cost model over the round's readings (its look, perception's ground) as the planner prices its own
     (Step.est: D6 reads it)."""
     from bonobo.cost import Cost
-    from bonobo.perception import ground_read
     from bonobo.planner import from_bag, price_as_run
     from typing import cast
     out = _held_for(value, goal, snap, mem, key)
-    cost = Cost(snap, mem, blacklist, region=ground_read(snap))
+    cost = Cost(snap, mem, blacklist)
     steps = cast(list, out["steps"])
     for st, est in zip(steps, price_as_run(steps, list(from_bag(snap.inv, reserved=cost.reserved).tools), cost)):
         st.est = est                 # as the plan runs: the tools its earlier steps make (planner.plan_round)

@@ -245,7 +245,7 @@ class TheExactSearchIsCapped(unittest.TestCase):
             with self.subTest(name):
                 ctx = {"plan": [mined], "exact_s": ref_s, "budget_spent": spent}
                 got = P5(f, d, f, ctx)
-                self.assertEqual(isinstance(got, str), violated, got)
+                self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), violated, got)
 
 
 class HeldPlanPricedAsTheRound(unittest.TestCase):
