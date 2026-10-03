@@ -25,7 +25,6 @@ from .beliefs import CONFIG, TICKS_PER_S, fights_back
 from .knowledge import (ALL_FOOD, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 
-MAX_DEPTH = 14
 MAX_NODES = 400       # A* expansions past the incumbent (~0.1 s measured): spent, the best complete plan found
                       # stands — the incumbent at least (D1: an answer, never a hang)
 MERGEABLE = {"mine", "gather", "hunt", "smelt"}
@@ -33,6 +32,7 @@ STATIONS = frozenset(("minecraft:crafting_table", "minecraft:furnace"))     # wh
 FOOD_IDS = frozenset(mid(f) for f in ALL_FOOD)          # what the eat reflex eats
 MAKES_FOOD = ("smelt", "craft", "take", "withdraw", "trade", "await")   # steps that put food in the bag
 MERGEABLE_CRAFTS = {"planks", "minecraft:stick", "minecraft:torch", "minecraft:ladder"}
+DIVE_WIDTH = 2        # options a nested choice of the incumbent dive weighs (the least-bound first)
 REORDER_MAX = 10      # steps with a known place an order is searched over exactly (2^n states)
 
 
@@ -236,6 +236,17 @@ def fuel_need(fuel, n):
 BEST_TOOLS = {k: max(TOOL_MATERIAL_FOR_TIER) for k in TOOL_KINDS}
 
 
+def contract_facts():
+    """Every fact a registered contract makes true (its `state:` gives, its `sets`): a link each a chain may take."""
+    from . import skill
+    out = set()
+    for c in skill.REGISTRY.values():
+        out |= {g for g in (getattr(c, "gives", None) or ()) if isinstance(g, str) and g.startswith("state:")}
+        for v in (getattr(c, "sets", None) or {}).values():
+            out |= set(v) if isinstance(v, dict) else set()
+    return out
+
+
 class Bound:
     """What a token costs at the least, from the tables: never above what a plan pays, whatever the bag holds.
     `scratch[token]` — ticks one unit's whole derivation takes from nothing (each way's own work with the best tools,
@@ -327,6 +338,27 @@ class Bound:
             if not changed:
                 break
         self.stations = stations
+        self.depth = self.longest_chain() + len(contract_facts()) + 2
+
+    def longest_chain(self):
+        """The longest requirement chain the tables hold, a link per input, tool and station, a cycle cut where it
+        closes: how deep a plan can need to go, from the recipes and the contracts (no typed limit)."""
+        memo: dict = {}
+
+        def deep(token, path):
+            if token in path:
+                return 0
+            if token in memo:
+                return memo[token]
+            path = path | {token}
+            got = 0
+            for step, station, ins in self.shapes.get(token, self.shapes.get(mid(token), ())):
+                links = list(ins) + ([station] if station else []) + [tool_item(k, t) for k, t in
+                                                                       self.tools_of(self.tools, token).items()]
+                got = max([got] + [1 + deep(t, path) for t in links])
+            memo[token] = got
+            return got
+        return max((deep(t, frozenset()) for t in self.shapes), default=0)
 
     @staticmethod
     def per_run(cost, step):
@@ -410,14 +442,17 @@ class Node:
     tie: tuple = ()             # the choices made, as (tier, use order, option): the lesser plan of two equal ones
     horizon: int = 0            # the stack's length once the choice that made this node is settled
     asked: str = ""             # what that choice was about (said when none of its options can be had)
+    open: tuple = ()            # what is being made right now, outermost first: asked again inside, a cycle
 
     def child(self):
-        return Node(self.inv.clone(), list(self.stack), list(self.steps), self.g, self.tie, self.horizon, self.asked)
+        return Node(self.inv.clone(), list(self.stack), list(self.steps), self.g, self.tie, self.horizon, self.asked,
+                    self.open)
 
 
 class Search:
     def __init__(self, cost, kinds=None):
         self.hungry = getattr(cost, "hunger_rate", lambda: 0.0)()
+        self.greedy = False             # settle: every option weighed, or (the dive) the first that can be had
         self.cost = cost
         self.kinds = kinds              # step kinds allowed (None: all)
         self.lb = bound(cost)
@@ -518,6 +553,10 @@ class Search:
             elif op == "taken":
                 node.inv.facts[task[1]] = node.inv.facts.get(task[1], 0) + task[2]
                 got = None
+            elif op == "close":
+                at = len(node.open) - 1 - node.open[::-1].index(task[1])
+                node.open = node.open[:at] + node.open[at + 1:]
+                got = None
             elif op == "addtool":
                 node.inv.tools.append([task[1], task[2], task[3]])
                 got = None
@@ -568,7 +607,7 @@ class Search:
         node.inv.awaited.clear()
 
     def need(self, node, token, n, depth, fresh):
-        if depth > MAX_DEPTH:
+        if depth > self.lb.depth:
             return self.dead(f"requirement chain too deep at {token}")
         have = 0 if fresh else node.inv.available(token)
         if not fresh:
@@ -577,10 +616,19 @@ class Search:
         missing = n - have if not fresh else n
         if missing <= 0:
             return None
+        if token in node.open:
+            return self.dead(f"{token} asked again while it is being made (a cycle)")
         opts = self.ways(node, token, missing, depth)
         if not opts:
             return self.dead(self.no_way(token))
-        return self.options(node, opts, asked=token)
+        node.open = node.open + (token,)
+        return self.options(node, [(tie, self.closing(token, tasks)) for tie, tasks in opts], asked=token)
+
+    @staticmethod
+    def closing(key, tasks):
+        """An option's tasks with `key` closed once its own making is done — before a re-ask of the rest of it."""
+        at = next((i for i, t in enumerate(tasks) if t[0] in ("need", "fact") and t[1] == key), len(tasks))
+        return tasks[:at] + [("close", key)] + tasks[at:]
 
     def no_way(self, token):
         known = [src for made, src in self.sources(token) if way(src, made, 1) is None]
@@ -763,15 +811,19 @@ class Search:
         """A fact the next step needs (its contract's `when`): true already, else each step whose run makes it so."""
         if node.inv.facts.get(fact) == value:
             return None
-        if depth > MAX_DEPTH:
+        if depth > self.lb.depth:
             return self.dead(f"requirement chain too deep at {fact}")
+        key = f"{fact}={value}"
+        if key in node.open:
+            return self.dead(f"{fact} {value} asked again while it is being made (a cycle)")
         opts = []
         for i, (kind, token) in enumerate(self.fact_steps(fact, value)):
             step = Step(kind, token, 1, {})
             opts.append(((0, 0, i), [("prep", step, depth), ("emit", step, depth, len(node.steps))]))
         if not opts:
             return self.dead(f"no way to make {fact} {value}")
-        return self.options(node, opts, asked=f"{fact} {value}")
+        node.open = node.open + (key,)
+        return self.options(node, [(tie, self.closing(key, tasks)) for tie, tasks in opts], asked=f"{fact} {value}")
 
     def speed(self, node, step, depth):
         """The tools a step's work pays for: none, or one more of each kind it uses at any tier above the held one —
@@ -832,7 +884,9 @@ class Search:
             if got is None:
                 return node
             best, before = None, len(self.reasons)
-            for c in sorted(got, key=lambda c: (c.g + self.h(c, c.horizon), c.tie)):
+            for k, c in enumerate(sorted(got, key=lambda c: (c.g + self.h(c, c.horizon), c.tie))):
+                if best is not None and self.greedy and floor > 0 and k >= DIVE_WIDTH:
+                    break                     # inside a choice, the few least-bound ways; A* weighs the rest
                 done = self.settled(c, cap if best is None else min(cap, best.g))
                 if done is not None and (best is None or (done.g, done.tie) < (best.g, best.tie)):
                     best = done
@@ -845,7 +899,7 @@ class Search:
 
     def settled(self, node, cap):
         """`settle` of a node down to its horizon, memoised on what is asked and the bag it is asked from."""
-        key = (signature(node.stack[node.horizon:]), node.inv.signature())
+        key = (signature(node.stack[node.horizon:]), node.inv.signature(), node.open)
         hit = self.memo.get(key)
         if hit is not None:
             ok, inv, steps, g, tie = hit
@@ -866,7 +920,11 @@ class Search:
 
     def dive(self, root):
         """The incumbent: every choice settled by its options' own cost (`settle`)."""
-        node = self.settle(root)
+        self.greedy = True
+        try:
+            node = self.settle(root)
+        finally:
+            self.greedy = False
         return None if node is None else self.finish(node)
 
     def plan(self, root, needs):

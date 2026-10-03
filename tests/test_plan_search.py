@@ -54,6 +54,21 @@ class TheContractsStation(unittest.TestCase):
                                  ("sleep", made))
 
 
+class TheChainIsTheGraphs(unittest.TestCase):
+    """How deep a plan may go is the recipe and contract graph's own longest chain (Bound.depth, no typed limit); a
+    cycle is cut where it closes (the same thing asked while it is being made), never by depth."""
+
+    def test_the_dragon_from_nothing(self):
+        from bonobo import skill
+        # must fail: a typed depth of 14 left the empty bag's dragon unplannable (G1)
+        steps = plan_needs(bag(inventory()), [("fact", "state:dragon_dead", True)], NullCost())
+        self.assertTrue(skill.sets_of_step(steps[-1]).get("state:dragon_dead"), [str(s) for s in steps])
+
+    def test_the_depth_is_the_graphs(self):
+        b = planner.bound(NullCost())
+        self.assertEqual(b.depth, b.longest_chain() + len(planner.contract_facts()) + 2)
+
+
 class TheBoundNeverOverprices(unittest.TestCase):
     """Bound.least (what is held credited at every level) is at most what the plan the planner finds pays: A* and
     the incumbent's pruning drop nothing cheaper."""
