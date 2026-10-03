@@ -238,15 +238,17 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
         from bonobo import tasks as tasklist
         live_before = {t["id"] for t in tasklist.load() if t["state"] in tasklist.LIVE}     # D1: what this round finishes
         from bonobo.planner import SPENT
-        began = SPENT["steps"]
+        began, cut = SPENT["steps"], SPENT["budget"]
         with contextlib.ExitStack() as stack:
             if hazard:
                 stack.enter_context(mock.patch.object(planner.Search, "advance", _hazard_at(ctx, world)))
             act = b.decide(snap, bctx)
         ctx["search_steps"] = SPENT["steps"] - began            # the round's own thinking, the checker's readings apart
+        ctx["budget_spent"] = SPENT["budget"] > cut              # a search stopped by its budget this round
         ctx["fact_ages"] = fact_ages()
         if ctx.get("hazard_at") is not None:
             ctx["search_steps_after"] = SPENT["steps"] - ctx["hazard_at"]
+        planned = plan_ctx(b, act, snap, mem, world)          # read now: the checker's later readings move what is seen
         if offered:
             option, worth = offered[-1]
             d = Decision(layer="tactic", kind="threat", token=option.kind, target=getattr(option, "target", None),
@@ -288,7 +290,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
             if not b.reflexes.sheltered(snap, enclosed):
                 way, _s, steps = b.needs.overnight(snap, bed_too=False)     # the round's own table, not priced again
                 ctx["night_way"], ctx["night_steps"] = way, [st.key() for st in steps]
-        ctx.update(plan_ctx(b, act, snap, mem, world), switches=weighed, holds=held_log)
+        ctx.update(planned, switches=weighed, holds=held_log)
         chosen = seen.get("chosen")
         if fail_then_again and act is not None and chosen is not None:
             # D5: the step fails here; the arbiter's gate drops an intent whose key is cooling (arbiter.viable) —
@@ -315,17 +317,26 @@ def plan_ctx(b, act, snap, mem, world):
     cost = Cost(snap, mem, b.blacklist, policy=b.policy_cache, region=ground_read(snap))
     for st in held["steps"] if held is not None else ():
         cost.estimate(st)          # warm the cache while the stub answers
+    from bonobo.planner import from_bag, price_as_run
+    tools = list(from_bag(snap.inv, reserved=getattr(cost, "reserved", ())).tools)
     out = {"plan": list(held["steps"]) if held is not None else None, "price": cost.estimate, "inv": snap.inv,
+           "price_run": None,
            "mem": mem, "dimension": snap.dimension, "feet": snap.feet,
            "task_goal": task.get("goal") and {"goal": task["goal"], "args": task.get("args", {})} if task else None,
            "way": None, "plan_hand_made": bool(held is not None and held.get("hand_made")), "bound": None}
     goal = out["task_goal"]
     from bonobo import goals
-    if held is not None and goal and goal["goal"] in goals.ITEM_GOALS:
+    looking = held is not None and bool(held["steps"]) and all(st.kind == "look" for st in held["steps"])
+    if held is not None and goal and goal["goal"] in goals.ITEM_GOALS and not looking:   # a look first is no plan of it
         out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost)
         if not out["plan_hand_made"]:
-            out["exact_s"] = exact_s(snap.inv, goals.needs(goal, snap.inv), cost)
+            out["exact_s"] = exact_s(snap.inv, held.get("want"), goals.needs(goal, snap.inv), cost,
+                                     mem.pending_outputs(snap.dimension))
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
+    # the plan and the chosen candidate priced as they run, now (D6): a later reading would see another world
+    priced = {tuple(map(id, steps)): price_as_run(list(steps), tools, cost)
+              for steps in [out["plan"] or []] + [c[2] for c in (out["candidates"] or [])[:1]]}
+    out["price_run"] = lambda steps: priced.get(tuple(map(id, steps))) or price_as_run(list(steps), tools, cost)
     out["plan_switch"] = getattr(b, "plan_switch", None)
     from bonobo.planner import food_left_s
     out["food_left_s"] = food_left_s(cost)
@@ -342,10 +353,17 @@ def plan_ctx(b, act, snap, mem, world):
     return out
 
 
-def exact_s(inv, needs, cost):
-    """Seconds of the cheapest plan for `needs` with no search budget (the planner's exact mode), None when none."""
-    from bonobo.planner import Unplannable, plan_candidates
+def exact_s(inv, want, needs, cost, pending=None):
+    """Seconds of the cheapest plan with no search budget (the planner's exact mode) for what the round planned:
+    its targets (`want`: brain.round_key's (name, goal)), else the task's needs; None when none."""
+    import json
+    from bonobo import decompose
+    from bonobo.planner import Target, Unplannable, plan_candidates, plan_round
     try:
+        if want:
+            targets = [Target(name, decompose.round_needs(json.loads(goal), inv, cost), rank)
+                       for rank, (name, goal) in enumerate(want)]
+            return plan_round(inv, targets, cost, pending, exact=True)[2]
         return plan_candidates(inv, needs, cost, exact=True)[0][1]
     except Unplannable:
         return None
