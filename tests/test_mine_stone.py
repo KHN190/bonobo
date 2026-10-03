@@ -9,7 +9,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import cost as costmod, gather, world  # noqa: E402
 from bonobo.data import SOIL_DEPTH, STAIR_CELLS  # noqa: E402
-from bonobo.knowledge import FIND_AT, MINE  # noqa: E402
+from bonobo.knowledge import FIND_AT, MINE, PRIOR_TICKS  # noqa: E402
 from bonobo.planner import Step  # noqa: E402
 from tests.world import FakeRegion, bag, inventory, memory, state  # noqa: E402
 
@@ -113,7 +113,8 @@ class Overburden(unittest.TestCase):
         for name, token, y, inv, ban, per in rows:
             with self.subTest(name):
                 dug, ticks = self.priced(token, y, inv, ban)
-                self.assertEqual(ticks, sum(per[n] for n in dug) if per else 0)
+                # each break a mine task: the game's break and the task's own time (knowledge.PRIOR_TICKS break_task)
+                self.assertEqual(ticks, sum(per[n] + PRIOR_TICKS["break_task"] for n in dug) if per else 0)
                 self.assertEqual(bool(dug), per is not None)
 
     def test_the_staircase_brings_the_soil_first(self):

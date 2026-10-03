@@ -773,7 +773,7 @@ class Search:
                 site = self.cost.site(step)
                 own = frozenset([("at", tuple(site), float(self.cost.walk_lb(step)))]) if site is not None else \
                     frozenset([("search", step.key(), float(self.cost.walk_lb(step)))])
-            out.append(own.union(*parts))
+            out.append(own.union(*(p for p in parts if p is not None)))
         return out
 
     def required(self, token, held, heldset, trips, seen=frozenset()):
@@ -798,7 +798,7 @@ class Search:
             parts = [self.required(t, held, heldset, trips, seen | {token}) for t in ins]
             if any(p is None for p in parts):
                 continue                # a way through what cannot be made: not one a plan takes
-            need = own.union(*parts)
+            need = own.union(*(p for p in parts if p is not None))
             out = need if out is None else out & need
             if not out:
                 break

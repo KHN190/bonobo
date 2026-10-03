@@ -427,9 +427,9 @@ ESTIMATES = [
     ("mine 4 breaks, ore 10 away", IRON4, None, {"iron_ore": 10}, PW(IRON4) + WT(10)),
     ("must fail: a walk of 0 under-prices — mine, nothing in sight", IRON4, None, {},
      PW(IRON4) + costmod.UNKNOWN_WALK_TICKS),
-    ("gather 2, a tree 8 away", Step("gather", "log", 2), None, {"oak_log": 8}, 2 * PT["gather_each"] + WT(8)),
+    ("gather 2, a tree 8 away", Step("gather", "log", 2), None, {"oak_log": 8}, PW(Step("gather", "log", 2)) + WT(8)),
     ("gather underground: the climb out is part of it", Step("gather", "log", 2), UNDER, {"oak_log": 8},
-     2 * PT["gather_each"] + WT(8) + 200 + 30 * (64 - 20)),
+     PW(Step("gather", "log", 2)) + WT(8) + PT["surface"] + PT["surface_per_block"] * (64 - 20)),
     ("hunt 2 kills, cows 12 away", Step("hunt", "minecraft:beef", 4, {"types": ["minecraft:cow"], "kills": 2}), None,
      {"cow": 12}, 2 * PT["hunt_each"] + WT(12)),
     ("goto 30 blocks", Step("goto", "pos", 1, {"pos": [30, 64, 0]}), None, {}, WT(30)),
@@ -513,7 +513,7 @@ class CostModel(unittest.TestCase):
                 for _ in range(samples):
                     m.record_duration("chop", 10.0, 1)
                 got = cost(snapshot(), mem=m, oak_log=8).estimate(step)
-                self.assertEqual(got, (2 * 10 * costmod.TICKS_PER_S if measured else 2 * PT["gather_each"]) + WT(8))
+                self.assertEqual(got, (2 * 10 * costmod.TICKS_PER_S if measured else PW(step)) + WT(8))
 
     # (situation, what memory has / /find saw, is a station near?)
     STATIONS = [("a table in sight 4 away", None, {"crafting_table": 4}, True),
