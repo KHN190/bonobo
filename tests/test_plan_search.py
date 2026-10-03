@@ -297,5 +297,65 @@ class TheAlternativesAreReported(unittest.TestCase):
         self.assertIn("minecraft:bedrock", str(caught.exception))
 
 
+class AlikeWaysAreOne(unittest.TestCase):
+    def test_a_members_way_the_group_makes_alike_is_dropped(self):
+        from bonobo.knowledge import sources
+        # (group, the ways kept: (made, kind)) — must fail: twelve planks recipes searched one by one
+        rows = [("planks", [("planks", "craft")]), ("bed", [("bed", "craft"), ("bed", "take")]),
+                ("building", [(m, "mine") for m, _s in sources("building")])]
+        for group, kept in rows:
+            with self.subTest(group):
+                self.assertEqual([(m, s[0]) for m, s in planner.uncovered(group, sources(group))], kept)
+
+    def test_a_member_mined_elsewhere_is_kept(self):
+        group = ("mine", ["coal_ore"], 0)
+        member = ("mine", ["coal_ore", "deepslate_coal_ore"], 0)
+        # must fail: a member whose blocks the group's way does not mine dropped as alike
+        self.assertEqual(len(planner.uncovered("coal", [("coal", group), ("minecraft:coal", member)])), 2)
+
+
+class AFasterToolPaysOrIsNotTried(unittest.TestCase):
+    def test_the_tiers_offered_by_the_work(self):
+        def tiers(n, later=0):
+            search = planner.Search(NullCost())
+            node = planner.Node(planner.from_bag(bag(inventory(("wooden_pickaxe", 1))), facts=NullCost().facts()), [], [])
+            node.stack = [("need", "minecraft:cobblestone", later, 0, False)] if later else []
+            step = planner.Step("mine", "minecraft:cobblestone", n, {"blocks": ["stone"], "tier": 0, "breaks": n})
+            got = search.speed(node, step, 0)
+            return {t[2] for c in (got or [node]) for t in c.stack if t[0] == "tool" and t[1] == "pickaxe"}
+        # must fail: an iron pickaxe tried for 10 blocks (its least, with the stone pickaxe made for it alone, is
+        # above what it saves there)
+        self.assertNotIn(2, tiers(10))
+        self.assertIn(2, tiers(500))        # must fail: never tried where 500 blocks pay for it
+        self.assertIn(2, tiers(10, 500))    # must fail: cut for these 10 blocks though 500 more are still to mine
+
+
+class AlikeOrdersAreOne(unittest.TestCase):
+    def test_only_targets_that_share_are_permuted(self):
+        from bonobo.planner import Target
+        # (targets, orders planned) — must fail: 24 orders of four targets sharing the wood
+        rows = [([Target("iron", [("minecraft:raw_iron", 3)], 0), Target("sand", [("minecraft:sand", 4)], 1)], 1),
+                ([Target("logs", [("log", 8)], 0), Target("torches", [("minecraft:torch", 8)], 1),
+                  Target("bed", [("bed", 1)], 2), Target("door", [("door", 1)], 3)], 24)]
+        for targets, n in rows:
+            with self.subTest(n):
+                self.assertEqual(len(list(planner._orders(targets))), n)
+
+
+class TheBoundKnowsTheTrip(unittest.TestCase):
+    def test_a_gather_made_walks_once(self):
+        from tests.world import cost
+        snap = snapshot()
+        c = cost(snap, oak_log=30)
+        search = planner.Search(c)
+
+        def h(facts):
+            node = planner.Node(planner.from_bag(snap.inv, None, None, c.reserved, {**c.facts(), **facts}), [], [])
+            node.stack = [("need", "log", 4, 0, False)]
+            return search.h(node)
+        # must fail: the walk to the trees counted again where the plan has gathered there (forward merges the repeat)
+        self.assertLess(h({"trip log": True}), h({}))
+
+
 if __name__ == "__main__":
     unittest.main()

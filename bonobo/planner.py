@@ -11,7 +11,7 @@ from . import api, lifecycle
 from .api import McError
 from .data import GROUPS, NIGHT_WORK, OVERWORLD, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_USES, bare, mid
 from .beliefs import CONFIG, TICKS_PER_S, fights_back
-from .knowledge import (ALL_FOOD, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
+from .knowledge import (ALL_FOOD, CONTRACT_FACTS, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 
 DIVE_NODES = 600      # nodes the dive weighs DIVE_WIDTH ways a choice (~0.07 s measured); then the first that can be had
@@ -269,6 +269,28 @@ def way(src, token, n, ripe=0) -> tuple[Step, list, str | None, list] | None:
 FUELS = (("coal", 8), ("planks", 1.5))      # what a furnace burns: items smelted per unit (Minecraft Wiki, Fuel)
 
 
+def uncovered(token, srcs):
+    """Pure: `srcs` less each member's way the group's own way makes alike (kind, count, station, an input of the
+    group's per input): the group's way takes any member, so the member's is the same plan searched again."""
+    own = [w for w in (way(src, made, 1) for made, src in srcs if made == token) if w is not None]
+
+    def alike(g, w):
+        left = list(g[1])
+        for t, c in w[1]:
+            hit = next((x for x in left if x[1] == c and (x[0] == t or mid(t) in members(x[0]))), None)
+            if hit is None:
+                return False
+            left.remove(hit)
+        where = all(set(w[0].detail.get(k) or ()) <= set(g[0].detail.get(k) or ()) for k in ("blocks", "types"))
+        return (g[0].kind == w[0].kind and g[0].count == w[0].count and g[2] == w[2] and not left and where
+                and w[0].detail.get("tier") == g[0].detail.get("tier"))
+
+    def covered(made, src):
+        w = way(src, made, 1) if made != token else None
+        return w is not None and any(alike(g, w) for g in own)
+    return [(made, src) for made, src in srcs if not covered(made, src)]
+
+
 def fuel_need(fuel, n):
     per = dict(FUELS)[fuel]
     return math.ceil(n / per)
@@ -281,13 +303,7 @@ BEST_TOOLS = {k: max(TOOL_MATERIAL_FOR_TIER) for k in TOOL_KINDS}
 
 def contract_facts():
     """Every fact a registered contract makes true (its `state:` gives, its `sets`): a link each a chain may take."""
-    from . import skill
-    out = set()
-    for c in skill.REGISTRY.values():
-        out |= {g for g in (getattr(c, "gives", None) or ()) if isinstance(g, str) and g.startswith("state:")}
-        for v in (getattr(c, "sets", None) or {}).values():
-            out |= set(v) if isinstance(v, dict) else set()
-    return out
+    return set(CONTRACT_FACTS)
 
 
 def least_prices(ways):
@@ -539,6 +555,7 @@ class Search:
         self.stored_c, self.near_c, self.reach_c, self.least_c = (shared.setdefault(k, {}) for k in
                                                                    ("stored", "near", "reach", "least"))
         self.task_keys: dict = {}       # id(task) → (task, its key): signature, once a task
+        self.saves_c: dict = {}         # (kind, tier had, tier) → {token: ticks a unit's making saves at the most}
         self._kept = None
         self.start_tools: list = []
         self.h_memo: dict = {}          # (what is left, the bag) → its bound
@@ -567,7 +584,7 @@ class Search:
     def sources(self, token):
         """knowledge.sources, asked once a plan (the registry does not change within one)."""
         if token not in self._sources:
-            self._sources[token] = sources(token)
+            self._sources[token] = uncovered(token, sources(token))
         return self._sources[token]
 
     # -- what is left: its bound
@@ -607,6 +624,10 @@ class Search:
                 _op, kind, tier, uses, _depth = task
                 if not inv.has_tool(kind, tier, uses):
                     tool = max(tool, fixed(tool_item(kind, tier)))
+        trips = {f[5:] for f, v in inv.facts.items() if v and f.startswith("trip ")}
+
+        def tripped(token):       # a step made already walks once: a repeat of it joins that trip
+            return held(token) or (1 if token in trips or mid(token) in trips else 0)
         station, walk = 0.0, 0.0
         for task in node.stack[floor:]:
             if task[0] != "need" or held(task[1]) >= task[2]:
@@ -614,7 +635,7 @@ class Search:
             for s in self.lb.tools_of(self.lb.stations, task[1]) or ():
                 if held(s) <= 0 and not self.near(s):
                     station = max(station, fixed(s))
-            walk = max(walk, self.walk_to(task[1], held, memo["held"]))
+            walk = max(walk, self.walk_to(task[1], tripped, memo["held"] | trips))
         return units + walk + max(tool, station)     # a tool or station made is work no unit's least counts
 
     def least(self, token, n, inv):
@@ -815,9 +836,14 @@ class Search:
         missing = n - have if not fresh else n
         if missing <= 0:
             return None
+        # the same thing asked again further down: one way chosen for all of it, the rest left in the bag for it
+        extra = 0 if fresh else sum(t[2] for t in node.stack if t[0] == "need" and t[1] == token and not t[4])
         if token in node.open:
             return self.dead(f"{token} asked again while it is being made (a cycle)")
-        opts = self.ways(node, token, missing, depth)
+        opts = self.ways(node, token, missing + extra, depth)
+        if extra:
+            opts = [(tie, [("use", token, missing) if t == ("use", token, missing + extra) else t for t in tasks])
+                    for tie, tasks in opts]
         if not opts:
             return self.dead(self.no_way(token))
         node.open = node.open + (token,)
@@ -975,6 +1001,66 @@ class Search:
             return self.dead(self.no_way(tool_item(kind, tier)))
         return self.options(node, opts)
 
+    def saves_at_most(self, node, kind, have, tier, step):
+        """Ticks a `kind` tool of `tier` (over `have`) saves at the most on all left after `step`: every step on the stack
+        and every need's making through its ways at their dearest in that work (an upper bound); inf when a task
+        is not in the tables."""
+        memo = self.saves_c.setdefault((kind, have, tier), {})
+
+        def own(st):
+            b, k = own_work(st)
+            b = [x for x in b if tool_kind(x) == kind] if kind != "sword" else []
+            k = k if kind == "sword" else []
+            return (work_s(b, k, {kind: have} if have >= 0 else {}, TICKS_PER_S)
+                    - work_s(b, k, {kind: tier}, TICKS_PER_S)) * TICKS_PER_S
+
+        def unit(token, path=()):
+            if token in memo:
+                return memo[token]
+            if token in path:
+                return None             # a cycle: no finite plan takes it
+            best = 0.0
+            for made, src in self.sources(token):
+                got = way(src, made, 1)
+                if got is None:
+                    continue
+                step, inputs, station, _adds = got
+                parts = [unit(t, path + (token,)) for t, _c in inputs] + [unit(station, path + (token,)) if station else 0.0]
+                if any(p is None for p in parts):
+                    continue
+                best = max(best, (own(step) + sum(c * p for (_t, c), p in zip(inputs, parts))) / max(1, step.count)
+                           + (parts[-1] or 0.0))
+            memo[token] = best
+            return best
+
+        total = 0.0
+        for task in node.stack:
+            op = task[0]
+            if op == "need":
+                total += task[2] * (unit(task[1]) or 0.0)
+            elif op == "tool":
+                total += unit(tool_item(task[1], task[2])) or 0.0
+            elif op == "station":
+                total += unit(task[1]) or 0.0
+            elif op == "emit" and task[1] is not step:
+                total += own(task[1])
+            elif op == "fuel":
+                total += task[1].count * (unit("coal") or 0.0)
+            elif op in ("fact", "do"):
+                return math.inf
+        return total
+
+    def only_for(self, node, item):
+        """The least of the tools making `item` takes that the bag lacks and nothing else left to plan asks for:
+        made for this tool alone, so its price is the tool's too."""
+        asked = [t for t in node.stack if t[0] in ("tool", "need")]
+
+        def wanted(kind, tier):
+            return any(t[1] == kind and t[2] >= tier if t[0] == "tool" else self.lb.needed(t[1]).get(kind, -1) >= tier
+                       for t in asked)
+        return max((self.least(tool_item(k, tr), 1, node.inv) for k, tr in self.lb.needed(item).items()
+                    if not node.inv.has_tool(k, tr) and not wanted(k, tr)), default=0.0)
+
     def uses(self, step, kind):
         """Uses of a `kind` tool the step's work takes (a break or a hit each)."""
         breaks, kills = own_work(step)
@@ -1038,8 +1124,12 @@ class Search:
                 if t <= held.get(kind, -1) or not self.sources(tool_item(kind, t)):
                     continue
                 saved = (base - work_s(breaks, kills, {**held, kind: t}, TICKS_PER_S)) * TICKS_PER_S
-                if saved <= 0 or saved <= self.least(tool_item(kind, t), 1, node.inv):
-                    continue            # what it saves here cannot pay even the least the tool costs
+                if saved <= 0:
+                    continue
+                # what it can save over all that is left (each need's ways at their most) cannot pay its least
+                if saved + self.saves_at_most(node, kind, held.get(kind, -1), t, step) \
+                        <= self.least(tool_item(kind, t), 1, node.inv) + self.only_for(node, tool_item(kind, t)):
+                    continue
                 opts.append(((t + 1, use_rank(kind), 1), [("tool", kind, t, self.uses(step, kind), depth)]))
         return self.options(node, opts, self.after(node, step))
 
@@ -1063,9 +1153,14 @@ class Search:
             if kind in held:
                 node.inv.wear(kind, 0, self.uses(step, kind))
         ticks = self.cost.work(step, held)
-        if not (step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)) \
+        if step.kind == "withdraw":         # walked to from where the step before ends, as forward prices it (D6)
+            at = next((p for p in (self.cost.site(st) for st, _h, _s in reversed(node.steps)) if p is not None), None)
+            ticks = self.cost.estimate(step, held, at=at)
+        elif not (step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)) \
                 or not any(st.key() == step.key() for st, _h, _s in node.steps):
             ticks += self.cost.dig_to(step, held) + self.cost.walk_lb(step)    # a repeat joins the first (forward): one trip
+            if step.kind in MERGEABLE or step.kind == "craft" and step.token in MERGEABLE_CRAFTS:
+                node.inv.set_fact("trip " + step.token, True)
         if self.hungry and not node.inv.facts.get("fed"):
             ticks += round(ticks * self.hungry)         # F1l: hunger's seconds until a step makes food
             node.inv.set_fact("fed", mid(step.token) in FOOD_IDS and step.kind in MAKES_FOOD)
@@ -1089,16 +1184,17 @@ class Search:
             got = self.advance(node, floor)
             if got is None:
                 return node
-            best, before = None, len(self.reasons)
+            best, best_f, before = None, math.inf, len(self.reasons)
             for k, c in enumerate(sorted(got, key=lambda c: (c.g + self.h(c, c.horizon), c.tie))):
                 width = DIVE_WIDTH if self.spent <= DIVE_NODES else 1      # the budget spent: the first way that can be had
                 if width == 1 and k == 1 and not self.exact:
                     SPENT["budget"] += 1
                 if best is not None and self.greedy and not self.exact and floor > 0 and k >= width:
                     break                     # inside a choice, the few least-bound ways; A* weighs the rest
-                done = self.settled(c, cap if best is None else min(cap, best.g))
-                if done is not None and (best is None or (done.g, done.tie) < (best.g, best.tie)):
-                    best = done
+                done = self.settled(c, cap if best is None else min(cap, best_f))
+                # weighed with what is left after it: a trip one way makes, the rest of the plan takes free
+                if done is not None and (best is None or (done.g + self.h(done), done.tie) < (best_f, best.tie)):
+                    best, best_f = done, done.g + self.h(done)
             if best is None:
                 if cap == math.inf and len(self.reasons) > before:      # every way died, not merely dearer
                     self.dead(f"no way to {got[0].asked}: " + "; ".join(dict.fromkeys(self.reasons[before:])))
@@ -1450,10 +1546,46 @@ class _After:
         return sum(s["count"] for s in self.slots if s["id"] == mid(item))
 
 
+def _orders(group):
+    """The orders of `group` worth planning: targets whose makings share nothing (no item, tool or station on the
+    way) plan the same in any order (forward runs them as it routes), so only those that share are permuted."""
+    seen: dict = {}
+
+    def near(tok):                  # the item, every input on its ways, their stations and the tools they mine with
+        if tok in seen:
+            return seen[tok]
+        out = seen[tok] = {tok, mid(tok)}
+        for made, src in sources(tok):
+            got = way(src, made, 1)
+            if got is None:
+                continue
+            step, inputs, station, _adds = got
+            if station:
+                out |= near(station)
+            if step.detail.get("tier") is not None:
+                out |= near(tool_item("pickaxe", int(step.detail["tier"])))
+            for t, _c in inputs:
+                out |= near(t)
+        return out
+
+    sets = []
+    for t in group:
+        if any(n[0] in ("fact", "do") for n in t.needs):
+            return itertools.permutations(group)        # a fact or an act: what it touches is not in the tables
+        sets.append(set().union(*[near(tool_item(n[1], int(n[2])) if n[0] == "tool" else n[0]) for n in t.needs]))
+    parts: list[list[int]] = []
+    for i in range(len(group)):
+        joined = [p for p in parts if any(sets[i] & sets[j] for j in p)]
+        parts = [p for p in parts if p not in joined] + [sum(joined, []) + [i]]
+    parts.sort(key=min)
+    return (sum((list(o) for o in combo), []) for combo in
+            itertools.product(*[itertools.permutations([group[i] for i in sorted(p)]) for p in parts]))
+
+
 def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False, cap=math.inf):
     """One level's steps in the order of its targets whose whole plan takes fewest seconds (forward's price:"""
     group = sorted(group, key=lambda t: t.rank)
-    orders = itertools.permutations(group) if len(group) <= ORDER_MAX else [tuple(group)]
+    orders = _orders(group) if len(group) <= ORDER_MAX else [tuple(group)]
     best, dearer = None, None
     for order in orders:
         needs = [n for t in order for n in t.needs]

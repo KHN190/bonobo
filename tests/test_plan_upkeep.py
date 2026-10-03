@@ -1503,12 +1503,15 @@ WITHDRAW = [
      ("withdraw", "minecraft:oak_log"), ("gather", "log")),
     ("the chest is 90 away, trees 5 away: chop", (90, {"minecraft:oak_log": 4}), {"oak_log": 5},
      ("gather", "log"), ("withdraw", "minecraft:oak_log")),
-    ("must fail: the chest holds 2 of 4: the trip to the trees is made anyway, so all 4 chopped (a fetch costs more "
-     "than the logs it saves)", (3, {"minecraft:oak_log": 2}), {"oak_log": 40}, ("gather", "log"),
-     ("withdraw", "minecraft:oak_log")),
     ("must fail: the chest holds something else", (3, {"minecraft:cobblestone": 64}), {"oak_log": 40}, ("gather", "log"),
      ("withdraw", "minecraft:oak_log")),
 ]
+
+
+# (situation, how far the chest holding 2 of 4 logs is; the trees 40 away) → the way is the cheaper as run (G3):
+# 2 taken and 2 chopped, or all 4 chopped, each priced by the production model (planner.price_as_run)
+WITHDRAW_SOME = [("must fail: the chest on the way to the trees: 2 taken, 2 chopped", 3),
+                 ("must fail: the chest beyond the trees: the trip there costs more than chopping 2: all 4 chopped", 90)]
 
 
 # (situation, goal, what a chest holds, how far) → is anything withdrawn? Taking is a way like any other, at any depth
@@ -1548,6 +1551,22 @@ class Withdraw(unittest.TestCase):
                                           exact=True)[0][2]
         # must fail: the sticks fetched (67.7 s as run) over made (52.5 s), each gather of a log charged its own walk
         self.assertFalse(any(st.kind == "withdraw" for st in got), list(map(str, got)))
+
+    def test_part_taken_where_cheaper(self):
+        for name, far in WITHDRAW_SOME:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                m = Memory(os.path.join(tmp, "notes.json"))
+                m.note_container((far, 64, 0), OVER, [{"id": "minecraft:oak_log", "count": 2}])
+                snap = snapshot()
+                steps = decompose.decompose(snap.inv, goals.have(("log", 4)), cost(snap, mem=m, oak_log=40))
+                chop = planner.plan_needs(snap.inv, [("log", 4)], cost(snap, mem=m, oak_log=40), kinds={"gather"})
+                gather = next(st for st in chop if st.kind == "gather")
+                mix = [planner.Step("withdraw", "minecraft:oak_log", 2, {"pos": [far, 64, 0]}),
+                       planner.Step("gather", gather.token, 2, dict(gather.detail))]
+                chop_s = sum(st.est for st in chop)
+                mix_s = sum(planner.price_as_run(mix, None, cost(snap, mem=m, oak_log=40)))
+                self.assertEqual(any(st.kind == "withdraw" for st in steps), mix_s < chop_s, list(map(str, steps)))
+                self.assertLessEqual(sum(st.est for st in steps), min(mix_s, chop_s), list(map(str, steps)))
 
     def test_chest_or_make(self):
         for name, (dist, items), seen, chosen, not_chosen in WITHDRAW:
@@ -2991,10 +3010,11 @@ class EstimatesRememberFirst(unittest.TestCase):
                 ("must fail: nothing anywhere: None", {}, {}, ["diamond_ore"], 48, None)]
         for name, noted, sight, blocks, radius, want in rows:
             with self.subTest(name), mock.patch.object(api, "api", side_effect=AssertionError("an estimate read the world")):
-                m = memory()
+                snap, m = snapshot(state(gameTime=1000), inventory(), **sight), memory()
+                m.clock = snap.state["gameTime"]            # the round's clock, as brain sets it from the snapshot
                 for k, d in noted.items():
                     m.note_seen(k, (int(d), 64, 0), OVER)
-                c = Cost(snapshot(state(), inventory(), **sight), m)
+                c = Cost(snap, m)
                 self.assertEqual(c.distance(blocks, radius), want)
 
 class BridgeStockSizedToTheGap(unittest.TestCase):

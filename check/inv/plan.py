@@ -261,9 +261,7 @@ def P3(b, d, a, ctx):
     return None
 
 
-ROUND_S = 0.1            # one round's thinking: the speedrun's budget for a decision
-STEP_S = 1e-4            # seconds one search step takes, measured (check.round.decide, a 1-in-25 corpus sample)
-ROUND_STEPS = int(ROUND_S / STEP_S)      # what P4 counts: steps, not the wall clock (no machine's speed in a verdict)
+ROUND_STEPS = 1500       # the user's cap on a round's search steps, against a runaway search
 
 
 def P4(b, d, a, ctx):
@@ -277,6 +275,8 @@ def P4(b, d, a, ctx):
 def P5(b, d, a, ctx):
     """G3/R1:"""
     plan, best = _plan(ctx), ctx.get("exact_s")
+    if ctx.get("exact_unknown"):
+        return Unchecked(ctx["exact_unknown"])
     if plan is None or best is None or ctx.get("plan_hand_made"):
         return Unchecked("no planner plan with its unbudgeted best this round")
     from bonobo.game import TICKS_PER_S

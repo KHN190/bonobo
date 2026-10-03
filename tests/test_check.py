@@ -185,12 +185,46 @@ class ACrashIsAStatesOwn(unittest.TestCase):
         def boom(f, fail_then_again=True):
             raise ValueError("too many values to unpack")
         with mock.patch.object(rnd, "decide", boom):
-            k, after, d, _progress, found, _mismatch, _got = explore.judged(of())
+            k, after, d, _progress, found, _mismatch, _got, _secs = explore.judged(of())
         self.assertEqual((after, d.layer, [inv for inv, _why in found]), (None, "crash", ["CRASH"]))
         self.assertIn("ValueError", found[0][1])
         # must fail: judge itself still raises (only judged isolates)
         with mock.patch.object(rnd, "decide", boom), self.assertRaises(ValueError):
             explore.judge(of())
+
+    def test_a_hang_is_a_timeout(self):
+        import time
+        from unittest import mock
+        from check import round as rnd
+
+        def hang(f, fail_then_again=True):
+            while True:
+                try:
+                    time.sleep(0.05)
+                except Exception:  # guard: a production-style catch-all must not swallow the alarm
+                    pass
+        with mock.patch.object(rnd, "decide", hang):
+            _k, after, _d, _p, found, _m, _got, secs = explore.judged(of(), timeout=1)
+        self.assertEqual((after, [inv for inv, _why in found]), (None, ["TIMEOUT"]))
+        self.assertIn("'night'", found[0][1])                         # the state's facts are named
+        self.assertLess(secs, 5)
+
+
+class TheExactSearchIsCapped(unittest.TestCase):
+    """round.exact_s: the unbudgeted reference stops after its step cap and says its best is unknown."""
+
+    def test_rows(self):
+        from check import round as rnd
+        from tests.world import cost, inventory, snapshot
+        needs = [("tool", "pickaxe", 1)]
+        # (situation, step cap) → (seconds known, why unknown)
+        rows = [("a cap the search stays under: its best", 10 ** 9, (True, False)),
+                ("must fail: a cap of one step: unknown, said why", 1, (False, True))]
+        for name, limit, want in rows:
+            with self.subTest(name):
+                snap = snapshot(None, inventory())          # a snapshot each: the plan memo lives on it
+                secs, why = rnd.exact_s(snap.inv, None, needs, cost(snap, oak_log=30, stone=20), limit=limit)
+                self.assertEqual((secs is not None, why is not None), want, why)
 
 
 class FinishedRound(unittest.TestCase):
@@ -269,7 +303,7 @@ class GammaRoundTrip(unittest.TestCase):
              False, 'failure': 'nav', 'fluid': 'lava', 'food_source': 'animals', 'ground': 'open', 'held':
              'same', 'idle': 'none', 'job': 'growing', 'kit': 'sword_shield', 'lit': False, 'noted': 'none',
              'pack': 'dying', 'past': 'latched', 'plan_held': 'none', 'portal': 'sites', 'quarry': 'spider',
-             'repeat': 'once', 'retried': 'none', 'stock': 'none', 'task': 'planned', 'tools': 'axe_shovel',
+             'repeat': 'once', 'retried': 'none', 'stock': 'none', 'task': 'tool', 'tools': 'axe_shovel',
              'trace': 'no_id', 'upkeep_held': 'none', 'weather': 'thunder'})]
 
     def test_found(self):

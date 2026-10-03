@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 from .game import TICKS_PER_S
 
 STATION_R = 8.0         # a station or machine of ours this near is one we have
-WAYPOINT_R = 6          # a road's ends within this many blocks are the same waypoint
 DOOR_NEAR = 2.0         # a door this near the straight way here → there is on the way
 
 if TYPE_CHECKING:
@@ -449,7 +448,7 @@ EXCEPTIONS: "dict[str, tuple[Cause, Source]]" = {
     "PlayerTookControl": ("interrupt", "player"), "FightHolds": ("interrupt", "layer:tactic"),
     "BodyContested": ("interrupt", "manual"), "Died": ("interrupt", "death"),
     "DimensionChanged": ("interrupt", "dimension change"),
-    "Unplannable": ("error", "stuck"), "Unsolvable": ("error", "crash"), "ReplayMiss": ("error", "crash"),
+    "Unplannable": ("error", "stuck"), "Dearer": ("error", "stuck"), "Unsolvable": ("error", "crash"), "ReplayMiss": ("error", "crash"),
     "SetupInvalid": ("error", "crash"),
 }
 
