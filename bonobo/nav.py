@@ -306,7 +306,9 @@ PROGRESS_BLOCKS = 2.0
 LEGS = 6
 
 # task types sent only from a stand the jar's own check holds (I4: gate); the jar's approach then has nothing to do
-APPROACHING = ("mine", "place", "use")
+APPROACHING = ("mine", "place", "use", "use_item", "attack", "interact")
+ENTITY_ACTS = ("attack", "interact")     # acts on a mob: judged where it is now (K7), never a cell fixed at plan time
+ENTITY_REACH = 3.0       # the game's entity_interaction_range attribute (survival player default)
 WAY_TRIES = 3            # ways plan_way is asked for one stand (a staircase comes a segment at a time)
 
 def use_holds(region, feet_at, cell, reach=REACH):
@@ -330,15 +332,62 @@ def place_holds(region, feet_at, cell, reach=REACH):
 
 def stands_for(kind, region, feet_at, target, down=False):
     """Pure: does the body at `feet_at` pass the jar's own check for a `kind` task on `target` — mine: MineTask.holds
-    (holds), place: findPlacement (place_holds), use: sight (use_holds), stand: standing on it."""
+    (holds), place: findPlacement (place_holds), use and use_item: sight (use_holds), attack and interact: the mob's
+    cell in sight within ENTITY_REACH, stand: standing on it."""
     feet_at, target = tuple(feet_at), tuple(target)
     if kind == "mine":
         return holds(region, feet_at, target, down=down)
     if kind == "place":
         return place_holds(region, feet_at, target)
-    if kind == "use":
+    if kind in ("use", "use_item"):
         return use_holds(region, feet_at, target)
+    if kind in ENTITY_ACTS:
+        eye = (feet_at[0] + 0.5, feet_at[1] + EYE_HEIGHT, feet_at[2] + 0.5)
+        return _ray_hits(region, eye, tuple(c + 0.5 for c in target), target, ENTITY_REACH)
     return feet_at == target
+
+def act_of(task):
+    """Pure: the act the gate judges `task` as (stands_for's kind), or None for one it lets go as built: a use_item
+    only when it clicks a block ("onBlock" named; a bow's draw, a pour at the feet name none), a mob act by its
+    entity."""
+    kind = task.get("type")
+    if kind in ENTITY_ACTS:
+        return kind if task.get("entity") is not None else None
+    if kind == "use_item":
+        return kind if "onBlock" in task and "x" in task else None
+    return kind if kind in APPROACHING and "x" in task else None
+
+def aim_cell(region, point):
+    """Pure: the block a click aimed at `point` lands on — of the cells whose box holds it (a face aim sits on their
+    shared face), a solid one, else a fluid one, else the one it is in."""
+    lo = [math.floor(v) for v in point]
+    cells = [(lo[0] - dx, lo[1] - dy, lo[2] - dz) for dx in (0, 1) for dy in (0, 1) for dz in (0, 1)
+             if (not dx or point[0] == lo[0]) and (not dy or point[1] == lo[1]) and (not dz or point[2] == lo[2])]
+    for test in ((region.solid, region.hazard) if region is not None else ()):
+        hit = next((c for c in cells if test(c)), None)
+        if hit is not None:
+            return hit
+    return tuple(lo)
+
+def mob_cells(tasks):
+    """{entity id: its cell now} for the mob acts in `tasks` (one /entities read; {} when there are none): K7."""
+    ids = {t["entity"] for t in tasks if act_of(t) in ENTITY_ACTS}
+    if not ids:
+        return {}
+    from .data import SEARCH_MOB_R
+    from .world import entities
+    return {e["id"]: (math.floor(e["x"]), math.floor(e["y"]), math.floor(e["z"]))
+            for e in entities(SEARCH_MOB_R) if e["id"] in ids}
+
+def target_of(task, region=None, where=None):
+    """Pure: the cell a gated task acts on — its block (a use_item's: aim_cell), a mob's where it is now (`where`:
+    entity id → cell, read at the gate), None when not known (the task goes as built)."""
+    act = act_of(task)
+    if act in ENTITY_ACTS:
+        return (where or {}).get(task["entity"])
+    if act == "use_item":
+        return aim_cell(region, (task["x"], task["y"], task["z"]))
+    return _cell_of(task)
 
 def _cell_of(task):
     return (int(task["x"]), int(task["y"]), int(task["z"]))
@@ -362,17 +411,22 @@ class Dug:
         return tuple(p) not in self.cells and self.region.hazard(p)
 
 
-def unstandable(tasks, region, feet_at):
-    """Pure: the first (task, stand) of a chain whose stand fails the jar's check (stands_for), each judged over the
-    region with the cells the chain mined before it dug (a way's later stands are opened by its earlier mines)."""
+def unstandable(tasks, region, feet_at, where=None):
+    """Pure: the first (task, stand) of a chain whose stand fails the jar's check (stands_for on target_of; a mob
+    not in `where` goes as built), each judged over the region with the cells the chain mined before it dug (a way's
+    later stands are opened by its earlier mines)."""
     dug, before = [], {}
     for t in tasks:
-        if t.get("type") in APPROACHING and "x" in t:
+        if act_of(t):
             before[id(t)] = tuple(dug)
         if t.get("type") == "mine" and "x" in t:
             dug.append(_cell_of(t))
-    return next(((t, s) for t, s in task_stands(tasks, feet_at)
-                 if not stands_for(t["type"], Dug(region, before[id(t)]), s, _cell_of(t), t.get("down", False))), None)
+    for t, s in task_stands(tasks, feet_at):
+        ground = Dug(region, before[id(t)])
+        cell = target_of(t, ground, where)
+        if cell is not None and not stands_for(act_of(t), ground, s, cell, t.get("down", False)):
+            return t, s
+    return None
 
 
 def standable_order(tasks, region, feet_at):
@@ -409,7 +463,7 @@ def task_stands(tasks, feet_at):
     for t in tasks:
         if t.get("type") == "goto":
             at = _cell_of(t)
-        elif t.get("type") in APPROACHING and "x" in t:
+        elif act_of(t):
             out.append((t, at))
     return out
 
@@ -422,25 +476,32 @@ _IN_WAY = [0]            # how deep a way's own steps are being sent (their gate
 lifecycle.in_place(__name__, "_IN_WAY")
 
 def gate(tasks, policy):
-    """api.GATE (I4): each mine/place/use goes out only from a stand where the jar's own check holds (stands_for);
-    one that fails gets its way first (reach_stand) and the chain is checked again. Returns the after-check (R4)."""
+    """api.GATE (I4): each act (act_of: mine/place/use, a use_item on a block, a mob act where the mob is now) goes
+    out only from a stand where the jar's own check holds (stands_for); one that fails gets its way first
+    (reach_stand) and the chain is checked again. The fight's own sends never pass here (S7). Returns the
+    after-check (R4)."""
     pairs = task_stands(tasks, feet())
     if not pairs:
         return None
-    region = None
+    region, where = None, {}
     for _ in range(WAY_TRIES):
         pairs = task_stands(tasks, feet())
-        region = _read_box([_cell_of(t) for t, _s in pairs] + [s for _t, s in pairs])
+        where = mob_cells(tasks)
+        cells = [c for c in (target_of(t, None, where) for t, _s in pairs) if c is not None]
+        region = _read_box(cells + [s for _t, s in pairs])
         tasks[:] = standable_order(tasks, region, feet())
-        bad = unstandable(tasks, region, feet())
+        bad = unstandable(tasks, region, feet(), where)
         if bad is None:
             break
+        cell = target_of(bad[0], region, where)
         if _IN_WAY[0]:
-            api.detail(f"!! a way's own {bad[0]['type']} at {_cell_of(bad[0])} not standable from {bad[1]}")
-            raise api.NavFailed(f"planned step not standable: {bad[0]['type']} at {_cell_of(bad[0])}")
-        reach_stand(bad[0], policy)
+            api.detail(f"!! a way's own {bad[0]['type']} at {cell} not standable from {bad[1]}")
+            raise api.NavFailed(f"planned step not standable: {bad[0]['type']} at {cell}")
+        reach_stand(bad[0], policy, at=cell)
     else:
-        raise api.NavFailed(f"no stand reached for {[(t['type'], _cell_of(t)) for t, _s in pairs][:3]}", pos=_cell_of(pairs[0][0]))
+        first = target_of(pairs[0][0], region, where)
+        raise api.NavFailed(f"no stand reached for {[(t['type'], target_of(t, region, where)) for t, _s in pairs][:3]}",
+                            pos=first)
     before = region
     return lambda done: unplanned(before, tasks, done)
 
@@ -484,12 +545,13 @@ def stand_candidates(region, target, kind):
           and not region.solid(cell_add(c, (0, 1, 0))) and stands_for(kind, region, c, target)]
     return sorted(ok, key=lambda c: math.dist(c, target))
 
-def reach_stand(task, policy, faces=None):
-    """The way to a stand for `task` (I4): read the box, plan_way (a88's: explicit mine/place/goto steps) over the
-    game's walks (break off) to the stand candidates (`faces`, else stand_candidates), each asked as plan_way reads
-    it, send them through the door, and again until the stand holds; plan_way's None → NavFailed with its why."""
-    kind = "stand" if task.get("type") == "goto" else task["type"]
-    target = _cell_of(task)
+def reach_stand(task, policy, faces=None, at=None):
+    """The way to a stand for `task` (I4) on its cell (`at`: target_of, a mob's where it is now): read the box,
+    plan_way (a88's: explicit mine/place/goto steps) over the game's walks (break off) to the stand candidates
+    (`faces`, else stand_candidates), each asked as plan_way reads it, send them through the door, and again until
+    the stand holds; plan_way's None → NavFailed with its why. The live twin of reach's loop."""
+    kind = "stand" if task.get("type") == "goto" else act_of(task) or task["type"]
+    target = tuple(at) if at is not None else _cell_of(task)
     for _ in range(WAY_TRIES):
         here = feet()
         region = _read_box([here, target])
@@ -1325,13 +1387,93 @@ def plan_way(region, feet, target, kind, inv, protected, walks=None) -> tuple[li
         return None, next((why for _s, why in dug if why), None) or f"no way to {tuple(target)}", None
     return min(ways, key=lambda w: (w[1] is not None, w[2]))
 
+class After:
+    """A region with a way's changes over it (`blocks`: cell → name, mined air, placed the block): what the next
+    way is planned over, the read itself untouched."""
+
+    def __init__(self, region):
+        self.region, self.blocks = region, {}
+
+    def __getattr__(self, name):
+        return getattr(self.region, name)
+
+    def name(self, p):
+        p = tuple(p)
+        return self.blocks[p] if p in self.blocks else self.region.name(p)
+
+    solid, hazard, unbreakable, buries = Region.solid, Region.hazard, Region.unbreakable, Region.buries
+
+    def falling(self, p):
+        return is_falling(self.name(p))
+
+
+def took(region, steps, here):
+    """The feet after `steps` ran over `region` (an After): mined cells air, placed ones their block."""
+    for t in steps:
+        c = (t["x"], t["y"], t["z"]) if "x" in t else None
+        if t["type"] == "mine":
+            region.blocks[c] = "air"
+        elif t["type"] == "place":
+            region.blocks[c] = t["item"].rsplit(":", 1)[-1]
+        elif t["type"] == "goto":
+            here = c
+    return tuple(here)
+
+
+def less_way_blocks(inv, n):
+    """Pure: the bag with `n` way blocks spent — the most held kind first, as building_of takes them."""
+    if n <= 0:
+        return inv
+    slots = [dict(s) for s in inv.slots]
+    while n > 0:
+        b = building_of(Inventory({"slots": slots, "equipment": {}}))
+        if b is None:
+            break
+        for s in slots:
+            if s["id"] == b and s["count"] > 0 and n > 0:
+                k = min(n, s["count"])
+                s["count"] -= k
+                n -= k
+    return Inventory({"slots": [s for s in slots if s["count"] > 0], "equipment": dict(inv.equipment)})
+
+
+@dataclass(frozen=True)
+class Reached:
+    """reach's answer: `stand` the act is done from (None: no way), `why` not, way blocks `spent`, `seconds`."""
+    stand: "tuple | None"
+    why: "str | None"
+    spent: int = 0
+    seconds: float = 0.0
+
+
+def reach(region, feet, site, act, inv, protected=(), down=False):
+    """Pure: can `act` (stands_for's kinds; a mob act on its cell now, K7) on `site` be done after travelling from
+    `feet` with `inv` — the gate's own loop (gate → reach_stand) over `region`: the stand test, else plan_way's way,
+    its steps taken over the read (After), again up to WAY_TRIES. A why naming a cell is a refusal there; a way still
+    under way when the tries end names none (the run reads again). Plan and run ask this one question (P2/K1)."""
+    here, ground, spent, secs, why = tuple(feet), After(region), 0, 0.0, None
+    site = tuple(site)
+    for _ in range(WAY_TRIES):
+        if stands_for(act, ground, here, site, down):
+            return Reached(here, None, spent, secs)
+        steps, why, s = plan_way(ground, here, site, act, less_way_blocks(inv, spent), protected)
+        if steps is None:
+            return Reached(None, why, spent, secs)
+        here = took(ground, steps, here)
+        spent += sum(t["type"] == "place" for t in steps)
+        secs += s or 0.0
+    if stands_for(act, ground, here, site, down):
+        return Reached(here, None, spent, secs)
+    return Reached(None, why or Why(f"no stand for {act} {site} after {WAY_TRIES} ways"), spent, secs)
+
+
 def known_refusal(region, feet, target, kind, inv, protected, known=lambda c: True):
-    """Pure: plan_way's why when no way to `kind` at `target` exists and the cell it names is `known` (read), else
+    """Pure: reach's why when no way to `kind` at `target` exists and the cell it names is `known` (read), else
     None: a way, or a failure only past what was read (unknown is possible). The one predicate a plan refuses a
     source by and the door's reach_stand fails by."""
-    steps, why, _s = plan_way(region, feet, target, kind, inv, protected)
-    cell = getattr(why, "cell", None)
-    return why if steps is None and cell is not None and known(cell) else None
+    got = reach(region, feet, target, kind, inv, protected)
+    cell = getattr(got.why, "cell", None)
+    return got.why if got.stand is None and cell is not None and known(cell) else None
 
 def in_pit(region, feet):
     """Pure: the body stands in a hole it cannot jump out of — on every side the cell at head height is solid (a 1-deep

@@ -9,17 +9,21 @@ from .explore import seek_blocks
 from .skill import skill
 from .skillcore import gained, settle
 from .world import feet
-from .world import Inventory, find
+from .world import Inventory, find, region_around
 
-TRUNK_REACH = 4        # logs this far above the base are in reach from beside the trunk (eye 1.62, reach 4.5)
-
-def trunk_batch(base, overhead, want):
-    """Pure: one trunk as one batch — every log in reach up to TRUNK_REACH as single mines in the batch's order
-    (nav.mine_batch: the top of the column first), then one pickup."""
-
-    x, y, z = base
-    logs = [tuple(base)] + [tuple(c) for c in overhead if y < c[1] <= y + TRUNK_REACH]
-    logs = logs[:max(1, want)]
+def trunk_batch(base, overhead, want, region, here, inv, protected=()):
+    """Pure: one trunk as one batch — the base, then each log overhead, lowest first, while the door would mine it
+    from `here` (P2): held over the logs below it dug (the gate's chain test, nav.unstandable), else a way to it on
+    the ground as read (nav.reach, reach_stand's loop) with `inv`; the first that fails and those above it wait for
+    a later batch (none judged on no read). As single mines in the batch's order (nav.mine_batch), then one pickup."""
+    logs = [tuple(base)]
+    for c in sorted((tuple(c) for c in overhead if c[1] > base[1]), key=lambda c: c[1]):
+        if len(logs) >= max(1, want) or region is None:
+            break
+        if not (nav.stands_for("mine", nav.Dug(region, logs), here, c)
+                or nav.reach(region, here, c, "mine", inv, protected).stand is not None):
+            break
+        logs.append(c)
     return nav.mine_batch(logs, only=["log"])
 
 def felled(trunk, still):
@@ -106,10 +110,12 @@ def chop(ctx, n):
         before = Inventory().count("log")
         base_pos = (base["x"], base["y"], base["z"])
         # base log from outside, then stand in its cell and take the logs overhead: every face above the eye, no approach search
-        overhead = sorted((t for t in trunk if t["x"] == base["x"] and t["z"] == base["z"]
-                           and base["y"] < t["y"] <= base["y"] + 4), key=lambda t: t["y"])
-        # the whole trunk as one submission
-        tasks = trunk_batch(base_pos, [(t["x"], t["y"], t["z"]) for t in overhead], target - before)
+        overhead = [(t["x"], t["y"], t["z"]) for t in trunk if t["x"] == base["x"] and t["z"] == base["z"]
+                    and t["y"] > base["y"]]
+        # the whole trunk as one submission: what the door would mine from here, over one read of it
+        here = feet()
+        tasks = trunk_batch(base_pos, overhead, target - before, region_around([here, base_pos, *overhead], math.ceil(nav.REACH)), here,
+                            Inventory(), ctx.policy.protected)
         try:
             r = nav.run_cells("mine_many", tasks[:-1], then=tasks[-1], wait=90)
         except api.Unreachable as out:
