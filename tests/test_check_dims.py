@@ -13,9 +13,9 @@ def dec(name, token=None):
 class Steps(unittest.TestCase):
     # (module, facts, decision, ctx, the facts it changes)
     ROWS = [
-        (dusk, of(dusk=True, bed="home"), dec("sleep"), {}, {"dusk": False}),
-        (dusk, of(dusk=True), dec("wait for day"), {}, {"dusk": False}),
-        (dusk, of(dusk=True), dec("idle: have pickaxe tier 1"), {"step_kind": "gather"}, {}),   # must fail: work is not the night
+        (dusk, of(dusk="dusk", bed="home"), dec("sleep"), {}, {"dusk": "day"}),
+        (dusk, of(dusk="dusk"), dec("wait for day"), {}, {"dusk": "day"}),
+        (dusk, of(dusk="dusk"), dec("idle: have pickaxe tier 1"), {"step_kind": "gather"}, {}),   # must fail: work is not the night
         (task, of(task="milestone"), dec("task t1", "crafting_table"), {"step_kind": "seek"},
          {"station": "crafting_table"}),
         (task, of(task="milestone"), dec("task t1", "tree"), {"step_kind": "seek"}, {"tree": True}),

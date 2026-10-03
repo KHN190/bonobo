@@ -7,7 +7,7 @@
  "cooking": "iron",
  "cooled": false,
  "dimension": "minecraft:the_nether",
- "dusk": false,
+ "dusk": "day",
  "failure": "unavailable",
  "fluid": "swimming",
  "food": false,
