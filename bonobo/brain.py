@@ -565,6 +565,7 @@ class Brain:
     def decide(self, snap, ctx):
         """One round: its search steps counted from here, to the user's cap (planner.ROUND_STEPS, P4)."""
         planner.SPENT["round"] = planner.SPENT["steps"]
+        planner.PATHS.clear()
         try:
             return self._decide_round(snap, ctx)
         finally:
