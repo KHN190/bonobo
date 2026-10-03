@@ -374,7 +374,10 @@ class Cost:
         walk)."""
         refuted = self.refuted_ticks(step, self.site(step), at)
         if refuted is not None:
-            # a price the run refuted (Overrun): its measured rest, the parts' model set aside while the state holds
+            # a price the run refuted (Overrun): its measured rest while the state holds, never under its own lower
+            # bound (P3: walk_lb + dig_lb ≤ the price by construction)
+            tools = self.step_state(None, held)[1]
+            refuted = max(refuted, self.walk_lb(step, tools) + self.dig_lb(step, tools))
             step.parts = {"refuted": refuted}
             return refuted
         work = self.work(step, held, table_back)

@@ -101,6 +101,48 @@ class StepBudget(unittest.TestCase):
         self.assertEqual(seen, [SEGMENT, SEGMENT])
 
 
+def _refuted_scene():
+    """(cost of, step, near, far, bag): two iron ores remembered — a near one buried 4 down, a far one open on the
+    floor — and a stone pickaxe."""
+    from bonobo import cost as costmod, world
+    from bonobo.planner import Step
+    from tests.world import inventory, memory, state
+    ground = {(x, y, z): "stone" for x in range(-20, 21) for z in range(-6, 7) for y in range(50, 64)}
+    near, far = (6, 60, 0), (-12, 64, 0)
+    ground[near] = ground[far] = "iron_ore"
+    region = world.Region.of((-20, 50, -6), (20, 70, 6), ground)
+    mem = memory()
+    for c in (near, far):
+        mem.note_seen("iron_ore", c, "minecraft:overworld")
+
+    def cost_of(bag):
+        snap = world.Snapshot.from_readings(state(x=.5, y=64, z=.5), bag, {}, [], region)
+        return costmod.Cost(snap, mem)
+    step = Step("mine", "minecraft:raw_iron", 1, {"blocks": ["iron_ore"], "breaks": 1})
+    return cost_of, step, near, far, mem, world.Inventory(inventory(("stone_pickaxe", 1)))
+
+
+class RefutedPrice(unittest.TestCase):
+    """A price the run refuted (Memory.refute, dispatch.execute's): Cost prices the step at its measured rest while the
+    state holds, never under its own lower bound (P3)."""
+
+    def _refute(self, mem, step, target, seconds, bag):
+        from bonobo import cost as costmod
+        from bonobo.skillcore import ban_state
+        mem.refute(costmod.refuted_key(step, target), seconds,
+                   ban_state((0.5, 64, 0.5), frozenset(s["id"] for s in bag.slots if s.get("count"))))
+
+    def test_a_rest_below_its_bound_is_priced_at_the_bound(self):
+        cost_of, step, near, _far, mem, bag = _refuted_scene()
+        self._refute(mem, step, near, 0.5, bag)
+        c = cost_of(bag)
+        tools = c.step_state()[1]
+        bound = c.walk_lb(step, tools) + c.dig_lb(step, tools)
+        self.assertGreater(bound, 0.5 * TICKS_PER_S)
+        # must fail: the refuted rest under the plan's own lower bound (P3: lb ≤ the chosen price)
+        self.assertEqual(c.estimate(step), bound)
+
+
 class Accept7MineStep(unittest.TestCase):
     """The production path (dispatch.run_priced → gather._go_way → nav), accept7's shape: an ore 67 off and 10 down
     through stone, the step priced 61 s. Its way (~200 s of digging) is past 1.5× the price: refused before a block is
