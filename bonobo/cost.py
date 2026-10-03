@@ -226,7 +226,8 @@ class Cost:
             # `extra` dirt more (way_blocks_short's probe: would carried blocks make the way)
             bag = type(bag)({"slots": list(bag.slots) + [{"id": "minecraft:dirt", "count": extra, "slot": len(bag.slots)}],
                              "equipment": dict(bag.equipment)})
-        ways = nav.way_bag(bag)          # what a way may place (the held plans' stacks kept): part of the answer
+        # way_bag only answers None for a bag it was never given; step_bag's is always read, never that bag
+        ways = nav.way_bag(bag) or bag
         key = ("reach", tuple(cell), kind, feet, ways.count("building"), nav.building_of(ways), gone)
         if key not in self.cache:
             ground = _Ground(feet, cell, self.region.name(cell), self.soil(), False, self.region, gone.cells)
