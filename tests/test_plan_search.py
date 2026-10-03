@@ -314,6 +314,32 @@ class AlikeWaysAreOne(unittest.TestCase):
         self.assertEqual(len(planner.uncovered("coal", [("coal", group), ("minecraft:coal", member)])), 2)
 
 
+class AFasterToolPaysOrIsNotTried(unittest.TestCase):
+    def test_the_tiers_offered_by_the_work(self):
+        def tiers(n):
+            search = planner.Search(NullCost())
+            node = planner.Node(planner.from_bag(bag(inventory(("wooden_pickaxe", 1))), facts=NullCost().facts()), [], [])
+            step = planner.Step("mine", "minecraft:cobblestone", n, {"blocks": ["stone"], "tier": 0, "breaks": n})
+            got = search.speed(node, step, 0)
+            return {t[2] for c in (got or [node]) for t in c.stack if t[0] == "tool" and t[1] == "pickaxe"}
+        # must fail: an iron pickaxe tried for 10 blocks (its least, with the stone pickaxe made for it alone, is
+        # above what it saves there)
+        self.assertNotIn(2, tiers(10))
+        self.assertIn(2, tiers(500))        # must fail: never tried where 500 blocks pay for it
+
+
+class AlikeOrdersAreOne(unittest.TestCase):
+    def test_only_targets_that_share_are_permuted(self):
+        from bonobo.planner import Target
+        # (targets, orders planned) — must fail: 24 orders of four targets sharing the wood
+        rows = [([Target("iron", [("minecraft:raw_iron", 3)], 0), Target("sand", [("minecraft:sand", 4)], 1)], 1),
+                ([Target("logs", [("log", 8)], 0), Target("torches", [("minecraft:torch", 8)], 1),
+                  Target("bed", [("bed", 1)], 2), Target("door", [("door", 1)], 3)], 24)]
+        for targets, n in rows:
+            with self.subTest(n):
+                self.assertEqual(len(list(planner._orders(targets))), n)
+
+
 class TheBoundKnowsTheTrip(unittest.TestCase):
     def test_a_gather_made_walks_once(self):
         from tests.world import cost

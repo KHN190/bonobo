@@ -1000,6 +1000,17 @@ class Search:
             return self.dead(self.no_way(tool_item(kind, tier)))
         return self.options(node, opts)
 
+    def only_for(self, node, item):
+        """The least of the tools making `item` takes that the bag lacks and nothing else left to plan asks for:
+        made for this tool alone, so its price is the tool's too."""
+        asked = [t for t in node.stack if t[0] in ("tool", "need")]
+
+        def wanted(kind, tier):
+            return any(t[1] == kind and t[2] >= tier if t[0] == "tool" else self.lb.needed(t[1]).get(kind, -1) >= tier
+                       for t in asked)
+        return max((self.least(tool_item(k, tr), 1, node.inv) for k, tr in self.lb.needed(item).items()
+                    if not node.inv.has_tool(k, tr) and not wanted(k, tr)), default=0.0)
+
     def uses(self, step, kind):
         """Uses of a `kind` tool the step's work takes (a break or a hit each)."""
         breaks, kills = own_work(step)
@@ -1063,7 +1074,7 @@ class Search:
                 if t <= held.get(kind, -1) or not self.sources(tool_item(kind, t)):
                     continue
                 saved = (base - work_s(breaks, kills, {**held, kind: t}, TICKS_PER_S)) * TICKS_PER_S
-                if saved <= 0 or saved <= self.least(tool_item(kind, t), 1, node.inv):
+                if saved <= 0 or saved <= self.least(tool_item(kind, t), 1, node.inv) + self.only_for(node, tool_item(kind, t)):
                     continue            # what it saves here cannot pay even the least the tool costs
                 opts.append(((t + 1, use_rank(kind), 1), [("tool", kind, t, self.uses(step, kind), depth)]))
         return self.options(node, opts, self.after(node, step))
@@ -1481,10 +1492,46 @@ class _After:
         return sum(s["count"] for s in self.slots if s["id"] == mid(item))
 
 
+def _orders(group):
+    """The orders of `group` worth planning: targets whose makings share nothing (no item, tool or station on the
+    way) plan the same in any order (forward runs them as it routes), so only those that share are permuted."""
+    seen: dict = {}
+
+    def near(tok):                  # the item, every input on its ways, their stations and the tools they mine with
+        if tok in seen:
+            return seen[tok]
+        out = seen[tok] = {tok, mid(tok)}
+        for made, src in sources(tok):
+            got = way(src, made, 1)
+            if got is None:
+                continue
+            step, inputs, station, _adds = got
+            if station:
+                out |= near(station)
+            if step.detail.get("tier") is not None:
+                out |= near(tool_item("pickaxe", int(step.detail["tier"])))
+            for t, _c in inputs:
+                out |= near(t)
+        return out
+
+    sets = []
+    for t in group:
+        if any(n[0] in ("fact", "do") for n in t.needs):
+            return itertools.permutations(group)        # a fact or an act: what it touches is not in the tables
+        sets.append(set().union(*[near(tool_item(n[1], int(n[2])) if n[0] == "tool" else n[0]) for n in t.needs]))
+    parts: list[list[int]] = []
+    for i in range(len(group)):
+        joined = [p for p in parts if any(sets[i] & sets[j] for j in p)]
+        parts = [p for p in parts if p not in joined] + [sum(joined, []) + [i]]
+    parts.sort(key=min)
+    return (sum((list(o) for o in combo), []) for combo in
+            itertools.product(*[itertools.permutations([group[i] for i in sorted(p)]) for p in parts]))
+
+
 def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False, cap=math.inf):
     """One level's steps in the order of its targets whose whole plan takes fewest seconds (forward's price:"""
     group = sorted(group, key=lambda t: t.rank)
-    orders = itertools.permutations(group) if len(group) <= ORDER_MAX else [tuple(group)]
+    orders = _orders(group) if len(group) <= ORDER_MAX else [tuple(group)]
     best, dearer = None, None
     for order in orders:
         needs = [n for t in order for n in t.needs]
