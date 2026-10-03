@@ -1195,6 +1195,9 @@ class Search:
             new = TOOL_USES[TOOL_MATERIAL_FOR_TIER[t]]
             if t != tier and (self.kinds is not None or making):
                 continue                # a tool made to make one of its own kind: the tier asked, no better
+            if opts and not self.exact and self.saves_at_most(node, kind, opts[0][0][0], t, None) \
+                    <= self.tool_price(node, kind, t) - self.tool_price(node, kind, opts[0][0][0]):
+                continue                # a better tier than the least that serves, dearer than all it can save
             opts.append(((t, use_rank(kind), 0),
                          [("need", tool_item(kind, t), 1, depth + 1, True), ("addtool", kind, t, spare_uses(new))]))
         if not opts:
@@ -1275,6 +1278,12 @@ class Search:
             elif op == "do":
                 return math.inf
         return total
+
+    def tool_price(self, node, kind, tier):
+        """Ticks a `kind` tool of `tier` costs here at the least: its making's least, its craft, the tools made for it
+        alone (the faster tool's payback rule, one price)."""
+        item = tool_item(kind, tier)
+        return self.least(item, 1, node.inv) + self.first_run(item) + self.only_for(node, item)
 
     def first_run(self, item):
         """Ticks the step that makes one `item` takes at its least (its craft's own work, once: the least prices
@@ -1360,8 +1369,7 @@ class Search:
                     continue
                 # what it can save over all that is left (each need's ways at their most) cannot pay its least
                 if not self.exact and saved + self.saves_at_most(node, kind, held.get(kind, -1), t, step) \
-                        <= self.least(tool_item(kind, t), 1, node.inv) + self.only_for(node, tool_item(kind, t)) \
-                        + self.first_run(tool_item(kind, t)):
+                        <= self.tool_price(node, kind, t):
                     continue
                 opts.append(((t + 1, use_rank(kind), 1), [("tool", kind, t, self.uses(step, kind), depth)]))
         return self.options(node, opts, self.after(node, step))

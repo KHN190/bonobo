@@ -621,6 +621,22 @@ class TheNightsWaysBoundEachOther(unittest.TestCase):
         self.assertFalse({t[2] for c_ in (got or []) for t in c_.stack if t[0] == "tool" and t[1] == "axe"})
 
 
+class ATierAboveTheOneAskedPaysOrIsNotTried(unittest.TestCase):
+    def test_rows(self):
+        search = planner.Search(NullCost())
+        # (blocks the pickaxe will break, the tiers offered when any pickaxe serves)
+        for blocks, iron in ((10, False), (2000, True)):
+            with self.subTest(blocks=blocks):
+                node = planner.Node(planner.from_bag(bag(inventory()), facts=NullCost().facts()), [], [])
+                mine = planner.Step("mine", "minecraft:cobblestone", blocks,
+                                    {"blocks": ["stone"], "tier": 0, "breaks": blocks})
+                node.stack = [("emit", mine, 0, 0)]
+                got = search.tool(node, "pickaxe", 0, 3, 0)
+                tiers = {t[2] for c in (got or [node]) for t in c.stack if t[0] == "addtool"}
+                # must fail: an iron pickaxe made for 10 blocks a wooden one breaks (it cannot pay for itself there)
+                self.assertEqual(2 in tiers, iron, tiers)
+
+
 class AlikeOrdersAreOne(unittest.TestCase):
     def test_only_targets_that_share_are_permuted(self):
         from bonobo.planner import Target
