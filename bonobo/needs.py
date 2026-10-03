@@ -97,7 +97,7 @@ def overnight(inv, cost, facts=None, bed_too=True):
         return None, math.inf, []
     chosen = {}
     try:
-        _first, steps, seconds = plan_round(inv, [Target("night", [], 0, (), tuple(o[:3] for o in options))], cost,
+        _first, steps, seconds = plan_round(inv, [Target("night", [], 0, tuple(o[:3] for o in options))], cost,
                                             chosen=chosen)
     except Unplannable as e:
         log(f"upkeep: no way through the night ({e})")
