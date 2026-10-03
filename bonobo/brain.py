@@ -408,8 +408,12 @@ class Brain:
         return retry.place_signature(feet, night) if feet is not None else None
 
     def ready(self, name, cause=None):
-        return self.retry.ready(name, time.time(), self.place, cause,
-                                state=lambda c: self.state_of(self.place, self.fail_target.get(name), cause=c))
+        return self.wait_s(name, cause) <= 0
+
+    def wait_s(self, name, cause=None):
+        """Seconds before `name` may be tried here (retry.wait)."""
+        return self.retry.wait(name, time.time(), self.place, cause,
+                               state=lambda c: self.state_of(self.place, self.fail_target.get(name), cause=c))
 
     def state_of(self, place, target, kinds=None, cause=None):
         """The state a failure holds in (retry.state_signature) from the round's snapshot; None before any round."""
@@ -549,6 +553,8 @@ class Brain:
             self.idle_since = self.idle_since or time.time()
             self.hold_log("nothing to do; waiting" + (f": {self.idle_why}" if self.idle_why else ""))
             intent.set("goal", events.IDLE_GOAL)
+            if self.idle_why:
+                intent.set("step", self.idle_why)
             events.goal(events.IDLE_GOAL, _bag_counts(snap))
             if not self.planning:
                 return                         # a fight row's round: its caller polls again, no idle wait posted
@@ -607,6 +613,7 @@ class Brain:
         planner.SPENT["round"] = planner.SPENT["steps"]
         self.round_snap = snap
         self.unplannable.clear()
+        self.idle_why = ""
         planner.PATHS.clear()
         try:
             return self._decide_round(snap, ctx)
@@ -649,7 +656,7 @@ class Brain:
         # the gate's facts: what is cooling, and whether the surface is closed (met and unplannable needs are judged
         # where proposed, never intents)
         def facts_of(intents):
-            return {"cooling": {i.key for i in intents if not self.ready(i.key)},
+            return {"cooling": {i.key: s for i in intents if (s := self.wait_s(i.key)) > 0},
                     "surface_closed": snap.night}
 
         def timed(name, ask):
@@ -672,6 +679,8 @@ class Brain:
             intents, facts = arbiter.first_live((timed("fast", fast),), facts_of)
         self.decided_on = snap
         chosen = arbiter.arbitrate(intents, facts=facts)
+        if chosen is None and facts.get("dropped"):
+            self.idle_why = "; ".join(filter(None, (self.idle_why, *facts["dropped"])))     # D1
         self._mark("arb")
         arbiter.note_pick(self.__dict__.setdefault("picks", collections.Counter()), chosen)
         return chosen.action if chosen else None

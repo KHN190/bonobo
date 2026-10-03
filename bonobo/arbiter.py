@@ -117,16 +117,25 @@ def side_why(forced_by, saving):
     return f"forced by nothing, saves {0.0 if saving is None else saving:.0f} s"
 
 
-def viable(intent, facts):
-    """Pure: may this proposal be offered at all — not while its key is cooling, nor a surface walk while the surface
-    is closed (night in the Overworld: speedrun style, the night is worked under cover, never sat out while there is
-    work). Met and unplannable needs are judged once, where proposed (needs.propose, brain.need_act)."""
-
+def drop_why(intent, facts):
+    """Pure (D1): why the gate drops this proposal, or None when it may be offered — its key cooling (`cooling`: keys,
+    or key → seconds left), a surface walk while the surface is closed (night in the Overworld: speedrun style, the
+    night is worked under cover, never sat out while there is work), a side act forced by nothing. Met and
+    unplannable needs are judged once, where proposed (needs.propose, brain.need_act)."""
     if facts.get("surface_closed") and intent.surface:
-        return False
-    if intent.side and side_why(intent.forced_by, intent.saving) is not None:
-        return False
-    return intent.key not in facts.get("cooling", ())
+        return f"{intent.key}: a surface walk, and the surface is closed"
+    why = side_why(intent.forced_by, intent.saving) if intent.side else None
+    if why is not None:
+        return f"{intent.key}: {why}"
+    cooling = facts.get("cooling", ())
+    if intent.key in cooling:
+        left = cooling[intent.key] if isinstance(cooling, dict) else None
+        return f"{intent.key}: cooling" + (f" {left:.0f} s" if left is not None else "")
+    return None
+
+def viable(intent, facts):
+    """Pure: may this proposal be offered at all (drop_why)."""
+    return drop_why(intent, facts) is None
 
 def gate_intents(intents, facts=None):
     """Pure: only the useful proposals — the viable ones, and a waiting kind only when nothing else is left."""
@@ -147,15 +156,17 @@ def waits(picks):
     return sum(picks.get(k, 0) for k in WAIT_KINDS)
 
 def first_live(groups, facts_of):
-    """Pure: the proposals of the first group that still has one after the gate."""
-
+    """Pure: the proposals of the first group that still has one after the gate; none: why each was dropped
+    (`dropped`, D1)."""
+    dropped = []
     for ask in groups:
         intents = ask()
         facts = facts_of(intents)
         live = gate_intents(intents, facts)
         if live:
             return live, facts
-    return [], {}
+        dropped += [drop_why(i, facts) for i in intents]
+    return [], {"dropped": dropped}
 
 def arbitrate(intents, facts=None):
     """Pure: the one intent that may drive the body, or None."""

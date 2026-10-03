@@ -115,16 +115,16 @@ class Retry:
             return 0.0
         return max(0.0, c["until"] - now)
 
-    def ready(self, task, now, place=None, cause=None, state=None):
-        """May `task` be tried now? A cause cooling at `place` holds only while `state` is the failure's (`state`: a
-        signature, or cause → its signature, each cause's state its own)."""
+    def wait(self, task, now, place=None, cause=None, state=None):
+        """Seconds before `task` may be tried (0: now). A cause cooling at `place` holds only while `state` is the
+        failure's (`state`: a signature, or cause → its signature, each cause's state its own)."""
+        return max([0.0, self.holds.get(task, 0) - now]
+                   + [self.cool(c, place, now, state(c) if callable(state) else state)
+                      for c in set(self.causes(task)) | ({cause} if cause else set())])
 
-        if self.holds.get(task, 0) > now:
-            return False
-        for c in set(self.causes(task)) | ({cause} if cause else set()):
-            if self.cool(c, place, now, state(c) if callable(state) else state) > 0:
-                return False
-        return True
+    def ready(self, task, now, place=None, cause=None, state=None):
+        """May `task` be tried now? (`wait`)"""
+        return self.wait(task, now, place, cause, state) <= 0
 
     def cap(self, name, seconds, now, place=None):
         """Shorten a hold on `name`, and the cooling of every cause `name` failed with here, to `seconds`."""

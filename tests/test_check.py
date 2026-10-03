@@ -413,6 +413,34 @@ class UnplannableIsThisRounds(unittest.TestCase):
         self.assertEqual(b.unplannable, {})       # must fail: the stale reason read as this round's
 
 
+class GateDropsAreNamed(unittest.TestCase):
+    """D1: every proposal the gate drops leaves the round's idle reason naming it and why."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import api, brain
+        from tests.world import brain_fixture, round_ctx, snapshot
+        # (situation, the proposal, what forces it, cooled first) → what the reason names
+        rows = [("must fail: the proposal cooling: its key and its seconds", "eat", "S1", True, ("eat: cooling", " s")),
+                ("must fail: a side act forced by nothing", "tidy", None, False, ("tidy: forced by nothing",))]
+        for name, key, forced_by, cooled, want in rows:
+            with self.subTest(name):
+                b = brain_fixture()
+                snap = snapshot()
+                b.round_snap = snap
+                if cooled:
+                    b.failed(key, api.NotAvailable("nothing to eat"))
+                with mock.patch.object(b, "plan_proposals", return_value=[]), \
+                        mock.patch.object(b.reflexes, "proposals", return_value=[(0, key, lambda: None)]), \
+                        mock.patch.object(b.needs, "propose"), \
+                        mock.patch.dict(b.reflexes.terms, {key: (forced_by, None)}), \
+                        mock.patch.object(brain.hazard, "rescue_due", return_value=None), \
+                        mock.patch.object(api.STATE, "mode", "normal"):
+                    self.assertIsNone(b.decide(snap, round_ctx(b, snap)))
+                for part in want:
+                    self.assertIn(part, b.idle_why)
+
+
 class AGrowingCropIsNotWaitedOn(unittest.TestCase):
     """y-check's D7: task farm, a crop growing — the round chose `await` (stand by the plot) round after round. An
     await runs only when its job is due by its clock within AWAIT_MAX_S (farming.awaitable); else the plan's other
