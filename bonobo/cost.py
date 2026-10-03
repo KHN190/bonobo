@@ -152,23 +152,34 @@ class Cost:
         here, dim = self.snap.feet, self.snap.dimension
         skip = self.not_there(sources)
         spots = {tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if tuple(r["pos"]) not in skip}
-        got = self.workable([(math.dist(p, here), p) for p in spots], kind or stand_kind(kinds))
+        got = self.workable([(math.dist(p, here), p) for p in spots], kind or stand_kind(kinds), fixable=sources)
         return (got[1], got[0]) if got else None
 
-    def seen(self, kinds, skip, radius=math.inf, kind=None):
+    def seen(self, kinds, skip, radius=math.inf, kind=None, fixable=False):
         """(distance, cell) of the nearest of `kinds` in the round's look, none in `skip`, within `radius`, that a way
         to `kind` (default stand_kind: worked as a source) is not known to fail to (workable); or None."""
         got = [(h["distance"], (h["x"], h["y"], h["z"])) for k in kinds for h in self.snap.hits.get(bare(k), ())
                if h["distance"] <= radius and (h["x"], h["y"], h["z"]) not in skip]
-        return self.workable(got, kind or stand_kind(kinds))
+        return self.workable(got, kind or stand_kind(kinds), fixable)
 
-    def workable(self, cands, kind):
+    def workable(self, cands, kind, fixable=False):
         """The nearest of `cands` ((distance, cell)) no known way refusal bars (refused): asked lazily, nearest first,
-        stopping at the first that is not refused; or None."""
+        stopping at the first that is not refused; or None. `fixable`: a source a step takes from (a gather, a mine, a
+        take), whose refusal for want of way blocks the plan answers by getting them first (unfixable, planner.tasks)
+        — a station used where it stands is held to refused."""
+        best = None             # (ticks, (distance, cell)): a fixable one costs its walk and its blocks got (G3)
         for d, c in sorted(cands):
-            if kind is None or self.unfixable(c, kind) is None:
-                return d, c
-        return None
+            if best is not None and walk_ticks(d) >= best[0]:
+                break
+            if kind is None or self.refused(c, kind) is None:
+                return (d, c) if best is None or walk_ticks(d) < best[0] else best[1]
+            short = self.way_blocks_short(c, kind) if fixable else 0
+            if short:
+                ticks = walk_ticks(d) + round(work_s(["dirt"] * short, [], held_tiers(self.snap.inv), TICKS_PER_S)
+                                              * TICKS_PER_S)
+                if best is None or ticks < best[0]:
+                    best = (ticks, (d, c))
+        return None if best is None else best[1]
 
     def way_blocks_short(self, cell, kind, at=None, spent=0):
         """Way blocks the bag its plan leaves (step_bag) lacks for the door's way to `kind` at `cell`: refused only
@@ -263,7 +274,7 @@ class Cost:
             if known is not None and known <= radius:
                 self.cache[key] = known
         if key not in self.cache:
-            seen = self.seen(blocks, self.not_there(sources), radius)
+            seen = self.seen(blocks, self.not_there(sources), radius, fixable=sources)
             self.cache[key] = seen[0] if seen is not None else self._known(blocks, sources)
         return self.cache[key]
 
@@ -505,7 +516,7 @@ class Cost:
         key = ("site", k == "hunt", sources, tuple(kinds), self.not_there(sources), self.not_there(True))
         if key not in self.cache:
             hit = self._nearest(kinds, sources=sources)
-            seen = self.seen(kinds, self.not_there(True)) if hit is None and k != "hunt" else None
+            seen = self.seen(kinds, self.not_there(True), fixable=sources) if hit is None and k != "hunt" else None
             self.cache[key] = hit[0] if hit is not None else (seen[1] if seen is not None else None)
         first = self.cache[key]
         refuted = self.refuted_ticks(step, first) if sources and first is not None else None
