@@ -68,8 +68,9 @@ class Planning(unittest.TestCase):
             path = taught(tmp)
             route = lambda here, there, w, dimension=None: mech.door_route_s(      # noqa: E731
                 [m for m in mech.read_lessons(path) if m["dimension"] == dimension], here, there, w)
-            c = costmod.Cost(None)
-            c.snap = type("Snap", (), {"feet": OUTSIDE, "dimension": DIM})()
+            from tests.world import memory, snapshot, state
+            c = costmod.Cost(snapshot(state(x=OUTSIDE[0] + 0.5, y=float(OUTSIDE[1]), z=OUTSIDE[2] + 0.5,
+                                            dimension=DIM)), memory())
             step = Step("withdraw", "minecraft:chest", 1, {"pos": list(INSIDE)})
             through = mech.door_route_s(mech.read_lessons(path), OUTSIDE, INSIDE,
                                         lambda d: costmod.walk_ticks(d) / costmod.TICKS_PER_S)

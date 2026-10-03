@@ -26,26 +26,16 @@ from bonobo import world  # noqa: E402
 from bonobo import brain, data, knowledge, loot, memory, nav, skill, skillcore  # noqa: E402,F401
 from bonobo.cost import Cost, walk_ticks  # noqa: E402
 from bonobo.planner import Step, plan_needs  # noqa: E402
-from tests.world import FakeRegion, bag, flat, inventory, places_by  # noqa: E402
+from tests.world import FakeRegion, bag, flat, inventory, snapshot, state  # noqa: E402
 
 
 def mem():
     return memory.Memory(os.path.join(tempfile.mkdtemp(prefix="facts"), "notes.json"))
 
 
-class Snap:
-    dimension = "minecraft:overworld"
-    night = False
-    ticks_until_dusk = 6000
-
-    def __init__(self, feet=(0, 64, 0)):
-        self.feet = feet
-        self.inv = bag(inventory())
-
-    state = {"skyLight": 15, "health": 20, "food": 20}
-
-    def get(self, key, default=None):
-        return self.state.get(key, default)
+def Snap(feet=(0, 64, 0), **seen):
+    """A real snapshot standing at `feet`, `seen` in its look."""
+    return snapshot(state(x=feet[0] + 0.5, y=float(feet[1]), z=feet[2] + 0.5), **seen)
 
 
 # ------------------------------------------------------------------------------------------- being there at all
@@ -68,7 +58,7 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
                 m = mem()
                 if pos:
                     m.note_here("stone", pos, "minecraft:overworld")
-                cost = Cost(Snap(), m, blacklist={} if reachable else {tuple(pos): float("inf")}, finds={})
+                cost = Cost(Snap(), m, blacklist={} if reachable else {tuple(pos): float("inf")})
                 step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
                 walk = cost.estimate(step) - cost.work(step)
                 want = UNKNOWN_WALK_TICKS if where is None else walk_ticks(math.dist(Snap().feet, where))
@@ -93,7 +83,7 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
                 try:
                     if answer is not None:
                         costmod.ROUTES[key] = answer
-                    cost = Cost(Snap(), m, finds={})
+                    cost = Cost(Snap(), m)
                     step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
                     self.assertEqual((cost.estimate(step) - cost.work(step), cost.reachable(["stone"])), want)
                 finally:
@@ -177,7 +167,7 @@ class AStationStandingThereIsOneWeHave(unittest.TestCase):
                     pos = (feet[0] + STATION_R + (1 if pos == "past" else 0), feet[1], feet[2])
                 m = mem()
                 m.add_machine("machine-1", pos, 0, dim, tags)
-                cost = Cost(Snap(), m, finds={})
+                cost = Cost(Snap(), m)
                 self.assertEqual({k: cost.station_near(k) for k in want}, want)
 
 
@@ -223,7 +213,7 @@ class WhatExistsCanBeTaken(unittest.TestCase):
         def kinds(pos):
             m = mem()
             m.note_seen("white_bed", pos, "minecraft:overworld")
-            cost = Cost(Snap(), m, finds={"minecraft:sheep": 8.0})
+            cost = Cost(Snap(**{"minecraft:sheep": 8.0}), m)
             return [s.kind for s in plan_needs(bag(inventory()), [("bed", 1)], cost)]
         self.assertEqual(kinds((4, 64, 0)), ["take"])
         self.assertNotIn("take", kinds((4000, 64, 0)))
@@ -418,6 +408,31 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
         self.assertEqual(sorted(knowledge.fact_steps("footing", True)), [("reach", "footing"), ("reach", "land")])
 
 
+class AnEstimateReadsNoWorld(unittest.TestCase):
+    """Pricing reads the snapshot (its look) and memory only: no api call while estimating."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import api
+        steps = [Step("mine", "minecraft:cobblestone", 3, {"blocks": ["stone"], "tier": 0, "breaks": 3}),
+                 Step("gather", "log", 2, {}),
+                 Step("hunt", "minecraft:beef", 1, {"types": ["minecraft:cow"], "kills": 1}),
+                 Step("take", "bed", 1, {"blocks": ["white_bed"]})]
+        calls = []
+        # (situation, what is in the look) → api calls while pricing every step
+        rows = [("in sight: priced off the look", {"stone": 4.0, "oak_log": 6.0, "minecraft:cow": 9.0}),
+                ("nothing in sight: memory, then the priors", {})]
+        for name, seen in rows:
+            with self.subTest(name), mock.patch.object(api, "api", side_effect=lambda *a, **k: calls.append(a)):
+                c = Cost(Snap(**seen), mem())
+                for st in steps:
+                    c.estimate(st)
+                    c.site(st)
+                self.assertEqual(calls, [])                          # must fail: an estimate that reads the world
+        with mock.patch.object(api, "api", side_effect=AssertionError("a world read")):
+            self.assertTrue(plan_needs(bag(inventory()), [("minecraft:cobblestone", 2)], Cost(Snap(stone=4.0), mem())))
+
+
 class ARoundReadsEachThingOnce(unittest.TestCase):
     """Within a round a kept answer equals a fresh one, a changed input is read again, repeats cost one read."""
 
@@ -430,9 +445,9 @@ class ARoundReadsEachThingOnce(unittest.TestCase):
         from bonobo import cost as costmod
         from bonobo.skillcore import banned
         step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
-        with mock.patch.dict(world._SIGHT, {"hits": {"stone": list(self.HITS)}, "memo": {}, "v": 0}), \
-                mock.patch.dict(costmod.ROUTES, {}, clear=True):
-            c = Cost(Snap(), mem(), finds={})
+        with mock.patch.dict(costmod.ROUTES, {}, clear=True):
+            c = Cost(Snap(stone=3.0), mem())
+            c.snap.hits["stone"] = list(self.HITS)
             gone = c.not_there(True)
             for p in [(3, 64, 0), (6, 64, 0), (9, 9, 9)]:
                 with self.subTest(cell=p):
@@ -449,8 +464,6 @@ class ARoundReadsEachThingOnce(unittest.TestCase):
             costmod.ROUTES[key] = (True, 1.0)
             c.blacklist[(3, 64, 0)] = time.time() + 60
             self.assertEqual(c.site(step), (6, 64, 0))      # must fail: a kept answer outliving the ban that changed it
-            world._SIGHT["hits"] = {"stone": [dict(self.HITS[1], x=7)]}
-            self.assertEqual(world.sight_pos(["stone"]), (7, 64, 0))   # must fail: a kept answer from the last look
 
     def test_providers_follow_the_registry(self):
         from unittest import mock
@@ -466,9 +479,8 @@ class ARoundReadsEachThingOnce(unittest.TestCase):
         from unittest import mock
         from bonobo import cost as costmod
         step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
-        with mock.patch.dict(world._SIGHT, {"hits": {"stone": list(self.HITS)}, "memo": {}, "v": 0}), \
-                mock.patch.dict(costmod.ROUTES, {}, clear=True):
-            c = Cost(Snap(), mem(), finds={})
+        with mock.patch.dict(costmod.ROUTES, {}, clear=True):
+            c = Cost(Snap(stone=3.0), mem())
             with mock.patch.object(Cost, "_nearest", autospec=True, return_value=None) as read, \
                     mock.patch.object(costmod, "_Gone", wraps=costmod._Gone) as built:
                 for _ in range(1000):
@@ -495,11 +507,11 @@ class TheSoilIsWhatPerceptionRead(unittest.TestCase):
                 ("seven dirt over rock, read", column(7), 7)]
         for name, region, want in rows:
             with self.subTest(name), mock.patch.object(perception.STATE, "region", region):
-                ground = perception.price_inputs(dict(Snap.state, timeOfDay=0))["ground"]
-                self.assertEqual(Cost(Snap(), mem(), finds={}, region=ground).soil(), want)
+                ground = perception.price_inputs(state(timeOfDay=0))["ground"]
+                self.assertEqual(Cost(Snap(), mem(), region=ground).soil(), want)
             with self.subTest(f"{name}: priced from its input alone"), \
                     mock.patch.object(perception.STATE, "region", column(5)):
-                self.assertEqual(Cost(Snap(), mem(), finds={}, region=region).soil(), want)
+                self.assertEqual(Cost(Snap(), mem(), region=region).soil(), want)
 
 
 class TheNightIsAFact(unittest.TestCase):

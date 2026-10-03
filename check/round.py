@@ -173,6 +173,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
     from bonobo import dispatch
     from bonobo.data import home_box_of
     from bonobo.memory import Memory
+    from bonobo.knowledge import SOURCE_BLOCKS
     from bonobo.world import Inventory, Snapshot
     from .facts import alpha
     from .gamma import gamma
@@ -220,7 +221,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
         for dim in DIMS:
             if hasattr(dim, "prepare"):
                 dim.prepare(b, facts)
-        snap = Snapshot.from_readings(api.get("/state"), Inventory())
+        snap = Snapshot.read(SOURCE_BLOCKS)
         b.place = None
         b.policy_cache = b.policy(snap, snap.night)
         bctx = b.context(snap.dimension)
@@ -326,7 +327,7 @@ def plan_ctx(b, act, snap, mem, world):
     for st in held["steps"] if held is not None else ():
         cost.estimate(st)          # warm the cache while the stub answers
     from bonobo.planner import from_bag, price_as_run
-    tools = list(from_bag(snap.inv, reserved=getattr(cost, "reserved", ())).tools)
+    tools = list(from_bag(snap.inv, reserved=cost.reserved).tools)
     out = {"plan": list(held["steps"]) if held is not None else None, "price": cost.estimate, "inv": snap.inv,
            "price_run": None,
            "mem": mem, "dimension": snap.dimension, "feet": snap.feet,
@@ -372,7 +373,7 @@ def exact_s(inv, want, needs, cost, pending=None):
     try:
         if want:
             targets = [Target(name, decompose.round_needs(json.loads(goal), inv, cost), rank)
-                       for rank, (name, goal) in enumerate(want)]
+                       for rank, (name, goal, *_left) in enumerate(want)]
             return plan_round(inv, targets, cost, pending, exact=True)[2]
         return plan_candidates(inv, needs, cost, exact=True)[0][1]
     except Unplannable:
@@ -382,7 +383,7 @@ def exact_s(inv, want, needs, cost, pending=None):
 def plan_bound(inv, needs, cost, pending=None, jobs=None):
     """Ticks no plan for `needs` from this bag can cost less than: the planner's search's own bound at its root."""
     from bonobo.planner import Node, Search, from_bag
-    root = Node(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()), [], [])
+    root = Node(from_bag(inv, pending, jobs, cost.reserved, cost.facts()), [], [])
     root.stack = [("tool", n[1], int(n[2]), 1, 0) if n[0] == "tool" else ("need", n[0], int(n[1]), 0, False)
                   for n in reversed(list(needs)) if n[0] not in ("fact", "do")]
     return Search(cost).h(root)

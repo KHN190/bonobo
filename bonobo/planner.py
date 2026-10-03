@@ -196,8 +196,7 @@ def from_bag(inv, extra=None, pending=None, reserved=(), facts=None):
             counts[s["id"]] += 1
     for item in reserved or ():
         counts.pop(mid(item), None)
-    tools = [(kind, t, spare_uses(d)) for kind in TOOL_KINDS for t, d, _ in inv.tools(kind) if working(d)] \
-        if hasattr(inv, "tools") else []
+    tools = [(kind, t, spare_uses(d)) for kind in TOOL_KINDS for t, d, _ in inv.tools(kind) if working(d)]
     return VirtualInventory(counts, tools, {mid(k): v for k, v in (pending or {}).items()}, facts)
 
 
@@ -479,9 +478,8 @@ lifecycle.in_place(__name__, "_BOUNDS", cache=True)
 def bound(cost):
     """The tables' bound (`Bound`), kept across rounds while what it is built from holds:"""
     from . import knowledge
-    mem = getattr(cost, "mem", None)
-    stats = tuple(sorted((k, d.get("per"), d.get("n")) for k, d in mem.data.get("durations", {}).items())) \
-        if mem is not None and hasattr(mem, "data") else ()
+    stats = tuple(sorted((k, d.get("per"), d.get("n")) for k, d in cost.mem.data.get("durations", {}).items())) \
+        if cost.mem is not None else ()
     key = (tuple(id(p) for p in knowledge.PRODUCERS), id(knowledge.STEP_CALL), stats,
            type(cost).__name__ if isinstance(cost, NullCost) else "cost")
     if key not in _BOUNDS:
@@ -528,9 +526,9 @@ def _hook_memo(memo, name, fn, facts=False):
 class Search:
     def __init__(self, cost, kinds=None, exact=False):
         self.exact = exact              # no budget: every option weighed, A* to the end (the checker's reference)
-        self.hungry = getattr(cost, "hunger_rate", lambda: 0.0)()
+        self.hungry = cost.hunger_rate()
         # what one search learns holds for every search of the round on the same readings (Cost.plans)
-        plans = cost.plans() if hasattr(cost, "plans") else {}
+        plans = cost.plans()
         shared = plans.setdefault(("search", tuple(sorted(kinds)) if kinds else None, exact), {})
         self.walks = shared.setdefault("walks", {})       # (token, way) → its own walk at the least (own_walk)
         self.spent = 0                  # nodes advanced (the dive's budget: DIVE_NODES)
@@ -541,7 +539,7 @@ class Search:
         self.start_tools: list = []
         self.h_memo: dict = {}          # (what is left, the bag) → its bound
         self.greedy = False             # settle: every option weighed, or (the dive) the few least-bound ways inside a choice
-        self.stop = getattr(cost, "stop", None) or (lambda: False)
+        self.stop = cost.stop or (lambda: False)
         self.cost = cost
         self.kinds = kinds              # step kinds allowed (None: all)
         self.lb = bound(cost)
@@ -632,11 +630,11 @@ class Search:
     def kept(self):
         """{item id: count} the remembered containers here hold (memory), once a search."""
         if self._kept is None:
-            mem, snap = getattr(self.cost, "mem", None), getattr(self.cost, "snap", None)
+            mem, snap = self.cost.mem, self.cost.snap
             self._kept = {}
-            if mem is not None and snap is not None and hasattr(mem, "data"):
+            if mem is not None:
                 for c in mem.data.get("containers", {}).values():
-                    if c.get("dimension") == getattr(snap, "dimension", None):
+                    if c.get("dimension") == snap.dimension:
                         for item, n in c.get("items", {}).items():
                             if n > 0:
                                 self._kept[mid(item)] = self._kept.get(mid(item), 0) + n
@@ -645,7 +643,7 @@ class Search:
     def stored(self, token):
         """Whether a remembered container holds `token` (cost.stored), once a search."""
         if token not in self.stored_c:
-            self.stored_c[token] = bool(getattr(self.cost, "stored", lambda t: [])(token))
+            self.stored_c[token] = bool(self.cost.stored(token))
         return self.stored_c[token]
 
     def near(self, block):
@@ -666,7 +664,7 @@ class Search:
         key = (token, i)
         if key not in self.walks:
             sourced = step.kind in ("mine", "gather", "hunt", "take")
-            self.walks[key] = float(self.cost.walk_lb(step)) if sourced and hasattr(self.cost, "walk_lb") else 0.0
+            self.walks[key] = float(self.cost.walk_lb(step)) if sourced else 0.0
         return self.walks[key]
 
     def replay(self, root, needs, steps):
@@ -842,7 +840,7 @@ class Search:
             if self.kinds is not None and src[0] not in self.kinds:
                 continue
             if src[0] == "farm":
-                ripe_n = getattr(self.cost, "ripe", lambda t: 0)(made) * TAKEABLE[made]["gives"][made]
+                ripe_n = self.cost.ripe(made) * TAKEABLE[made]["gives"][made]
                 for r in ((1,) if ripe_n >= n else ()) + (0,):
                     got = way(src, made, n, ripe=r)
                     if got is not None:
@@ -852,7 +850,7 @@ class Search:
             if got is None or any(node.inv.available(t) < c and not self.sources(t) for t, c in got[1]):
                 continue                # an input nothing makes and the bag lacks: not a way from here
             step = got[0]
-            if src[0] == "take" and getattr(self.cost, "site", lambda s: None)(step) is None:
+            if src[0] == "take" and self.cost.site(step) is None:
                 continue                # a thing standing in the world is taken only where one is known
             out.append(((0, 0, i), self.tasks(token, n, depth, len(node.steps), *got)))
             carried = self.from_carried(node, src, made, n)
@@ -882,7 +880,7 @@ class Search:
     def withdrawals(self, node, token, n, depth):
         """Taking it from a container that holds it (memory.stored, each weighed by the chance it still does):"""
         out = []
-        for j, (pos, item, have, p) in enumerate(getattr(self.cost, "stored", lambda t: [])(token)):
+        for j, (pos, item, have, p) in enumerate(self.cost.stored(token)):
             taken = f"taken:{tuple(pos)}:{item}"          # what this plan already takes out of that container
             have -= node.inv.facts.get(taken, 0)
             if p <= 0 or have <= 0:
@@ -1044,7 +1042,7 @@ class Search:
     def emit(self, node, step, depth, start):
         held = node.inv.held()
         # S5: an optional fight only above the line, with the weapon the plan holds by then (brain's one judge)
-        ok, why = getattr(self.cost, "fight_line", lambda s, held=None: (True, None))(step, held)
+        ok, why = self.cost.fight_line(step, held)
         if not ok:
             return self.dead(f"{step.kind}: {why}")
         step = Step(step.kind, step.token, step.count, dict(step.detail))
@@ -1225,14 +1223,14 @@ def price_as_run(steps, tools, cost, held=None):
     """Pure given the cost:"""
     out, at = [], None
     have: list[tuple] = list(tools or ())
-    hungry = getattr(cost, "hunger_rate", lambda: 0.0)()      # F1l: hunger's seconds until a step makes food
+    hungry = cost.hunger_rate()      # F1l: hunger's seconds until a step makes food
     for i, step in enumerate(steps):
         tiers = held[i] if held is not None else _tiers(have)
         est = cost.estimate(step, tiers, at)
         if hungry:
             est += round(est * hungry)
             hungry = 0.0 if mid(step.token) in FOOD_IDS and step.kind in MAKES_FOOD else hungry
-        site = cost.site(step) if hasattr(cost, "site") else None
+        site = cost.site(step)
         at = site if site is not None else at
         material, _, kind = bare(step.token).rpartition("_")
         if step.kind == "craft" and kind in TOOL_KINDS and material in TOOL_USES:
@@ -1280,7 +1278,7 @@ def step_needs(steps):
 
 def walk_order(steps, cost):
     """Indexes of `steps` in run order:"""
-    if not hasattr(cost, "site") or getattr(cost, "snap", None) is None:
+    if cost.snap is None:
         return list(range(len(steps)))
     sites = {i: cost.site(s) for i, s in enumerate(steps)}
     placed = [i for i, p in sites.items() if p is not None]
@@ -1337,9 +1335,9 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact
     """The plans the search priced for `needs` from this bag, cheapest first:"""
     if not needs:
         return [(plan_name([]), 0.0, [])]
-    root = Node(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()), [], [])
+    root = Node(from_bag(inv, pending, jobs, cost.reserved, cost.facts()), [], [])
     # one plan per question a round asks (the same needs from the same bag: needs, upkeep, queue, night)
-    cache = cost.plans() if hasattr(cost, "plans") else getattr(cost, "cache", None)
+    cache = cost.plans()
     key = ("plan", tuple(repr(tuple(n)) for n in needs), root.inv.signature(), tuple(sorted(kinds)) if kinds else None,
            exact, tuple((s.kind, s.token, s.count) for s in held) if held else None)
     if cache is not None and key in cache:
@@ -1381,9 +1379,10 @@ def food_left_s(cost):
     """Seconds the body's bar lasts with nothing eaten (beliefs risk.food_drain_s a point), None when food is carrie…"""
     from . import beliefs
     from .knowledge import food_count
-    state = getattr(getattr(cost, "snap", None), "state", None) or {}
-    inv = getattr(getattr(cost, "snap", None), "inv", None)
-    if "food" not in state or inv is None or food_count(inv) > 0:
+    if cost.snap is None:
+        return None
+    state, inv = cost.snap.state, cost.snap.inv
+    if "food" not in state or food_count(inv) > 0:
         return None
     return float(state["food"]) * float(beliefs.value("risk.food_drain_s"))
 
@@ -1457,7 +1456,7 @@ def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False):
         search = Search(cost)
         floor = {}
         for combo in combos:
-            root = Node(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()), [], [])
+            root = Node(from_bag(inv, pending, jobs, cost.reserved, cost.facts()), [], [])
             needs = [n for t in fixed for n in t.needs] + [n for opt in combo for n in opt[1]]
             root.stack = [("tool", n[1], int(n[2]), 1, 0) if n[0] == "tool" else ("need", n[0], int(n[1]), 0, False)
                           for n in reversed(needs) if n[0] not in ("fact", "do")]
@@ -1493,7 +1492,7 @@ def plan_round(inv, targets, cost, pending=None, jobs=None, held=None, chosen=No
         steps = fed + _cheapest_order(_After(inv, fed), targets, cost, pending, jobs, exact=exact)   # the rest from what the meal leaves
         if not fed_in_time(steps, left):
             raise Unplannable(f"the bar runs out in {left:.0f} s before any food the plan can make")
-    tools = list(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()).tools)
+    tools = list(from_bag(inv, pending, jobs, cost.reserved, cost.facts()).tools)
     steps = [Step(s.kind, s.token, s.count, dict(s.detail)) for s in steps]
     for st, est in zip(steps, price_as_run(steps, tools, cost)):
         st.est = est                 # priced as the whole round runs: the meal planned apart (D6)
@@ -1508,8 +1507,8 @@ def p_unknown(k, n):
 def look_first(inv, needs, cost, pending=None):
     """[the look into an unopened home container] when its expected seconds beat making what is short — the look, th…"""
     from . import goals
-    mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
-    if mem is None or snap is None or not hasattr(mem, "home_containers"):
+    mem, snap = cost.mem, cost.snap
+    if mem is None:
         return []
     unopened = [c for c in mem.home_containers(snap.dimension) if mem.container_record(c) is None]
     if not unopened:
@@ -1566,11 +1565,30 @@ def runnable(step, inv):
 
 
 class NullCost:
-    """Offline cost model for tests: the prior work (knowledge.prior_work_ticks), nothing known about places."""
+    """Offline cost model: the prior work (knowledge.prior_work_ticks), no body, no memory, nothing known about places."""
 
     def __init__(self, reserved=()):
         self.reserved = frozenset(reserved)
         self.cache = {}
+        self.snap = self.mem = self.stop = None
+
+    def plans(self):
+        return self.cache
+
+    def hunger_rate(self):
+        return 0.0
+
+    def stored(self, token):
+        return []
+
+    def ripe(self, token):
+        return 0
+
+    def site(self, step):
+        return None
+
+    def fight_line(self, step, held=None):
+        return True, None
 
     def station_near(self, block):
         return False

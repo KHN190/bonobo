@@ -486,14 +486,13 @@ class Nav(unittest.TestCase):
                              {"block": "minecraft:stone", "distance": 10.0, "x": 12, "y": 64, "z": 0}]}
         noted = [{"pos": [3, 64, 3]}]
         mem = mock.Mock(protected_cells=lambda dim: home, seen=lambda kind, dim: noted if kind == "stone" else [])
-        snap = mock.Mock(feet=(2, 64, 2), dimension="minecraft:overworld")
+        from tests.world import inventory, state
+        snap = world.Snapshot.from_readings(state(x=2.5, y=64.0, z=2.5), inventory(), {"stone": answer["blocks"]})
         step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"]})
         rows = [("must fail: the home's stone as the source: 10 off, not the wall 2 off nor the noted one", True, 10.0),
                 ("the same look for a station: the home's counts (the noted one, 1.4 off)", False, 1.4)]
         for name, sources, want in rows:
-            with self.subTest(name), mock.patch.object(api, "get", return_value=answer), \
-                    mock.patch.dict(world._SIGHT, {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}}):
-                self.per_block[:] = [True]
+            with self.subTest(name), mock.patch.object(api, "api", side_effect=AssertionError("a world read")):
                 c = Cost(snap, mem)
                 got = c._source(step) if sources else c.distance(["stone"], 32)
                 self.assertAlmostEqual(got, want, places=1)
