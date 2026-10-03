@@ -29,6 +29,7 @@ WORLD = {
     "dug_with",                 # the box's blocks (what was broken) and the tool's damage in the bag
     "no_reflex",                # a watcher sampling the body's /state `blocking` through the window
     "held",                     # the body's /state: the main hand
+    "dragon_health",            # the server's dragon Health (/data get entity)
 }
 
 # words that hold a state over the window: true at its start, they pass only if still true at its end (idle mode
