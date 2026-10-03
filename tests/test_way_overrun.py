@@ -153,13 +153,14 @@ class RefutedPrice(unittest.TestCase):
         self.assertEqual(c.site(step), far)
 
     def test_a_bag_change_lifts_the_refutation(self):
-        """The refutation is kept under the bag's state (ban_state): a different bag is a different state, so the
-        same target prices fresh again (G3/E5: the fact only lifts by the state change it was measured in)."""
+        """The refutation is kept under the bag's way-relevant kinds (ban_state/knowledge.way_kinds: tools, building
+        blocks): a pickaxe swapped for another tier is a different state, so the same target prices fresh again
+        (G3/E5: the fact only lifts by the state change it was measured in)."""
         from bonobo.world import Inventory
         from tests.world import inventory
         cost_of, step, near, _far, mem, bag = _refuted_scene()
         self._refute(mem, step, near, 0.5, bag)
-        new_bag = Inventory(inventory(("stone_pickaxe", 1), ("torch", 4)))
+        new_bag = Inventory(inventory(("iron_pickaxe", 1)))        # a different tool tier: a different way_kinds set
         c = cost_of(new_bag)
         self.assertEqual(c.site(step), near)
         c.estimate(step)
