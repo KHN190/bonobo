@@ -243,6 +243,26 @@ class Cost:
             out.append((pos, item, have, p))
         return out
 
+    def feet(self):
+        """Where the body stands: where every route starts."""
+        return tuple(self.snap.feet)
+
+    def places(self):
+        """Every place a step can be priced at here (site's answers: remembered spots, containers, the round's look)."""
+        if "places" not in self.cache:
+            dim = self.snap.dimension
+            out = set(self._points())
+            out |= {tuple(c["pos"]) for c in self.mem.data.get("containers", {}).values()
+                    if c.get("dimension") == dim and c.get("pos")}
+            out |= {(h["x"], h["y"], h["z"]) for hits in (self.snap.hits or {}).values() for h in hits}
+            self.cache["places"] = frozenset(out)
+        return self.cache["places"]
+
+    @staticmethod
+    def walk_ticks(distance):
+        """walk_ticks, asked of the cost model (the planner's bound walks as the model prices a walk)."""
+        return walk_ticks(distance)
+
     def station_near(self, block):
         """A station of `block` within STATION_R: one of ours (memory: stations, machines that provide it) or one in
         sight — used where it stands, never made again."""

@@ -328,6 +328,42 @@ class ARoundThinksWithinItsCap(unittest.TestCase):
             planner.SPENT.update(saved)
 
 
+class TheBoundWalksEveryTripLeft(unittest.TestCase):
+    def test_each_search_a_source_needs_is_counted(self):
+        from tests.world import cost
+        c = cost(snapshot())
+        search = planner.Search(c)
+        node = planner.Node(planner.from_bag(bag(inventory()), None, None, c.reserved, c.facts()), [], [])
+        node.stack = [("tool", "pickaxe", 2, 1, 0)]
+        searches = search.required("minecraft:iron_pickaxe", node.inv.available, set(), frozenset())
+        walks = {r[1]: r[2] for r in searches if r[0] == "search"}
+        # must fail: the iron and the logs a pickaxe of iron needs, nowhere known, bounded as one walk (their max)
+        self.assertEqual(set(walks), {("mine", "minecraft:raw_iron"), ("gather", "log")})
+        self.assertGreaterEqual(search.h(node), sum(walks.values()))
+
+    def test_a_way_through_what_cannot_be_made_is_no_way(self):
+        from tests.world import cost
+        search = planner.Search(cost(snapshot()))
+        # must fail: iron ingots from an iron block (made of ingots) taken as a way that needs no walk
+        self.assertTrue(search.required("minecraft:iron_ingot", lambda t: 0, set(), frozenset()))
+
+
+class TheRoundsBudgetIsShared(unittest.TestCase):
+    def test_rows(self):
+        saved = dict(planner.SPENT)
+        # (where the round began, steps now) → the expansions one search may make
+        rows = [(None, 5000, planner.MAX_NODES),
+                (0, 0, (planner.ROUND_STEPS - planner.DIVE_RESERVE) // 2),
+                (0, planner.ROUND_STEPS, 0)]        # must fail: a search after the round's steps are spent
+        try:
+            for began, now, want in rows:
+                with self.subTest(began=began, now=now):
+                    planner.SPENT.update(round=began, steps=now)
+                    self.assertEqual(planner.search_allowance(), want)
+        finally:
+            planner.SPENT.update(saved)
+
+
 class AHeldPlanIsReplayedHonestly(unittest.TestCase):
     def test_a_craft_whose_inputs_are_not_had_is_no_incumbent(self):
         search = planner.Search(NullCost())

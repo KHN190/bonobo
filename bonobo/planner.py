@@ -590,8 +590,8 @@ class Search:
 
     # -- what is left: its bound
     def h(self, node, floor=0):
-        """`bound` of the node, once a search per what is left and the bag it is asked from."""
-        key = (signature(node.stack[floor:], self.task_keys), node.inv.signature())
+        """`bound` of the node, once a search per what is left, the bag it is asked from and the places walked to."""
+        key = (signature(node.stack[floor:], self.task_keys), node.inv.signature(), self.walked(node))
         got = self.h_memo.get(key)
         if got is None:
             got = self.h_memo[key] = self.bound_of(node, floor)
@@ -635,7 +635,64 @@ class Search:
                 if held(s) <= 0 and not self.near(s):
                     station = max(station, fixed(s))
             walk = max(walk, self.walk_to(task[1], held, memo["held"], frozenset(trips)))
+        walk = max(walk, self.legs(node, floor, held, memo["held"], frozenset(trips)))
         return units + walk + max(tool, station)     # a tool or station made is work no unit's least counts
+
+    def walked(self, node):
+        """The places the node's steps work at (forward's route passes each)."""
+        return frozenset(p for p in (self.cost.site(st) for st, _h, _s in node.steps) if p is not None)
+
+    def legs(self, node, floor, held, heldset, trips):
+        """Ticks the walks still to come take at the least: every place what is left must be made at (whichever way
+        it is made) is walked into once, from the nearest other place the route can come from (the feet, a place
+        walked to, another such place) — distinct legs of any route, so their sum bounds it."""
+        feet = self.cost.feet()
+        if feet is None:
+            return 0.0
+        req: set = set()
+        for task in node.stack[floor:]:
+            if task[0] == "need" and held(task[1]) < task[2]:
+                req |= self.required(task[1], held, heldset, trips) or frozenset()
+            elif task[0] == "tool" and not node.inv.has_tool(task[1], task[2], task[3]):
+                req |= self.required(tool_item(task[1], task[2]), held, heldset, trips) or frozenset()
+        if not req:
+            return 0.0
+        at = {r[1] for r in req if r[0] == "at"}
+        # the place before each: any a step can work at (planned or not: the route may pass one this bound skips)
+        points = at | self.walked(node) | {tuple(feet)} | self.cost.places() | {
+            tuple(t[1].detail["pos"]) for t in node.stack if t[0] == "emit" and t[1].detail.get("pos")}
+        # a source nowhere known is a search of its own (the model prices each, a repeat joining its first)
+        return float(sum(self.cost.walk_ticks(min(math.dist(r, p) for p in points if p != r)) for r in at)
+                     + sum(r[2] for r in req if r[0] == "search"))
+
+    def required(self, token, held, heldset, trips, seen=frozenset()):
+        """The walks any making of `token` from here takes (each way's, intersected over its ways): ("at", a place)
+        or ("search", the step, its walk) for a source nowhere known; none when held, stored, or a way needs none;
+        None when no way makes it (a way through such a thing is no way)."""
+        if token in seen:
+            return None                 # made from itself: no way of a finite plan
+        if held(token) > 0 or self.stored(token):
+            return frozenset()
+        relevant = self.lb.reach.get(token, set()) | {token, mid(token)}
+        key = ("required", token, frozenset(relevant & heldset), frozenset(relevant & trips), frozenset(seen & relevant))
+        if key in self.reach_c:
+            return self.reach_c[key]
+        out = None
+        for step, _station, ins in self.lb.shapes.get(token, self.lb.shapes.get(mid(token), ())):
+            own: frozenset = frozenset()
+            if step.kind in ("gather", "mine", "hunt", "take") and token not in trips and mid(token) not in trips:
+                site = self.cost.site(step)
+                own = frozenset([("at", tuple(site))]) if site is not None else \
+                    frozenset([("search", step.key(), float(self.cost.walk_lb(step)))])
+            parts = [self.required(t, held, heldset, trips, seen | {token}) for t in ins]
+            if any(p is None for p in parts):
+                continue                # a way through what cannot be made: not one a plan takes
+            need = own.union(*parts)
+            out = need if out is None else out & need
+            if not out:
+                break
+        self.reach_c[key] = out         # None: no way at all
+        return out
 
     def least(self, token, n, inv):
         """Bound.least of `n` token from `inv`, once a search per what of its derivation the bag holds."""
@@ -1296,7 +1353,8 @@ class Search:
         push(self.h(root), (), root)
         nodes = 0
         visited: dict = {}                  # the transposition table: (what is left, the bag, what is open) → least g
-        while heap and (self.exact or nodes <= MAX_NODES and not round_spent()):
+        allowance = search_allowance()
+        while heap and (self.exact or nodes <= allowance and not round_spent()):
             f, tie, n = heapq.heappop(heap)
             if (f, tie) >= ((best[0], best[1]) if best is not None else (cap, ())):
                 break
@@ -1320,7 +1378,7 @@ class Search:
                 fc = c.g + self.h(c)
                 if fc < cap and (best is None or (fc, c.tie) < (best[0], best[1])):
                     push(fc, c.tie, c)
-        if heap and (nodes > MAX_NODES or round_spent()) and not self.exact and (best is None or heap[0][0] < best[0]):
+        if heap and (nodes > allowance or round_spent()) and not self.exact and (best is None or heap[0][0] < best[0]):
             SPENT["budget"] += 1              # stopped with cheaper possible: P5 may be missed, said (budget_spent)
         if best is None and cap < math.inf:
             raise Dearer(f"no plan under {cap:.0f} ticks")
@@ -1471,6 +1529,15 @@ def plan_name(steps) -> str:
 
 SPENT: dict = {"steps": 0, "budget": 0, "round": None}   # steps advanced, searches a budget stopped, where a round began
 ROUND_STEPS = 1500      # the user's cap on a round's search steps, against a runaway search (P4)
+DIVE_RESERVE = 200      # of it kept from A* for the first plans the round's later searches still owe
+
+
+def search_allowance():
+    """Expansions one search may make: inside a round, half of what the round has left (the searches after it keep
+    the rest); outside one (a test, a bench estimate), MAX_NODES since its last better plan."""
+    if SPENT["round"] is None:
+        return MAX_NODES
+    return max(0, ROUND_STEPS - DIVE_RESERVE - (SPENT["steps"] - SPENT["round"])) // 2
 
 
 def round_spent():
@@ -1792,6 +1859,15 @@ class NullCost:
 
     def site(self, step):
         return None
+
+    def feet(self):
+        return None
+
+    def places(self):
+        return frozenset()
+
+    def walk_ticks(self, distance):
+        return 0
 
     def fight_line(self, step, held=None):
         return True, None
