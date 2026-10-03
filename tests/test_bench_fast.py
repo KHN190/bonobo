@@ -7,6 +7,20 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo.bench import core  # noqa: E402
 
 
+class TheReportReadsWhereTheBodyStopped(unittest.TestCase):
+    """accept_fresh_iron_pickaxe's report: the region read at the bench origin's box, 3000 blocks off the row: no
+    blocks; a failure's region is the scene box's extent round the body."""
+
+    def test_rows(self):
+        from bonobo.bench import runner
+        for name, feet in (("at the bench origin", core.at(0, 0, 0)),
+                           ("must fail: 3000 blocks off the origin", (13030, 76, 12958))):
+            with self.subTest(name):
+                lo, hi = runner.report_box(feet)
+                self.assertTrue(all(lo[i] <= feet[i] <= hi[i] for i in range(3)))
+                self.assertEqual(tuple(hi[i] - lo[i] for i in range(3)), tuple(core.BOX[1][i] - core.BOX[0][i] for i in range(3)))
+
+
 class Replies(unittest.TestCase):
     def test_rows(self):
         # (situation, commands) → replies waited on

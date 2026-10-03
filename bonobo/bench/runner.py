@@ -675,16 +675,24 @@ def _trace(stop, out):
 REPORTING = paths.session("bench.runner.REPORTING", list)          # the failure report still being written (a thread): the next row's setup waits on it
 
 
+def report_box(feet):
+    """Pure: the box a failed row's report reads: the scene box's extent round where the body stopped (a row far
+    from the bench origin read an unloaded box: no blocks), so its nav failure replays offline."""
+    return tuple(feet[i] + BOX[0][i] for i in range(3)), tuple(feet[i] + BOX[1][i] for i in range(3))
+
+
 def _report(name, data):
     """The failed row's report, written on a thread (its world reads and the file); the folder named at once."""
     folder = os.path.join(BENCH, name, time.strftime("%Y%m%d-%H%M%S"))
 
     def write():
+        from .. import api
         from ..world import Region
         try:
             data["inventory"] = [(s["id"], s["count"]) for s in bag_now().slots]
-            lo, hi = at(*BOX[0]), at(*BOX[1])
-            data["region"] = [[*p, n] for p, n in Region(lo, hi).blocks.items()]
+            s = api.get("/state")
+            data["region_at"] = feet = (s["blockX"], s["blockY"], s["blockZ"])
+            data["region"] = [[*p, n] for p, n in Region(*report_box(feet)).blocks.items()]
         except McError as e:
             data["report_error"] = str(e)
         os.makedirs(folder, exist_ok=True)
