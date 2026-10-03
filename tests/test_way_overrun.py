@@ -203,6 +203,49 @@ class Accept7MineStep(unittest.TestCase):
         self.assertEqual([t for t in sent if t["type"] == "mine"], [])
 
 
+class HuntChaseOverrun(unittest.TestCase):
+    """The production path (dispatch.run_priced -> gather.hunt -> skill._drive -> nav.check_budget), accept7-shaped:
+    a prey that never closes in (nav.chase stubbed "moved" every try, a fake clock 10s a chase). Priced 10s, its
+    OVERRUN budget is 15s: stopped after 2 chases, before a 3rd is ever tried (base 2000ec2: no check_budget at all,
+    every one of count*3+3 tries runs, red by assertion -- McError never raised)."""
+
+    def test_stopped_before_the_3rd_chase(self):
+        from bonobo import dispatch, gather, skillcore
+        from bonobo.planner import Step
+        from tests.world import inventory, memory, state
+
+        clock = [0.0]
+        chases = []
+        prey = {"id": 7, "type": "minecraft:cow", "health": 10.0, "distance": 10.0, "x": 5.0, "y": 64.0, "z": 0.0}
+        st = state(x=.5, y=64.0, z=.5)
+        inv_payload = inventory()
+
+        def api_get(path):
+            if path.startswith("/state"):
+                return st
+            if path.startswith("/inventory"):
+                return inv_payload
+            raise AssertionError(f"unexpected api.get {path}")
+
+        def chase(*a, **k):
+            chases.append(1)
+            clock[0] += 10.0
+            return "moved", None
+
+        ctx = skillcore.Context(memory(), nav.Policy(), "minecraft:overworld")
+        step = Step("hunt", "minecraft:beef", 1, {"types": ["minecraft:cow"]}, 10 * TICKS_PER_S)
+        with mock.patch.object(api, "get", api_get), mock.patch.object(api, "detail", lambda *a: None), \
+                mock.patch.object(gather, "feet", lambda: (0, 64, 0)), \
+                mock.patch.object(gather, "entities", lambda *a, **k: [prey]), \
+                mock.patch.object(gather.nav, "chase", chase), \
+                mock.patch.object(nav.time, "time", lambda: clock[0]), \
+                mock.patch.object(dispatch, "trace", lambda *a, **k: None), \
+                self.assertRaises(api.McError):
+            dispatch.run_priced("minecraft:overworld", step, False,
+                                lambda: gather.hunt(ctx, "minecraft:beef", 1, ("minecraft:cow",), False))
+        self.assertLessEqual(len(chases), 2, "must fail: a 3rd chase tried past the step's budget")
+
+
 class OverrunIsReplannedNotFailed(unittest.TestCase):
     """brain.outcome_of(Overrun) == "interrupted" (data.EXCEPTIONS["Overrun"]: replan, layer:plan; arbiter.RESUME_OF
     "same"): Brain.failed returns before writing a retry entry or a ban (brain.py:368's early return) -- new API
