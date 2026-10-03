@@ -65,7 +65,7 @@ def tier_rows(rows, tier, named):
     return [n for n, r in rows.items() if r["tier"] != "acceptance"
             and (not named or tier == "all" or r["tier"] == tier)]
 
-def _slice(done, minutes, target=None, queue=(), max_idle=15):
+def _slice(done, minutes, target=None, queue=(), max_idle=15, outlast=False):
     """Run the whole cerebellum until done() or `minutes`, on a private task queue holding `queue`."""
     def run(ctx):
         from ... import api, tasks
@@ -83,8 +83,8 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
         stopped = None
         try:
             while time.time() - t0 < minutes * 60:
-                # the queue's goals finished ends the slice: idle stocking after is not the row's work
-                if (done is not None and done()) or (queue and queue_finished(tasks.load())):
+                # the queue's goals finished end the slice, unless `outlast`: then done() alone does
+                if (done is not None and done()) or (not outlast and queue and queue_finished(tasks.load())):
                     break
                 try:
                     core.BRAIN.round()

@@ -142,5 +142,20 @@ class BlazeStep(unittest.TestCase):
                 self.assertEqual(combat.blaze_step(blazes, rods, spawners, quiet), want)
 
 
+class AngerNbt(unittest.TestCase):
+    """fight_enderman_provoked's anger, set as the game saves it: the player's UUID read off its reply."""
+
+    def test_table(self):
+        from bonobo.bench.words import fight as words_fight
+        rows = [("a UUID reply", ["knh190 has the following entity data: [I; 12, -34, 56, -78]"], [12, -34, 56, -78]),
+                ("must fail: no UUID in the reply", ["No entity was found"], None)]
+        for name, lines, want in rows:
+            with self.subTest(name):
+                self.assertEqual(words_fight.uuid_ints(lines), want)
+        nbt = words_fight.anger_nbt([1, 2, 3, 4], 1000)
+        self.assertIn("angry_at:[I;1,2,3,4]", nbt)
+        self.assertIn(f"anger_end_time:{1000 + words_fight.ANGER_TICKS}L", nbt)
+
+
 if __name__ == "__main__":
     unittest.main()
