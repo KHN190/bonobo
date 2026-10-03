@@ -90,20 +90,23 @@ class AStandThatHoldsForNoWayFailsAtItsTarget(unittest.TestCase):
     def test_rows(self):
         target = (13013, 91, 13006)
         task = {"type": "mine", "x": target[0], "y": target[1], "z": target[2]}
-        rows = [("no way planned", None),
-                ("must fail: no stand after every way", [{"type": "goto", "x": 0, "y": 0, "z": 0}])]
-        for name, steps in rows:
+        tread = (13013, 86, 13006)
+        # (situation, the way planned, its why, the cell the failure names)
+        rows = [("no way planned: the cell its why names", None, nav.Why("no tread", tread), tread),
+                ("must fail: no stand after every way: the target", [{"type": "goto", "x": 0, "y": 0, "z": 0}],
+                 "", target)]
+        for name, steps, why, want in rows:
             with self.subTest(name), mock.patch.object(nav, "feet", return_value=(13014, 87, 13006)), \
                     mock.patch.object(nav, "_read_box", return_value=None), \
                     mock.patch.object(nav, "stands_for", return_value=False), \
                     mock.patch.object(nav, "stand_candidates", return_value=[]), \
                     mock.patch.object(nav, "plan_walks", return_value=[]), \
                     mock.patch.object(nav, "inventory_now", return_value=None), \
-                    mock.patch.object(nav, "plan_way", return_value=(steps, "no tread", 0.0)), \
+                    mock.patch.object(nav, "plan_way", return_value=(steps, why, 0.0)), \
                     mock.patch.object(api, "run_chain", return_value=[]):
                 with self.assertRaises(api.NavFailed) as got:
                     nav.reach_stand(task, nav.Policy())
-                self.assertEqual(got.exception.pos, target)
+                self.assertEqual(got.exception.pos, want)
 
 
 if __name__ == "__main__":

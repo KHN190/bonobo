@@ -55,7 +55,7 @@ def loot_chest(ctx):
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=30, awaits="the chest's slots (loot_plan) are only readable once its screen is open")
     if not opened(r):
         ctx.ban(pos, 1800)
-        raise McError(f"could not open the chest at {pos}")
+        raise McError(f"could not open the chest at {pos}", pos=pos)
     prices = ctx.prices()
     if not prices:
         # no price table, no decision: say so rather than write a chest off as looted

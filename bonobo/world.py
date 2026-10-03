@@ -362,13 +362,6 @@ def round_ground(feet, ground, now=None):
     return region, now
 
 
-def seen_hit(hits, kinds, skip=None, radius=math.inf):
-    """Pure: (distance, cell) of the nearest of `kinds` in a look's `hits`, none in `skip`, within `radius`; or None."""
-    got = [(h["distance"], (h["x"], h["y"], h["z"])) for k in kinds for h in hits.get(bare(k), ())
-           if h["distance"] <= radius and (skip is None or (h["x"], h["y"], h["z"]) not in skip)]
-    return min(got) if got else None
-
-
 def find(blocks, radius=32, limit=50, exposed=False):
     """What `/find` sees."""
 

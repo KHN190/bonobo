@@ -101,7 +101,7 @@ class Station:
             self.placed = True
             self.ctx.mem.add_station(self.block, self.pos, self.ctx.dimension)
             if not _standing(self.block, self.pos):
-                raise McError(f"placed {bare(self.block)} at {self.pos} but the world does not show it")
+                raise McError(f"placed {bare(self.block)} at {self.pos} but the world does not show it", pos=self.pos)
         else:
             # gone from where memory has it: forgotten, so the repaired plan makes one again
             for s in self.ctx.mem.stations(self.ctx.dimension, near=feet(), within=8):
@@ -290,7 +290,7 @@ def run_split(tasks, **kw):
                 results.append(r)
                 if not opened(r):
                     pos = (t["x"], t["y"], t["z"])
-                    raise McError(f"could not open the {Region(pos, pos).name(pos)} at {pos}: no screen")
+                    raise McError(f"could not open the {Region(pos, pos).name(pos)} at {pos}: no screen", pos=pos)
                 continue
             if t is not None and results:
                 api.post("/close")
@@ -561,15 +561,15 @@ def collect_job(ctx, job):
     if Region(pos, pos).name(pos) not in ("furnace", "blast_furnace", "smoker"):
         # Picked back up, broken or never placed there: the job is stale, not a navigation problem.
         ctx.mem.finish_job(job["id"])
-        raise NotAvailable(f"no furnace at {pos} any more; job dropped")
+        raise NotAvailable(f"no furnace at {pos} any more; job dropped", pos=pos)
     if not nav.arrived_near(pos, ctx.policy, range_=3, attempts=2):
-        raise api.NavFailed(f"furnace job at {pos} not reachable")
+        raise api.NavFailed(f"furnace job at {pos} not reachable", pos=pos)
     before = Inventory().count(job["item"])
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=40, awaits="the furnace's slots read on its screen")
     if not opened(r):
         if not find(["furnace"], radius=4, limit=1):
             ctx.mem.finish_job(job["id"])      # furnace is gone (broken, burnt down area): forget the job
-            raise NotAvailable(f"furnace at {pos} is gone")
+            raise NotAvailable(f"furnace at {pos} is gone", pos=pos)
         raise McError("could not open the furnace")
     try:
         slots = _furnace_slots()

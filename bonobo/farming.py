@@ -281,7 +281,7 @@ def plant_farm(ctx):
     # 1. the ring from ON the centre block, turning: every cell within 1.5, no rim between the eye and a top
     on_centre = (centre[0], centre[1] + 1, centre[2])
     if not nav.arrived_near(on_centre, policy, range_=0.3, attempts=1):
-        raise api.NavFailed(f"the plot's centre {centre} not reachable to stand on")
+        raise api.NavFailed(f"the plot's centre {centre} not reachable to stand on", pos=centre)
     ring = ring_commands(centre, hoe, Region(cell_add(centre, (-1, 0, -1)), cell_add(centre, (1, 1, 1))))
     # one send for the whole ring (a segment is a round trip and an idle queue between): its time logged
     t0 = time.time()
@@ -304,7 +304,7 @@ def plant_farm(ctx):
 
     # 2. off the plot to the stand, walking; then dig the centre and pour in one send
     if not nav.arrived_near(stand, policy, range_=0.5, attempts=1):
-        raise api.NavFailed(f"the plot's stand {stand} not reachable")
+        raise api.NavFailed(f"the plot's stand {stand} not reachable", pos=stand)
     seen = Region(cell_add(centre, (-3, -1, -2)), cell_add(centre, (2, 3, 2)))
     finish = finish_commands(centre, stand, seen)
     api.detail(f"  plot finish: stand {stand}, feet {world.feet()}, {column()}")
@@ -316,7 +316,7 @@ def plant_farm(ctx):
         raise McError(f"could not pour the plot's water: {column()}{server_view(centre)}")
     after = Region(cell_add(centre, (-1, -1, -1)), cell_add(centre, (1, 1, 1)))
     if not water_contained(after, centre):
-        raise McError(f"the plot's water at {centre} is not held by the ring: it runs over the plot")
+        raise McError(f"the plot's water at {centre} is not held by the ring: it runs over the plot", pos=centre)
     # read again until the world shows what the clicks did (a read right after the chain lagged: "a plot of 3")
     clicks = sum(1 for t, r in zip(tasks, done) if t.get("item") == "minecraft:wheat_seeds" and r.get("status") == "succeeded")
 
