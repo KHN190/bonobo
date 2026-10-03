@@ -25,6 +25,9 @@ def steps_of(n):
 class StepBudget(unittest.TestCase):
     def setUp(self):
         self.clock, self.parts = [0.0], []
+        clock = mock.patch.object(nav.time, "time", lambda: self.clock[0])     # the budget's clock too
+        clock.start()
+        self.addCleanup(clock.stop)
 
     def way(self, seconds, part_s=0.0):
         """One reach_stand: plan_way answers a 12-step way priced `seconds`; each run_chain segment advances the
@@ -43,7 +46,6 @@ class StepBudget(unittest.TestCase):
                 mock.patch.object(nav, "plan_walks", lambda *a, **k: []), \
                 mock.patch.object(nav, "inventory_now", lambda: None), \
                 mock.patch.object(nav, "plan_way", lambda *a, **k: (steps_of(12), None, seconds)), \
-                mock.patch.object(nav.time, "time", lambda: self.clock[0]), \
                 mock.patch.object(api, "run_chain", run_chain), mock.patch.object(api, "detail", lambda *a: None):
             nav.reach_stand({"type": "mine", "x": TARGET[0], "y": TARGET[1], "z": TARGET[2]}, nav.Policy())
 
@@ -70,7 +72,7 @@ class StepBudget(unittest.TestCase):
         """Two ways of one step: the second has only what the first left (must fail: a budget per try)."""
         with nav.step_budget(10 * TICKS_PER_S) as budget:
             self.way(10.0, part_s=5.0)
-            self.assertEqual(budget.spent_s, 10.0)
+            self.assertEqual(budget.spent(), 10.0)
             self.parts.clear()                                    # the step's next way: a stand not yet held
             with self.assertRaises(nav.Overrun):
                 self.way(10.0)

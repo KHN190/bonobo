@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
-from .data import DOOR_NEAR, ENTITY_REACH, OVERRUN, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .data import DOOR_NEAR, ENTITY_REACH, OVERRUN, OVERRUN_FLOOR_S, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .game import EYE_HEIGHT, PLAYER_SPRINT
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
 from .knowledge import WAY_BLOCKS, dig_ticks, find_class
@@ -601,61 +601,75 @@ def reach_stand(task, policy, faces=None, at=None):
 
 
 class Overrun(McError):
-    """A step's ways past its budget (OVERRUN × its as-run price): stopped, its own cause ("overrun", data.EXCEPTIONS)
-    cooled at the way's target (`pos`) while the state holds (E5): another source is priced, this one again once the
-    bag or the ground changes."""
+    """A step past its budget (step_budget: OVERRUN × its as-run price): its price refuted — stopped, re-planned at
+    once (data.EXCEPTIONS: replan), the measured rest recorded for its target (`pos`, `remaining_s`); no ban, no
+    cooldown."""
+
+    def __init__(self, message="", pos=None, remaining_s=None):
+        super().__init__(message, pos=pos)
+        self.remaining_s = remaining_s
 
 
 @dataclass
-class WayBudget:
-    """One step's seconds for its ways — OVERRUN × its planned as-run price (Step.est) — spent across every try and
-    every way of the step."""
+class StepBudget:
+    """One planned step's seconds, by the clock from its start: max(OVERRUN × its as-run price, OVERRUN_FLOOR_S) —
+    every walk, way, wait and work of the step spends it."""
+    began: float
     limit_s: float
-    spent_s: float = 0.0
+
+    def spent(self):
+        return time.time() - self.began
 
     def left(self):
-        return self.limit_s - self.spent_s
+        return self.limit_s - self.spent()
 
 
-BUDGET: list = [None]    # the running step's WayBudget (dispatch.run_step, step_budget), None outside a step
+BUDGET: list = [None]    # the running step's StepBudget (dispatch.run_priced), None outside a step or under a reflex
 lifecycle.in_place(__name__, "BUDGET")
 
 
 @contextmanager
 def step_budget(est_ticks):
-    """The ways of the step run inside are held to OVERRUN × `est_ticks` (its as-run price; none when unpriced)."""
+    """The step run inside is held to its budget (StepBudget); `est_ticks` None or 0 (unpriced, a reflex, a safety
+    skill nested in it): none while inside."""
     before = BUDGET[0]
-    BUDGET[0] = WayBudget(OVERRUN * est_ticks / TICKS_PER_S) if est_ticks else None
+    BUDGET[0] = StepBudget(time.time(), max(OVERRUN * est_ticks / TICKS_PER_S, OVERRUN_FLOOR_S)) if est_ticks else None
     try:
         yield BUDGET[0]
     finally:
         BUDGET[0] = before
 
 
+def check_budget(target=None, remaining_s=None):
+    """Overrun when the running step has spent its budget (a skill between yields, a way between segments, a walk
+    between legs)."""
+    budget = BUDGET[0]
+    if budget is not None and budget.left() < 0:
+        raise Overrun(f"the step ran {budget.spent():.0f}s > its {budget.limit_s:.0f}s ({OVERRUN}× its price)",
+                      pos=target, remaining_s=remaining_s)
+
+
 def afford(seconds, target):
-    """Overrun before any digging when a way priced `seconds` is past what the running step has left."""
+    """Overrun before any digging when a way priced `seconds` (its whole, nav.reach) is past what the step has left:
+    that price is the measured rest."""
     budget = BUDGET[0]
     if budget is not None and seconds > budget.left():
         raise Overrun(f"way to {target} ~{seconds:.0f}s > the step's {budget.left():.0f}s left "
-                      f"({OVERRUN}× its price, {budget.spent_s:.0f}s spent)", pos=target)
+                      f"({OVERRUN}× its price, {budget.spent():.0f}s spent)", pos=target, remaining_s=seconds)
 
 
 def run_way(steps, policy, target=None):
     """A way's steps as one chain (run_chain: its segments, the interrupt check between them, policy.before_segment's
-    hazard hook — S1/S7), the running step's budget spent by the clock and checked before each segment (Overrun)."""
-    budget, began = BUDGET[0], time.time()
+    hazard hook — S1/S7), the step's budget checked before each segment; an overrun's rest by the rate so far."""
+    began, sent = time.time(), [0]
 
     def before(part):
         if policy.before_segment:
             policy.before_segment(part)
-        if budget is not None and budget.spent_s + time.time() - began > budget.limit_s:
-            raise Overrun(f"ways ran {budget.spent_s + time.time() - began:.0f}s > the step's "
-                          f"{budget.limit_s:.0f}s ({OVERRUN}× its price)", pos=target)
-    try:
-        api.run_chain(steps, stop_on_failure=True, before_segment=before)
-    finally:
-        if budget is not None:
-            budget.spent_s += time.time() - began
+        rate = (time.time() - began) / sent[0] if sent[0] else None
+        check_budget(target, None if rate is None else rate * (len(steps) - sent[0]))
+        sent[0] += len(part)
+    api.run_chain(steps, stop_on_failure=True, before_segment=before)
 
 ARRIVE_RANGE = 1.5       # a walk arrives this near its target (go_to's own margin): what "came to us" means
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
@@ -999,6 +1013,7 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_gue
     # keep walking while each leg brings us nearer; "target unreachable" at the leg's end is not failure
     for _ in range(max(attempts, LEGS)):
         api.at_boundary()                # nightfall between legs: never inside a walk
+        check_budget(tuple(pos))         # the planned step past its budget: not one more leg (OVERRUN)
         was = feet()
         how = None if locked else way_kind(_plan_reply(pos, False, False, range_), boxes, was, pos)
         if how == "door":

@@ -428,8 +428,9 @@ LEVEL_SIGHT_DEPTH = 2
 STAIR_CELLS = 3          # cells one staircase step clears: feet, head and the head room the walk down passes
 BAN_MAX_S = 600          # the longest any cell stays banned, however often it failed
 TASK_WAIT_S = 900
-OVERRUN = 1.5            # the user's rule: a step's ways past this × its as-run price are stopped (nav.Overrun, re-priced);
+OVERRUN = 1.5            # the user's rule: a step past this × its as-run price is stopped (nav.Overrun, re-priced);
 #                          not E4's 2× (the accuracy target an estimate is fitted to) — a stop, not a fit
+OVERRUN_FLOOR_S = 15     # the user's rule: no step's budget below this (a few-second price is all noise: a turn, a read)
 NAV_NODES = 6000
 WALK_BLOCKS_PER_TICK = PLAYER_SPRINT / TICKS_PER_S   # mineflayer prior: a forward move costs one sprinted block
 WALK_BLOCKS_PER_S = WALK_BLOCKS_PER_TICK * TICKS_PER_S
