@@ -130,7 +130,8 @@ class Station:
             self.pos = (near[0]["x"], near[0]["y"], near[0]["z"])
         elif Inventory().count(self.block):
             last = "no free spot"
-            spots = free_spots_here(limit=3) or make_room(self.ctx)
+            # offered only if nav.reach also accepts it (P2/K1): place() goes through the same gate
+            spots = free_spots_here(limit=3, inv=Inventory(), protected=self.ctx.policy.protected) or make_room(self.ctx)
             for spot in spots:
                 try:
                     place(self.block, spot)

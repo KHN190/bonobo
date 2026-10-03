@@ -88,7 +88,9 @@ def _place_cache_chest(ctx):
         craft(ctx, "minecraft:chest", 1)
     x, y, z = feet()
     around = Region((x - 5, y - 4, z - 5), (x + 5, y + 5, z + 5))
-    spots = [p for p in free_spots_here(limit=8) if chest_spot_ok(around, p)][:3] or make_room(ctx)
+    # offered only if nav.reach also accepts it (P2/K1): place() goes through the same gate
+    spots = [p for p in free_spots_here(limit=8, inv=Inventory(), protected=ctx.policy.protected)
+             if chest_spot_ok(around, p)][:3] or make_room(ctx)
     for spot in spots:
         try:
             place("minecraft:chest", spot)
