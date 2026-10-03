@@ -277,9 +277,7 @@ PASSABLE = {"nether_portal", "end_portal", "end_gateway",   # standing in one is
             "glow_lichen", "leaf_litter", "bush", "firefly_bush", "short_dry_grass", "tall_dry_grass", "dead_bush",
             "allium", "azure_bluet", "oxeye_daisy", "cornflower", "lily_of_the_valley", "pink_petals", "rail",
             "brown_mushroom", "red_mushroom", "seagrass", "kelp", "redstone_wire", "lever", "cave_air", "ladder"}
-# PASSABLE/PASSABLE_SUFFIX blocks whose outline shape still stops the jar's sight raycast (WorldUtil.java:124,
-# RaycastContext.ShapeType.OUTLINE) though a body walks straight through them: every plant, carpet and the like.
-# Liquid, air and portal-like entries are no obstacle to the body AND have no outline either, so they stay out.
+# walked through, yet their outline stops the jar's sight ray
 OUTLINE_PASSABLE = PASSABLE - {"nether_portal", "end_portal", "end_gateway", "cave_air"}
 OUTLINE_PASSABLE_SUFFIX = PASSABLE_SUFFIX
 HAZARD = {"lava", "water", "fire", "soul_fire", "magma_block", "powder_snow", "pointed_dripstone", "cactus"}
