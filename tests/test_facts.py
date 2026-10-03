@@ -418,6 +418,50 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
         self.assertEqual(sorted(knowledge.fact_steps("footing", True)), [("reach", "footing"), ("reach", "land")])
 
 
+class ARoundReadsEachThingOnce(unittest.TestCase):
+    """Cost's cells-not-there, site and world.sight_pos are kept within a round: the same inputs give the same answer
+    as reading afresh, a changed input (a ban, a new look) is read again, and a round's repeats cost one read."""
+
+    HITS = [{"x": 3, "y": 64, "z": 0, "distance": 3.0, "block": "minecraft:stone"},
+            {"x": 6, "y": 64, "z": 0, "distance": 6.0, "block": "minecraft:stone"}]
+
+    def test_kept_answers_are_the_fresh_ones(self):
+        import time
+        from unittest import mock
+        from bonobo import cost as costmod
+        from bonobo.skillcore import banned
+        step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
+        with mock.patch.dict(world._SIGHT, {"hits": {"stone": list(self.HITS)}, "memo": {}, "v": 0}), \
+                mock.patch.dict(costmod.ROUTES, {}, clear=True):
+            c = Cost(Snap(), mem(), finds={})
+            gone = c.not_there(True)
+            for p in [(3, 64, 0), (6, 64, 0), (9, 9, 9)]:
+                with self.subTest(cell=p):
+                    self.assertEqual(p in gone, banned(c.blacklist, p) or p in (c.protected() or ()))
+            first = c.site(step)
+            self.assertEqual(first, (3, 64, 0))
+            self.assertEqual(c.site(step), first)                       # same inputs: same answer
+            c.blacklist[(3, 64, 0)] = time.time() + 60
+            self.assertEqual(c.site(step), (6, 64, 0))      # must fail: a kept answer outliving the ban that changed it
+            world._SIGHT["hits"] = {"stone": [dict(self.HITS[1], x=7)]}
+            self.assertEqual(world.sight_pos(["stone"]), (7, 64, 0))   # must fail: a kept answer from the last look
+
+    def test_a_rounds_repeats_cost_one_read(self):
+        from unittest import mock
+        from bonobo import cost as costmod
+        step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
+        with mock.patch.dict(world._SIGHT, {"hits": {"stone": list(self.HITS)}, "memo": {}, "v": 0}), \
+                mock.patch.dict(costmod.ROUTES, {}, clear=True):
+            c = Cost(Snap(), mem(), finds={})
+            with mock.patch.object(Cost, "_nearest", autospec=True, return_value=None) as read, \
+                    mock.patch.object(costmod, "_Gone", wraps=costmod._Gone) as built:
+                for _ in range(1000):
+                    c.site(step)
+                    _ = (3, 64, 0) in c.not_there(True)
+            self.assertEqual(read.call_count, 1)
+            self.assertLessEqual(built.call_count, 2)          # one per kind of skip, not one per ask
+
+
 class TheSoilIsWhatPerceptionRead(unittest.TestCase):
     """Cost's dig price reads the soil column in the blocks perception read, never the world again; unread: the prior."""
 

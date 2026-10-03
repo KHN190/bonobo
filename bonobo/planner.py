@@ -25,7 +25,8 @@ from .beliefs import CONFIG, TICKS_PER_S, fights_back
 from .knowledge import (ALL_FOOD, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 
-MAX_NODES = 400       # A* expansions past the incumbent (~0.1 s measured): spent, the best complete plan found
+DIVE_NODES = 600      # nodes the dive weighs DIVE_WIDTH ways a choice (~0.07 s measured); then the first that can be had
+MAX_NODES = 60       # A* expansions past the incumbent (~0.01 s measured): spent, the best complete plan found
                       # stands — the incumbent at least (D1: an answer, never a hang)
 MERGEABLE = {"mine", "gather", "hunt", "smelt"}
 STATIONS = frozenset(("minecraft:crafting_table", "minecraft:furnace"))     # what way() works at, never used up
@@ -451,8 +452,15 @@ class Node:
 
 
 class Search:
-    def __init__(self, cost, kinds=None):
+    def __init__(self, cost, kinds=None, exact=False):
+        self.exact = exact              # no budget: every option weighed, A* to the end (the checker's reference)
         self.hungry = getattr(cost, "hunger_rate", lambda: 0.0)()
+        # what one search learns holds for every search of the round on the same readings (Cost.plans)
+        plans = cost.plans() if hasattr(cost, "plans") else {}
+        shared = plans.setdefault(("search", tuple(sorted(kinds)) if kinds else None, exact), {})
+        self.walks = shared.setdefault("walks", {})       # (token, way) → its own walk at the least (own_walk)
+        self.spent = 0                  # nodes advanced (the dive's budget: DIVE_NODES)
+        self.stored_c, self.near_c, self.reach_c = (shared.setdefault(k, {}) for k in ("stored", "near", "reach"))
         self.greedy = False             # settle: every option weighed, or (the dive) the few least-bound ways inside a choice
         self.stop = getattr(cost, "stop", None) or (lambda: False)     # injected: true ends the search (Interrupted)
         self.cost = cost
@@ -460,8 +468,8 @@ class Search:
         self.lb = bound(cost)
         self.counter = itertools.count()
         self.reasons = []
-        self.memo = {}
-        self._sources = {}
+        self.memo = shared.setdefault("memo", {})
+        self._sources = shared.setdefault("sources", {})
         self.considered = []        # every complete plan priced: (name, seconds, steps) — the round's alternatives
         from . import knowledge
         knowledge.producers()                 # the skills registered: their hooks below are wired
@@ -489,7 +497,8 @@ class Search:
             op = task[0]
             if op == "need":
                 _op, token, n, _depth, fresh = task
-                units += self.lb.least(token, n + (held(token) if fresh else 0), held, memo)
+                got = self.lb.least(token, n + (held(token) if fresh else 0), held, memo)
+                units += 0.0 if got == math.inf and self.stored(token) else got
                 if not self.lb.reach.get(token, set()) & memo["held"]:     # nothing of its making held: a tool it
                     for kind, tier in self.lb.needed(token).items():       # must have is still to be had
                         if not inv.has_tool(kind, tier):
@@ -503,23 +512,56 @@ class Search:
             if task[0] != "need" or held(task[1]) >= task[2]:
                 continue
             for s in self.lb.tools_of(self.lb.stations, task[1]) or ():
-                if held(s) <= 0 and not self.cost.station_near(s) and not getattr(self.cost, "stored", lambda t: [])(s):
+                if held(s) <= 0 and not self.near(s) and not self.stored(s):
                     station = max(station, self.lb.least(s, 1, held, memo))
-            walk = max(walk, self.reach_lb(task[1], held, set()))
+            walk = max(walk, self.walk_to(task[1], held, memo["held"]))
         return max(units + walk, tool, station)
+
+    def stored(self, token):
+        """Whether a remembered container holds `token` (cost.stored), once a search."""
+        if token not in self.stored_c:
+            self.stored_c[token] = bool(getattr(self.cost, "stored", lambda t: [])(token))
+        return self.stored_c[token]
+
+    def near(self, block):
+        """A station of `block` standing near (cost.station_near), once a search."""
+        if block not in self.near_c:
+            self.near_c[block] = bool(self.cost.station_near(block))
+        return self.near_c[block]
+
+    def walk_to(self, token, held, heldset):
+        """reach_lb, once per token and what of its derivation is held (`heldset`: the ids and groups had)."""
+        key = (token, frozenset((self.lb.reach.get(token, set()) | {token, mid(token)}) & heldset))
+        if key not in self.reach_c:
+            self.reach_c[key] = self.reach_lb(token, held, set())
+        return self.reach_c[key]
+
+    def own_walk(self, token, i, step):
+        """The straight walk to the nearest known source of a way's own work (0 when none is known), once a search."""
+        key = (token, i)
+        if key not in self.walks:
+            known = step.kind in ("mine", "gather", "hunt", "take") and getattr(self.cost, "site", lambda s: None)(step)
+            self.walks[key] = float(self.cost.walk_lb(step)) if known else 0.0
+        return self.walks[key]
+
+    def no_bound(self, root):
+        """Why the bound says no plan exists: the needs nothing in the tables makes from this bag."""
+        held = root.inv.available
+        lost = [t[1] for t in root.stack if t[0] == "need" and self.lb.least(t[1], t[2], held, {}) == math.inf]
+        lost += [tool_item(t[1], t[2]) for t in root.stack if t[0] == "tool"
+                 and self.lb.least(tool_item(t[1], t[2]), 1, held, {}) == math.inf]
+        return "no way to obtain " + ", ".join(dict.fromkeys(bare(t) for t in lost)) if lost else "no way found"
 
     def reach_lb(self, token, held, seen):
         """Ticks no plan for `token` can walk less than: over its every way, the straight walk to the nearest known
         source of what that way's work or its inputs take from the world (0 where none is known, where some is
         held or stored, or where a way needs no walk) — the least over its ways."""
-        if token in seen or held(token) > 0 or getattr(self.cost, "stored", lambda t: [])(token):
+        if token in seen or held(token) > 0 or self.stored(token):
             return 0.0
         seen = seen | {token}
         best = math.inf
-        for step, _station, ins in self.lb.shapes.get(token, self.lb.shapes.get(mid(token), ())):
-            own = 0.0
-            if step.kind in ("mine", "gather", "hunt", "take") and getattr(self.cost, "site", lambda s: None)(step):
-                own = float(self.cost.walk_lb(step))
+        for i, (step, _station, ins) in enumerate(self.lb.shapes.get(token, self.lb.shapes.get(mid(token), ()))):
+            own = self.own_walk(token, i, step)
             best = min(best, max([own] + [self.reach_lb(t, held, seen) for t in ins]))
             if best <= 0:
                 return 0.0
@@ -527,6 +569,8 @@ class Search:
 
     # -- one node to its next choice: resolved in place; returns children, [] when it died, None when complete
     def advance(self, node, floor=0):
+        self.spent += 1
+        SPENT["steps"] += 1
         while len(node.stack) > floor:
             task = node.stack.pop()
             op = task[0]
@@ -887,7 +931,8 @@ class Search:
                 return node
             best, before = None, len(self.reasons)
             for k, c in enumerate(sorted(got, key=lambda c: (c.g + self.h(c, c.horizon), c.tie))):
-                if best is not None and self.greedy and floor > 0 and k >= DIVE_WIDTH:
+                width = DIVE_WIDTH if self.spent <= DIVE_NODES else 1      # the budget spent: the first way that can be had
+                if best is not None and self.greedy and not self.exact and floor > 0 and k >= width:
                     break                     # inside a choice, the few least-bound ways; A* weighs the rest
                 done = self.settled(c, cap if best is None else min(cap, best.g))
                 if done is not None and (best is None or (done.g, done.tie) < (best.g, best.tie)):
@@ -947,6 +992,8 @@ class Search:
                 run.append(("need", need[0], int(need[1]), 0, False))
                 held.append(("add", need[0], int(need[1])))
         root.stack.extend(reversed(run + held + after))
+        if self.h(root) == math.inf:
+            raise Unplannable(self.no_bound(root))      # nothing in the tables makes it from here: no search at all
         best = self.dive(root.child())
         first_reason = self.reasons[-1] if self.reasons else None
         heap: list[tuple[float, tuple, int]] = []
@@ -959,7 +1006,7 @@ class Search:
 
         push(self.h(root), (), root)
         nodes = 0
-        while heap and nodes <= MAX_NODES:
+        while heap and (nodes <= MAX_NODES or self.exact):
             if self.stop():
                 raise api.Interrupted("a hazard while planning")
             f, tie, n = heapq.heappop(heap)
@@ -1081,7 +1128,11 @@ def plan_name(steps):
     return " → ".join(dict.fromkeys(f"{s.kind} {bare(s.token)}" for s in steps)) or "nothing to do"
 
 
-def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None):
+SPENT = {"steps": 0}      # search steps advanced since the round began (what a round's thinking is counted in)
+lifecycle.in_place(__name__, "SPENT")
+
+
+def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact=False):
     """The plans the search priced for `needs` from this bag, cheapest first: [(name, seconds, steps)] — the one
     chosen first, the alternatives it beat after (what a check of the choice reads). `pending`: counted as held
     (planned sources' and jobs' outputs); `jobs`: of it, what running jobs make (awaited when used); `kinds`: the
@@ -1090,13 +1141,21 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None):
         return [(plan_name([]), 0.0, [])]
     root = Node(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()), [], [])
     # one plan per question a round asks (the same needs from the same bag: needs, upkeep, queue, night)
-    cache = getattr(cost, "cache", None)
-    key = ("plan", tuple(repr(tuple(n)) for n in needs), root.inv.signature(), tuple(sorted(kinds)) if kinds else None)
+    cache = cost.plans() if hasattr(cost, "plans") else getattr(cost, "cache", None)
+    key = ("plan", tuple(repr(tuple(n)) for n in needs), root.inv.signature(), tuple(sorted(kinds)) if kinds else None,
+           exact)
     if cache is not None and key in cache:
+        if isinstance(cache[key], str):
+            raise Unplannable(cache[key])           # the same question failed this round already
         return [(name, seconds, [Step(s.kind, s.token, s.count, dict(s.detail), s.est) for s in steps])
                 for name, seconds, steps in cache[key]]
-    search = Search(cost, kinds)
-    chosen = search.plan(root, list(needs))
+    search = Search(cost, kinds, exact)
+    try:
+        chosen = search.plan(root, list(needs))
+    except Unplannable as e:
+        if cache is not None:
+            cache[key] = str(e)
+        raise
     out = {plan_name(chosen): (plan_name(chosen), sum(s.est for s in chosen) / TICKS_PER_S, chosen)}
     for name, seconds, steps in sorted(search.considered, key=lambda c: c[1]):
         out.setdefault(name, (name, seconds, steps))
@@ -1225,7 +1284,7 @@ def plan_round(inv, targets, cost, pending=None, jobs=None):
     left = food_left_s(cost)
     if not fed_in_time(steps, left):
         fed = plan_needs(inv, [("food", 1)], cost, pending, jobs)
-        steps = fed + _in_levels(inv, targets, cost, {**(pending or {}), "food": 1}, jobs)
+        steps = fed + steps              # the meal first; the targets' own plan does not wait on it
         if not fed_in_time(steps, left):
             raise Unplannable(f"the bar runs out in {left:.0f} s before any food the plan can make")
     return (steps[0] if steps else None), steps, sum(s.est for s in steps) / TICKS_PER_S

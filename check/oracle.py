@@ -1,4 +1,4 @@
-"""The oracle: one function per invariant of docs/refactor.md (S1–S6, D1–D7, E1–E3, P1–P3, R1–R5; P2, P3 and the plan family in check/inv), each
+"""The oracle: one function per invariant of docs/refactor.md (S1–S6, D1–D7, E1–E3, P1–P5, R1–R5; P2–P5 and the plan family in check/inv), each
 fn(before, d, after, ctx) -> None (holds) | str (why not). An invariant no offline fact can judge returns
 UNCHECKED(why): said, never silently passed. Rules and thresholds come from production."""
 from .facts import PENDING, night_ways
