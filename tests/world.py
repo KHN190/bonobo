@@ -168,7 +168,8 @@ def brain_fixture(**fields):
     b.policy_cache, b.mem, b.retry, b.place = nav.Policy(), memory(), retry.Retry(), None
     b.last_failure, b.committed, b.last_hold_log, b.task_writes, b.just_finished = None, None, 0, None, False
     b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
-    b.round_snap, b.fail_target, b.idle_why, b.last_cause = None, {}, "", None
+    b.round_snap, b.fail_target, b.idle_why, b.last_cause, b.needs_plan = None, {}, "", None, None
+    b.last_light, b.lit_place = 0.0, None
     for k, v in fields.items():
         setattr(b, k, v)
     return b

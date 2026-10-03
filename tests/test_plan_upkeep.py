@@ -2536,7 +2536,7 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
                 asked.append("upkeep")
                 return [(0, "u", None)] if _busy else []
             b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
-            b.reflexes = mock.Mock(proposals=proposals)
+            b.reflexes = mock.Mock(proposals=proposals, terms={"u": ("S8", None)})
             b.task_act = lambda task, snap, ctx: None
             snap = snapshot(state(), inventory())
             with self.subTest(name), mock.patch.object(api.STATE, "mode", mode), \

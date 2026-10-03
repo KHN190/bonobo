@@ -334,31 +334,19 @@ class Brain:
             nether.wear_gold_helmet()      # gold on in the Nether (piglins), iron back outside
             head = "golden_helmet"
         gold_on_in_nether = s["dimension"] == "minecraft:the_nether" and head == "golden_helmet"
-        if s["screen"] == "none" and not gold_on_in_nether and craft.better_armor_carried():
+        # K4: armour and the shield are side acts — forced by a threat in sight (S1), else priced: the hostiles the
+        # held plan's work would meet (knowledge.hostile_s) by the armour's gain, less putting it on
+        threatened = "S1" if threat.threats_seen()[0] else None
+        plan_s = sum(st.est for st in self.held_steps()) / TICKS_PER_S
+        armour = _k.side_saving(1.0 if plan_s else 0.0, _k.hostile_s(plan_s) * armour_gain(inv), 0.0,
+                                _k.PRIOR_TICKS["equip"] / TICKS_PER_S)
+        if s["screen"] == "none" and not gold_on_in_nether and craft.better_armor_carried() \
+                and arbiter.side_why(threatened, armour) is None:
             craft.equip_armor()
-        if s["screen"] == "none" and craft.shield_wanted_in_offhand() and time.time() - self.last_offhand > 30:
+        if s["screen"] == "none" and craft.shield_wanted_in_offhand() and time.time() - self.last_offhand > 30 \
+                and arbiter.side_why(threatened, None) is None:
             self.last_offhand = time.time()
             craft.shield_to_offhand()
-        # an open dark area underground: lit first where work starts, then a torch a segment (never the surface,
-        # a short shaft or a sealed night hole)
-        if time.time() - self.last_light > 5 and _k.under_rock(s.get("skyLight", 15)) and _k.dark_here(s) \
-                and not survive.enclosed():
-            self.last_light = time.time()
-            try:
-                spots = world.dark_spots(radius=survive.LIGHT_R, max_light=0, limit=40)
-            except McError as e:
-                spots = api.swallowed("brain: dark spots", e) or []     # unread: nothing lit this time, said
-            try:
-                if survive.light_due(s, False, len(spots)):
-                    first = self.lit_place != self.place
-                    self.lit_place = self.place
-                    self._running(lambda: survive.light_area(self.context(s["dimension"]), survive.LIGHT_R,
-                                                             survive.LIGHT_FIRST if first else 1, spots=spots))
-            except api.INTERRUPTIONS:
-                raise
-            except McError as e:
-                api.swallowed("brain.invariants", e)
-                pass
 
     # -- failure policy (retry.py)
     def failed(self, name, err, quiet=False, site=None, kinds=None):
@@ -624,12 +612,18 @@ class Brain:
 
         def upkeep():
             self.needs.propose(snap, ctx)
-            out = [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
-                   for seq, name, run in self.reflexes.proposals(snap, ctx)]
+            out = [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name, side=True,
+                                  forced_by=terms[0], saving=terms[1])
+                   for seq, name, run in self.reflexes.proposals(snap, ctx)
+                   for terms in [self.reflexes.terms.get(name, (None, None))]]
+            light = self.light_intent(snap, ctx)
+            if light is not None:
+                out.append(light)
             if self.abandoned == "cover":
                 self.abandoned = None
                 cover = Act("upkeep", "abandoned: cover", lambda: needs.cover(ctx, snap.state))
-                out.insert(0, arbiter.Intent("maintain", cover, key=cover.name, seq=-1))
+                # a danger stopped the work (abandon_after: cover): S1
+                out.insert(0, arbiter.Intent("maintain", cover, key=cover.name, seq=-1, side=True, forced_by="S1"))
             return out
 
         # the gate's facts: what is cooling, and whether the surface is closed (met and unplannable needs are judged
@@ -680,10 +674,17 @@ class Brain:
                 continue
             entries.append((f"task {task['id']}", tasks.goal_of(task), seq))
             queued.append(task)
+        barred = []
         for kind, goal, _why in (self.needs.needs_now if getattr(self, "planning", True) else ()):
             name = f"{kind}: {goals.describe(goal)}"
-            if self.ready(name):
-                entries.append((name, goal, len(live) + len(entries)))
+            if not self.ready(name):
+                continue
+            why = arbiter.side_why(*self.side_terms(kind, goal, snap, Cost(snap, self.mem, self.blacklist,
+                                                                             policy=self.policy_cache)))
+            if why is not None:
+                barred.append(f"{name}: {why}")       # D1: said where the round proposes nothing
+                continue
+            entries.append((name, goal, len(live) + len(entries)))
         milestone = next_milestone(snap, self.mem) if not live and not closed else None
         if milestone is not None and self.ready(f"milestone: {goals.describe(milestone)}"):
             entries.append((f"milestone: {goals.describe(milestone)}", milestone, len(entries)))
@@ -720,14 +721,15 @@ class Brain:
             return []
         if not closed:
             # no side act fills the time (D1): every step of the plan is cooling or unplannable here
-            self.idle_why = idle_reason(entries, self.retry.cooling_now(time.time()))
+            self.idle_why = "; ".join([idle_reason(entries, self.retry.cooling_now(time.time())), *barred])
             return []
         out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: survive.wait_for_day(ctx)),
                               self.wait_why(snap), kind="wait for day", key="wait for day")]
         if "pickaxe" in self.needs.working:
-            act = self.night_stock(snap, ctx)
-            if act is not None:
-                out.append(arbiter.Intent("plan", act, kind="night stock", key=act.name))
+            got = self.night_stock(snap, ctx)
+            if got is not None:
+                act, saving = got
+                out.append(arbiter.Intent("plan", act, kind="night stock", key=act.name, side=True, saving=saving))
         return out
 
     def round_for(self, entries, snap, cost, old=None):
@@ -937,21 +939,68 @@ class Brain:
             log(f"task done: {tasks.describe_task(task)}")
 
     def night_stock(self, snap, ctx):
-        """Night under cover, queue idle: a proposal to dig for the first ore not held — only when it pays
-        (side_saving: the held plans use it, its seconds before dawn are a wait's), else its reason (D1)."""
+        """Night under cover, queue idle: (a proposal to dig for the first ore not held, the seconds it saves:
+        side_saving — the held plans use it, its seconds before dawn are a wait's), or None."""
         needs = next((n for n in goals.NIGHT_STOCK if goals.short(snap.inv, [tuple(x) for x in n])),
                      goals.NIGHT_STOCK[-1])
         act = self.need_act("night stock", goals.have(*needs), snap, ctx)
         if act is None:
             return None
-        planned = {st.token for h in [*self.held.values(), self.needs_plan or {"steps": []}] for st in h["steps"]}
+        planned = {st.token for st in self.held_steps()}
         later_s = sum(st.est for st in act.plan) / TICKS_PER_S
-        saved = side_saving(1.0 if needs[0][0] in planned else 0.0, later_s,
-                            max(0.0, later_s - _k.dawn_s(snap.state)), 0.0)
-        if saved <= 0:
-            self.idle_why = f"night stock of {needs[0][0]} saves nothing: no held plan uses it"
+        return act, _k.side_saving(1.0 if needs[0][0] in planned else 0.0, later_s,
+                                   max(0.0, later_s - _k.dawn_s(snap.state)), 0.0)
+
+    def light_intent(self, snap, ctx):
+        """An open dark area underground (never the surface, a short shaft or a sealed hole): lit first where work
+        starts, then a torch a segment — a side act priced (K4): the hostiles a held plan's work here would meet
+        (knowledge.hostile_s), less the torches' placing."""
+        s = snap.state
+        enclosed = reflexes.ground(None, snap)[0]
+        if time.time() - self.last_light <= 5 or not _k.under_rock(s.get("skyLight", 15)) or not _k.dark_here(s) \
+                or enclosed():
             return None
-        return act
+        first = self.lit_place != self.place
+        torches = survive.LIGHT_FIRST if first else 1
+        plan_s = sum(st.est for st in self.held_steps()) / TICKS_PER_S
+        saving = _k.side_saving(1.0 if plan_s else 0.0, _k.hostile_s(plan_s), 0.0, torches * nav.PLACE_S)
+
+        def run():
+            self.last_light = time.time()
+            spots = world.dark_spots(radius=survive.LIGHT_R, max_light=0, limit=40)
+            if survive.light_due(s, False, len(spots)):
+                self.lit_place = self.place
+                survive.light_area(ctx, survive.LIGHT_R, torches, spots=spots)
+        return arbiter.Intent("maintain", Act("upkeep", "light", run), key="light", side=True, saving=saving)
+
+    def held_steps(self):
+        """Every step of the plans held this round (the queue's and the round's), each once."""
+        plans = {id(h): h for h in [*self.held.values(), *([self.needs_plan] if self.needs_plan else [])]}
+        return [st for h in plans.values() for st in h["steps"]]
+
+    def p2_refused(self, snap):
+        """P2: the held plan's next step cannot be worked from here — the nearest of its kinds in the look is refused
+        a way from these feet (Cost.refused: nav.known_refusal over the round's ground)."""
+        st = next((s for s in self.held_steps() if not met(s, snap)), None)
+        kinds = _k.step_kinds(st) if st is not None else []
+        seen = sorted((h["distance"], (h["x"], h["y"], h["z"])) for k in kinds for h in snap.hits.get(bare(k), ()))
+        if not seen:
+            return False
+        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache)
+        return cost.refused(seen[0][1], costmod.stand_kind(kinds)) is not None
+
+    def side_terms(self, kind, goal, snap, cost):
+        """(forced_by, saving) of a need upkeep proposes (K4): the night's parts are forced (S4); a tool, a bucket or
+        blocks the held plan needs are priced — the held plan's seconds it keeps from failing, less its own."""
+        if kind == "night prep":
+            return "S4", None
+        steps = self.held_steps()
+        try:
+            own = decompose.decompose(snap.inv, goal, cost, pending=self.mem.pending_outputs(snap.dimension))
+        except Unplannable:
+            return None, None
+        return None, _k.side_saving(1.0 if steps else 0.0, sum(st.est for st in steps) / TICKS_PER_S, 0.0,
+                                    sum(st.est for st in own) / TICKS_PER_S)
 
     def price_table(self, snap):
         """{item: seconds to get one another way}, for skills that ask what a thing is worth."""
@@ -1008,10 +1057,22 @@ def failure_fields(snap, acts, intent):
             "acts": [a for a in acts if a["intent"] == intent]}
 
 
-def side_saving(p_used, later_s, now_s, detour_s):
-    """Pure: seconds a side act saves (K9): its work now instead of later, by the chance its output is used, less
-    the detour it costs; a side act runs only when this is above 0 (or S1-S8 forces it)."""
-    return p_used * (later_s - now_s) - detour_s
+def armour_gain(inv):
+    """Pure: the share of a hit the best armour carried would take off beyond what is worn (formulas.armor_reduction
+    over data.ARMOR_POINTS, each slot's best piece)."""
+    from .data import ARMOR_POINTS, ARMOR_SLOTS
+    from .formulas import armor_reduction
+
+    def points(item):
+        material, _, piece = bare(item or "").rpartition("_")
+        return ARMOR_POINTS.get(material, {}).get(piece, 0)
+    worn = {slot: points((inv.equipment.get(slot) or {}).get("id")) for slot in ARMOR_SLOTS.values()}
+    best = dict(worn)
+    for st in inv.slots:
+        piece = bare(st["id"]).rpartition("_")[2]
+        if piece in ARMOR_SLOTS:
+            best[ARMOR_SLOTS[piece]] = max(best[ARMOR_SLOTS[piece]], points(st["id"]))
+    return armor_reduction(sum(best.values())) - armor_reduction(sum(worn.values()))
 
 
 def next_milestone(snap, mem):

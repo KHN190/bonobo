@@ -300,7 +300,8 @@ class OneDecisionPoint(unittest.TestCase):
             b.needs = type("Needs", (), {"working": {}, "needs_now": [], "round": {},
                                          "propose": lambda self, *a, **k: None})()
             b.reflexes = type("Reflexes", (), {"afloat": False,
-                                               "proposals": lambda self, *a, **k: ask_upkeep() or []})()
+                                               "proposals": lambda self, *a, **k: ask_upkeep() or [],
+                                               "terms": {"u": ("S8", None)}})()
             # a queue act names its step, as craft_act makes every one (brain.act_on_surface reads it)
             from bonobo.planner import Step
             ask_queue = layer("queue", brain.Act("task", "t", None, step=Step("craft", "minecraft:stick", 4, {})))
