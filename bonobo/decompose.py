@@ -146,7 +146,7 @@ def _decompose(inv, goal, cost, pending) -> list[Step]:
         return [need[1] for need in round_needs(goal, inv, cost) if isinstance(need[1], Step)]
     return solve_needs(inv, round_needs(goal, inv, cost), cost, pending, jobs)
 
-def round_needs(goal, inv, cost):
+def round_needs(goal, inv, cost) -> list:
     """`goal` as the planner's needs."""
     template, args = goal["goal"], goal.get("args", {})
     if template in goals.ITEM_GOALS:
@@ -209,11 +209,11 @@ def night_facts(soft, cooled=(), dig_site=True, home_walk_s=None, night_left_s=N
     return out
 
 
-def way_key(way):
+def way_key(way) -> str:
     """The retry key a night way's failure cools under (reflexes.Maintain.shelter)."""
     return f"shelter:{way}"
 
 
-def cooled_ways(ready):
+def cooled_ways(ready) -> list:
     """Pure given `ready(key)`: the night's ways (SOURCES["overnight"]) cooling after a failure here."""
     return [s["name"] for k in ("overnight bed", "overnight") for s in SOURCES[k] if not ready(way_key(s["name"]))]

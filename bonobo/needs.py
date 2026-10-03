@@ -4,7 +4,7 @@ import copy
 import json
 import math
 import time
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, decompose, goals, survive, world
@@ -39,7 +39,7 @@ FALL_RISK = {("portal", None), ("seek", "fortress"), ("seek", "stronghold"), ("s
              ("activate", "end_portal"), ("hunt", "minecraft:blaze_rod")}
 DEEP_Y = 40                # a mine step whose ore is richest below this is reached by digging down
 
-def dusk_s(snap):
+def dusk_s(snap) -> float:
     """Seconds until dusk (data.DAY_END, the one dusk: LEAD is the only margin): (DAY_END − timeOfDay) / TICKS_PER_S, 0 once
     it is dark."""
     t = int(snap.time) % DAY_TICKS
@@ -85,7 +85,7 @@ def night_options(inv, cost, facts=None, bed_too=True):
                         own_s + decompose.day_extra_s(keys, facts), own))
     return out
 
-def overnight(inv, cost, facts=None, bed_too=True):
+def overnight(inv, cost, facts=None, bed_too=True) -> tuple[Any, float, list]:
     """(way, seconds before dark, steps) of the cheapest way through the night (one-of target); (None, inf, []): none."""
 
     options = night_options(inv, cost, facts, bed_too)

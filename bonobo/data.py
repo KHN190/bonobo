@@ -1,6 +1,6 @@
 """Static game knowledge (Minecraft Java 1.21). Pure data, no I/O."""
 import math
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from .game import TICKS_PER_S
 
@@ -174,7 +174,7 @@ GROUPS = {
     "food": list(FOOD),
 }
 
-def recipes():
+def recipes() -> dict:
     """item -> (row-major pattern of item ids / group tokens / None, output count). 4 entries = 2×2, 9 = 3×3."""
     s, i = "minecraft:stick", "minecraft:iron_ingot"
     r = {
@@ -367,7 +367,7 @@ def in_box(box, p):
     return all(min(lo[i], hi[i]) <= p[i] <= max(lo[i], hi[i]) for i in range(3))
 
 
-def home_box_of(boxes, p):
+def home_box_of(boxes, p) -> Any:
     """Pure: the box of `boxes` (a home's) the cell of point `p` lies in, or None."""
     cell = tuple(math.floor(v) for v in p)
     return next((b for b in boxes if in_box(b, cell)), None)
@@ -471,7 +471,7 @@ CRITICAL_HP = 4            # health at or below which danger overrides everythin
 CRITICAL_HP_END = 12       # in the End: a breath or head butt takes 10+
 
 
-def critical_hp(state):
+def critical_hp(state) -> float:
     """Pure: the critical-health floor where the body stands."""
     return CRITICAL_HP_END if state.get("dimension") == "minecraft:the_end" else CRITICAL_HP
 

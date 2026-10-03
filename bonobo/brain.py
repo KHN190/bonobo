@@ -56,7 +56,7 @@ from . import beliefs, estimate  # noqa: E402
 from .data import TIER_OF_MATERIAL, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, critical_hp, weapon_hit  # noqa: E402
 
 
-def fight_line_holds(contract, args, state, inv):
+def fight_line_holds(contract, args, state, inv) -> tuple[bool, str | None]:
     """Pure (S5): (ok, why) — a skill that makes an optional fight (`contract.fights(call)`: its mob kinds) is offered
     only with the health above critical covering its loss's quantile (estimate.fight_line_ok) at this sword and
     armour; a threat fight never comes through here."""
@@ -1006,7 +1006,7 @@ def met(step, snap):
         return math.dist(snap.feet, tuple(step.detail["pos"])) <= float(step.detail.get("range", 2))
     return False
 
-def round_key(entries, snap, mem):
+def round_key(entries, snap, mem) -> tuple:
     """Each target's name, goal and what the world still lacks."""
     return tuple((name, json.dumps(goal, sort_keys=True), json.dumps(goals.remainder(goal, snap, mem), sort_keys=True))
                  for name, goal, _rank in entries)

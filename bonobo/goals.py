@@ -39,14 +39,14 @@ PREPARE = [[["tool", "pickaxe", 1]], [["tool", "sword", 1]], [["food", 8]], [["m
 # the night's idle work under cover: ore below, first not held
 NIGHT_STOCK = [[["minecraft:raw_iron", 16]], [["minecraft:diamond", 3]]]
 
-def make(template, **args):
+def make(template, **args) -> dict:
     if template not in TEMPLATES:
         raise ValueError(f"unknown goal {template!r}: expected one of {', '.join(TEMPLATES)}")
     if template == "milestone" and args.get("name") not in MILESTONES:
         raise ValueError(f"unknown milestone {args.get('name')!r}: {', '.join(MILESTONES)}")
     return {"goal": template, "args": args}
 
-def have(*needs):
+def have(*needs) -> dict:
     """have(("minecraft:torch", 24), ("tool", "pickaxe", 2))"""
     return make("have", needs=[list(n) for n in needs])
 
@@ -57,7 +57,7 @@ def parse_need(token, n=1):
         return ["tool", kind, int(tier)]
     return [token, int(n)]
 
-def needs(goal, inv):
+def needs(goal, inv) -> list:
     """Planner needs (tuples) for an item goal, or [] for the others."""
     template, args = goal["goal"], goal.get("args", {})
     if template in ("have", "craft"):
@@ -154,7 +154,7 @@ def done(goal, snap, mem):
     rest = remainder(goal, snap, mem)
     return None if rest is None else not rest
 
-def describe(goal):
+def describe(goal) -> str:
     template, args = goal["goal"], goal.get("args", {})
     if template in ("have", "craft"):
         parts = [f"{r[1]} tier {r[2]}" if r[0] == "tool" else f"{bare(r[0])}×{r[1]}" for r in args.get("needs", [])]

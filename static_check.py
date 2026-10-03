@@ -10,7 +10,8 @@ registers its reset (lifecycle.in_place / on_reset covers); R9 a "Pure" function
 module-state write; R10 no bench budget or estimate written as a number; R11 (E5) a skill declares its budget, abandon
 only one of skill.ABANDON_WAYS, cover only for a soft or fight skill;
 R12 (K9, over check/) a checker function that prices (its name says a price, a cost, an estimate, seconds or ticks)
-calls production for it, never a model of its own."""
+calls production for it, never a model of its own; R13 a bonobo function check/ calls declares its return type
+(a tuple's element count included)."""
 import ast
 import os
 import re
@@ -629,8 +630,90 @@ def r12(trees):
     return sorted(out)
 
 
+def _bonobo_calls(tree):
+    """{(module, function)} a checker module calls from bonobo by name (`from bonobo.m import f`, `from bonobo import
+    m` / `import bonobo.m as m` then `m.f(...)`)."""
+    names, mods = {}, {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] == "bonobo":
+            for a in n.names:
+                if n.module == "bonobo":
+                    mods[a.asname or a.name] = a.name
+                else:
+                    names[a.asname or a.name] = (n.module.split(".", 1)[1], a.name)
+        elif isinstance(n, ast.Import):
+            for a in n.names:
+                if a.name.startswith("bonobo.") and a.asname:
+                    mods[a.asname] = a.name.split(".", 1)[1]
+    out = set()
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Call):
+            continue
+        f = n.func
+        if isinstance(f, ast.Name) and f.id in names:
+            out.add(names[f.id])
+        elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in mods:
+            out.add((mods[f.value.id], f.attr))
+    return out
+
+
+def _tuple_returns(fn):
+    """The element counts of the tuple literals `fn` returns (its own body, not nested functions)."""
+    out, todo = set(), list(fn.body)
+    while todo:
+        n = todo.pop()
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            continue
+        if isinstance(n, ast.Return) and isinstance(n.value, ast.Tuple):
+            out.add(len(n.value.elts))
+        todo.extend(ast.iter_child_nodes(n))
+    return out
+
+
+def _tuple_arity(ann):
+    """The element count a return annotation names for a tuple (None: not a fixed-size tuple)."""
+    if isinstance(ann, ast.Constant) and isinstance(ann.value, str):
+        try:
+            ann = ast.parse(ann.value, mode="eval").body
+        except SyntaxError:
+            return None
+    if isinstance(ann, ast.BinOp) and isinstance(ann.op, ast.BitOr):        # `tuple[...] | None`
+        return _tuple_arity(ann.left) or _tuple_arity(ann.right)
+    if isinstance(ann, ast.Subscript) and getattr(ann.value, "id", None) in ("tuple", "Tuple"):
+        elts = ann.slice.elts if isinstance(ann.slice, ast.Tuple) else [ann.slice]
+        return None if any(isinstance(e, ast.Constant) and e.value is Ellipsis for e in elts) else len(elts)
+    return None
+
+
+def r13(trees):
+    """[(path:line, name, why)]: a bonobo function check/ calls with no return type, or returning a tuple its type
+    does not count (K9: the checker reads production's results by their declared shape)."""
+    defs = {}
+    for path, (tree, _src) in trees.items():
+        if path.startswith("bonobo" + os.sep):
+            mod = path[len("bonobo" + os.sep):-3].replace(os.sep, ".")
+            for n in tree.body:
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    defs[(mod, n.name)] = (path, n)
+    called = set()
+    for path, (tree, _src) in trees.items():
+        if path.startswith("check" + os.sep):
+            called |= _bonobo_calls(tree)
+    out = []
+    for key in sorted(called & set(defs)):
+        path, fn = defs[key]
+        where = f"{path}:{fn.lineno}"
+        if fn.returns is None:
+            out.append((where, fn.name, "no return type"))
+            continue
+        counts = _tuple_returns(fn)
+        if counts and _tuple_arity(fn.returns) not in counts:
+            out.append((where, fn.name, f"returns a {'/'.join(map(str, sorted(counts)))}-tuple its type does not count"))
+    return sorted(out)
+
+
 RULES = {"R1": r1, "R2": r2, "R3": r3, "R4": r4, "R5": r5, "R6": r6, "R7": r7, "R8": r8, "R9": r9, "R10": r10,
-         "R11": r11, "R12": r12}
+         "R11": r11, "R12": r12, "R13": r13}
 ENTRY = "mc.py"         # production beside bonobo/: its uses keep code alive (R6)
 
 
@@ -644,8 +727,10 @@ def hits():
     with open(os.path.join(HERE, ENTRY)) as fh:
         production = dict(trees, **parse({os.path.join(os.pardir, ENTRY): fh.read()}))
     checker = parse(sources(CHECK))
-    return {k: (fn(trees, production) if fn is r6 else fn(checker) if fn is r12 else fn(trees))
-            for k, fn in RULES.items()}
+    both = {**{os.path.join("bonobo", k): v for k, v in trees.items()},
+            **{os.path.join("check", k): v for k, v in checker.items()}}
+    return {k: (fn(trees, production) if fn is r6 else fn(checker) if fn is r12 else fn(both) if fn is r13
+                else fn(trees)) for k, fn in RULES.items()}
 
 
 def run_row(rule, srcs):
@@ -655,6 +740,15 @@ def run_row(rule, srcs):
 
 # (rule, {path: source}, hits?): each rule's holding rows and its must-fail rows
 ROWS = [
+    ("R13", {"bonobo/m.py": "def f(x) -> int:\n return x", "check/c.py": "from bonobo.m import f\nf(1)"}, False),
+    ("R13", {"bonobo/m.py": "def f(x):\n return x", "check/c.py": "from bonobo.m import f\nf(1)"}, True),  # must fail
+    ("R13", {"bonobo/m.py": "def f(x) -> tuple:\n return x, x", "check/c.py": "from bonobo import m\nm.f(1)"},
+     True),                                                                          # must fail: no count
+    ("R13", {"bonobo/m.py": "def f(x) -> tuple[int, int] | None:\n return x, x",
+             "check/c.py": "from bonobo.m import f\nf(1)"}, False),                  # a tuple or None, counted
+    ("R13", {"bonobo/m.py": "def f(x) -> tuple[int, int]:\n return x, x",
+             "check/c.py": "from bonobo import m\nm.f(1)"}, False),
+    ("R13", {"bonobo/m.py": "def f(x):\n return x", "check/c.py": "def g():\n pass"}, False),     # not called
     ("R12", {"c.py": "def exact_s(x):\n from bonobo.planner import plan_candidates\n return plan_candidates(x)[0][1]"},
      False),
     ("R12", {"c.py": "def walk_s(d):\n return d / 4.3"}, True),                    # must fail: a model of its own

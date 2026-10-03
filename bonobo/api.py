@@ -135,7 +135,7 @@ def stop_asked():
     return interrupt_pending() is not None
 
 
-def request_interrupt(reason):
+def request_interrupt(reason) -> None:
     """Leave `reason` for the running work to take (the arbiter's preemption; perception to a soft skill)."""
     STATE.interrupt = reason
 
@@ -673,7 +673,7 @@ HOLD = None      # fn(tasks): the item they name put in the main hand first (ski
 HELD_TYPES = ("mine", "place", "pillar", "attack", "eat", "use_item", "bed_bomb", "interact")
 
 
-def walk_only(task):
+def walk_only(task) -> dict:
     """Pure: a walk as the door sends it — digging, building, bridging and boats off (I3); any other task as it is."""
     if task.get("type") not in WALKS:
         return task

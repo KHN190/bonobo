@@ -105,7 +105,7 @@ COMBAT_KEYS = ("velocity", "in_reach", "shooting", "drawing", "pull_ticks", "cha
                "fuse_ticks", "tti_ticks", "impact")
 
 
-def read_combat(near):
+def read_combat(near) -> list:
     """Pure: /entities rows as the fight reads them — the jar's combat fields turned into provoked, lit, hit_s,
     impact_at (x, y, z), vel (blocks/s), reach_now, busy (shooting/drawing/charging); the raw fields dropped."""
     out = []
@@ -225,11 +225,11 @@ def in_site_here(s):
 KIT_PRICED = ("sword", "shield", "food_items", "bed", "torches", "bag_free")
 
 
-def ground_read(snap):
+def ground_read(snap) -> Any:
     """The blocks perception read (price_inputs' ground): the region a Cost prices digging over."""
     return price_inputs(snap.state)["ground"]
 
-def price_inputs(state):
+def price_inputs(state) -> dict:
     """threat.price_state from the perceived state; walls unread (a reached body is not walled in)."""
     t, dim = int(state["timeOfDay"]), state.get("dimension", "minecraft:overworld")
     tier = state.get("pick_tier")
@@ -538,7 +538,7 @@ def dig_ok(ground, pick_tier):
     return len(floor) == depth and all(diggable(b, pick_tier) for b in floor)
 
 
-def perceived(state, now, ground_of=None, kit_of=None):
+def perceived(state, now, ground_of=None, kit_of=None) -> dict:
     """The state the threat model prices: kit, ground (`field`) and the footing evade walks on, each read on its own."""
 
     ground_of = ground_of or field_around
@@ -588,7 +588,7 @@ def footing(state):
     return None if region is None else (lambda spot: nav.landing(region, here, spot))
 
 
-def kit_signature(state, now):
+def kit_signature(state, now) -> tuple[Any, Any, Any, int, int]:
     """Pure: when the kit must be read again — the held slot, a screen, the armour changed, a dig sent, or
     FACT_TTL_S["kit"] passed."""
 
@@ -596,7 +596,7 @@ def kit_signature(state, now):
             int(now // FACT_TTL_S["kit"]))
 
 
-def kit(signature):
+def kit(signature) -> dict:
     """What we are carrying, re-read only when `kit_signature` changes: this runs at 5 Hz."""
     if signature == STATE.kit_sig and STATE.kit:
         return STATE.kit

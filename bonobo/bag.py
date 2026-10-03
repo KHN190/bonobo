@@ -296,7 +296,7 @@ def refused(cells, refused_before):
     drop = cells & set(refused_before)
     return cells - drop, drop
 
-def bag_signature(inv):
+def bag_signature(inv) -> tuple:
     """What the bag holds, exactly: a change the plan did not make is an event."""
     return tuple(sorted((s["id"], s.get("count", 1)) for s in inv.slots))
 

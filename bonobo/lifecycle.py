@@ -59,7 +59,7 @@ def in_place(module, *names, cache=False):
     return reset
 
 
-def reset_all(caches=True):
+def reset_all(caches=True) -> None:
     """Every registered reset, once (`caches` False keeps the declared caches)."""
     for mod, names, fn in list(_RESETS):
         if caches or (mod, names) not in CACHES:
