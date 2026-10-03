@@ -77,7 +77,7 @@ def _sub_in(src, start, key, value):
 
 
 def _scalar(src, name, value):
-    out, n = re.subn(rf"^({re.escape(name)}\s*=\s*)[0-9.]+", lambda m: m.group(1) + value, src, count=1, flags=re.M)
+    out, n = re.subn(rf"^({re.escape(name)}\s*=\s*)[^#\n]*?(?=\s*(?:#|$))", lambda m: m.group(1) + value, src, count=1, flags=re.M)
     if not n:
         raise KeyError(name)
     return out

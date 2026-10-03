@@ -15,7 +15,7 @@ from .planner import Unplannable, plan_needs, way
 
 from .game import TICKS_PER_S
 
-WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~12.5 ticks a block, walking with detours
+WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~5.3 ticks a block, sprinting with detours
 DOOR_ROUTE = None      # (taught, here, there, walk_s) → seconds through a door, or None: mechanisms.door_route_s,
 #                        a pure function wired by the brain (no import: the cost prices, the mechanisms module acts)
 UNKNOWN_WALK_TICKS = PRIOR_TICKS["unknown_walk"]

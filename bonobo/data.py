@@ -2,7 +2,7 @@
 import math
 from typing import TYPE_CHECKING
 
-from .game import TICKS_PER_S
+from .game import PLAYER_SPRINT, TICKS_PER_S
 
 STATION_R = 8.0         # a station or machine of ours this near is one we have
 MECHANISMS_NAME = "mechanisms.json"     # the taught mechanisms (mechanisms.learn), beside the notes
@@ -429,9 +429,9 @@ STAIR_CELLS = 3          # cells one staircase step clears: feet, head and the h
 BAN_MAX_S = 600          # the longest any cell stays banned, however often it failed
 TASK_WAIT_S = 900
 NAV_NODES = 6000
-WALK_BLOCKS_PER_TICK = 0.12   # measured on real routes (hills, water, re-plans)
+WALK_BLOCKS_PER_TICK = PLAYER_SPRINT / TICKS_PER_S   # mineflayer prior: a forward move costs one sprinted block
 WALK_BLOCKS_PER_S = WALK_BLOCKS_PER_TICK * TICKS_PER_S
-ROUTE_FACTOR = 1.5            # real route length / straight line
+ROUTE_FACTOR = 1.5            # prior: real route length / straight line (hills, water, re-plans)
 MEASURED_BAND = 4.0           # a run moves its average, and a measured price strays from its prior, at most this factor
 
 

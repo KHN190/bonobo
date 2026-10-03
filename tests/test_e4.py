@@ -103,6 +103,8 @@ class Fit(unittest.TestCase):
         self.assertEqual(ns2["PRIOR_ORIGIN"]["PRIOR_TICKS.gather_each"], 60)    # the first prior kept, not the fitted one
         self.assertIn("WALK_BLOCKS_PER_TICK = 0.1   #",
                       fit_prices.fitted_data("WALK_BLOCKS_PER_TICK = 0.12   # walk\n", changes))
+        self.assertEqual(fit_prices.fitted_data("WALK_BLOCKS_PER_TICK = PLAYER_SPRINT / TICKS_PER_S   # walk\n", changes),
+                         "WALK_BLOCKS_PER_TICK = 0.1   # walk\n")      # must fail: a derived prior is measured over
         toml = 'seek_prior_s = 300.0       # [prior] seconds to find one\n'
         self.assertEqual(fit_prices.fitted_play(toml, {"plan.seek_prior_s": 450.0}),
                          'seek_prior_s = 450.0       # [measured] seconds to find one\n')
