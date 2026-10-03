@@ -341,7 +341,7 @@ class Maintain:
                 tried.append(f"{way}: {e}")
                 facts = dict(b.needs.night_facts(snap), cooled=sorted(cooled_ways(b.ready)))
                 way, _secs, steps = b.needs.overnight(snap, facts, bed_too=False)
-                if way is None:
+                if way is None or any(t.startswith(f"{way}: ") for t in tried):
                     raise NotAvailable("every night way failed here: " + "; ".join(tried))
 
     def sheltered(self, snap, enclosed=None):
