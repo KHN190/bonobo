@@ -99,6 +99,10 @@ def overnight(inv, cost, facts=None, bed_too=True) -> tuple[str | None, float, l
     _way, _needs, _extra, day_s, own = next(o for o in options if o[0] == chosen["night"])
     return chosen["night"], seconds + day_s, steps + own
 
+def preps_night(plan):
+    """Pure: a held round plan (brain.round_for) whose targets include the night's prep need."""
+    return any(str(name).startswith("night prep") for name, *_rest in plan.get("want") or ())
+
 def due_now(left_s, plan_s, known, at_threshold):
     """Pure: is it time to start getting something?"""
 
@@ -237,10 +241,11 @@ class Needs:
         return ticks / TICKS_PER_S
 
     def plan_steps(self):
-        """The steps the round's plans hold (the queue's and upkeep's): what is made anyway."""
+        """The steps the round's plans hold (the queue's and upkeep's): what is made anyway — a plan that is the night's
+        prep itself left out (its own steps would price the prep at nothing, and it would drop and come back)."""
         b = self.brain
         held = list(getattr(b, "held", {}).values()) + [getattr(b, "needs_plan", None)]
-        return list({id(st): st for h in held if h for st in h["steps"]}.values())
+        return list({id(st): st for h in held if h and not preps_night(h) for st in h["steps"]}.values())
 
     def marginal_s(self, seconds, steps):
         """Pure given the plans: `seconds` of a way's `steps` less the share of each the round's plans make anyway."""

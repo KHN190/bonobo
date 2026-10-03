@@ -1229,7 +1229,9 @@ def plan_way(region, feet, target, kind, inv, protected, walks=None) -> tuple[li
 
 def in_pit(region, feet):
     """Pure: the body stands in a hole it cannot jump out of — on every side the cell at head height is solid (a 1-deep
-    dip has air there: a jump clears it). False when the sides are not read."""
+    dip has air there: a jump clears it). False when the sides are not read (or nothing was)."""
+    if region is None:
+        return False
     x, y, z = feet
     sides = [(x + dx, y + 1, z + dz) for dx, dz in DIRS4]
     return all(region.inside(c) for c in sides) and all(region.solid(c) for c in sides)

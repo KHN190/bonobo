@@ -616,7 +616,8 @@ class Brain:
         try:
             intents, facts = arbiter.first_live(layers, facts_of)
         except api.Interrupted as e:
-            # S1: a hazard mid-plan: survival on a fresh read
+            # S1/S7: a hazard stopped the plan mid-search: the round restarts on its own fresh read (K10's one read of
+            # the new round), only the fast layer asked
             api.consume_interrupt()
             api.detail(f"   planning stopped: {e}")
             snap = Snapshot.read(_k.SOURCE_BLOCKS, survive.ROUND_GROUND)
@@ -721,9 +722,11 @@ class Brain:
         """Each target planned alone: a task that cannot be fails, a need cools."""
         tasks_by = {f"task {t['id']}": t for t in queued}
         for name, goal, rank in entries:
+            if planner.round_spent():
+                break          # the round's steps are spent: the rest are asked again next round, not failed
             _held, why = replan([(name, goal, rank)], snap, cost, self.mem.pending_outputs(snap.dimension))
-            if why is None:
-                continue
+            if why is None or planner.round_spent():
+                continue      # planned, or the search ran out of the round's steps: not proof it cannot be
             if name in tasks_by:
                 write(tasks_by[name], self._collecting(lambda t=tasks_by[name], w=why: self.fail_task(t, w))[1])
             else:
@@ -829,8 +832,7 @@ class Brain:
         act = craft_act("task", f"task {task['id']}", ctx, held["steps"], step, snap.night, task=task, inv=snap.inv)
         if finished is None:          # a run-once goal: its own step ends it once its contract takes the world
             own = [n[1] for n in decompose.round_needs(goal, snap.inv, cost) if n[0] == "do"]
-            act.finishes = any(step_key(o) == step_key(st) for o in own for st in act.steps) if own \
-                else held["steps"][-1] in act.steps
+            act.finishes = run_once_ends(own, act.steps, held)
         return act
 
     def valid(self, step, snap, ctx):
@@ -997,6 +999,13 @@ def outcome_of(err) -> "tuple[Outcome, Source | None]":
         return "ok", None
     source = retry.source_of(err)
     return ("interrupted" if arbiter.resume_of(source)[0] else "failed"), source
+
+def run_once_ends(own, steps, held):
+    """Pure: the run-once task's own step is among `steps` (its "do" needs); with none named, the round plan's last
+    step ends it only when that plan is the task's alone (a shared round plan's last step is another target's)."""
+    if own:
+        return any(step_key(o) == step_key(st) for o in own for st in steps)
+    return len(held.get("want") or ()) <= 1 and bool(held["steps"]) and held["steps"][-1] in steps
 
 def met(step, snap):
     """Pure: the world already holds what a walk makes."""

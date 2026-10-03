@@ -196,7 +196,9 @@ def eye_cell(s):
 
 
 def head_buried_in(region, s):
-    """Pure: the eyes are inside a solid block of `region` (the round's ground)."""
+    """Pure: the eyes are inside a solid block of `region` (the round's ground); not known when it was not read."""
+    if region is None:
+        return False
     return region.buries(eye_cell(s))
 
 def hold_clicks(slots, selected, item, price=None):

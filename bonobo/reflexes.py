@@ -432,7 +432,9 @@ def unstuck_order(situation):
 
 
 def on_column(region, feet):
-    """Pure: standing on a one-wide column — every cell round the one under the feet is air."""
+    """Pure: standing on a one-wide column — every cell round the one under the feet is air (not known: no)."""
+    if region is None:
+        return False
     x, y, z = feet
     ring = [(x + dx, y - 1, z + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1) if dx or dz]
     return all(region.inside(c) for c in ring) and not any(region.solid(c) for c in ring)

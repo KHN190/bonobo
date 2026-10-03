@@ -113,7 +113,9 @@ def cell_add(p, d) -> Cell:
 
 
 def is_enclosed(region, inside) -> bool:
-    """Pure: no 2-high opening on any side and a solid roof."""
+    """Pure: no 2-high opening on any side and a solid roof; a ground not read is not known enclosed."""
+    if region is None:
+        return False
 
     return not openings(region, inside)
 
@@ -347,7 +349,11 @@ def round_ground(feet, ground, now=None):
     kept = _GROUND.get("kept")
     if kept is not None and ground_fresh(kept, feet, body, now):
         return kept["region"], kept["at"]
-    region = Region(cell_add(feet, lo), cell_add(feet, hi))
+    try:
+        region = Region(cell_add(feet, lo), cell_add(feet, hi))
+    except api.McError as e:
+        api.swallowed("world.round_ground", e)      # unread: every reader answers "not known" (S1: the round goes on)
+        return None, now
     _GROUND["kept"] = {"region": region, "at": now, "writes": api.STATE.world_writes}
     return region, now
 
