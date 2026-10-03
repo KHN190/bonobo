@@ -114,6 +114,26 @@ def act_commit_s(act):
     ticks = sum(int(getattr(st, "est", 0) or 0) for st in getattr(act, "steps", ()))
     return ticks / TICKS_PER_S if ticks > 0 else None
 
+def pays_switch(held_s, chosen_s, lost_s):
+    """Pure (D4): a new plan replaces the held one only when its seconds and the work the switch throws away beat
+    what is left of the held one."""
+    return chosen_s + lost_s < held_s
+
+def repriced_s(steps, cost):
+    """Seconds left of a held plan, each step priced on the world now (K4: no progress stored); its est updated."""
+    for st in steps:
+        st.est = cost.estimate(st)
+    return sum(st.est for st in steps) / TICKS_PER_S
+
+def thrown_s(now=None):
+    """Seconds of the running plan act a switch throws away: its commit less what is left (arbiter.work_left_s);
+    nothing when none runs or it has run its course."""
+    cur = arbiter.BODY.current()
+    if cur is None or cur.layer != "plan" or cur.commit_s is None:
+        return 0.0
+    left = arbiter.work_left_s(cur, time.time() if now is None else now)
+    return 0.0 if left is None else cur.commit_s - left
+
 def act_on_surface(act):
     """Pure: does this act's step walk the surface (arbiter.on_surface)? An act with no step (a chain, a whole
     skill) is judged by what it runs elsewhere: not flagged."""
@@ -178,6 +198,7 @@ class Brain:
         self.picks = collections.Counter()      # what the arbiter chose, by kind (arbiter.note_pick)
         self.blacklist = {}           # unreachable targets, shared by every round's Context and the cost model
         self.held = {}                # task id -> {"steps": [Step], "sig": bag signature, "event": bool, "dim": str}
+        self.plan_switch = None       # (held_s, chosen_s, lost_s, switched) of the round's replan over a held plan
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
         perception.IN_SITE = self.reflexes.in_site      # nightfall asks the night way's judgement, every Brain built
@@ -644,6 +665,7 @@ class Brain:
 
     def _task_act(self, task, snap, ctx, cost):
         goal = tasks.goal_of(task)
+        self.plan_switch = None
         # reconcile: the remainder is read each round ({} = done); the held plan is a cache of how, never a count
         rest = goals.remainder(goal, snap, self.mem)
         finished = None if rest is None else not rest
@@ -656,7 +678,8 @@ class Brain:
             held = {"steps": [decompose.from_dict(d) for d in task["plan"]], "sig": None, "event": True,
                     "dim": snap.dimension}
         if held is None or held["event"] or held.get("want") != rest or held["dim"] != snap.dimension:
-            held = self.repair(task, goal, snap, held, cost)
+            same = held is not None and held.get("want") == rest and held["dim"] == snap.dimension
+            held = self.repair(task, goal, snap, held, cost, same)
             if held is None:
                 return None
             held["want"] = rest
@@ -723,16 +746,27 @@ class Brain:
         _secs, rows = min(priced, key=lambda p: p[0])
         return self.need_act("fight line", goals.have(*rows), snap, ctx)
 
-    def repair(self, task, goal, snap, held, cost):
-        """Bring the held plan up to date: run-once goals keep what is left (a road walks on); item goals are re-solved from the bag."""
+    def repair(self, task, goal, snap, held, cost, same=False):
+        """Bring the held plan up to date: run-once goals keep what is left (a road walks on); item goals are re-solved
+        from the bag, the new plan taken over a held one for the same want only when it pays the switch (D4)."""
         if held is not None and goal["goal"] in goals.RUN_ONCE:
             held.update(event=False, sig=bag_signature(snap.inv), dim=snap.dimension)
             self.held[task["id"]] = held
             return held
+        old = held if same and held["steps"] else None
         held, why = replan(task, goal, snap, cost, self.mem.pending_outputs(snap.dimension))
         if held is None:
             self.fail_task(task, why)
             return None
+        if old is not None and [str(s) for s in old["steps"]] != [str(s) for s in held["steps"]]:
+            held_s = repriced_s(old["steps"], cost)
+            chosen_s, lost_s = sum(s.est for s in held["steps"]) / TICKS_PER_S, thrown_s()
+            switched = pays_switch(held_s, chosen_s, lost_s)
+            self.plan_switch = (held_s, chosen_s, lost_s, switched)
+            if not switched:
+                old.update(event=False, sig=bag_signature(snap.inv))
+                self.held[task["id"]] = old
+                return old
         steps = held["steps"]
         self.held[task["id"]] = held
         self._write(task, state="running", plan=[decompose.to_dict(s) for s in steps])

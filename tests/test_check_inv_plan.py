@@ -116,6 +116,11 @@ class Plan(unittest.TestCase):
         ("D4", {"switches": [(4.0, 2.0, 3.0, 1.0, True)], "holds": [("a", "b", "better")]}, True),   # must fail
         ("D4", {"switches": [], "holds": [("a", "b", "better")]}, True),     # must fail: changed without weighing
         ("D4", {"switches": [], "holds": [("a", "b", "assumption")]}, False),
+        # a held plan against the round's chosen one: (held_s, chosen_s, lost_s, switched)
+        ("D4", {"plan_switch": (30.0, 10.0, 5.0, True)}, False),
+        ("D4", {"plan_switch": (30.0, 28.0, 5.0, True)}, True),     # must fail: the switch throws away more than it saves
+        ("D4", {"plan_switch": (30.0, 28.0, 5.0, False)}, False),
+        ("D4", {"plan_switch": (30.0, 10.0, 5.0, False)}, True),    # must fail: kept a plan dearer by more than the switch
         ("P2", {"plan": BEEF_IN_ORDER, "inv": Bag(items=TWO_BEEF), "mem": Mem(stations=["furnace"]),
                 "dimension": "minecraft:overworld"}, False),
         # must fail: the two smelts merged before the hunt that feeds them (night_first__low 055858)

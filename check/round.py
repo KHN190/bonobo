@@ -255,6 +255,7 @@ def plan_ctx(b, act, snap, mem, world):
            "task_goal": task.get("goal") and {"goal": task["goal"], "args": task.get("args", {})} if task else None,
            "way": None, "plan_hand_made": bool(held is not None and held.get("hand_made"))}
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
+    out["plan_switch"] = getattr(b, "plan_switch", None)
     step = getattr(act, "step", None)
     pos = step.detail.get("pos") if step is not None and step.kind == "mine" else None
     if pos is not None:

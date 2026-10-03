@@ -4,6 +4,7 @@ task (brain.held), each step's price (cost.Cost.estimate, the production model),
 asked them). check/round.py puts them in ctx:
   plan       [Step] the task's held plan this round (None: the act is not the queue's)
   candidates [(name, seconds, steps)] planner.plan_candidates for the task's needs, the chosen first
+  plan_switch (held_s, chosen_s, lost_s, switched) the round's replan over a held plan (brain.plan_switch), or None
   price      Step -> ticks: the production cost model on this state (Cost.estimate)
   inv, mem, dimension, feet    the round's bag and memory
   task_goal  the task's goal (a tool it asks for is wanted, not a detour)
@@ -163,10 +164,17 @@ def R4(b, d, a, ctx):
 def D4(b, d, a, ctx):
     """A switch pays (same layer: the threat layer's kernel.Held): a held answer is given up for a new one only when
     the new one's gain over what is left of the held one beats the work thrown away and the estimates' noise — or
-    its assumption broke. Every Held decision that changed answers is matched to a switch the kernel weighed."""
+    its assumption broke. Every Held decision that changed answers is matched to a switch the kernel weighed. A held
+    plan gives way to the chosen one only when chosen_s + lost_s < held_s (plan_switch)."""
+    ps = ctx.get("plan_switch")
+    if ps is not None:
+        held_s, chosen_s, lost_s, switched = ps
+        if switched != (chosen_s + lost_s < held_s):
+            return f"plan switch {'taken' if switched else 'refused'} against its own numbers: chosen {chosen_s:.1f} s " \
+                   f"+ thrown away {lost_s:.1f} s, held {held_s:.1f} s"
     sw, holds = ctx.get("switches") or [], ctx.get("holds") or []
     if not sw and not holds:
-        return Unchecked("no held answer weighed against a new one this round")
+        return None if ps is not None else Unchecked("no held answer weighed against a new one this round")
     for fresh, staying, lost, noise, switched in sw:
         if switched != (fresh - staying > lost + noise):
             return f"switch {'taken' if switched else 'refused'} against its own numbers: gain {fresh - staying:.1f} s, " \
