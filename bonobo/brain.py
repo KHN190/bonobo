@@ -936,7 +936,8 @@ class Brain:
         except McError as e:
             api.swallowed("brain.price_table", e)
             return {}
-        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, region=ground_of(snap)), snap.inv)
+        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, region=ground_of(snap),
+                           stop=hazard_seen), snap.inv)
 
     # -- bookkeeping
     def track(self, snap):

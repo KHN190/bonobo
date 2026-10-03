@@ -1,5 +1,6 @@
 """The PRODUCTION round on γ(facts): brain.decide with the transport stubbed (check/stub.py). It calls; it never
 re-decides. Decision = (layer, kind, token, target, writes, reason) plus the intents the arbiter ranked."""
+import contextlib
 import os
 import time
 import shutil
@@ -45,6 +46,21 @@ def _decision(act, chosen, intents, world):
                     target=tuple(step.detail["pos"]) if step is not None and step.detail.get("pos") is not None else None,
                     writes=tuple(p for p, _b in world.posts), reason=getattr(chosen, "reason", None) or None,
                     name=getattr(act, "name", None), alternatives=tuple(alts))
+
+
+def _hazard_at(ctx, world):
+    """Search.advance with the hazard written at its first call (S7): the interrupt as the arbiter writes it, the
+    body under water with no air on every read after."""
+    from bonobo import api, planner
+    real = planner.Search.advance
+
+    def advance(self, node, floor=0):
+        if ctx.get("hazard_at") is None:
+            ctx["hazard_at"] = planner.SPENT["steps"]
+            api.request_interrupt("drowning")
+            world.state.update(inWater=True, air=0)
+        return real(self, node, floor)
+    return advance
 
 
 TARGET = (12, 64, 12)       # a failure about a target (a vein, a station): its `pos`
@@ -123,8 +139,18 @@ def warm_name(facts, other):
         fresh_round()
 
 
-def _decide(facts, fail_then_again, fresh=True):
-    from bonobo import api, arbiter, brain, fight_loop, perception, tape
+def hazard_round(facts):
+    """S7: the round on `facts` with a hazard written as its planning begins (the interrupt message, the body then
+    under water): (the chosen layer, search steps taken after the hazard), None when the round plans nothing."""
+    try:
+        d, _got, ctx = _decide(facts, False, hazard=True)
+        return None if ctx.get("hazard_at") is None else (d.layer, ctx["search_steps_after"])
+    finally:
+        fresh_round()
+
+
+def _decide(facts, fail_then_again, fresh=True, hazard=False):
+    from bonobo import api, arbiter, brain, fight_loop, perception, planner, tape
     from bonobo.api import NotAvailable
     from bonobo import dispatch
     from bonobo.data import home_box_of
@@ -203,8 +229,13 @@ def _decide(facts, fail_then_again, fresh=True):
         live_before = {t["id"] for t in tasklist.load() if t["state"] in tasklist.LIVE}     # D1: what this round finishes
         from bonobo.planner import SPENT
         began = SPENT["steps"]
-        act = b.decide(snap, bctx)
+        with contextlib.ExitStack() as stack:
+            if hazard:
+                stack.enter_context(mock.patch.object(planner.Search, "advance", _hazard_at(ctx, world)))
+            act = b.decide(snap, bctx)
         ctx["search_steps"] = SPENT["steps"] - began            # the round's own thinking, the checker's readings apart
+        if ctx.get("hazard_at") is not None:
+            ctx["search_steps_after"] = SPENT["steps"] - ctx["hazard_at"]
         if offered:
             option, worth = offered[-1]
             d = Decision(layer="tactic", kind="threat", token=option.kind, target=getattr(option, "target", None),

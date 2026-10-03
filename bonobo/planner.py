@@ -683,6 +683,8 @@ class Search:
 
     # -- one node to its next choice: resolved in place; returns children, [] when it died, None when complete
     def advance(self, node, floor=0):
+        if self.stop():
+            raise api.Interrupted("a hazard while planning")      # S7: read before every step, the dive's too
         self.spent += 1
         SPENT["steps"] += 1
         while len(node.stack) > floor:
@@ -1125,8 +1127,6 @@ class Search:
         nodes = 0
         visited: dict = {}                  # the transposition table: (what is left, the bag, what is open) → least g
         while heap and (nodes <= MAX_NODES or self.exact):
-            if self.stop():
-                raise api.Interrupted("a hazard while planning")
             f, tie, n = heapq.heappop(heap)
             if best is not None and (f, tie) >= (best[0], best[1]):
                 break
