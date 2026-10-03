@@ -1085,16 +1085,15 @@ class HeldPlans(unittest.TestCase):
                 self.assertEqual([t["id"] for t in tasks.load()], before, "stocking changed the queue")
 
     def test_a_cooled_task_hands_the_round_to_no_side_act(self):
-        """The task and its step both cooling, an enderman in sight (a pearl hunt there to be had): nothing, with
-        its reason (D1) — never the hunt (must fail: the idle fallback hunted 12 pearls, ~382 s)."""
+        """The task and its step both cooling, an enderman in sight (a pearl hunt there to be had): the task's own
+        search for logs (K3) — never the hunt (must fail: the idle fallback hunted 12 pearls, ~382 s)."""
         with tempfile.TemporaryDirectory() as tmp, Queue_(tmp, seen=dict(TREES, enderman=8)) as q:
             q.task(goals.have(("log", 4)))
             for key in ("task t1", "step:gather:log"):
                 q.b.failed(key, api.NavFailed("no path found"))
             snap = snapshot(state(), inventory())
             got = q.b.plan_proposals(snap, round_ctx(q.b, snap))
-            self.assertEqual([(i.kind, i.action.name) for i in got], [])
-            self.assertIn("task t1", q.b.idle_why)
+            self.assertEqual([(i.kind, i.action.name, i.action.step.kind) for i in got], [("queue", "task t1", "seek")])
 
     def test_a_cooled_log_step_takes_the_second_tree(self):
         """A walk to the plan's tree that failed with no target of its own (no tread: accept 19:43:54) failed at the

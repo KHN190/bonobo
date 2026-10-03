@@ -178,8 +178,8 @@ def seek_blocks(ctx, blocks, legs=SEARCH_LEGS, leg=40):
 def seek(ctx, kinds, pos=None):
     """Go to where one of these is: the nearest in sight, else the spot memory named, else look for one (a spiral)."""
 
-    hits = find(kinds, radius=48, limit=1)
-    mobs = [] if hits else entities(64, list(kinds))
+    hits = [h for h in find(kinds, radius=48, limit=8) if not ctx.blocked((h["x"], h["y"], h["z"]))][:1]
+    mobs = [] if hits else [m for m in entities(64, list(kinds)) if not ctx.blocked((m["id"], 0, 0))]
     if hits:
         target = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
     elif mobs:

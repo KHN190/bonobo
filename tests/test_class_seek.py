@@ -58,6 +58,34 @@ class EveryKnownSourceBannedIsASearch(unittest.TestCase):
                 self.assertTrue(0 < step.parts["seek"] < math.inf, step.parts)
 
 
+class AStepWhoseSourcesFailedHereSeeks(unittest.TestCase):
+    """brain.next_step: a sourced step cooled here (its known sources failed) gives way to the search for its kinds,
+    for every sourced kind the producers offer (accept 20:29: "no step of the plan can run from here", the milestone
+    failed)."""
+
+    def test_rows(self):
+        import tempfile
+        from bonobo import brain as brainmod
+        from bonobo.planner import Step
+        from tests.test_plan_upkeep import Queue_
+        from tests.world import round_ctx
+        kinds = {src[0] for _t, src in sourced_ways()} - {"fill"}
+        from bonobo.planner import runnable
+        bag = __import__("tests.world", fromlist=["bag"]).bag(inventory())
+        ways = [way(src, t, 1)[0] for t, src in sourced_ways()]
+        # each kind's first way an empty bag can start (a tool it needs is an earlier step's)
+        rows = [(k, next(st for st in ways if st.kind == k and runnable(st, bag))) for k in sorted(kinds)]
+        for kind, step in rows:
+            with self.subTest(kind), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
+                snap = snapshot(state(), inventory())
+                q.b.failed(brainmod.step_key(step), api.NotAvailable("check: none found here"))
+                got = q.b.next_step([step], snap, round_ctx(q.b, snap))
+                # must fail: None — the plan given up while the world is unexplored
+                self.assertEqual((got.kind, got.token, got.detail["kinds"]),
+                                 ("seek", step.token, step_kinds(step)))
+        self.assertIsNone(brainmod.seek_for(Step("craft", "minecraft:stick", 4, {})))
+
+
 class AStandThatHoldsForNoWayFailsAtItsTarget(unittest.TestCase):
     def test_rows(self):
         target = (13013, 91, 13006)

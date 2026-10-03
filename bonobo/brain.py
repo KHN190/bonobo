@@ -776,10 +776,23 @@ class Brain:
     def round_act(self, steps, snap, ctx):
         """The act for the round plan's first runnable step, or None."""
         open_air = snap.night and self.under_sky(snap)
+        st = self.next_step(steps, snap, ctx, lambda s: met(s, snap) or (snap.night and arbiter.on_surface(s.kind))
+                            or open_air)
+        return None if st is None else craft_act("plan", f"round: {step_key(st)}", ctx, steps, st, snap.night,
+                                                 inv=snap.inv)
+
+    def next_step(self, steps, snap, ctx, skip=lambda st: False):
+        """The plan's first step that can run now (and is not `skip`ped); a sourced step whose own key cools here —
+        its known sources failed — gives way to the search for its kinds (seek_for: a search is always a way while
+        the world is unexplored), never to "no step of the plan can run" (K3)."""
         for st in steps:
-            if not met(st, snap) and self.valid(st, snap, ctx) and not (snap.night and arbiter.on_surface(st.kind)) \
-                    and not open_air:
-                return craft_act("plan", f"round: {step_key(st)}", ctx, steps, st, snap.night, inv=snap.inv)
+            if skip(st):
+                continue
+            if self.valid(st, snap, ctx):
+                return st
+            alt = seek_for(st) if runnable(st, snap.inv) and not self.ready(step_key(st)) else None
+            if alt is not None and not skip(alt) and self.valid(alt, snap, ctx):
+                return alt
         return None
 
     def wait_why(self, snap):
@@ -813,8 +826,7 @@ class Brain:
         # by night: no surface step, and no step at all under the open sky (the shelter row runs the night's prep)
         closed = snap.night
         open_air = closed and self.under_sky(snap)
-        step = next((st for st in steps if self.valid(st, snap, ctx)
-                     and not (closed and arbiter.on_surface(st.kind)) and not open_air), None)
+        step = self.next_step(steps, snap, ctx, lambda st: (closed and arbiter.on_surface(st.kind)) or open_air)
         if step is None:
             return None
         act = craft_act("upkeep", name, ctx, steps, step, snap.night, inv=snap.inv)
@@ -853,7 +865,7 @@ class Brain:
                 return None
             self.fail_task(task, f"nothing left to plan, still short of {waiting}")
             return None
-        step = next((s for s in held["steps"] if not met(s, snap) and self.valid(s, snap, ctx)), None)
+        step = self.next_step(held["steps"], snap, ctx, lambda s: met(s, snap))
         if step is None:
             # same bag, same plan: re-solving every round ran nothing, so the step cools until the next event
             self.fail_step(task, NotAvailable("no step of the plan can run from here"))
@@ -1028,6 +1040,14 @@ def target_present(snap, target):
     if t[1:] == (0, 0) and any(m.get("id") == t[0] for m in snap.mobs):
         return True
     return any((h["x"], h["y"], h["z"]) == t for hits in snap.hits.values() for h in hits)
+
+
+def seek_for(step):
+    """Pure: the search for a sourced step's kinds (explore.seek), or None for a step that is not walked to its
+    source."""
+    if step.kind not in costmod.Cost.SOURCED:
+        return None
+    return planner.Step("seek", step.token, 1, {"kinds": _k.step_kinds(step)})
 
 
 def step_key(step):
