@@ -672,12 +672,17 @@ class Search:
                 req |= self.required(tool_item(task[1], task[2]), held, heldset, trips) or frozenset()
         if not req:
             return 0.0
-        at = {r[1] for r in req if r[0] == "at"}
+        at: dict = {}
+        for r in req:
+            if r[0] == "at":
+                at[r[1]] = min(at.get(r[1], math.inf), r[2])
         # the place before each: any a step can work at (planned or not: the route may pass one this bound skips)
-        points = at | self.walked(node) | {tuple(feet)} | self.cost.places() | {
+        points = set(at) | self.walked(node) | {tuple(feet)} | self.cost.places() | {
             tuple(t[1].detail["pos"]) for t in node.stack if t[0] == "emit" and t[1].detail.get("pos")}
         # a source nowhere known is a search of its own (the model prices each, a repeat joining its first)
-        return float(sum(self.cost.walk_ticks(min(math.dist(r, p) for p in points if p != r)) for r in at)
+        # each no more than the model's least walk to it (walk_lb: from here, its nearest source may not be the place)
+        return float(sum(min(self.cost.walk_ticks(min(math.dist(r, p) for p in points if p != r)), lb)
+                         for r, lb in at.items())
                      + sum(r[2] for r in req if r[0] == "search"))
 
     def required(self, token, held, heldset, trips, seen=frozenset()):
@@ -697,7 +702,7 @@ class Search:
             own: frozenset = frozenset()
             if step.kind in ("gather", "mine", "hunt", "take") and token not in trips and mid(token) not in trips:
                 site = self.cost.site(step)
-                own = frozenset([("at", tuple(site))]) if site is not None else \
+                own = frozenset([("at", tuple(site), float(self.cost.walk_lb(step)))]) if site is not None else \
                     frozenset([("search", step.key(), float(self.cost.walk_lb(step)))])
             parts = [self.required(t, held, heldset, trips, seen | {token}) for t in ins]
             if any(p is None for p in parts):
@@ -1267,7 +1272,8 @@ class Search:
             ticks = max(0, ticks - self.cost.work(_scaled(step, 0), held))
         else:
             # at the least (from the nearest place it can be walked to from): forward may run it after any step
-            walk = self.cost.walk_lb(step)
+            # a place a step before already stands at is walked into once: the route may run the two together
+            walk = 0 if self.cost.site(step) in self.walked(node) else self.cost.walk_lb(step)
             ticks = round((ticks + walk) / step.detail["p"]) if step.kind == "withdraw" and step.detail.get("p") \
                 else ticks + self.cost.dig_to(step, held) + walk
             if mergeable:

@@ -394,11 +394,14 @@ class Cost:
         site = self.site(step)
         if site is None:
             return self._walk(step, dig=False)
-        key = ("walk_lb", tuple(site))
+        key = ("walk_lb", tuple(site), step.kind, tuple(self._kinds_of(step) or ()))
         if key not in self.cache:
             # from every place a plan may stand before it: remembered, a container, the look's (site's own answers)
             near = min((math.dist(p, site) for p in self.places() if tuple(p) != tuple(site)), default=math.inf)
-            self.cache[key] = walk_ticks(min(near, math.dist(self.snap.feet, site)))
+            # and as priced from here, first in the plan: the nearest source, which need not be the site's
+            parts = self._walk_parts(step, None, None, dig=False) if step.kind in self.SOURCED else {"seek": 1}
+            here = parts["walk"] if not parts["seek"] else math.inf
+            self.cache[key] = min(walk_ticks(min(near, math.dist(self.snap.feet, site))), here)
         return self.cache[key]
 
     def _points(self):

@@ -402,6 +402,40 @@ class ASubPlanIsRememberedWithWhatItsPriceReads(unittest.TestCase):
         self.assertEqual(got[0], got[2])
 
 
+class TheLeastWalkIsNoMoreThanFromHere(unittest.TestCase):
+    def test_a_source_nearer_by_the_look_than_its_cell(self):
+        import os
+        import tempfile
+        from bonobo import world
+        from bonobo.cost import Cost
+        # the look's own distance to a tree (its path) shorter than the straight line to the cell it names
+        snap = world.Snapshot.from_readings(state(), inventory(), {"oak_log": [{"x": 40, "y": 64, "z": 40, "distance": 20.0}]}, [])
+        with tempfile.TemporaryDirectory() as tmp:
+            c = Cost(snap, Memory(os.path.join(tmp, "notes.json")))
+            step = planner.Step("gather", "log", 1, {})
+            # must fail: the least walk (565 ticks, the cell's line) above the walk the model prices from here (250)
+            self.assertLessEqual(c.walk_lb(step), c.estimate(step) - c.work(step))
+
+
+class TwoStepsAtOnePlace(unittest.TestCase):
+    def test_the_second_take_from_a_chest_walks_nowhere(self):
+        import os
+        import tempfile
+        from tests.world import cost
+        with tempfile.TemporaryDirectory() as tmp:
+            m = Memory(os.path.join(tmp, "notes.json"))
+            m.note_container((3, 64, 0), "minecraft:overworld", [{"id": "minecraft:oak_log", "count": 4},
+                                                                  {"id": "minecraft:cobblestone", "count": 4}])
+            c = cost(snapshot(), mem=m)
+            search = planner.Search(c)
+            node = planner.Node(planner.from_bag(bag(inventory()), None, None, c.reserved, c.facts()), [], [])
+            steps = [planner.Step("withdraw", t, 1, {"pos": [3, 64, 0]}) for t in ("minecraft:oak_log", "minecraft:cobblestone")]
+            for st in steps:
+                search.emit(node, st, 0, 0)
+            # must fail: the second take charged a walk to the chest it stands at (g above the price as run)
+            self.assertLessEqual(node.g, sum(planner.price_as_run(steps, [], c)))
+
+
 class AToolTakenIsHeld(unittest.TestCase):
     def test_a_mine_after_a_pickaxe_from_a_chest(self):
         from tests.world import cost
