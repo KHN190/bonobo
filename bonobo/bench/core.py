@@ -167,12 +167,12 @@ def _achieve(ctx, needs, done, rounds=12):
 def one_step(ctx, kind, token, count=1, detail=None):
     """One plan step priced by the cost model and run as the brain runs it, its price line written (E4): through
     dispatch when a skill provides it, else a shelter step through the shelter reflex's own runner."""
-    from .. import api, dispatch, reflexes
+    from .. import api, dispatch, reflexes, survive
     from ..cost import Cost
     from ..knowledge import SOURCE_BLOCKS
     from ..planner import Step
     from ..world import Snapshot
-    snap = Snapshot.read(SOURCE_BLOCKS)
+    snap = Snapshot.read(SOURCE_BLOCKS, survive.ROUND_GROUND)
     step = Step(kind, token, count, dict(detail or {}))
     step.est = int(Cost(snap, BRAIN.mem).estimate(step))
     if dispatch.runner_for(ctx, step) is not None:
