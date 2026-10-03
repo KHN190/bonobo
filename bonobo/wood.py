@@ -21,7 +21,7 @@ def trunk_batch(base, overhead, want, region, here, inv, protected=()):
         if len(logs) >= max(1, want) or region is None:
             break
         if not (nav.stands_for("mine", nav.Dug(region, logs), here, c)
-                or nav.reach(region, here, c, "mine", inv, protected, tries=nav.WAY_TRIES).stand is not None):
+                or nav.reach(region, here, c, "mine", inv, protected).stand is not None):
             break
         logs.append(c)
     return nav.mine_batch(logs, only=["log"])
