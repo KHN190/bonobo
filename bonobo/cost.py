@@ -212,7 +212,7 @@ class Cost:
         found = skill.step_contract(step)
         if found is None:
             return True, None
-        inv = self.snap.inv if held is None else _Held(self.snap.inv, held)
+        inv = self.snap.inv if held is None else knowledge.planned_bag(self.snap.inv, held)
         try:
             return knowledge.FIGHT_LINE(found[0], found[1], getattr(self.snap, "state", {}) or {}, inv)
         except (IndexError, KeyError, TypeError):
@@ -467,20 +467,6 @@ class Cost:
         """The chance a look for one of these finds it: by how the game makes it (data.FIND_P), else the prior."""
         known = [FIND_P[bare(k)] for k in kinds if bare(k) in FIND_P]
         return max(known) if known else float(_PLAY["plan"]["exists_prior"])
-
-class _Held:
-    """The bag as a plan will have it when a step runs: its tools those the plan holds by then ({kind: tier}), the
-    rest (what is worn) the bag's."""
-
-    def __init__(self, inv, held):
-        self.equipment, self._held = getattr(inv, "equipment", {}), dict(held)
-
-    def tools(self, kind):
-        from .knowledge import tool_item
-        from .data import TOOL_MATERIAL_FOR_TIER, TOOL_USES
-        t = self._held.get(kind)
-        return [] if t is None else [(t, TOOL_USES[TOOL_MATERIAL_FOR_TIER[t]], tool_item(kind, t))]
-
 
 def portal_known(mem, dimension):
     """Pure over memory: a portal remembered in `dimension` (a built one or a site)."""
