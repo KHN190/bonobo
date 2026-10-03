@@ -2,7 +2,7 @@
 
 import math
 
-from .data import bare
+from .data import TIER_OF_MATERIAL, TOOL_KINDS, bare
 from .game import WAYPOINT_R
 from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held_count, kit_needs, reconcile,  # noqa: F401
                         tool_ok)
@@ -13,6 +13,8 @@ ITEM_GOALS = ("have", "craft", "milestone")
 RUN_ONCE = ("skill", "effect")
 # Milestones whose plan goes on past holding things (decompose.THEN): done when that plan has run.
 RUN_AFTER = ("end portal",)
+# Milestones off the speedrun route: never the run's next target nor its route's seconds; only "used later" (en-route).
+OFF_ROUTE = ("diamond tools",)
 
 # the run as named sets of things to hold, in order
 MILESTONES = {
@@ -34,6 +36,8 @@ MILESTONES = {
     "eyes of ender": [["minecraft:ender_eye", 12]],
     "end portal": [["minecraft:ender_eye", 12]],     # then find and light it (decompose.THEN)
     "dragon beds": [["bed", DRAGON_BEDS]],
+    # OFF_ROUTE: diamonds "used later" for en-route (brain.enroute_wanted); every tool kind at the diamond tier
+    "diamond tools": [["tool", kind, TIER_OF_MATERIAL["diamond"]] for kind in TOOL_KINDS],
 }
 # the night's idle work under cover: ore below, first not held
 NIGHT_STOCK = [[["minecraft:raw_iron", 16]], [["minecraft:diamond", 3]]]

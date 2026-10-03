@@ -233,7 +233,7 @@ class Needs:
         """Seconds of work under cover the unmet milestones still ask (the planner bound's covered part)."""
         from .planner import bound
         lb, inv, ticks = bound(self.cost(snap)), snap.inv, 0.0
-        for name in goals.MILESTONES:
+        for name in (n for n in goals.MILESTONES if n not in goals.OFF_ROUTE):
             for key, n in _k.have_remainder(inv, goals.needs(goals.make("milestone", name=name), inv)).items():
                 tool = key.startswith("tool:")
                 token = _k.tool_item(key.split(":")[1], n) if tool else key
