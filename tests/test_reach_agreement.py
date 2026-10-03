@@ -306,57 +306,59 @@ def _starving_widths(carried, max_width=40):
 
 
 def _two_gaps(carried):
-    """A walled corridor (z = -1/+1 solid up to y67: no sideways detour) running BOTH ways from feet: gap1 at +x,
-    gap2 at -x -- two INDEPENDENT candidates, neither on the other's path, so pricing B fresh from feet never has
-    to cross A too (that would price the whole A+B trip as one plan_way call, a different question). Sized by
-    `_starving_widths` so cost.Cost.refused (fresh Inventory(carried), never decremented across steps in one plan)
-    calls both reachable, while the real sequential run (cross A for real, then price B off what's left) starves
-    the second (D6)."""
+    """A single 1-wide, walled corridor (z = -1/+1 solid up to y67: no sideways detour around a gap) with two
+    chasms in it, gap2 past gap1 (a real sequential trip: cross gap1 to reach A, then continue past it to reach
+    B through gap2) -- sized by `_starving_widths` so each gap alone prices reachable fresh off `carried`."""
     gap1, gap2 = _starving_widths(carried)
-    lo, hi = (-60, 50, -10), (60, 80, 10)
+    lo, hi = (-10, 50, -10), (60, 80, 10)
     blocks = {(x, 63, 0): "stone" for x in range(lo[0], hi[0] + 1)}
     for z in (-1, 1):
         for x in range(lo[0], hi[0] + 1):
             for y in range(63, 68):
                 blocks[(x, y, z)] = "stone"          # the corridor wall: no stepping around a gap sideways
-    for x in range(1, 1 + gap1):
-        blocks.pop((x, 63, 0), None)
-    a = (1 + gap1, 64, 0)
-    blocks[a] = "iron_ore"
-    for x in range(-gap2, 0):
-        blocks.pop((x, 63, 0), None)
-    b = (-gap2 - 1, 64, 0)
-    blocks[b] = "iron_ore"
-    return FakeRegion(lo, hi, blocks), FEET, [a, b]
+    targets, start = [], 1
+    for width in (gap1, gap2):
+        for x in range(start, start + width):
+            blocks.pop((x, 63, 0), None)
+        ore = (start + width, 64, 0)
+        blocks[ore] = "iron_ore"
+        targets.append(ore)
+        start += width + 6                            # solid ground between the two gaps
+    return FakeRegion(lo, hi, blocks), FEET, targets
 
 
 class CumulativeBudget(unittest.TestCase):
-    """D6: a plan's second step must be priced off the bag the FIRST step actually leaves, not the bag the plan
-    started with. cost.Cost.refused re-derives a fresh Inventory(carried) for every step it prices (cost.py:199
-    with spent=0 by default) -- expected red today unless the caller itself threads `spent` through (cost.Cost
-    does support a `spent` argument now; this row's plan-side deliberately omits it, as gather._cheapest_seed and
-    most callers still do)."""
+    """D6: a plan's second step must be priced off the bag the FIRST step actually leaves. Plan-side now points at
+    the real threading Opus added for this (fa0e8a5): cost.Cost.reach/refused(cell, kind, at, spent) -- `at` the
+    place step A left the body, `spent` its way blocks (cost.py:183/199, step_bag cost.py:173) -- the same
+    plumbing planner.price_as_run (planner.py:1593) carries through a real plan via Cost.way_spent (cost.py:505).
+    If this still disagrees with the run, it's fa0e8a5's own gap, not this test's."""
 
     def test_second_step_sees_the_first_steps_spend(self):
         carried = 8
         region, feet, (a, b) = _two_gaps(carried)
-        plan_a = _cost.Cost(world.Snapshot.from_readings(state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5),
-                                                         _inv(carried), {}, [], region), memory()).refused(a, "mine") is None
-        plan_b = _cost.Cost(world.Snapshot.from_readings(state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5),
-                                                         _inv(carried), {}, [], region), memory()).refused(b, "mine") is None
-        self.assertTrue(plan_a and plan_b, "both steps must look doable off the starting bag for this to be a real plan")
-        # run-side: nav.reach itself, step A first (spending real blocks), step B priced off what nav.reach says
-        # was actually spent (Reached.spent) -- the one true sequential execution. B is independent of A (the
-        # opposite direction, no shared gap), so its own reach starts back at the original feet, same as the plan
-        # side's -- only the BAG differs, which is D6's whole point
         inv = _inv(carried)
-        got_a = nav.reach(region, feet, a, "mine", inv)
-        self.assertIsNotNone(got_a.stand)
-        inv_after_a = nav.less_way_blocks(inv, got_a.spent)
-        got_b = nav.reach(region, feet, b, "mine", inv_after_a)
-        # must fail: plan said both reachable off 8; run finds the second starved by the first's actual spend
-        self.assertEqual((plan_a, plan_b), (True, got_b.stand is not None),
-                         "D6: plan must price step 2 off step 1's leftover bag")
+        snap = world.Snapshot.from_readings(state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5), inv, {}, [], region)
+        cost = _cost.Cost(snap, memory())
+
+        plan_a = cost.refused(a, "mine") is None
+        got_a = cost.reach(a, "mine")           # the real production call step A's own price comes from
+        self.assertEqual(plan_a, got_a.stand is not None)
+
+        # plan-side for B: the real D6-threaded question -- reachable from where A left the body, with the bag A
+        # actually spent (cost.py:199's `at`/`spent`, not a fresh Cost.refused(b, "mine"))
+        plan_b = cost.refused(b, "mine", at=got_a.stand, spent=got_a.spent) is None
+
+        # run-side: nav.reach itself, step A first (spending real blocks), step B from where A actually left the
+        # body with what nav.reach says was actually spent (Reached.spent) -- the one true sequential execution
+        run_a = nav.reach(region, feet, a, "mine", inv)
+        self.assertIsNotNone(run_a.stand)
+        inv_after_a = nav.less_way_blocks(inv, run_a.spent)
+        run_b = nav.reach(region, run_a.stand, b, "mine", inv_after_a)
+
+        self.assertEqual(plan_b, run_b.stand is not None,
+                         "D6 (fa0e8a5): Cost.refused(b, at=A's stand, spent=A's spend) must agree with the real "
+                         "sequential run -- if not, the threading itself is the bug, not this test")
 
 
 def _deep_vein(depth):
