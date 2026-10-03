@@ -18,8 +18,7 @@ class Stop(Exception):
 
 class NotedIsACandidate(unittest.TestCase):
     def test_rows(self):
-        # design-f1 V1: every known vein is a candidate, priced by its way — the noted one and the ones the look sees
-        # (one look a pass: exposed and all); (noted?) → (/find calls, the noted cell among the candidates)
+        # (noted?) → (/find calls, the noted cell among the candidates)
         for name, noted, finds, among in [("noted: a candidate beside what the look sees", True, 2, True),
                                           ("nothing noted: the look alone", False, 2, False)]:
             with self.subTest(name):

@@ -947,8 +947,7 @@ class HeldPlans(unittest.TestCase):
                 q.restore()
 
     def test_a_new_plan_replaces_the_held_one_only_when_it_pays(self):
-        """D4: on an event for the same want, the re-solved plan is taken only when its seconds and the work the
-        switch throws away beat the held plan priced again now (K4)."""
+        """D4: a re-solved plan is taken only when it pays the switch."""
         from bonobo.beliefs import TICKS_PER_S
         # (situation, the new plan's seconds, seconds thrown away) → the new plan taken
         rows = [("much cheaper: taken", 1.0, 0.0, True),
@@ -974,8 +973,7 @@ class HeldPlans(unittest.TestCase):
                 q.restore()
 
     def test_a_hazard_seen_while_planning_is_answered_this_round(self):
-        """S1: perception's stop (api.INTERRUPT) ends a search in progress (planner.Search's stop, through the Cost);
-        the round starts again from survival on the body read now and answers the hazard, not the plan."""
+        """S1: a stop mid-search ends it; the round answers the hazard, not the plan."""
         from bonobo import hazard
         cost_ = planner.NullCost()
         cost_.stop = lambda: True

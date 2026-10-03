@@ -419,8 +419,7 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
 
 
 class ARoundReadsEachThingOnce(unittest.TestCase):
-    """Cost's cells-not-there, site and world.sight_pos are kept within a round: the same inputs give the same answer
-    as reading afresh, a changed input (a ban, a new look) is read again, and a round's repeats cost one read."""
+    """Within a round a kept answer equals a fresh one, a changed input is read again, repeats cost one read."""
 
     HITS = [{"x": 3, "y": 64, "z": 0, "distance": 3.0, "block": "minecraft:stone"},
             {"x": 6, "y": 64, "z": 0, "distance": 6.0, "block": "minecraft:stone"}]
@@ -504,8 +503,7 @@ class TheSoilIsWhatPerceptionRead(unittest.TestCase):
 
 
 class TheNightIsAFact(unittest.TestCase):
-    """The night is in the plan (S4, R3): surface work waits for the day, other work goes under cover first — the
-    plan prices the shelter or the sleep like any other step. Within one plan the night does not pass (no clock)."""
+    """The night in the plan (S4, R3): surface work waits for day, other work goes under cover first."""
 
     # (the body's readings) → (night, covered)
     BODIES = [("midnight", {"timeOfDay": 18000}, (True, False)),
