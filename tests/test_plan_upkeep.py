@@ -2941,7 +2941,9 @@ class CraftInOneSitting(unittest.TestCase):
                                S("craft", "minecraft:wooden_pickaxe", 1, {}))
         mine, stone_pick = S("mine", "stone", 3, {"tier": 0}), S("craft", "minecraft:stone_pickaxe", 1, {})
         sticks = S("craft", "minecraft:stick", 4, {})
-        # (situation, plan, the run) → the table left standing
+        # (situation, plan, the run) → the table left standing (craft.next_table_use finds a later table-needing
+        # craft; these Steps carry no place, so cost.site is always None and station_kept's distance is always 0 —
+        # this table is purely the existence check craft.next_table_use(...) is not None)
         rows = [("a stone pickaxe after the mine: kept", [planks, table, pick, mine, stone_pick], [planks, table, pick],
                  True),
                 ("must fail: nothing at a table after: taken back", [planks, table, pick, mine],
@@ -2949,7 +2951,7 @@ class CraftInOneSitting(unittest.TestCase):
                 ("a 2×2 craft after is no reason", [planks, table, pick, mine, sticks], [planks, table, pick], False)]
         for name, steps, run, want in rows:
             with self.subTest(name):
-                self.assertEqual(brainmod.keeps_table(steps, run), want)
+                self.assertEqual(craft.next_table_use(cost(), steps, run[-1]) is not None, want)
 
     def test_upkeep_crafts_at_one_sitting(self):
         """need_act goes through craft_act too: the crafts in a row are one act (they were one per round)."""
@@ -2957,7 +2959,7 @@ class CraftInOneSitting(unittest.TestCase):
         planks, sticks, table, pick = (S("craft", "planks", 8, {"times": 2}), S("craft", "minecraft:stick", 4, {}),
                                        S("craft", "minecraft:crafting_table", 1, {}),
                                        S("craft", "minecraft:wooden_pickaxe", 1, {}))
-        act = brainmod.craft_act("upkeep", "idle: x", None, [planks, sticks, table, pick], planks, False)
+        act = brainmod.craft_act("upkeep", "idle: x", None, [planks, sticks, table, pick], planks, False, cost())
         self.assertEqual(act.steps, [planks, sticks, table, pick], "must fail: one craft a round")
 
 
@@ -3290,8 +3292,9 @@ class TheRoundsPick(unittest.TestCase):
 
     def first(self, entries, snap, seen):
         q = Held(goals.have(("log", 1)), seen=seen)
-        held = q.b.round_for(entries, snap, cost(snap, mem=q.b.mem, **seen))
-        act = q.b.round_act(held["steps"], snap, round_ctx(q.b, snap)) if held is not None else None
+        c = cost(snap, mem=q.b.mem, **seen)
+        held = q.b.round_for(entries, snap, c)
+        act = q.b.round_act(held["steps"], snap, round_ctx(q.b, snap), c) if held is not None else None
         return None if act is None else (act.step.kind, act.step.token)
 
     def test_rows(self):
