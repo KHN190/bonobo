@@ -12,7 +12,7 @@ from .data import DOOR_NEAR, ENTITY_REACH, STAIR_CELLS, is_falling, GROUPS, FOOD
 from .game import EYE_HEIGHT, PLAYER_SPRINT
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
 from .knowledge import WAY_BLOCKS, dig_ticks, find_class
-from .bag import holds_up
+from .bag import holds_up, reserved_stacks
 from .beliefs import TICKS_PER_S
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
@@ -33,6 +33,7 @@ class Policy:
     lava_ok: bool = False               # the current goal wants lava (bucket, portal casting): don't avoid or cover it
     allow_build: bool = True            # routes may place blocks (bridges, pillars) and ladders
     hand_only: bool = False             # no usable pickaxe: dig only what hands break quickly (dirt, sand, logs…)
+    escape: bool = False                # a way out (unstuck, ashore): the full bag builds it, the plan's reserve too (S1)
 
 def waypoints(here, target, leg=40):
     """Pure: points every `leg` blocks (horizontal) from here to target, height interpolated, ending at target."""
@@ -237,6 +238,16 @@ def building_of(inv):
 
 def building_item():
     return building_of(Inventory())
+
+def way_bag(inv, reserve=True):
+    """Pure: the bag a planned way builds from — less the stacks the held plans reserve (bag.reserved_stacks, the one
+    reader the tidy keeps them by): a bridge never spends the cobblestone the next pickaxe is crafted from. A way out
+    (`reserve` off: Policy.escape) and a reflex's own block (building_item: a pillar out of a pit) are not held to
+    it (S1)."""
+    if inv is None or not hasattr(inv, "slots") or not reserve:
+        return inv
+    kept = {id(s) for s in reserved_stacks(inv.slots)}
+    return Inventory({"slots": [s for s in inv.slots if id(s) not in kept], "equipment": dict(inv.equipment)})
 
 def ground_in_column(solid, x, z, y_hint, span=32):
     """Pure: standing height in column (x, z) within y_hint ± span, or None."""
@@ -579,7 +590,8 @@ def reach_stand(task, policy, faces=None, at=None):
             return
         cands = faces if faces is not None else stand_candidates(region, target, kind)
         walks = plan_walks(cands, 0.5)
-        steps, why, seconds = plan_way(region, here, target, kind, inventory_now(), policy.protected, walks)
+        steps, why, seconds = plan_way(region, here, target, kind, inventory_now(), policy.protected, walks,
+                                       reserve=not policy.escape)
         if steps is None:
             raise api.NavFailed(f"no way to {kind} {target}: {why}", pos=getattr(why, "cell", None))
         if not steps:
@@ -938,7 +950,7 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_gue
         here, stopped = _long_trip(here, pos, policy, min_hp, purpose, _from, _began)
         if here is None:
             return stopped
-    budget = place_budget(Inventory().count("building"))
+    budget = place_budget(way_bag(Inventory(), not policy.escape).count("building"))
     # taught doors (mechanisms): pressed open first when on the way, and never dug; the home's cells too
     doors = DOORS(here, pos, policy) if DOORS is not None else []
     # every other door on the way: a wooden one opened by hand when shut, an iron one a wall — none ever dug
@@ -981,10 +993,10 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_gue
         if there(api.get("/state"), pos, range_):
             return _arrived(_from, pos, _began, True)
         if walked_closer(was, feet(), pos):
-            budget = place_budget(Inventory().count("building"))
+            budget = place_budget(way_bag(Inventory(), not policy.escape).count("building"))
             continue                     # that leg gained ground: the next one starts from here
         here = feet()
-        budget = place_budget(Inventory().count("building"))     # the last leg spent some
+        budget = place_budget(way_bag(Inventory(), not policy.escape).count("building"))     # the last leg spent some
         if not y_guess or grounded or "no route" not in (r.get("message") or "") or \
                 math.hypot(pos[0] - here[0], pos[2] - here[2]) > 64:
             continue
@@ -1398,7 +1410,7 @@ def way_s(region, feet, steps, inv):
     places = sum(t["type"] == "place" for t in steps)
     return dig_ticks(mined, inv) / TICKS_PER_S + places * PLACE_S + walk / PLAYER_SPEED
 
-def plan_way(region, feet, target, kind, inv, protected, walks=None) -> tuple[list | None, str | None, float | None]:
+def plan_way(region, feet, target, kind, inv, protected, walks=None, reserve=True) -> tuple[list | None, str | None, float | None]:
     """Pure given `walks`: (steps | None, why, seconds) — the cheapest way to where `kind` (mine|place|use|stand) of
     `target` can be done, by seconds: the dug ways of named steps — a level way (dug through, its missing treads
     placed: a bridge over a gap or a fluid) and, off the feet's level, a staircase down (or up: the climb out) to the
@@ -1406,7 +1418,8 @@ def plan_way(region, feet, target, kind, inv, protected, walks=None) -> tuple[li
     least first (least_way_s) until none can beat the best. A way stopped short (its why: blocked, off the read) is
     taken only when no other is left; a staircase's segment is not stopped (the region is read again for the next).
     Steps name cells, never items (the door's ARM/HOLD do); a protected cell refuses the way (why "home at …")."""
-    places = [building_of(inv)] * place_budget(inv.count("building")) if building_of(inv) else []
+    ways = way_bag(inv, reserve)       # the reserved stacks never a tread (RESERVED), but on a way out
+    places = [building_of(ways)] * place_budget(ways.count("building")) if building_of(ways) else []
     done = lambda here: stands_for(kind, region, here, target)     # noqa: E731
     if done(tuple(feet)):
         return [], None, 0.0                       # standing where it can be done: nothing to plan

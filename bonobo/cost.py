@@ -187,7 +187,8 @@ class Cost:
         gone = self.not_there(False)
         feet = tuple(int(c) for c in self.step_state(at)[0])
         bag = self.step_bag(spent)
-        key = ("reach", tuple(cell), kind, feet, bag.count("building"), nav.building_of(bag), gone)
+        ways = nav.way_bag(bag)          # what a way may place (the held plans' stacks kept): part of the answer
+        key = ("reach", tuple(cell), kind, feet, ways.count("building"), nav.building_of(ways), gone)
         if key not in self.cache:
             ground = _Ground(feet, cell, self.region.name(cell), self.soil(), False, self.region, gone.cells)
             # a banned source (a place a step is priced at) is not there, never in the way; any other banned cell is a
