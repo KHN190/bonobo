@@ -185,12 +185,29 @@ class ACrashIsAStatesOwn(unittest.TestCase):
         def boom(f, fail_then_again=True):
             raise ValueError("too many values to unpack")
         with mock.patch.object(rnd, "decide", boom):
-            k, after, d, _progress, found, _mismatch, _got = explore.judged(of())
+            k, after, d, _progress, found, _mismatch, _got, _secs = explore.judged(of())
         self.assertEqual((after, d.layer, [inv for inv, _why in found]), (None, "crash", ["CRASH"]))
         self.assertIn("ValueError", found[0][1])
         # must fail: judge itself still raises (only judged isolates)
         with mock.patch.object(rnd, "decide", boom), self.assertRaises(ValueError):
             explore.judge(of())
+
+
+class TheExactSearchIsCapped(unittest.TestCase):
+    """round.exact_s: the unbudgeted reference stops after its step cap and says its best is unknown."""
+
+    def test_rows(self):
+        from check import round as rnd
+        from tests.world import cost, inventory, snapshot
+        needs = [("tool", "pickaxe", 1)]
+        # (situation, step cap) → (seconds known, why unknown)
+        rows = [("a cap the search stays under: its best", 10 ** 9, (True, False)),
+                ("must fail: a cap of one step: unknown, said why", 1, (False, True))]
+        for name, limit, want in rows:
+            with self.subTest(name):
+                snap = snapshot(None, inventory())          # a snapshot each: the plan memo lives on it
+                secs, why = rnd.exact_s(snap.inv, None, needs, cost(snap, oak_log=30, stone=20), limit=limit)
+                self.assertEqual((secs is not None, why is not None), want, why)
 
 
 class FinishedRound(unittest.TestCase):

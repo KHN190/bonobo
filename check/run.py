@@ -10,6 +10,7 @@ from .facts import DOMAINS  # noqa: F401
 
 
 WORKERS = 6         # the machine is shared with other agents' test runs: at most this many processes
+SLOW_S = 10.0       # a state judged slower than this is named in the report
 
 
 def _shard(keys):
@@ -36,13 +37,15 @@ def main(argv):
     todo += sorted({explore.key(f) for f in fuzz.corpus()} - set(todo))
     todo = todo[:limit] if limit else todo
     shards = [todo[i::workers] for i in range(workers)]
-    rows, graph, roundtrip, first = defaultdict(list), {}, [], {}
+    rows, graph, roundtrip, first, slow = defaultdict(list), {}, [], {}, []
     gate = Gate()
     # spawn: each worker imports check afresh, so its memory, tasks and tape live in a data dir of its own
     with multiprocessing.get_context("spawn").Pool(workers) as pool:
         for results, hits in pool.imap_unordered(_shard, shards):
             gate.merge(hits)
-            for k, after, d, progress, found, mismatch, got in results:
+            for k, after, d, progress, found, mismatch, got, secs in results:
+                if secs > SLOW_S:
+                    slow.append((secs, dict(zip(explore.DOMAINS, k))))
                 if after is not None:          # a crashed state has no successor
                     first.setdefault("step", (explore.of(**dict(zip(explore.DOMAINS, k))), d))
                     graph[k] = (after, d, progress)
@@ -69,6 +72,8 @@ def main(argv):
         lines.append(f"| D7 | {k} | {name} | a {n}-step cycle whose decisions leave nothing in the world |")
     lines += ["", "## unchecked (no offline fact; named)", "| inv | why |", "|---|---|"]
     lines += [f"| {k} | {why} |" for k, why in unchecked.items()]
+    lines += ["", f"## states judged slower than {SLOW_S:.0f} s: {len(slow)}"]
+    lines += [f"- {s:.1f} s: {f}" for s, f in sorted(slow, key=lambda p: -p[0])]
     lines += ["", f"## γ round-trip mismatches: {len(roundtrip)}"]
     lines += [f"- asked {f} → alpha {g}" for f, g in roundtrip[:20]]
     lines += ["", "## excluded from the denominator (execution, by structure: check/coverage.py)", "| why | functions |",

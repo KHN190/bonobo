@@ -118,15 +118,18 @@ def judge(f):
 
 
 def judged(f):
-    """`judge`, a state whose round raises judged a CRASH (its trace's first and last lines), the run going on."""
+    """`judge` and the seconds it took; a state whose round raises judged a CRASH (its trace's first and last lines),
+    the run going on."""
+    import time
     import traceback
+    t0 = time.time()
     try:
-        return judge(f)
+        return (*judge(f), time.time() - t0)
     except Exception as e:  # guard: one state's crash is its own violation, never the whole run's end
         lines = [ln.strip() for ln in traceback.format_exc().strip().splitlines() if ln.strip()]
         why = f"{type(e).__name__}: {e} ({lines[1] if len(lines) > 1 else ''} … {lines[-2] if len(lines) > 2 else ''})"
         d = rnd.Decision("crash", "crash", None, None, (), why, "crash", ())
-        return key(f), None, d, False, [("CRASH", why)], False, dict(f)
+        return key(f), None, d, False, [("CRASH", why)], False, dict(f), time.time() - t0
 
 
 def explore(limit, on_edge):

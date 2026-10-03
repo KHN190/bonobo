@@ -147,6 +147,7 @@ class Plan(unittest.TestCase):
         ("P5", {"plan": BEEF_IN_ORDER, "exact_s": 7.75}, False),            # the plan's own 155 ticks
         ("P5", {"plan": BEEF_IN_ORDER, "exact_s": 5.0}, True),             # must fail: the budget cut a faster plan
         ("P5", {"plan": BEEF_IN_ORDER, "exact_s": 5.0, "plan_hand_made": True}, False),
+        ("P5", {"plan": BEEF_IN_ORDER, "exact_s": None, "exact_unknown": "past the cap"}, False),   # the reference capped: unknown
         ("P3", {"plan": BEEF_IN_ORDER, "bound": 150}, False),
         ("P3", {"plan": BEEF_IN_ORDER, "bound": 155}, False),            # boundary: the plan's own price
         ("P3", {"plan": BEEF_IN_ORDER, "bound": 400}, True),             # must fail: the bound above what is paid

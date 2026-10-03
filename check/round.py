@@ -343,7 +343,7 @@ def plan_ctx(b, act, snap, mem, world):
         else:
             out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost)
         if not out["plan_hand_made"] and look is None:
-            out["exact_s"] = exact_s(snap.inv, held.get("want"), goals.needs(goal, snap.inv), cost,
+            out["exact_s"], out["exact_unknown"] = exact_s(snap.inv, held.get("want"), goals.needs(goal, snap.inv), cost,
                                      mem.pending_outputs(snap.dimension))
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
     # the plan and the chosen candidate priced as they run, now (D6): a later reading would see another world
@@ -365,19 +365,35 @@ def plan_ctx(b, act, snap, mem, world):
     return out
 
 
-def exact_s(inv, want, needs, cost, pending=None):
-    """Seconds of the cheapest plan with no search budget (the planner's exact mode) for what the round planned:"""
+EXACT_STEPS = 50_000     # search steps the unbudgeted reference may take in one state; past them P5 is unknown
+
+
+def exact_s(inv, want, needs, cost, pending=None, limit=EXACT_STEPS):
+    """(seconds of the cheapest plan with no search budget for what the round planned, None; or None and why it is
+    unknown): the reference stops after `limit` search steps."""
+    import copy
     import json
-    from bonobo import decompose
+    from bonobo import api, decompose
     from bonobo.planner import Target, Unplannable, plan_candidates, plan_round
+    steps, asked = [0], cost.stop or (lambda: False)
+
+    def stop():
+        steps[0] += 1
+        return steps[0] > limit or asked()
+    capped = copy.copy(cost)
+    capped.stop = stop
     try:
         if want:
-            targets = [Target(name, decompose.round_needs(json.loads(goal), inv, cost), rank)
+            targets = [Target(name, decompose.round_needs(json.loads(goal), inv, capped), rank)
                        for rank, (name, goal, *_left) in enumerate(want)]
-            return plan_round(inv, targets, cost, pending, exact=True)[2]
-        return plan_candidates(inv, needs, cost, exact=True)[0][1]
+            return plan_round(inv, targets, capped, pending, exact=True)[2], None
+        return plan_candidates(inv, needs, capped, exact=True)[0][1], None
     except Unplannable:
-        return None
+        return None, None
+    except api.Interrupted:
+        if steps[0] <= limit:
+            raise
+        return None, f"the unbudgeted search passed {limit} steps: its best is unknown"
 
 
 def plan_bound(inv, needs, cost, pending=None, jobs=None):
