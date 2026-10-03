@@ -2,7 +2,7 @@
 import functools
 import math
 
-from .game import COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
+from .game import BREAK_COOLDOWN, COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
 from .data import ANIMAL_HP, BASE_MARKERS, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, HARDNESS, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
 from .data import TAKEABLE
 from .data import COLORS, WOODS, ATTACKS_PER_S, HAND_ATTACKS_PER_S, HAND_DAMAGE, NETHER, OVERWORLD, PIGLIN_BARTER, is_night
@@ -393,7 +393,12 @@ def tool_for(inv, block, min_left=2):
 
 def dig_ticks(blocks, inv):
     """Pure: ticks the breaks of `blocks` (a block name per cell) take, each with the item tool_for holds for it."""
-    return sum(break_ticks(b, tool_for(inv, b)) + PRIOR_TICKS["break_task"] for b in blocks)
+    return sum(break_ticks(b, tool_for(inv, b)) + break_overhead() for b in blocks)
+
+
+def break_overhead():
+    """Ticks a mine task takes per block past the game's break: the game's cooldown and the task's own."""
+    return BREAK_COOLDOWN + PRIOR_TICKS["break_task"]
 
 def tool_item(kind, tier):
     """Pure: the tool of `kind` at `tier` ("minecraft:stone_shovel")."""
@@ -403,7 +408,7 @@ def work_s(breaks, kills, held, ticks_per_s):
     """Pure: seconds the work takes — each block of `breaks` broken, each hp of `kills` dealt — with the best of the
     hand and `held` ({tool kind: tier}) for each."""
     items = ["hand"] + [tool_item(k, t) for k, t in held.items()]
-    return (sum(min(break_ticks(b, i) for i in items) + PRIOR_TICKS["break_task"] for b in breaks) / ticks_per_s
+    return (sum(min(break_ticks(b, i) for i in items) + break_overhead() for b in breaks) / ticks_per_s
             + sum(min(kill_s(i, hp) for i in items) for hp in kills))
 
 def own_work(step):
@@ -784,7 +789,8 @@ PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 
                "room:tidy": 300, "room:deposit": 1200,
                "surface": 200, "surface_per_block": 30,     # out from under rock: a base and per block below SURFACE_Y
                "unknown_walk": 6000, "unknown_water": 1200,  # nothing known nearby: a search's walk; water's
-               "break_task": 8}     # a mine task's own time per block past the game's break: the swing, the drops
+               "break_task": 1}     # a mine's own ticks past the break and BREAK_COOLDOWN: the segment boundary
+#                                    (bench q5: 2-4 ticks a segment of 2-4 mines)
 SURFACE_Y = 64
 GROW_S = {"crop": 900, "animal": 1200}     # seconds (jobs.DURATION)
 NIGHT_S = 420.0               # a night, when the clock is not read
@@ -799,12 +805,12 @@ PRICE_SOURCE = {
         "reach": "prior", "breed": "prior", "eat": "game", "pickup_each": "measured", "shelter:dig_in": "prior", "shelter:pod": "prior",
         "shelter:hut": "prior", "room:tidy": "prior", "room:deposit": "prior", "surface": "prior",
         "surface_per_block": "prior", "unknown_walk": "prior", "unknown_water": "prior",
-        "break_task": "measured"},      # bench f1 traces: a stone break 0.95 s against the game's 0.56 s
+        "break_task": "measured"},      # bench q5 ticks (readiness: mine_stone__base, ore_buried, chop__base)
     "knowledge.SURFACE_Y": "game", "data.MEASURED_BAND": "policy", "knowledge.GROW_S": {"crop": "prior", "animal": "game"}, "knowledge.NIGHT_S": "game",
     "knowledge.MIN_FIND_P": "policy", "knowledge.FIND_AT": "game",
     "data.WALK_BLOCKS_PER_TICK": "mineflayer prior", "data.ROUTE_FACTOR": "prior", "data.HARDNESS": "game",
     "data.TOOL_SPEED": "game", "data.BREAK_DIVISOR": "game", "data.PASSIVE_WEIGHT": "game", "data.SEARCH_LEGS": "prior",
-    "data.SEARCH_LOOK_R": "prior", "game.EAT_TICKS": "game", "game.PLAYER_SPRINT": "game",
+    "data.SEARCH_LOOK_R": "prior", "game.EAT_TICKS": "game", "game.BREAK_COOLDOWN": "game", "game.PLAYER_SPRINT": "game",
 }
 PRIOR_ORIGIN = {}     # a fitted price item → its first value (tools.fit_prices bounds every fit by it)
 

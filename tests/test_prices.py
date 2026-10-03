@@ -79,11 +79,12 @@ class TheWaitIsTheNightLeft(unittest.TestCase):
 
 class TheWorkAsTheJarRunsIt(unittest.TestCase):
     def test_a_break_is_a_task(self):
+        from bonobo.game import BREAK_COOLDOWN
         from bonobo.knowledge import PRIOR_TICKS, break_ticks, work_s
-        # must fail: a stone broken in the game's 0.6 s (12 ticks) though the jar's mine task takes ~0.95 s
-        # (bench ore_buried, cave_escape): the swing start, the drops, the task boundary
+        # must fail: a stone broken in the game's 12 ticks, though the next waits the game's cooldown and the task
+        # its own (bench q5: start..broke = break + 6 on every mine)
         self.assertEqual(work_s(["stone"], [], {"pickaxe": 1}, TICKS_PER_S) * TICKS_PER_S,
-                         break_ticks("stone", "minecraft:stone_pickaxe") + PRIOR_TICKS["break_task"])
+                         break_ticks("stone", "minecraft:stone_pickaxe") + BREAK_COOLDOWN + PRIOR_TICKS["break_task"])
 
     def test_a_table_placed_for_a_craft_is_taken_back(self):
         from tests.world import cost
