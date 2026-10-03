@@ -8,7 +8,7 @@ from .beliefs import CONFIG as _PLAY
 from .data import MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare, mid
 from .knowledge import food_count, soil_depth, dawn_s, MIN_FIND_P, body_facts, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
-from .world import ROUTES, Region, entities, job_ready, nearest, route_key, sight_pos, sight_y
+from .world import ROUTES, Region, entities, job_ready, nearest, route_key, sight_pos, sight_version, sight_y
 from .skill import MIN_SAMPLES
 from .planner import Unplannable, plan_needs
 
@@ -70,12 +70,18 @@ class _Gone:
     """Cells an estimate never goes to: banned now, protected (None: none asked), or the game's route there asked this
     round and not found (`route_refused`: the one reachability reading)."""
 
-    def __init__(self, protected, blacklist):
+    def __init__(self, protected, blacklist, now=None):
         self.protected, self.blacklist = protected, blacklist
+        now = time.time() if now is None else now
+        # built once: the banned cells and the refused routes as one set (the reading at `now`)
+        self.cells = frozenset({tuple(p) for p in blacklist if banned(blacklist, p, now)}
+                               | {k[0] for k, (found, _s) in ROUTES.items() if found is False
+                                  and k[1:] == (2.0, NAV_NODES)})
+        self.memo_key = (self.cells, id(protected))      # world.sight_pos's memo: what this skip holds
 
     def __contains__(self, p):
-        return banned(self.blacklist, tuple(p)) or (self.protected is not None and tuple(p) in self.protected) \
-            or route_refused(tuple(p))
+        p = tuple(p)
+        return p in self.cells or (self.protected is not None and p in self.protected)
 
 
 def route_refused(where):
@@ -121,8 +127,13 @@ class Cost:
         return self.cache["protected"]
 
     def not_there(self, sources=False):
-        """The cells no estimate goes to: banned (no way there), and with `sources` the protected ones."""
-        return _Gone(self.protected() if sources else None, self.blacklist)
+        """The cells no estimate goes to: banned (no way there), and with `sources` the protected ones — built once
+        while the bans and the round's routes stand as they are."""
+        stamp = (len(self.blacklist), len(ROUTES))
+        got = self.cache.get(("gone", sources))
+        if got is None or got[0] != stamp:
+            got = self.cache[("gone", sources)] = (stamp, _Gone(self.protected() if sources else None, self.blacklist))
+        return got[1]
 
     def _nearest(self, kinds, sources=False):
         """(position, distance) of the nearest remembered one of these (memory.seen, "tree" for any log), or None;
@@ -348,10 +359,15 @@ class Cost:
         kinds = self._kinds_of(step)
         if not kinds:
             return None
-        hit = self._nearest(kinds, sources=k in ("gather", "mine", "take"))
-        if hit is not None:
-            return hit[0]
-        return sight_pos(kinds, self.not_there(True)) if self.snap is not None and k != "hunt" else None
+        sources = k in ("gather", "mine", "take")
+        # one answer per (kind, sources) while the cells not there and the look stand as they are
+        key = ("site", k == "hunt", sources, tuple(kinds), self.not_there(sources), self.not_there(True),
+               sight_version())
+        if key not in self.cache:
+            hit = self._nearest(kinds, sources=sources)
+            self.cache[key] = hit[0] if hit is not None else (
+                sight_pos(kinds, self.not_there(True)) if self.snap is not None and k != "hunt" else None)
+        return self.cache[key]
 
     def _kinds_of(self, step):
         k = step.kind
