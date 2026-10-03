@@ -54,11 +54,6 @@ def takes_back(block, has_pickaxe):
 
     return has_pickaxe or bare(block).endswith(HAND_MINEABLE_SUFFIX)
 
-def _walk_ticks(distance):
-    """Pure: ticks to walk `distance` blocks (cost.walk_ticks's own formula — reused from knowledge's constant
-    rather than importing cost.py, which would pull its whole closure into craft's: test_layers.CLOSURE)."""
-    return int(float(distance) * _k.WALK_TICKS_PER_BLOCK)
-
 def station_kept(block, pos, next_use, inv, extra_s=0.0):
     """Pure (G3): left standing pays when walking back from `next_use` (D6: the plan's own place for it) costs
     fewer ticks than breaking `block`, carrying it, and placing it again there; `extra_s` counts in a furnace
@@ -67,7 +62,7 @@ def station_kept(block, pos, next_use, inv, extra_s=0.0):
         return False
     tool = _k.tool_for(inv, bare(block))
     rebuild = _k.break_ticks(bare(block), tool) + _k.break_overhead() + round((nav.PLACE_S + extra_s) * TICKS_PER_S)
-    return _walk_ticks(math.dist(pos, next_use)) < rebuild
+    return _k.walk_ticks(math.dist(pos, next_use)) < rebuild
 
 def _next_use_at(cost, steps, last, needs):
     """Pure: the planned place (D6: price_as_run's own at-chain) of the first step after `last` that `needs` it, else

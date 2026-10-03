@@ -187,8 +187,18 @@ def craft_act(layer, name, ctx, steps, step, night, cost, task=None, inv=None):
     if len(run) > 1 or next_use is not None:
         recipes = [(s.token, s.detail.get("times", s.count)) for s in run]
         return Act(layer, name, lambda: craft.craft_chain(ctx, recipes, next_use), task=task, step=step, steps=run)
-    # a transient read by craft._smelt_args (D8: never written into the held plan's Step — it would churn its signature)
-    ctx.next_use = craft.next_furnace_use(cost, steps, step) if step.kind == "smelt" else None
+    if step.kind == "smelt":
+        # bound in this Act's own closure, set/cleared only around this call: several candidate Acts are built a
+        # round (round_act, need_act, _task_act) before one runs, so ctx.next_use is never shared across their builds
+        furnace_use = craft.next_furnace_use(cost, steps, step)
+
+        def run(ctx=ctx, step=step, night=night, next_use=furnace_use):
+            ctx.next_use = next_use
+            try:
+                return dispatch.execute(ctx, step, night)
+            finally:
+                ctx.next_use = None
+        return Act(layer, name, run, task=task, step=step)
     return Act(layer, name, lambda: dispatch.execute(ctx, step, night), task=task, step=step)
 
 class Act:
