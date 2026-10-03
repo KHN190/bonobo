@@ -675,16 +675,24 @@ def _trace(stop, out):
 REPORTING = paths.session("bench.runner.REPORTING", list)          # the failure report still being written (a thread): the next row's setup waits on it
 
 
+def report_box(feet):
+    """Pure: the box a failed row's report reads: the scene box's extent round where the body stopped (a row far
+    from the bench origin read an unloaded box: no blocks), so its nav failure replays offline."""
+    return tuple(feet[i] + BOX[0][i] for i in range(3)), tuple(feet[i] + BOX[1][i] for i in range(3))
+
+
 def _report(name, data):
     """The failed row's report, written on a thread (its world reads and the file); the folder named at once."""
     folder = os.path.join(BENCH, name, time.strftime("%Y%m%d-%H%M%S"))
 
     def write():
+        from .. import api
         from ..world import Region
         try:
             data["inventory"] = [(s["id"], s["count"]) for s in bag_now().slots]
-            lo, hi = at(*BOX[0]), at(*BOX[1])
-            data["region"] = [[*p, n] for p, n in Region(lo, hi).blocks.items()]
+            s = api.get("/state")
+            data["region_at"] = feet = (s["blockX"], s["blockY"], s["blockZ"])
+            data["region"] = [[*p, n] for p, n in Region(*report_box(feet)).blocks.items()]
         except McError as e:
             data["report_error"] = str(e)
         os.makedirs(folder, exist_ok=True)
@@ -696,12 +704,12 @@ def _report(name, data):
     return folder
 
 
-def failure_record(name, code, cls, note, seconds, feedback, trace, lines):
+def failure_record(name, code, cls, note, seconds, feedback, trace, lines, acts=()):
     """Pure: a failed row's report, every list copied — the trace is TRACE_NOW, which the next row clears before
-    this report's thread writes it (the empty traces)."""
+    this report's thread writes it (the empty traces); `acts`: the brain's acts the row ran (brain.act_record)."""
     from .. import skill as _skill
     return {"scenario": name, "code": code, "cls": cls, "note": note, "seconds": seconds,
-            "feedback": list(feedback), "trace": list(trace), "log": list(lines[-200:]),
+            "feedback": list(feedback), "trace": list(trace), "log": list(lines[-200:]), "acts": list(acts),
             "setup_s": dict(SETUP_S), "setup": dict(SETUP_READOUT), "check": dict(CHECK_READOUT),
             "fight_holds": list(_skill.HELD_WAITS)}
 
@@ -988,7 +996,9 @@ def run_named(name, make_ctx):
         save_table(record(load_table(), name, code, ok, seconds, note, cls, e4=e4_row,
                           ticks=_api.ticks_since(_api.STATE.ticks, row_mark)))
     if not ok:
-        folder = _report(name, failure_record(name, code, cls, note, seconds, feedback, trace, console.lines))
+        from .. import brain as _brain
+        acts = [a for a in _brain.ACTS if a["start"] >= row_t0]
+        folder = _report(name, failure_record(name, code, cls, note, seconds, feedback, trace, console.lines, acts))
         note = f"{note} [{cls}] → {folder}"
     return ok, seconds, note, cls, code
 

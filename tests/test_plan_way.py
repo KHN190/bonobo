@@ -155,7 +155,24 @@ class WayEndsAtTheTarget(unittest.TestCase):
         for name, kind, target in rows:
             with self.subTest(name):
                 feet, now = self.run_door(kind, target, deep)
-                self.assertTrue(nav.stands_at(kind, now, feet, target), f"ended at {feet}")
+                self.assertTrue(nav.stands_for(kind, now, feet, target), f"ended at {feet}")
+
+
+class OneStandTest(unittest.TestCase):
+    """plan_way's "already there" is the door's stand test (nav.stands_for), one per kind: a place held by reach and
+    sight alone (the mine test) was planned as done, and the jar said "no reachable face to place against"."""
+
+    def test_rows(self):
+        floor = FakeRegion((-4, 60, -4), (4, 70, 4), {(x, 63, z): "stone" for x in range(-4, 5) for z in range(-4, 5)})
+        feet = (0, 64, 0)
+        rows = [("must fail: a cell with no face to place against", "place", (2, 66, 0)),
+                ("a cell on the floor beside", "place", (1, 64, 0)),
+                ("a floor cell to mine", "mine", (2, 63, 0)),
+                ("a cell to stand on", "stand", (2, 64, 0))]
+        for name, kind, target in rows:
+            with self.subTest(name):
+                steps, _why, _s = nav.plan_way(floor, feet, target, kind, bag(inventory()), set())
+                self.assertEqual(steps == [], nav.stands_for(kind, floor, feet, target))
 
 
 class WayPrice(unittest.TestCase):

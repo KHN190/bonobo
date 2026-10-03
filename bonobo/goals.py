@@ -35,8 +35,6 @@ MILESTONES = {
     "end portal": [["minecraft:ender_eye", 12]],     # then find and light it (decompose.THEN)
     "dragon beds": [["bed", DRAGON_BEDS]],
 }
-# What the brain prepares when the queue is empty, first unmet first: tools, food, light.
-PREPARE = [[["tool", "pickaxe", 1]], [["tool", "sword", 1]], [["food", 8]], [["minecraft:torch", 8]]]
 # the night's idle work under cover: ore below, first not held
 NIGHT_STOCK = [[["minecraft:raw_iron", 16]], [["minecraft:diamond", 3]]]
 

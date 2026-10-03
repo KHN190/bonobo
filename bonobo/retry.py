@@ -48,6 +48,11 @@ def place_signature(feet, night, bin_size=16):
 # and cool wherever the body goes. A failure about a target is cooled at the target (brain.failed: `pos`).
 BY_PLACE = ("stuck", "nav", "unavailable")
 
+def state_signature(place, bag_kinds, target_present):
+    """Pure: what a failure is tied to: the place, the kinds carried, whether its target is still there. A cooling
+    lifts once the state differs (E5): the clock is only its cap."""
+    return place, frozenset(bag_kinds), bool(target_present)
+
 def cause_key(cause, place):
     return f"{cause}@{place if cause in BY_PLACE else '*'}"
 
@@ -74,9 +79,10 @@ class Retry:
         for key in [k for k in self.entries if k[0] == name]:
             self.entries.pop(key)
 
-    def failed(self, task, cause, message, now, place=None, also_at=()):
+    def failed(self, task, cause, message, now, place=None, also_at=(), state=None):
         """Record a failure of `task` for `cause`, cooled at `place` and at each of `also_at` (where the failure
-        happened, when a long step walked away from where it began). Returns a Verdict, or None for what is not one."""
+        happened, when a long step walked away from where it began) while the `state` (state_signature) holds.
+        Returns a Verdict, or None for what is not one."""
         if cause == "replan":
             e = self.entries.get((task, "replan"))
             n = e["n"] + 1 if e else 1
@@ -96,28 +102,31 @@ class Retry:
         # the same cause at the same place before its cooling was forgotten: it doubles
         repeats = c["n"] + 1 if c and c["until"] > now - ceiling else 1
         wait = min(ceiling, BACKSTOP.get(cause, 60) * 2 ** (min(repeats, 6) - 1))
-        self.cooling[key] = {"until": now + wait, "n": repeats}
+        self.cooling[key] = {"until": now + wait, "n": repeats, "state": state}
         for other in also_at:
             if other != place:
-                self.cooling[cause_key(cause, other)] = {"until": now + wait, "n": repeats}
+                self.cooling[cause_key(cause, other)] = {"until": now + wait, "n": repeats,
+                                                         "state": None if state is None else (other,) + state[1:]}
         return Verdict(n, wait, n >= SOURCES_TRIED, worth_logging)
 
     def causes(self, task):
         """The causes this task has failed with since it last succeeded."""
         return [cause for (t, cause) in self.entries if t == task]
 
-    def cool(self, cause, place, now):
-        """Seconds the cause still cools at this place (0 when it does not)."""
+    def cool(self, cause, place, now, state=None):
+        """Seconds the cause still cools at this place (0 when it does not, or when `state` is not the failure's)."""
         c = self.cooling.get(cause_key(cause, place))
-        return max(0.0, c["until"] - now) if c else 0.0
+        if c is None or state is not None and c.get("state") is not None and state != c["state"]:
+            return 0.0
+        return max(0.0, c["until"] - now)
 
-    def ready(self, task, now, place=None, cause=None):
-        """May `task` be tried now?"""
+    def ready(self, task, now, place=None, cause=None, state=None):
+        """May `task` be tried now? A cause cooling at `place` holds only while `state` is the failure's."""
 
         if self.holds.get(task, 0) > now:
             return False
         for c in set(self.causes(task)) | ({cause} if cause else set()):
-            if self.cool(c, place, now) > 0:
+            if self.cool(c, place, now, state) > 0:
                 return False
         return True
 

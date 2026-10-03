@@ -1237,10 +1237,6 @@ def tunnel_steps(region, feet, target, protected=(), places=(), done=None):
             else:
                 region.blocks[cell] = was
 
-def stands_at(kind, region, feet, target):
-    """Pure: the way's end for `kind`: standing on the cell (stand), else a stand that holds it (reach and sight)."""
-    return tuple(feet) == tuple(target) if kind == "stand" else holds(region, feet, target)
-
 PLACE_S = 0.25           # one place task (detail.log: "placed minecraft:torch (0.25s)")
 
 def way_s(region, feet, steps, inv):
@@ -1264,7 +1260,7 @@ def plan_way(region, feet, target, kind, inv, protected, walks=None) -> tuple[li
     taken only when no other is left; a staircase's segment is not stopped (the region is read again for the next).
     Steps name cells, never items (the door's ARM/HOLD do); a protected cell refuses the way (why "home at …")."""
     places = [building_of(inv)] * place_budget(inv.count("building")) if building_of(inv) else []
-    done = lambda here: stands_at(kind, region, here, target)     # noqa: E731
+    done = lambda here: stands_for(kind, region, here, target)     # noqa: E731
     if done(tuple(feet)):
         return [], None, 0.0                       # standing where it can be done: nothing to plan
     dug = [tunnel_steps(region, feet, target, protected, places, done)]

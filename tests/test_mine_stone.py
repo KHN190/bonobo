@@ -130,6 +130,34 @@ class NoShaftIsNoBan(unittest.TestCase):
         self.assertEqual(dict(ctx.blacklist), {})       # must fail: the whole vein banned over one refused shaft
 
 
+class NoWayBansTheCell(unittest.TestCase):
+    """accept_fresh_iron_pickaxe: "no way to the coal_ore vein" banned all 18 cells of it; the cell gone for is
+    banned, the next pass goes for another."""
+
+    def test_rows(self):
+        from bonobo import api, nav
+        from bonobo.skillcore import Context
+        cells = [(1, FEET[1], 0), (2, FEET[1], 0)]
+        region = ground({c: "coal_ore" for c in cells})
+        ctx = Context(None, nav.Policy(allow_dig=True), "minecraft:overworld", {})
+        hits = [{"x": c[0], "y": c[1], "z": c[2], "block": "minecraft:coal_ore", "distance": float(c[0])} for c in cells]
+        with mock.patch.object(gather, "Inventory", lambda: bag(inventory(("wooden_pickaxe", 1)))), \
+                mock.patch.object(gather, "require_pickaxe", lambda *a, **k: None), \
+                mock.patch.object(gather, "find", lambda blocks, radius=32, limit=50, exposed=False: [] if exposed else hits), \
+                mock.patch.object(gather, "feet", lambda: FEET), \
+                mock.patch.object(api, "get", lambda path, *a, **k: state()), \
+                mock.patch.object(gather, "region_around", lambda *a, **k: region), \
+                mock.patch.object(nav, "mod_features", lambda: {"travel"}), \
+                mock.patch.object(nav, "arrived_near", lambda *a, **k: False), \
+                mock.patch.object(nav, "way_to", lambda *a, **k: False), \
+                mock.patch.object(api, "detail", lambda *a: None):
+            run = gather.mine.__wrapped__(ctx, "minecraft:coal", 2, ["coal_ore"], 0)
+            next(run)                   # the first pass's top
+            next(run)                   # no way to its cell; the next pass's top
+        # must fail: every cell of the vein banned over the one no way reached
+        self.assertEqual(len(ctx.blacklist), 1)
+
+
 PICK = {"id": "minecraft:diamond_pickaxe", "count": 1, "damage": 0, "maxDamage": 1561}
 
 

@@ -1015,36 +1015,13 @@ class HeldPlans(unittest.TestCase):
         finally:
             api.clear_requests()
 
-    # (bag, what idle prepares first, or None when everything is held)
-    PREPARE = [(inventory(), ("tool", "pickaxe", 1)),
-               (inventory(("stone_pickaxe", 1)), ("tool", "sword", 1)),
-               (inventory(("stone_pickaxe", 1), ("stone_sword", 1)), ("food", 8)),
-               (inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8)), ("minecraft:torch", 8)),
-               (inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8), ("torch", 8)), "milestone")]
-
-    def test_prepare(self):
-        """Idle stocking is a proposal toward the first missing item, never a task; stocked, the run's next milestone
-        (must fail: everything held, holding idle)."""
-        for inv, want in self.PREPARE:
-            with self.subTest(want=want), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
-                snap = snapshot(inv=inv)
-                act = q.b.prepare(snap, round_ctx(q.b, snap))
-                self.assertEqual(tasks.load(), [], "idle stocking queued a task")
-                if want == "milestone":
-                    first = next(n for n in goals.MILESTONES
-                                 if goals.remainder(goals.make("milestone", name=n), snapshot(inv=inv), q.b.mem) != {})
-                    self.assertIsNotNone(act, "must fail: PREPARE met, the queue empty: holding idle")
-                    self.assertEqual(act.name, f"milestone: {goals.describe(goals.make('milestone', name=first))}")
-                    continue
-                self.assertEqual(act.name, f"idle: {goals.describe(goals.have(want))}")
-
     def test_the_round_that_finishes_the_queue_proposes_nothing_more(self):
         """plan_proposals: the task met this round is finished and nothing else is offered — the next round (queue
-        empty) decides on stocking. Stocking in the same round ate the bench slices' budget."""
+        empty) plans the run's next milestone. Stocking in the same round ate the bench slices' budget."""
         rows = [("must fail: the last task met now: nothing this round", [goals.have(("log", 4))], [("oak_log", 4)], []),
                 ("a task met, another still live: that one", [goals.have(("log", 4)), goals.have(("stick", 4))],
                  [("oak_log", 4), ("oak_planks", 4)], ["queue"]),
-                ("nothing queued at all: stocking", [], [], ["idle"]),
+                ("nothing queued at all: the run's next milestone, planned", [], [], ["round"]),
                 ("a live task, not met: the task", [goals.have(("log", 4))], [], ["queue"])]
         for name, queued, items, want in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
@@ -1074,12 +1051,13 @@ class HeldPlans(unittest.TestCase):
                 self.assertEqual(tuple(got), want)
 
     def test_idle_beside_the_queue(self):
-        """plan_proposals: stocking only when the queue has nothing that can run now, and never into the queue
-        (tool_tier__one_use: a queued sword took over whenever the row's own task cooled)."""
-        rows = [("a task that can run: the task, no stocking", True, False, ["queue"]),
-                ("nothing queued: stocking proposed", False, False, ["idle"]),
-                ("the task cooling: stocking may be picked", True, True, ["idle"]),
-                ("nothing queued, stocked: the next milestone (must fail: holding, nothing)", False, False, ["idle"])]
+        """plan_proposals: the queue's tasks stay planned while they cool (accept_fresh_iron_pickaxe: a cooled task
+        handed the round to food, a bed, flint and 12 ender pearls, ~195 s), the run's next milestone only with
+        nothing queued, and never into the queue."""
+        rows = [("a task that can run: the task", True, False, ["queue"]),
+                ("nothing queued: the run's next milestone", False, False, ["round"]),
+                ("must fail: the task cooling: still the task, no side act", True, True, ["queue"]),
+                ("nothing queued, stocked: the next milestone", False, False, ["round"])]
         for name, queued, cooling, want in rows:
             full = inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8), ("torch", 8))
             inv = full if "stocked" in name else inventory()
@@ -1094,6 +1072,48 @@ class HeldPlans(unittest.TestCase):
                 got = q.b.plan_proposals(snap, round_ctx(q.b, snap))
                 self.assertEqual([i.kind for i in got], want)
                 self.assertEqual([t["id"] for t in tasks.load()], before, "stocking changed the queue")
+
+    def test_a_cooled_task_hands_the_round_to_no_side_act(self):
+        """The task and its step both cooling, an enderman in sight (a pearl hunt there to be had): nothing, with
+        its reason (D1) — never the hunt (must fail: the idle fallback hunted 12 pearls, ~382 s)."""
+        with tempfile.TemporaryDirectory() as tmp, Queue_(tmp, seen=dict(TREES, enderman=8)) as q:
+            q.task(goals.have(("log", 4)))
+            for key in ("task t1", "step:gather:log"):
+                q.b.failed(key, api.NavFailed("no path found"))
+            snap = snapshot(state(), inventory())
+            got = q.b.plan_proposals(snap, round_ctx(q.b, snap))
+            self.assertEqual([(i.kind, i.action.name) for i in got], [])
+            self.assertIn("task t1", q.b.idle_why)
+
+    def test_a_cooled_log_step_takes_the_second_tree(self):
+        """A walk to the plan's tree that failed with no target of its own (no tread: accept 19:43:54) failed at the
+        step's site: the next round prices the second tree, its step ready there."""
+        from bonobo import cost as costmod
+        from bonobo.planner import Step
+        with tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
+            snap = snapshot(state(), inventory(), oak_log=4, birch_log=9)
+            q.b.round_snap = snap
+            step = Step("gather", "log", 1, {})
+            first = costmod.Cost(snap, q.b.mem, q.b.blacklist).site(step)
+            q.b.failed("step:gather:log", api.NavFailed("no path found"), site=first)
+            second = costmod.Cost(snap, q.b.mem, q.b.blacklist).site(step)
+            self.assertEqual((first, second), ((4, 64, 0), (9, 64, 0)))   # must fail: the first tree again
+            self.assertTrue(q.b.ready("step:gather:log"))
+
+    def test_a_cooling_lifts_once_the_target_is_back_or_the_bag_changed(self):
+        """E5 wired: a step cooled at its target while the target is gone is ready once it is back (or the bag
+        changed), before its clock runs out."""
+        with tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
+            gone, back = snapshot(state(), inventory()), snapshot(state(), inventory(), oak_log=4)
+            q.b.round_snap = gone
+            q.b.failed("step:gather:log", api.NotAvailable("could not find log"), site=(4, 64, 0))
+            rows = [("the same state: still cooling", gone, False),
+                    ("must fail: the target back in sight", back, True),
+                    ("the bag changed", snapshot(state(), inventory(("stick", 1))), True)]
+            for name, snap, want in rows:
+                with self.subTest(name):
+                    q.b.round_snap = snap
+                    self.assertEqual(q.b.ready("step:gather:log"), want)
 
 
 # -------------------------------------------------------------------------------------------------------- upkeep
@@ -1739,6 +1759,24 @@ class Retry(unittest.TestCase):
                 if not counts:
                     self.assertEqual(b.retry.cooling, {}, "an interruption cooled something")
                     self.assertIsNone(b.reflexes.blocked, "an interruption was taken for a blocked path")
+
+    def test_a_cooling_lifts_once_the_state_changed(self):
+        now, sig = 1000.0, retry.state_signature
+        failed_in = sig(HERE, {"minecraft:oak_log"}, True)
+        # (state now, seconds later, ready): the clock caps; a changed state lifts it at once (E5)
+        rows = [("the same state, the cause still cooling", failed_in, 1, False),
+                ("must fail: a new kind in the bag, still cooled", sig(HERE, {"minecraft:oak_log", "minecraft:stick"}, True),
+                 1, True),
+                ("the target gone", sig(HERE, {"minecraft:oak_log"}, False), 1, True),
+                ("the same state past the cap", failed_in, retry.BACKSTOP["nav"] + 1, True),
+                ("no state asked: the clock alone", None, 1, False)]
+        for name, state, later, want in rows:
+            with self.subTest(name):
+                r = retry.Retry()
+                r.failed("task t1", "nav", "no path", now, HERE, also_at=(THERE,), state=failed_in)
+                self.assertEqual(r.ready("task t1", now + later, HERE, state=state), want)
+                if state is not None:     # the place walked away from keeps its own state
+                    self.assertEqual(r.ready("task t1", now + later, THERE, state=(THERE,) + state[1:]), want)
 
     def test_cooldown_doubles_up_to_its_ceiling(self):
         r, now = retry.Retry(), 1000.0

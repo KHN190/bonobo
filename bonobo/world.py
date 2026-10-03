@@ -399,6 +399,7 @@ def slabs(lo, hi, most=REGION_MAX):
 
 class Region:
     """Blocks in a box (from /blocks, in slabs the jar accepts); unknown cells outside the box are not inside."""
+    writes = None        # api.STATE.world_writes when read from the game; None: known offline, never re-read
 
     def __init__(self, lo, hi, props=False):
         self.lo, self.hi = tuple(lo), tuple(hi)
@@ -413,6 +414,7 @@ class Region:
                 self.blocks[(x, y, z)] = pal[i]
                 if len(entry) > 4:
                     self.props[(x, y, z)] = entry[4]   # block state properties (mod >= 0.1.14 with props=1)
+        self.writes = api.STATE.world_writes
 
     @classmethod
     def of(cls, lo, hi, blocks):
@@ -420,6 +422,13 @@ class Region:
         r = cls.__new__(cls)
         r.lo, r.hi, r.blocks, r.props = tuple(lo), tuple(hi), dict(blocks), {}
         return r
+
+    def now(self):
+        """This box as the world is now: itself, or read again after a dig or place of ours (P1); one known
+        offline (`of`) is never read."""
+        if self.writes is None or self.writes == api.STATE.world_writes:
+            return self
+        return Region(self.lo, self.hi, props=bool(self.props))
 
     def prop(self, p, key):
         return self.props.get(p, {}).get(key)

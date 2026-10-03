@@ -1,5 +1,6 @@
-"""python3 -m check.run [limit] [out.md] [workers] [--all]: judge the fuzzer's kept states (check/corpus; --all: and the
-explorer's enumeration, minutes), every edge, gate the coverage, write the violations."""
+"""python3 -m check.run [limit] [out.md] [workers] [--all] [--chain]: judge the fuzzer's kept states (check/corpus; --all:
+and the explorer's enumeration, minutes), every edge, gate the coverage, write the violations; --chain: and GDEV over a
+chain of decides from each fresh-spawn start (CHAIN_STARTS)."""
 import sys
 import time
 from collections import defaultdict
@@ -12,6 +13,9 @@ from .facts import DOMAINS  # noqa: F401
 WORKERS = 6         # the machine is shared with other agents' test runs: at most this many processes
 SLOW_S = 10.0       # a state judged slower than this is named in the report
 CASES = 10          # the budget-cut rounds that lost most, named in the report
+# --chain (GDEV): fresh-spawn starts, an empty bag on a tool task, one fact moved each
+CHAIN_STARTS = ({}, {"tree": True}, {"noted": "tree"}, {"noted": "iron_ore"}, {"food_source": "animals"},
+                {"hunger": "low"}, {"dusk": "dusk"}, {"chest": "iron"}, {"task": "milestone"}, {"ore": "exposed"})
 
 
 def _shard(keys):
@@ -23,6 +27,18 @@ def _shard(keys):
         api.detail = lambda *a: None
         out = [explore.judged(explore.of(**dict(zip(explore.DOMAINS, k)))) for k in keys]
     return out, gate.hits()
+
+
+def _chain(moved):
+    """A worker: one chain of decides from a start (check.round.chain), judged by GDEV; (start, rows, violation)."""
+    import contextlib
+    import io
+    from .inv.plan import GDEV
+    from .round import chain
+    f = explore.of(**{"task": "tool", **moved})
+    with contextlib.redirect_stdout(io.StringIO()):
+        rows = chain(f)
+    return moved, rows, GDEV(f, None, f, {"chain": rows})
 
 
 def _spread(xs):
@@ -37,8 +53,8 @@ def _spread(xs):
 
 def main(argv):
     import multiprocessing
-    every = "--all" in argv
-    argv = [a for a in argv if a != "--all"]
+    every, chains = "--all" in argv, "--chain" in argv
+    argv = [a for a in argv if a not in ("--all", "--chain")]
     limit = int(argv[0]) if argv else 0
     out = argv[1] if len(argv) > 1 else "check-run.md"
     workers = int(argv[2]) if len(argv) > 2 else min(WORKERS, multiprocessing.cpu_count())
@@ -67,6 +83,7 @@ def main(argv):
                     roundtrip.append((dict(zip(explore.DOMAINS, k)), got))
                 for inv, msg in found:
                     rows[inv].append((dict(zip(explore.DOMAINS, k)), d, msg))
+        judged = list(pool.imap_unordered(_chain, CHAIN_STARTS)) if chains else []
     seen = graph
     loops = explore.cycles(graph)
     hit, total, unhit = gate.report()
@@ -84,6 +101,11 @@ def main(argv):
             lines.append(f"| {k} | {state} | {dd.layer}: {dd.name} | {msg} |")
     for k, name, n in loops:
         lines.append(f"| D7 | {k} | {name} | a {n}-step cycle whose decisions leave nothing in the world |")
+    if chains:
+        lines += ["", f"## GDEV: {len(judged)} chains of decides from a fresh spawn (check.round.chain)",
+                  "| start | acts | off route | violates |", "|---|---|---|---|"]
+        lines += [f"| task=tool {m} | {len(r)} | {sum(not x['on_route'] for x in r)} | {msg or '-'} |"
+                  for m, r, msg in judged]
     lines += ["", "## unchecked (no offline fact; named)", "| inv | why |", "|---|---|"]
     lines += [f"| {k} | {why} |" for k, why in unchecked.items()]
     lines += ["", f"## states judged slower than {SLOW_S:.0f} s: {len(slow)}"]
@@ -105,7 +127,8 @@ def main(argv):
     with open(out, "w") as fh:
         fh.write("\n".join(lines) + "\n")
     print(f"{len(seen)} states, {secs:.0f}s, coverage {hit}/{total}, violations "
-          + ", ".join(f"{k}:{len(v)}" for k, v in sorted(rows.items())) + f", D7:{len(loops)}")
+          + ", ".join(f"{k}:{len(v)}" for k, v in sorted(rows.items())) + f", D7:{len(loops)}"
+          + (f", GDEV:{sum(bool(m) for _s, _r, m in judged)}" if chains else ""))
     return 0
 
 
