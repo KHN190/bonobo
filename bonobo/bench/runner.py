@@ -681,9 +681,32 @@ def report_box(feet):
     return tuple(feet[i] + BOX[0][i] for i in range(3)), tuple(feet[i] + BOX[1][i] for i in range(3))
 
 
-def _report(name, data):
-    """The failed row's report, written on a thread (its world reads and the file); the folder named at once."""
-    folder = os.path.join(BENCH, name, time.strftime("%Y%m%d-%H%M%S"))
+CUT = "CUT: the run ended before its verdict (stopped or killed); its trace, log and acts so far"
+
+
+def start_report(name, now=None):
+    """The row's own report folder, made as the row starts, holding a report that says the run was cut until the
+    verdict replaces it (a failure) or removes it (a pass): the newest report is always this run's, never an older
+    run's left standing (accept3's report was accept2's)."""
+    folder = os.path.join(BENCH, name, time.strftime("%Y%m%d-%H%M%S", time.localtime(now)))
+    os.makedirs(folder, exist_ok=True)
+    _write_report(folder, {"scenario": name, "note": CUT})
+    return folder
+
+
+def _write_report(folder, data):
+    with open(os.path.join(folder, "report.json"), "w") as f:
+        json.dump(data, f, indent=1, default=str)
+
+
+def drop_report(folder):
+    """A passed row writes none: its started report goes."""
+    import shutil
+    shutil.rmtree(folder, ignore_errors=True)
+
+
+def _report(folder, data):
+    """The failed row's report into its own folder (start_report), written on a thread (its world reads and the file)."""
 
     def write():
         from .. import api
@@ -695,9 +718,7 @@ def _report(name, data):
             data["region"] = [[*p, n] for p, n in Region(*report_box(feet)).blocks.items()]
         except McError as e:
             data["report_error"] = str(e)
-        os.makedirs(folder, exist_ok=True)
-        with open(os.path.join(folder, "report.json"), "w") as f:
-            json.dump(data, f, indent=1, default=str)
+        _write_report(folder, data)
     th = threading.Thread(target=write, daemon=True, name=f"report {name}")
     th.start()
     REPORTING[:] = [th]
@@ -949,6 +970,7 @@ def run_named(name, make_ctx):
     os.environ["MC_BENCH_ROW"], row_t0 = name, time.time()      # each step's price line names the row (E4)
     row_mark = _api.ticks_mark()
     os.environ["MC_BENCH_TICK_RATE"] = str(rate or TICKS_PER_S)
+    folder = start_report(name, row_t0)
     try:
         if rate:
             # waiting-heavy rows run the game faster: skills wait in ticks, only wall time shrinks; reset below
@@ -980,6 +1002,11 @@ def run_named(name, make_ctx):
                 # returned False without raising: blame the layer of its last failed task
                 exc = silent_failure(console.lines, result)
                 note = f"{type(exc).__name__}: {exc} (outcome not reached in {seconds:.0f}s, budget {sc['budget']}s)"
+    except BaseException as cut:
+        from .. import brain as _brain
+        _report(folder, failure_record(name, code, "cut", f"{CUT}: {type(cut).__name__} {cut}", time.time() - row_t0,
+                                       feedback, trace, console.lines, [a for a in _brain.ACTS if a["start"] >= row_t0]))
+        raise
     finally:
         stop.set()
         sys.stdout = console.real
@@ -999,8 +1026,10 @@ def run_named(name, make_ctx):
     if not ok:
         from .. import brain as _brain
         acts = [a for a in _brain.ACTS if a["start"] >= row_t0]
-        folder = _report(name, failure_record(name, code, cls, note, seconds, feedback, trace, console.lines, acts))
+        _report(folder, failure_record(name, code, cls, note, seconds, feedback, trace, console.lines, acts))
         note = f"{note} [{cls}] → {folder}"
+    else:
+        drop_report(folder)
     return ok, seconds, note, cls, code
 
 
