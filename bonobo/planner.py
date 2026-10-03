@@ -696,7 +696,7 @@ class Search:
         if not walk:                    # its walk is the bound's legs' (each place walked into once)
             return ticks
         # from the nearest place it can be walked to from: forward may run it after any step
-        walk = 0 if self.cost.site(step) in self.walked(node) else self.cost.walk_lb(step)
+        walk = 0 if self.cost.site(step) in self.walked(node) else self.cost.walk_lb(step, held)
         if step.kind == "withdraw" and step.detail.get("p"):
             return round((ticks + walk) / step.detail["p"])
         return ticks + self.cost.dig_to(step, held) + walk
@@ -720,7 +720,7 @@ class Search:
                     and node.inv.facts.get("made " + repr(task[1].key()))):
                 site = self.cost.site(task[1])
                 if site is not None:
-                    req.add(("at", tuple(site), float(self.cost.walk_lb(task[1]))))
+                    req.add(("at", tuple(site), float(self.cost.walk_lb(task[1], BEST_TOOLS))))
             token = task[1] if task[0] == "need" and held(task[1]) < task[2] else tool_item(task[1], task[2]) \
                 if task[0] == "tool" and not node.inv.has_tool(task[1], task[2], task[3]) else None
             if token is not None:
@@ -763,8 +763,8 @@ class Search:
             own: frozenset = frozenset()
             if step.kind in ("gather", "mine", "hunt", "take") and token not in trips and mid(token) not in trips:
                 site = self.cost.site(step)
-                own = frozenset([("at", tuple(site), float(self.cost.walk_lb(step)))]) if site is not None else \
-                    frozenset([("search", step.key(), float(self.cost.walk_lb(step)))])
+                own = frozenset([("at", tuple(site), float(self.cost.walk_lb(step, BEST_TOOLS)))]) if site is not None else \
+                    frozenset([("search", step.key(), float(self.cost.walk_lb(step, BEST_TOOLS)))])
             out.append(own.union(*(p for p in parts if p is not None)))
         return out
 
@@ -785,8 +785,8 @@ class Search:
             own: frozenset = frozenset()
             if step.kind in ("gather", "mine", "hunt", "take") and token not in trips and mid(token) not in trips:
                 site = self.cost.site(step)
-                own = frozenset([("at", tuple(site), float(self.cost.walk_lb(step)))]) if site is not None else \
-                    frozenset([("search", step.key(), float(self.cost.walk_lb(step)))])
+                own = frozenset([("at", tuple(site), float(self.cost.walk_lb(step, BEST_TOOLS)))]) if site is not None else \
+                    frozenset([("search", step.key(), float(self.cost.walk_lb(step, BEST_TOOLS)))])
             parts = [self.required(t, held, heldset, trips, seen | {token}) for t in ins]
             if any(p is None for p in parts):
                 continue                # a way through what cannot be made: not one a plan takes
@@ -852,7 +852,7 @@ class Search:
         key = (token, i)
         if key not in self.walks:
             sourced = step.kind in ("mine", "gather", "hunt", "take")
-            self.walks[key] = float(self.cost.walk_lb(step)) if sourced else 0.0
+            self.walks[key] = float(self.cost.walk_lb(step, BEST_TOOLS)) if sourced else 0.0
         return self.walks[key]
 
     def replay(self, root, needs, steps):
@@ -2066,7 +2066,7 @@ class NullCost:
         """Ticks the digging to it takes (its work_of beyond its own work), with `held`."""
         return dig_to_ticks(self.work_of(step)[0], step, held or {}, TICKS_PER_S)
 
-    def walk_lb(self, step):
+    def walk_lb(self, step, held):
         return 0
 
     def work_of(self, step):
