@@ -275,6 +275,8 @@ def P4(b, d, a, ctx):
 def P5(b, d, a, ctx):
     """G3/R1:"""
     plan, best = _plan(ctx), ctx.get("exact_s")
+    if ctx.get("exact_unknown"):
+        return Unchecked(ctx["exact_unknown"])
     if plan is None or best is None or ctx.get("plan_hand_made"):
         return Unchecked("no planner plan with its unbudgeted best this round")
     from bonobo.game import TICKS_PER_S

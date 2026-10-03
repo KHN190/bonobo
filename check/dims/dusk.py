@@ -1,9 +1,9 @@
 """dusk: day in the Overworld, and the night's cheapest way no longer fits in the light left — needs.dusk_s against
 needs.overnight's seconds × needs.LEAD (the one margin). Read only by day in the Overworld (by night it is night), without a carried bed."""
-from bonobo.data import DAY_END
+from bonobo.data import DAY_END, DAY_TICKS, NIGHT_END
 
 NAME = "dusk"
-VALUES = (False, True)
+VALUES = (False, True, "dawn")      # dawn: the day's last ticks after NIGHT_END, before the clock wraps
 # a carried bed is the 0 s way (the sleep row): nothing is ever due before it, so no dusk with one
 DEPENDS = (lambda f: not f["night"] and f["dimension"] == "minecraft:overworld" and f["bed"] != "carried",
            {"night": False})
@@ -11,15 +11,21 @@ WORLD = True         # the clock moves it
 
 DUSK_T = DAY_END - 1                 # one tick of light left: no way fits
 DAWN_T = 0                           # the whole day ahead (625 s): the cheapest way's prep fits
+DAYBREAK_T = NIGHT_END + 300         # day again, past NIGHT_END: dusk_s reads it as 0
+
+
+def _no_way(f):
+    """Starving with no food: the bar runs out before any night way's plan eats (planner.plan_round, fed_in_time)."""
+    return f["hunger"] == "starve" and not f["food"]
 
 
 def valid(value, f):
-    # every shelter cooling (the bed alone): no way's prep fits a day, so never not-dusk
-    return value or not DEPENDS[0](f) or not f["cooled"]
+    # every shelter cooling (the bed alone): no way's prep fits a day, so never not-dusk — unless no way exists at all
+    return not DEPENDS[0](f) or not f["cooled"] or value is not _no_way(f)
 
 
 def instead(f):
-    return True
+    return not _no_way(f)
 
 
 def domain():
@@ -32,6 +38,8 @@ def alpha(a):
     snap = a.snap
     if snap.night or snap.dimension != "minecraft:overworld":
         return False
+    if int(snap.time) % DAY_TICKS > NIGHT_END:
+        return "dawn"
     if a.brain is not None:
         a.brain.needs.night_facts(snap)
         prep = a.brain.needs.night_prep_s(snap)
@@ -42,7 +50,7 @@ def alpha(a):
 
 def gamma(value, facts, g):
     if facts["dimension"] == "minecraft:overworld" and not facts["night"]:
-        g.state["timeOfDay"] = DUSK_T if value else DAWN_T
+        g.state["timeOfDay"] = DAYBREAK_T if value == "dawn" else DUSK_T if value else DAWN_T
 
 
 def step(facts, d, ctx):

@@ -105,7 +105,7 @@ COMBAT_KEYS = ("velocity", "in_reach", "shooting", "drawing", "pull_ticks", "cha
                "fuse_ticks", "tti_ticks", "impact")
 
 
-def read_combat(near):
+def read_combat(near) -> list:
     """Pure: /entities rows as the fight reads them — the jar's combat fields turned into provoked, lit, hit_s,
     impact_at (x, y, z), vel (blocks/s), reach_now, busy (shooting/drawing/charging); the raw fields dropped."""
     out = []
@@ -190,9 +190,9 @@ REPEAT_S = 10         # the same danger interrupts at most once per 10 s (let th
 NIGHTFALL = "night"
 
 
-IN_SITE = None      # (feet, dimension) → inside a site's interior: set by every Brain built (Brain.__init__)
-COVER = None        # (feet, dimension) → nearest site interior cell or None: set by Brain
-NIGHTS_MISSED = None    # () → nights in a row not slept (Memory.nights_missed): set by Brain
+IN_SITE = lambda feet, dimension: False      # (feet, dimension) → inside a site's interior: Brain.__init__ wires memory's
+COVER = lambda feet, dimension: None         # (feet, dimension) → nearest site interior cell or None: Brain wires it
+NIGHTS_MISSED = lambda: 0                    # () → nights in a row not slept (Memory.nights_missed): Brain wires it
 
 
 def nightfall(state, enclosed, in_site=lambda: False):
@@ -215,21 +215,21 @@ def hide_near(s):
 
 
 def cover_near(s):
-    return None if COVER is None else COVER((s["blockX"], s["blockY"], s["blockZ"]), s.get("dimension"))
+    return COVER((s["blockX"], s["blockY"], s["blockZ"]), s.get("dimension"))
 
 
 def in_site_here(s):
-    return IN_SITE is not None and IN_SITE((s["blockX"], s["blockY"], s["blockZ"]), s.get("dimension"))
+    return IN_SITE((s["blockX"], s["blockY"], s["blockZ"]), s.get("dimension"))
 
 
 KIT_PRICED = ("sword", "shield", "food_items", "bed", "torches", "bag_free")
 
 
-def ground_read(snap):
+def ground_read(snap) -> world.Region | None:
     """The blocks perception read (price_inputs' ground): the region a Cost prices digging over."""
     return price_inputs(snap.state)["ground"]
 
-def price_inputs(state):
+def price_inputs(state) -> dict:
     """threat.price_state from the perceived state; walls unread (a reached body is not walled in)."""
     t, dim = int(state["timeOfDay"]), state.get("dimension", "minecraft:overworld")
     tier = state.get("pick_tier")
@@ -239,7 +239,7 @@ def price_inputs(state):
         sheltered=sheltered(state.get("skyLight", 15), lambda: False, lambda: in_site_here(state)),
         pickaxe=0 if tier is None else max(1, tier),       # tool_loss: 0 none, 1 stone-class, 2+ iron
         ground=STATE.region,
-        **({} if NIGHTS_MISSED is None else {"nights_missed": NIGHTS_MISSED()}),
+        nights_missed=NIGHTS_MISSED(),
         **{k: state[k] for k in KIT_PRICED if k in state})
 
 
@@ -538,7 +538,7 @@ def dig_ok(ground, pick_tier):
     return len(floor) == depth and all(diggable(b, pick_tier) for b in floor)
 
 
-def perceived(state, now, ground_of=None, kit_of=None):
+def perceived(state, now, ground_of=None, kit_of=None) -> dict:
     """The state the threat model prices: kit, ground (`field`) and the footing evade walks on, each read on its own."""
 
     ground_of = ground_of or field_around
@@ -588,7 +588,7 @@ def footing(state):
     return None if region is None else (lambda spot: nav.landing(region, here, spot))
 
 
-def kit_signature(state, now):
+def kit_signature(state, now) -> tuple[object, object, object, int, int]:
     """Pure: when the kit must be read again — the held slot, a screen, the armour changed, a dig sent, or
     FACT_TTL_S["kit"] passed."""
 
@@ -596,7 +596,7 @@ def kit_signature(state, now):
             int(now // FACT_TTL_S["kit"]))
 
 
-def kit(signature):
+def kit(signature) -> dict:
     """What we are carrying, re-read only when `kit_signature` changes: this runs at 5 Hz."""
     if signature == STATE.kit_sig and STATE.kit:
         return STATE.kit

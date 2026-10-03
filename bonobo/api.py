@@ -106,8 +106,7 @@ class NavFailed(NotAvailable):
     """The body couldn't get where a skill needed it."""
 
 class TaskStuck(McError):
-    """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled. `then`: what its skill
-    declared follows (skill.ABANDON_WAYS); a jar task's own: the round plans again."""
+    """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled. `then`: what follows."""
 
     def __init__(self, message="", then="replan"):
         super().__init__(message)
@@ -132,12 +131,11 @@ def interrupt_pending():
 
 
 def stop_asked():
-    """A stop perception asked for (interrupt_pending): a plan being searched ends, the round starts again from
-    survival."""
+    """A stop perception asked for (interrupt_pending)."""
     return interrupt_pending() is not None
 
 
-def request_interrupt(reason):
+def request_interrupt(reason) -> None:
     """Leave `reason` for the running work to take (the arbiter's preemption; perception to a soft skill)."""
     STATE.interrupt = reason
 
@@ -401,7 +399,7 @@ def _game_up(timeout=1.0):
         swallowed("api._game_up", e)
         return False
 
-def get(path) -> Any:
+def get(path) -> dict:
     r = api("GET", path)
     if path.startswith("/state") and isinstance(r, dict) and "x" in r:
         STATE.state_reads, STATE.state_read_at = STATE.state_reads + 1, time.time()
@@ -675,7 +673,7 @@ HOLD = None      # fn(tasks): the item they name put in the main hand first (ski
 HELD_TYPES = ("mine", "place", "pillar", "attack", "eat", "use_item", "bed_bomb", "interact")
 
 
-def walk_only(task):
+def walk_only(task) -> dict:
     """Pure: a walk as the door sends it — digging, building, bridging and boats off (I3); any other task as it is."""
     if task.get("type") not in WALKS:
         return task

@@ -658,7 +658,7 @@ def load_smelter(ctx, machine, input_token, count, fuel, output):
     log(f"loaded {count}× {bare(input_token)} into {machine['name']} (ready in ~{ready}s)")
     return {"ordered": output, "count": count}      # an order: done when the output is held
 
-def pending_ready(machine):
+def pending_ready(machine) -> bool:
     return any(p["ready_at"] <= time.time() for p in machine.get("pending", []))
 
 @skill(gives=["state:machine_emptied"], remaining=_k.machine_emptied(lambda c: c.args[1]["name"]), needs={}, start=lambda c: sum(p["count"] for p in c.args[1].get("pending", [])),

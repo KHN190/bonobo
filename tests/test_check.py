@@ -101,7 +101,9 @@ class RoundReselection(unittest.TestCase):
             with self.subTest(name), contextlib.redirect_stdout(io.StringIO()), \
                     mock.patch.object(brain, "line_raisers", lambda *a, **k: kit):
                 d, _got, ctx = rnd.decide(f)
-                self.assertTrue((d.name or "").startswith("fight line"), d.name)
+                plan = [(s.kind, s.token) for s in ctx.get("plan") or []]
+                self.assertEqual((d.layer, d.name), ("plan", "task t1"))         # the kit is the task plan's own steps
+                self.assertIn(("craft", "minecraft:iron_chestplate"), plan, plan)
                 self.assertEqual(ctx["reselected"], want)            # must fail when only the intent key is asked
 
 
@@ -171,6 +173,77 @@ class KnownViolations(unittest.TestCase):
         for inv, facts, d, ctx, why in self.ROWS:
             with self.subTest(inv=inv, why=why):
                 self.assertIn(inv, [k for k, _m in oracle.violations(facts, d, facts, ctx)], d.name)
+
+
+class ACrashIsAStatesOwn(unittest.TestCase):
+    """explore.judged: a state whose round raises is a CRASH violation with its trace's ends; the run goes on."""
+
+    def test_rows(self):
+        from unittest import mock
+        from check import round as rnd
+
+        def boom(f, fail_then_again=True):
+            raise ValueError("too many values to unpack")
+        with mock.patch.object(rnd, "decide", boom):
+            k, after, d, _progress, found, _mismatch, _got, _loss, _secs = explore.judged(of())
+        self.assertEqual((after, d.layer, [inv for inv, _why in found]), (None, "crash", ["CRASH"]))
+        self.assertIn("ValueError", found[0][1])
+        # must fail: judge itself still raises (only judged isolates)
+        with mock.patch.object(rnd, "decide", boom), self.assertRaises(ValueError):
+            explore.judge(of())
+
+    def test_a_hang_is_a_timeout(self):
+        import time
+        from unittest import mock
+        from check import round as rnd
+
+        def hang(f, fail_then_again=True):
+            while True:
+                try:
+                    time.sleep(0.05)
+                except Exception:  # guard: a production-style catch-all must not swallow the alarm
+                    pass
+        with mock.patch.object(rnd, "decide", hang):
+            _k, after, _d, _p, found, _m, _got, _loss, secs = explore.judged(of(), timeout=1)
+        self.assertEqual((after, [inv for inv, _why in found]), (None, ["TIMEOUT"]))
+        self.assertIn("'night'", found[0][1])                         # the state's facts are named
+        self.assertLess(secs, 5)
+
+
+class TheExactSearchIsCapped(unittest.TestCase):
+    """round.exact_s: the unbudgeted reference stops after its step cap and says its best is unknown."""
+
+    def test_rows(self):
+        from check import round as rnd
+        from tests.world import cost, inventory, snapshot
+        needs = [("tool", "pickaxe", 1)]
+        # (situation, step cap) → (seconds known, why unknown)
+        rows = [("a cap the search stays under: its best", 10 ** 9, (True, False)),
+                ("must fail: a cap of one step: unknown, said why", 1, (False, True))]
+        for name, limit, want in rows:
+            with self.subTest(name):
+                snap = snapshot(None, inventory())          # a snapshot each: the plan memo lives on it
+                secs, why = rnd.exact_s(snap.inv, None, needs, cost(snap, oak_log=30, stone=20), limit=limit)
+                self.assertEqual((secs is not None, why is not None), want, why)
+
+    def test_a_mispruned_plan_is_reported(self):
+        """P5 against the unpruned reference: a plan dearer than it on a round its budget never cut is a violation (a
+        cut that dropped the cheaper way); a budget-cut round is no violation, its loss goes to the run's distribution."""
+        from bonobo.game import TICKS_PER_S
+        from bonobo.planner import Step
+        from check.inv.plan import P5, TOL_S
+        mined = Step("mine", "minecraft:cobblestone", 3, {"blocks": ["minecraft:stone"], "tier": 0}, est=0)
+        ref_s = 10.0
+        mined.est = int((ref_s + 2 * TOL_S) * TICKS_PER_S)
+        f = of()
+        d = Decision("plan", "task", "cobblestone", None, (), None, "task t1", ())
+        rows = [("must fail: dearer than the reference, budget never cut", False, True),
+                ("budget cut: no violation", True, False)]
+        for name, spent, violated in rows:
+            with self.subTest(name):
+                ctx = {"plan": [mined], "exact_s": ref_s, "budget_spent": spent}
+                got = P5(f, d, f, ctx)
+                self.assertEqual(isinstance(got, str), violated, got)
 
 
 class FinishedRound(unittest.TestCase):
@@ -249,8 +322,14 @@ class GammaRoundTrip(unittest.TestCase):
              False, 'failure': 'nav', 'fluid': 'lava', 'food_source': 'animals', 'ground': 'open', 'held':
              'same', 'idle': 'none', 'job': 'growing', 'kit': 'sword_shield', 'lit': False, 'noted': 'none',
              'pack': 'dying', 'past': 'latched', 'plan_held': 'none', 'portal': 'sites', 'quarry': 'spider',
-             'repeat': 'once', 'retried': 'none', 'stock': 'none', 'task': 'planned', 'tools': 'axe_shovel',
-             'trace': 'no_id', 'upkeep_held': 'none', 'weather': 'thunder'})]
+             'repeat': 'once', 'retried': 'none', 'stock': 'none', 'task': 'tool', 'tools': 'axe_shovel',
+             'trace': 'no_id', 'upkeep_held': 'none', 'weather': 'thunder'}),
+             ("must fail: r5 every night way cooling, starving with no food: no way at all, so no dusk (asked True)",
+              {'dimension': 'minecraft:overworld', 'night': False, 'hp': 'ok', 'place': 'home', 'bed': 'none',
+               'pickaxe': 0, 'building': True, 'food': False, 'tree': False, 'ore': 'buried', 'threat': False,
+               'takeover': False, 'queued': 'none', 'cooled': True, 'hunger': 'starve', 'station': 'crafting_table',
+               'carried': 'raw_meat', 'chest': 'unopened', 'dusk': True, 'failure': 'nav', 'fluid': 'lava',
+               'food_source': 'crops', 'ground': 'hole'})]
 
     def test_found(self):
         from check import round as rnd

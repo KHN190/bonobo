@@ -3,7 +3,7 @@ import functools
 import math
 
 from .game import COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
-from .data import ANIMAL_HP, BASE_MARKERS, DAY_END, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, DEEPSLATE_ORE_HARDNESS, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
+from .data import ANIMAL_HP, BASE_MARKERS, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, DEEPSLATE_ORE_HARDNESS, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
 from .data import TAKEABLE
 from .data import COLORS, WOODS, ATTACKS_PER_S, HAND_ATTACKS_PER_S, HAND_DAMAGE, NETHER, OVERWORLD, PIGLIN_BARTER, is_night
 
@@ -25,13 +25,13 @@ LINE_KIT = None        # fn(contract, args, state, inv) → [needs rows] that ea
 FACT_STEPS = None      # fn(fact, value) → [(kind, token)] of the steps that set it (skill.steps_for_fact)
 STEP_STATION = None    # fn(step) → its contract's station or None (skill.station_of_step)
 
-def step_call(step):
+def step_call(step) -> dict:
     """The needs of what carries out `step`, skill modules loaded first; {} when none is wired in."""
 
     producers()
     return STEP_CALL(step) if STEP_CALL is not None else {}
 
-def step_station(step):
+def step_station(step) -> str | None:
     """The station `step`'s contract works at, carried or standing (None when none, or none is wired in)."""
     producers()
     return STEP_STATION(step) if STEP_STATION is not None else None
@@ -92,7 +92,7 @@ KIT_FOOD = 6
 # runners take 8–10 beds: one or two blasts per perch, and a wasted bed must not end the fight
 DRAGON_BEDS = 8
 
-def food_count(inv):
+def food_count(inv) -> int:
     """The one definition of 'food carried': cooked/ready food only (raw meat must be cooked first)."""
     return sum(inv.count(f) for f in ALL_FOOD)
 
@@ -134,7 +134,7 @@ SOURCE_BLOCKS = sorted({b for blocks, _tier in MINE.values() for b in blocks} | 
                        | {"dirt", "grass_block", "water", "lava"} | {bare(s) for s in STATIONS}
                        | set(BASE_MARKERS["bed"]) | set(BASE_MARKERS["chest"]))
 
-def members(token):
+def members(token) -> list:
     if token == "food":
         return ALL_FOOD
     return GROUPS.get(token, [mid(token)])
@@ -244,7 +244,7 @@ def produced(kind):
     """[(token, table row)] of every registered producer of this kind — what the solver builds its columns from."""
     return [row for g in producers() if g.kind == kind for row in g.rows()]
 
-def sources(token):
+def sources(token) -> list:
     """Every way a token is produced: [(the token made, its source tuple)], the registered skills' in rank order — a
     group's own and each member's (any of them is the group)."""
 
@@ -272,13 +272,13 @@ def working(left, uses=0):
     return left >= uses + TOOL_WORKING
 
 
-def spare_uses(left):
+def spare_uses(left) -> int:
     """Pure: the uses a tool spends before it stops working — the solver's uses row (working(left, n) ⇔ n ≤ this)."""
     return max(0, left - TOOL_WORKING)
 
 
 # -- the remainder math goals and skills' `remaining` share ({} when met), here so skills need no planner
-def tool_ok(inv, kind, tier, min_left=TOOL_WORKING):
+def tool_ok(inv, kind, tier, min_left=TOOL_WORKING) -> bool:
     if not hasattr(inv, "tools"):
         return False
     return any(t >= tier and d >= min_left for t, d, _ in inv.tools(kind))
@@ -292,7 +292,7 @@ HAND_BLOCKS = ("leaves", "wool", "torch", "_bed", "air", "water", "lava", "short
                "carpet", "flower", "sapling", "vine")
 
 @functools.cache
-def tool_kind(block):
+def tool_kind(block) -> str | None:
     """Pure: the tool kind that breaks `block` fastest — "axe", "shovel", "pickaxe", or None (the hand does)."""
     name = bare(block or "")
     if not name or name in DROP_KINDS or any(name.endswith(h) or name == h.strip("_") for h in HAND_BLOCKS):
@@ -423,7 +423,7 @@ def own_work(step):
         return [], [min(hp)] * units if hp else []
     return [], []
 
-def held_tiers(inv, min_left=TOOL_WORKING):
+def held_tiers(inv, min_left=TOOL_WORKING) -> dict:
     """Pure: {tool kind: the best tier the bag holds with wear left}."""
     out = {}
     for kind in TOOL_KINDS:
@@ -482,7 +482,7 @@ def blocks_remainder(want, name_at):
 # -- what is left of a world-effect skill: `remaining` readers over body_state's shape; a reading not taken is not "done"
 AIR_FULL = 300          # the air meter's top, in ticks
 
-def swimming(state):
+def swimming(state) -> bool:
     """The one "in the water" test: in water and not standing, or standing with the head under (breath below full)."""
 
     return bool(state.get("inWater")) and (not state.get("onGround", False)
@@ -523,9 +523,9 @@ def breathing(st, c):
     return left(int(s.get("air", AIR_FULL)) >= AIR_FULL, "state:air", AIR_FULL - int(s.get("air", 0)))
 
 def daytime(st, c):
-    """The day wanted: {} while the clock's time of day (absolute ticks, taken mod a day) is before dusk."""
+    """The day wanted: {} while it is not night (data.is_night: the one day cycle, absolute ticks taken mod a day)."""
     t = body(st).get("timeOfDay")
-    return left(t is not None and int(t) % DAY_TICKS < DAY_END, "state:day")
+    return left(t is not None and not is_night(int(t)), "state:day")
 
 def fed(st, c):
     food = int(body(st).get("food", 0))
@@ -758,7 +758,7 @@ def head_clear(st, c):
 
 
 
-def under_rock(sky_light):
+def under_rock(sky_light) -> bool:
     """Pure: rock over the feet (sky light at most COVERED_SKY) — underground: no surface work at night, a surface
     trip starts with the climb. The one reading of it."""
     return sky_light <= COVERED_SKY
@@ -767,7 +767,7 @@ def under_rock(sky_light):
 def dark_here(s):
     """Pure over /state: standing where mobs spawn — block light 0, and not under open sky by day."""
     return "blockLight" in s and s["blockLight"] <= SPAWN_BLOCK_LIGHT and \
-        not (s["skyLight"] > DAYLIT_SKY and 0 < s["timeOfDay"] < DAY_END)
+        not (s["skyLight"] > DAYLIT_SKY and not is_night(int(s["timeOfDay"])))
 
 
 def sheltered(sky_light, enclosed, in_site=lambda: False):
@@ -849,7 +849,7 @@ def prior_ticks(step):
     if k == "fill":
         return PRIOR_TICKS["fill"] * step.count
     if k == "eat":
-        return PRIOR_TICKS["eat"] * max(1, int(step.count))      # count: the bites
+        return PRIOR_TICKS["eat"] * max(1, int(step.count))      # count: bites
     if k == "take" and step.token in TAKEABLE:
         return round(float(TAKEABLE[step.token]["break_s"]) * TICKS_PER_S) * max(1, int(step.count))
     if k == "farm":

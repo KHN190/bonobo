@@ -89,11 +89,12 @@ class StubWorld:
     def _find(self, q):
         want = {bare(b) for b in q.get("blocks", "").split(",") if b}
         radius, limit = float(q.get("radius", 32)), int(q.get("limit", 50))
+        each = min(limit, int(q.get("perBlock", limit)))      # the jar's perBlock: at most this many of each block
         hits = []
         for name in want:
             mine = 0
             for dist, c in self._near(name):
-                if dist > radius or mine == limit:      # by distance: the rest are farther, or past the limit
+                if dist > radius or mine == each:       # by distance: the rest are farther, or past the limit
                     break
                 if q.get("exposed") == "true" and not self.exposed(c):
                     continue

@@ -1175,7 +1175,7 @@ def way_s(region, feet, steps, inv):
     places = sum(t["type"] == "place" for t in steps)
     return dig_ticks(mined, inv) / TICKS_PER_S + places * PLACE_S + walk / PLAYER_SPEED
 
-def plan_way(region, feet, target, kind, inv, protected, walks=None):
+def plan_way(region, feet, target, kind, inv, protected, walks=None) -> tuple[list | None, str | None, float | None]:
     """Pure given `walks`: (steps | None, why, seconds) — the cheapest way to where `kind` (mine|place|use|stand) of
     `target` can be done, by seconds: the dug ways of named steps — a level way (dug through, its missing treads
     placed: a bridge over a gap or a fluid) and, off the feet's level, a staircase down (or up: the climb out) to the

@@ -204,8 +204,7 @@ def row_budget(row):
 
 
 def est_budget(row, setup):
-    """A row's budget from its estimate word (words.est): production's seconds for its goal over its own scene, at
-    the row's tick rate, × the bench's slack (the row limit applied with the rest, acceptance aside)."""
+    """A row's budget: its estimate word's seconds at its tick rate × the slack."""
     import math
     from ..data import TICKS_PER_S
     from .bench_bases import TARGET_SLACK

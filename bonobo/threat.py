@@ -6,6 +6,7 @@ from typing import Any
 from . import beliefs, estimate, kernel, lifecycle
 from . import formulas, game
 from .beliefs import MOBS, protection
+from .data import is_night
 from .estimate import row
 from .game import ARROWS
 
@@ -29,7 +30,7 @@ NEUTRAL_MOBS = {"minecraft:zombified_piglin", "minecraft:piglin", "minecraft:end
                 "minecraft:bee", "minecraft:iron_golem", "minecraft:polar_bear", "minecraft:llama", "minecraft:panda",
                 "minecraft:dolphin", "minecraft:spider", "minecraft:cave_spider"}
 
-def aggro(e, context=None):
+def aggro(e, context=None) -> bool:
     """Pure: is this mob after us, from its reading and ours — the one place neutral is told from hostile.
     A provoked mob (the jar's `angry`) always is; a hostile kind always is; a spider only out of daylight; a piglin
     unless we wear gold; every other neutral (enderman, zombified piglin, wolf …) only when provoked.
@@ -44,13 +45,13 @@ def aggro(e, context=None):
         return not ctx.get("gold_worn", False)
     return False
 
-def context_of(state, kit):
+def context_of(state, kit) -> dict:
     """Pure: what `aggro` reads from our side — daylight (the overworld's day half) and gold worn (the kit)."""
-    day = (state.get("dimension", "minecraft:overworld") == "minecraft:overworld"
-           and int(state.get("timeOfDay", 6000)) % 24000 < 12000)
+    dim = state.get("dimension", "minecraft:overworld")
+    day = dim == "minecraft:overworld" and not is_night(int(state.get("timeOfDay", 6000)), dim)
     return {"day": day, "gold_worn": bool((kit or {}).get("gold_worn"))}
 
-def awareness(e, here, context=None):
+def awareness(e, here, context=None) -> float:
     """0..1: how much of this mob's damage is coming at us (a neutral not after us is 0)."""
 
     if not aggro(e, context):
@@ -136,7 +137,7 @@ def bait_option(here, hazards, ids, creepers, lit, clear, prot):
                   "bait it: " + ("step out, it blows" if is_lit else "out to 7.5, let it come")
                   + f" (creeper {ids[first]} at {tuple(round(c, 1) for c in h[0])}, {math.dist(here, h[0]):.1f} off)")
 
-def fuse_lit(e):
+def fuse_lit(e) -> bool:
     """Pure: this creeper's fuse is lit (perception.read_combat)."""
     return bool(e.get("lit"))
 
@@ -146,7 +147,7 @@ def dodgeable(kind):
     escape__walker_open_blocks sidestepped a walker to death)."""
     return kind in ARROWS or bool(MOBS.get(kind, {}).get("burst"))
 
-def impacts_of(near):
+def impacts_of(near) -> list:
     """Pure: [(point, seconds, radius)] where each predicted projectile or blast lands (read_combat's impact_at,
     hit_s)."""
     return [(e["impact_at"], float(e["hit_s"]),
@@ -365,7 +366,7 @@ def eat_options(state, hp, press, blast_here):
                        f"eat: +{heal:.0f} hp by regen, nothing reaching us", leaves=press, heals=heal)]
     return []
 
-def horizon_for(state):
+def horizon_for(state) -> float:
     """Seconds of "carrying on" the options are priced over, which is `estimate.horizon_s` and nothing else."""
 
     return estimate.horizon_s(state.get("work_s"))
@@ -392,8 +393,8 @@ def options(state):
     hazards = [h for h in state.get("hazards", ()) if h[3] in MOBS]
     prot = float(state.get("protection", 0.0))
     grid = state.get("field")
-    press = pressure(here, hazards, prot, ground=grid) if hazards else 0.0
-    blast_here = burst_damage(here, hazards, prot) if hazards else 0.0
+    press = pressure(here, hazards, prot, ground=grid)
+    blast_here = burst_damage(here, hazards, prot)
     work_s = horizon_for(state)
     if not hazards or (press <= 0.0 and blast_here <= 0.0):
         # a creeper exerts no pressure (a blast is not a rate): tested separately, or it is always ignored
@@ -554,10 +555,10 @@ def fallback(opts, state):
 class Field:
     """The threats around us, as a kernel model: one state, one price, a column per answer."""
 
-    def __init__(self, state, price=None, refused=None):
+    def __init__(self, state, price=None, refused=lambda _option: None):
         self.field = state
         self.price_hp = price or (lambda dhp: dhp)
-        self.refused = refused          # option → why it may not be chosen now (fight_loop: it just failed), or None
+        self.refused = refused          # option → why it may not be chosen now (fight_loop: it just failed)
         self.work_s = horizon_for(state)
         self.opts = [Answer(o, self.price_hp, self.work_s) for o in options(state)]
         self.idle = next(a for a in self.opts if a.name == "ignore")
@@ -580,7 +581,7 @@ class Field:
     def admissible(self, state, option):
         """Refused only what the caller says it may not choose now (an answer that just failed)."""
 
-        why = self.refused(getattr(option, "option", option)) if self.refused is not None else None
+        why = self.refused(getattr(option, "option", option))
         return (False, why) if why else (True, "")
 
 def owed(option, work_s):
@@ -730,7 +731,7 @@ def expected_loss(s):
     return (night_loss(s) + food_loss(s) + tool_loss(s) + light_loss(s) + fight_loss(s) + hurt_loss(s)
             + bag_loss(s))
 
-def hp_seconds(s, dhp):
+def hp_seconds(s, dhp) -> float:
     """Seconds that expecting to lose `dhp` health costs from this state."""
 
     if dhp <= 0:

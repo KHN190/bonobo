@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api, beliefs, craft, estimate, fluids as fluids_mod, gather, knowledge, survive, tape, threat  # noqa: E402
 from bonobo.api import McError, NotAvailable  # noqa: E402
 from bonobo.bag import pickup_whitelist  # noqa: E402
+from bonobo.data import DAY_TICKS, NIGHT_END, is_night  # noqa: E402
 from bonobo.world import connected  # noqa: E402
 from tests.world import FakeRegion, bag, inventory, state  # noqa: E402
 
@@ -687,8 +688,13 @@ class DarkHere(unittest.TestCase):
         ("open sky by day", (state(blockLight=0, skyLight=15, timeOfDay=6000),), False),
         ("open sky by night", (state(blockLight=0, skyLight=15, timeOfDay=13000),), True),
         ("boundary: skyLight 7 is not open sky", (state(blockLight=0, skyLight=7, timeOfDay=6000),), True),
-        ("boundary: time 12500 is night", (state(blockLight=0, skyLight=15, timeOfDay=12500),), True),
-        ("boundary: time 0 is not inside (0, 12500)", (state(blockLight=0, skyLight=15, timeOfDay=0),), True),
+        ("boundary: time 12500 is night", (state(blockLight=0, skyLight=15, timeOfDay=12500),), is_night(12500)),
+        # tick 0 is sunrise's end, the day's start (Minecraft Wiki, Daylight cycle): no night spawning under open sky
+        ("boundary: time 0 is day", (state(blockLight=0, skyLight=15, timeOfDay=0),), is_night(0)),
+        ("dawn after NIGHT_END is day", (state(blockLight=0, skyLight=15, timeOfDay=NIGHT_END + 100),),
+         is_night(NIGHT_END + 100)),
+        ("must fail: day 3 noon (absolute clock) under open sky is not dark",
+         (state(blockLight=0, skyLight=15, timeOfDay=2 * DAY_TICKS + 6000),), False),
         ("must fail: block light 1 is lit", (state(blockLight=1, skyLight=0, timeOfDay=6000),), False),
         ("must fail: no blockLight reading", ({"skyLight": 0, "timeOfDay": 6000},), False),
     ]

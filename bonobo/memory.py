@@ -8,6 +8,7 @@ from typing import Any
 from . import paths, blueprints
 from .data import (GROUPS, ITEM_DESPAWN_S, MEASURED_BAND, VOLATILITY, bare, home_may_hold, home_part_kind, in_box, mid, placed_cell,
                    seen_class)
+from .game import WAYPOINT_R
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
 # the player's homes: their own file beside the notes, written only by `mc.py home` — a bot's save of its notes
@@ -666,9 +667,20 @@ class Memory:
             self.save()
 
     def road_walked(self, a, b, dimension):
-        """A chain of travelled legs (roads.py) joins `a` to `b` in `dimension`."""
-        from . import roads
-        return roads.walked_between((self.data.get("roads") or {}).get(dimension, []), a, b)
+        """A chain of travelled legs (roads.py) joins `a` to `b` in `dimension` (ends within WAYPOINT_R: one waypoint)."""
+        legs = (self.data.get("roads") or {}).get(dimension, [])
+        a, b = tuple(int(round(c)) for c in a), tuple(int(round(c)) for c in b)
+        seen, todo = [a], [a]
+        while todo:
+            here = todo.pop()
+            if math.dist(here, b) < WAYPOINT_R:
+                return True
+            for leg in legs:
+                for x, y in ((leg["a"], leg["b"]), (leg["b"], leg["a"])):
+                    if math.dist(x, here) < WAYPOINT_R and not any(math.dist(y, s) < WAYPOINT_R for s in seen):
+                        seen.append(tuple(y))
+                        todo.append(tuple(y))
+        return False
 
     def seen(self, kind, dimension, within=None):
         """Live notes of this kind here, newest first: {kind, pos, dimension, t, verify}."""

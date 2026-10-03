@@ -2,13 +2,14 @@
 
 import math
 
-from .data import WAYPOINT_R, bare
+from .data import bare
+from .game import WAYPOINT_R
 from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held_count, kit_needs, reconcile,  # noqa: F401
                         tool_ok)
 
 TEMPLATES = ("have", "craft", "milestone", "goto", "road", "build", "sleep", "skill", "effect")
 ITEM_GOALS = ("have", "craft", "milestone")
-# Goals whose own last step, accepted by its contract on the world, ends them (no world state names a skill run).
+# Goals ended by their own step's contract (no world state names a skill run).
 RUN_ONCE = ("skill", "effect")
 # Milestones whose plan goes on past holding things (decompose.THEN): done when that plan has run.
 RUN_AFTER = ("end portal",)
@@ -39,14 +40,14 @@ PREPARE = [[["tool", "pickaxe", 1]], [["tool", "sword", 1]], [["food", 8]], [["m
 # the night's idle work under cover: ore below, first not held
 NIGHT_STOCK = [[["minecraft:raw_iron", 16]], [["minecraft:diamond", 3]]]
 
-def make(template, **args):
+def make(template, **args) -> dict:
     if template not in TEMPLATES:
         raise ValueError(f"unknown goal {template!r}: expected one of {', '.join(TEMPLATES)}")
     if template == "milestone" and args.get("name") not in MILESTONES:
         raise ValueError(f"unknown milestone {args.get('name')!r}: {', '.join(MILESTONES)}")
     return {"goal": template, "args": args}
 
-def have(*needs):
+def have(*needs) -> dict:
     """have(("minecraft:torch", 24), ("tool", "pickaxe", 2))"""
     return make("have", needs=[list(n) for n in needs])
 
@@ -57,7 +58,7 @@ def parse_need(token, n=1):
         return ["tool", kind, int(tier)]
     return [token, int(n)]
 
-def needs(goal, inv):
+def needs(goal, inv) -> list:
     """Planner needs (tuples) for an item goal, or [] for the others."""
     template, args = goal["goal"], goal.get("args", {})
     if template in ("have", "craft"):
@@ -140,7 +141,7 @@ def _road_remainder(goal, snap, mem):
 
 @desired(*RUN_ONCE)
 def _ran(goal, snap, mem):
-    return None                           # a skill's own step accepted by its contract ends it (brain._after_step)
+    return None
 
 def _registered():
     missing = [t for t in TEMPLATES if t not in DESIRED]
@@ -154,7 +155,7 @@ def done(goal, snap, mem):
     rest = remainder(goal, snap, mem)
     return None if rest is None else not rest
 
-def describe(goal):
+def describe(goal) -> str:
     template, args = goal["goal"], goal.get("args", {})
     if template in ("have", "craft"):
         parts = [f"{r[1]} tier {r[2]}" if r[0] == "tool" else f"{bare(r[0])}×{r[1]}" for r in args.get("needs", [])]

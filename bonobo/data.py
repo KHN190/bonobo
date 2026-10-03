@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 from .game import TICKS_PER_S
 
 STATION_R = 8.0         # a station or machine of ours this near is one we have
-WAYPOINT_R = 6          # a road's ends within this many blocks are the same waypoint
 DOOR_NEAR = 2.0         # a door this near the straight way here → there is on the way
 
 if TYPE_CHECKING:
@@ -174,7 +173,7 @@ GROUPS = {
     "food": list(FOOD),
 }
 
-def recipes():
+def recipes() -> dict:
     """item -> (row-major pattern of item ids / group tokens / None, output count). 4 entries = 2×2, 9 = 3×3."""
     s, i = "minecraft:stick", "minecraft:iron_ingot"
     r = {
@@ -246,8 +245,7 @@ def recipes():
     return r
 
 def vanilla_recipes():
-    """The game's own recipe files (vanilla/recipe, copied from the 1.21.11 jar's data/minecraft/recipe): item →
-    (pattern, output count) in recipes()' form."""
+    """The recipes copied from the 1.21.11 jar (vanilla/recipe), in recipes()' form."""
     import json
     import os
     out = {}
@@ -368,7 +366,7 @@ def in_box(box, p):
     return all(min(lo[i], hi[i]) <= p[i] <= max(lo[i], hi[i]) for i in range(3))
 
 
-def home_box_of(boxes, p):
+def home_box_of(boxes, p) -> tuple | None:
     """Pure: the box of `boxes` (a home's) the cell of point `p` lies in, or None."""
     cell = tuple(math.floor(v) for v in p)
     return next((b for b in boxes if in_box(b, cell)), None)
@@ -451,7 +449,7 @@ EXCEPTIONS: "dict[str, tuple[Cause, Source]]" = {
     "PlayerTookControl": ("interrupt", "player"), "FightHolds": ("interrupt", "layer:tactic"),
     "BodyContested": ("interrupt", "manual"), "Died": ("interrupt", "death"),
     "DimensionChanged": ("interrupt", "dimension change"),
-    "Unplannable": ("error", "stuck"), "Unsolvable": ("error", "crash"), "ReplayMiss": ("error", "crash"),
+    "Unplannable": ("error", "stuck"), "Dearer": ("error", "stuck"), "Unsolvable": ("error", "crash"), "ReplayMiss": ("error", "crash"),
     "SetupInvalid": ("error", "crash"),
 }
 
@@ -473,7 +471,7 @@ CRITICAL_HP = 4            # health at or below which danger overrides everythin
 CRITICAL_HP_END = 12       # in the End: a breath or head butt takes 10+
 
 
-def critical_hp(state):
+def critical_hp(state) -> float:
     """Pure: the critical-health floor where the body stands."""
     return CRITICAL_HP_END if state.get("dimension") == "minecraft:the_end" else CRITICAL_HP
 

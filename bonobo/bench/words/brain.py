@@ -21,7 +21,7 @@ import re
 import sys
 import time
 from .. import core, runner
-from ...data import DAY_END, DAY_TICKS, POD_BLOCKS, TICKS_PER_S  # noqa: F401
+from ...data import DAY_END, DAY_TICKS, POD_BLOCKS, TICKS_PER_S, is_night  # noqa: F401
 from ...game import EAT_TICKS
 from ...survive import DIG_IN_DEPTH, SLEEP_FROM_TICKS
 from .checks import BASE, FIRST, INTERRUPTS, RESUMED_LEFT, _all, _base_count, _gain, _inv_now, _skill, _start
@@ -83,7 +83,7 @@ FIRST_WATCH: "dict[str, object]" = {"row": None}   # the watcher that may write 
 
 def slept_through(start_tod, tod):
     """Pure: the row began at night and the day is back — only a sleep turns it (the arena's clock stands still)."""
-    return int(start_tod) % DAY_TICKS >= SLEEP_FROM_TICKS and int(tod) % DAY_TICKS < DAY_END
+    return int(start_tod) % DAY_TICKS >= SLEEP_FROM_TICKS and not is_night(int(tod))
 
 def first_step(token, t0, inv, base_count, furnace_beef, now, morning=lambda: False):
     """One look of a row's watcher: stamp each token first above the row's start, on this row's clock. False (and
@@ -531,7 +531,7 @@ WALK = {}
 from ... import lifecycle as _lifecycle  # noqa: E402
 _lifecycle.in_place(__name__, "BRAIN_LOG", "FINDS", "WALK", "FIRST_WATCH")     # a row's own records
 
-BITE_S = EAT_TICKS / TICKS_PER_S        # one bite: the window before the bar rises in which the body must keep moving
+BITE_S = EAT_TICKS / TICKS_PER_S
 
 def ate_on_the_way(frames):
     """Pure over trace frames: food rose during the walk, no frame ran "eat", and x grew through the bite (autoeat while walking)."""

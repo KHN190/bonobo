@@ -57,7 +57,9 @@ class TheLookPricesTheTake(unittest.TestCase):
                 ("making is cheap: no look", 100, 20, 150, False)]
         for name, look, take, make, want in rows:
             with self.subTest(name):
-                c = SimpleNamespace(mem=mem, snap=snap, stored=lambda token: [],
+                null = planner.NullCost()           # offline: no hunger clock, no site
+                c = SimpleNamespace(mem=mem, snap=snap, stored=lambda token: [], hunger_rate=null.hunger_rate,
+                                    site=null.site,
                                     estimate=lambda st, held=None, at=None, look=look, take=take: look if st.kind == "look" else take)
                 made = [Step("craft", IRON, 24, {}, make)]
                 with mock.patch.object(planner, "plan_needs", lambda *a, **k: made):

@@ -66,7 +66,7 @@ def fact_ages(b, round_snap):
     ages = {"the look (world.nearest)": (snap.read_at - look["t"] if look.get("key") else 0.0, FACT_TTL_S["look"]),
             "the ground (perception)": (snap.read_at - perception.STATE.grid_at if perception.STATE.grid_at else 0.0,
                                         FACT_TTL_S["ground"])}
-    return (snap.read, round_snap.read), ages
+    return (snap.read_seq, round_snap.read_seq), ages
 
 
 def _hazard_at(ctx, world):
@@ -182,8 +182,8 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
     seen = {}
     real_arbitrate = arbiter.arbitrate
 
-    def watched(intents, now=None, facts=None):
-        chosen = real_arbitrate(intents, now=now, facts=facts)
+    def watched(intents, facts=None):
+        chosen = real_arbitrate(intents, facts=facts)
         seen["intents"], seen["chosen"] = list(intents), chosen
         return chosen
     from .facts import DIMS
@@ -257,7 +257,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
         ctx["body_read"], ctx["fact_ages"] = fact_ages(b, snap)
         if ctx.get("hazard_at") is not None:
             ctx["search_steps_after"] = SPENT["steps"] - ctx["hazard_at"]
-        planned = plan_ctx(b, act, snap, mem, world)          # read now: the checker's later readings move what is seen
+        planned = plan_ctx(b, act, snap, mem, world, ctx["budget_spent"])     # read now: later readings move what is seen
         if offered:
             option, worth = offered[-1]
             d = Decision(layer="tactic", kind="threat", token=option.kind, target=getattr(option, "target", None),
@@ -316,7 +316,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
     return d, got, ctx
 
 
-def plan_ctx(b, act, snap, mem, world):
+def plan_ctx(b, act, snap, mem, world, spent):
     """The plan's invariants' readings (check/inv/plan.py), taken while the stub is the transport: the task's held plan,
     the production cost model's price of a step on this state, the bag and memory, and the ways to a mine target."""
     from bonobo.perception import ground_read
@@ -326,6 +326,7 @@ def plan_ctx(b, act, snap, mem, world):
     cost = Cost(snap, mem, b.blacklist, policy=b.policy_cache, region=ground_read(snap))
     for st in held["steps"] if held is not None else ():
         cost.estimate(st)          # warm the cache while the stub answers
+    from bonobo.game import TICKS_PER_S
     from bonobo.planner import from_bag, price_as_run
     tools = list(from_bag(snap.inv, reserved=cost.reserved).tools)
     out = {"plan": list(held["steps"]) if held is not None else None, "price": cost.estimate, "inv": snap.inv,
@@ -344,7 +345,11 @@ def plan_ctx(b, act, snap, mem, world):
         else:
             out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost, pending)
         if not out["plan_hand_made"] and look is None:
-            out["exact_s"] = exact_s(snap.inv, held.get("want"), goals.needs(goal, snap.inv), cost, pending)
+            out["exact_s"], out["exact_unknown"] = exact_s(snap.inv, held.get("want"), goals.needs(goal, snap.inv), cost,
+                                                           pending)
+            if spent and out["exact_s"] is not None:
+                # a budget-cut round is no violation: what the cut cost is the run's distribution (check.run)
+                out["p5_loss_s"] = sum(int(getattr(s, "est", 0) or 0) for s in held["steps"]) / TICKS_PER_S - out["exact_s"]
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
     # the plan and the chosen candidate priced as they run, now (D6): a later reading would see another world
     priced = {tuple(map(id, steps)): price_as_run(list(steps), tools, cost)
@@ -365,19 +370,35 @@ def plan_ctx(b, act, snap, mem, world):
     return out
 
 
-def exact_s(inv, want, needs, cost, pending=None):
-    """Seconds of the cheapest plan with no search budget (the planner's exact mode) for what the round planned:"""
+EXACT_STEPS = 5_000      # search steps the unpruned reference may take in one state; past them P5 is unknown
+
+
+def exact_s(inv, want, needs, cost, pending=None, limit=EXACT_STEPS):
+    """(seconds of the cheapest plan with no search budget for what the round planned, None; or None and why it is
+    unknown): the reference stops after `limit` search steps."""
+    import copy
     import json
-    from bonobo import decompose
+    from bonobo import api, decompose
     from bonobo.planner import Target, Unplannable, plan_candidates, plan_round
+    steps, asked = [0], cost.stop or (lambda: False)
+
+    def stop():
+        steps[0] += 1
+        return steps[0] > limit or asked()
+    capped = copy.copy(cost)
+    capped.stop = stop
     try:
         if want:
-            targets = [Target(name, decompose.round_needs(json.loads(goal), inv, cost), rank)
+            targets = [Target(name, decompose.round_needs(json.loads(goal), inv, capped), rank)
                        for rank, (name, goal, *_left) in enumerate(want)]
-            return plan_round(inv, targets, cost, pending, exact=True)[2]
-        return plan_candidates(inv, needs, cost, exact=True)[0][1]
+            return plan_round(inv, targets, capped, pending, exact=True)[2], None
+        return plan_candidates(inv, needs, capped, exact=True)[0][1], None
     except Unplannable:
-        return None
+        return None, None
+    except api.Interrupted:
+        if steps[0] <= limit:
+            raise
+        return None, f"the unbudgeted search passed {limit} steps: its best is unknown"
 
 
 def plan_bound(inv, needs, cost, pending=None, jobs=None):

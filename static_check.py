@@ -7,10 +7,11 @@ R5 game data only in data.py and game.py (ticks<->seconds by the tick rate, a li
 R6 no dead code (a module-level def or constant production never names); R7 no swallowed exception (a handler that
 only passes, continues or returns a value); R8 no module-level container changed in a function unless its module
 registers its reset (lifecycle.in_place / on_reset covers); R9 a "Pure" function reaches no api call, HTTP or
-module-state write; R10 no bench budget or estimate written as a number; R11 (E5) every skill bounded and never left
-hanging: its `budget` declared, its `abandon` one of skill.ABANDON_WAYS, "cover" only for a fight's soft skill;
+module-state write; R10 no bench budget or estimate written as a number; R11 (E5) a skill declares its budget, abandon
+only one of skill.ABANDON_WAYS, cover only for a soft or fight skill;
 R12 (K9, over check/) a checker function that prices (its name says a price, a cost, an estimate, seconds or ticks)
-calls production for it, never a model of its own; R14 every price says where it comes from (knowledge.PRICE_SOURCE,
+calls production for it, never a model of its own; R13 a bonobo function check/ calls declares its return type
+(a tuple's element count included); R14 every price says where it comes from (knowledge.PRICE_SOURCE,
 a play.toml tag): game, measured, prior or policy — and pricing code (cost.py) holds no number of its own.
 `--priors` lists what is still a prior: E4's to do."""
 import ast
@@ -568,14 +569,12 @@ def r10(trees):
     return sorted(out)
 
 
-# -- R11 (E5) every action bounded, and a next step after it is given up ---------------------------------------------
-ABANDON_WAYS = ("cover", "replan")      # skill.ABANDON_WAYS, read without importing the package's skills
+# -- R11 (E5) ---------------------------------------------------------------------------------------------------------
+ABANDON_WAYS = ("cover", "replan")      # skill.ABANDON_WAYS
 
 
 def r11(trees):
-    """[(path:line, what)]: a `@skill(...)` with no `budget=` (no time limit declared), an `abandon=` that is not a
-    string of ABANDON_WAYS (no next step), or "cover" for a skill neither soft nor fighting (seconds spent for no
-    danger; a shelter's would be its own way back)."""
+    """[(path:line, what)] of skills with no budget, an unknown abandon, or cover without danger."""
     out = []
     for path, (tree, _src) in trees.items():
         for fn in ast.walk(tree):
@@ -630,6 +629,97 @@ def r12(trees):
                 local = ours | _from_bonobo(n)
                 if not any(isinstance(c, ast.Call) and _root(c.func) in local for c in ast.walk(n)):
                     out.append((f"{path}:{n.lineno}", n.name))
+    return sorted(out)
+
+
+def _bonobo_calls(tree):
+    """{(module, function)} a checker module calls from bonobo by name (`from bonobo.m import f`, `from bonobo import
+    m` / `import bonobo.m as m` then `m.f(...)`)."""
+    names, mods = {}, {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] == "bonobo":
+            for a in n.names:
+                if n.module == "bonobo":
+                    mods[a.asname or a.name] = a.name
+                else:
+                    names[a.asname or a.name] = (n.module.split(".", 1)[1], a.name)
+        elif isinstance(n, ast.Import):
+            for a in n.names:
+                if a.name.startswith("bonobo.") and a.asname:
+                    mods[a.asname] = a.name.split(".", 1)[1]
+    out = set()
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Call):
+            continue
+        f = n.func
+        if isinstance(f, ast.Name) and f.id in names:
+            out.add(names[f.id])
+        elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in mods:
+            out.add((mods[f.value.id], f.attr))
+    return out
+
+
+def _tuple_returns(fn):
+    """The element counts of the tuple literals `fn` returns (its own body, not nested functions)."""
+    out, todo = set(), list(fn.body)
+    while todo:
+        n = todo.pop()
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            continue
+        if isinstance(n, ast.Return) and isinstance(n.value, ast.Tuple):
+            out.add(len(n.value.elts))
+        todo.extend(ast.iter_child_nodes(n))
+    return out
+
+
+def _tuple_arity(ann):
+    """The element count a return annotation names for a tuple (None: not a fixed-size tuple)."""
+    if isinstance(ann, ast.Constant) and isinstance(ann.value, str):
+        try:
+            ann = ast.parse(ann.value, mode="eval").body
+        except SyntaxError:
+            return None
+    if isinstance(ann, ast.BinOp) and isinstance(ann.op, ast.BitOr):        # `tuple[...] | None`
+        return _tuple_arity(ann.left) or _tuple_arity(ann.right)
+    if isinstance(ann, ast.Subscript) and getattr(ann.value, "id", None) in ("tuple", "Tuple"):
+        elts = ann.slice.elts if isinstance(ann.slice, ast.Tuple) else [ann.slice]
+        return None if any(isinstance(e, ast.Constant) and e.value is Ellipsis for e in elts) else len(elts)
+    return None
+
+
+def r13(trees):
+    """[(path:line, name, why)]: a bonobo function check/ calls with no return type, or returning a tuple its type
+    does not count (K9: the checker reads production's results by their declared shape)."""
+    defs = {}
+    for path, (tree, _src) in trees.items():
+        if path.startswith("bonobo" + os.sep):
+            mod = path[len("bonobo" + os.sep):-3].replace(os.sep, ".")
+            for n in tree.body:
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    defs[(mod, n.name)] = (path, n)
+    called = set()
+    for path, (tree, _src) in trees.items():
+        if path.startswith("check" + os.sep):
+            called |= _bonobo_calls(tree)
+    out = []
+    for key in sorted(called & set(defs)):
+        path, fn = defs[key]
+        where = f"{path}:{fn.lineno}"
+        if fn.returns is None:
+            out.append((where, fn.name, "no return type"))
+            continue
+        ann = fn.returns
+        if isinstance(ann, ast.Constant) and isinstance(ann.value, str):
+            try:
+                ann = ast.parse(ann.value, mode="eval").body
+            except SyntaxError:
+                pass
+        if any(isinstance(n, ast.Name) and n.id == "Any" for n in ast.walk(ann)):
+            out.append((where, fn.name, "Any in its return type: no shape declared"))
+            continue
+        counts = _tuple_returns(fn)
+        if counts and _tuple_arity(fn.returns) not in counts:
+            out.append((where, fn.name, f"returns a {'/'.join(map(str, sorted(counts)))}-tuple its type does not count"))
     return sorted(out)
 
 
@@ -725,7 +815,7 @@ def priors():
 
 
 RULES = {"R1": r1, "R2": r2, "R3": r3, "R4": r4, "R5": r5, "R6": r6, "R7": r7, "R8": r8, "R9": r9, "R10": r10,
-         "R11": r11, "R12": r12, "R14": r14}
+         "R11": r11, "R12": r12, "R13": r13, "R14": r14}
 ENTRY = "mc.py"         # production beside bonobo/: its uses keep code alive (R6)
 
 
@@ -739,12 +829,14 @@ def hits():
     with open(os.path.join(HERE, ENTRY)) as fh:
         production = dict(trees, **parse({os.path.join(os.pardir, ENTRY): fh.read()}))
     checker = parse(sources(CHECK))
+    both = {**{os.path.join("bonobo", k): v for k, v in trees.items()},
+            **{os.path.join("check", k): v for k, v in checker.items()}}
     priced = dict(trees)
     for name in PRICE_TOML:
         with open(os.path.join(ROOT, name)) as fh:
             priced[name] = (None, fh.read())
-    return {k: (fn(trees, production) if fn is r6 else fn(checker) if fn is r12 else fn(priced) if fn is r14
-                else fn(trees))
+    return {k: (fn(trees, production) if fn is r6 else fn(checker) if fn is r12 else fn(both) if fn is r13
+                else fn(priced) if fn is r14 else fn(trees))
             for k, fn in RULES.items()}
 
 
@@ -755,6 +847,17 @@ def run_row(rule, srcs):
 
 # (rule, {path: source}, hits?): each rule's holding rows and its must-fail rows
 ROWS = [
+    ("R13", {"bonobo/m.py": "def f(x) -> int:\n return x", "check/c.py": "from bonobo.m import f\nf(1)"}, False),
+    ("R13", {"bonobo/m.py": "def f(x):\n return x", "check/c.py": "from bonobo.m import f\nf(1)"}, True),  # must fail
+    ("R13", {"bonobo/m.py": "def f(x) -> tuple:\n return x, x", "check/c.py": "from bonobo import m\nm.f(1)"},
+     True),                                                                          # must fail: no count
+    ("R13", {"bonobo/m.py": "def f(x) -> tuple[int, int] | None:\n return x, x",
+             "check/c.py": "from bonobo.m import f\nf(1)"}, False),                  # a tuple or None, counted
+    ("R13", {"bonobo/m.py": "def f(x) -> tuple[int, int]:\n return x, x",
+             "check/c.py": "from bonobo import m\nm.f(1)"}, False),
+    ("R13", {"bonobo/m.py": "def f(x):\n return x", "check/c.py": "def g():\n pass"}, False),     # not called
+    ("R13", {"bonobo/m.py": "def f(x) -> tuple[Any, int]:\n return x, 1", "check/c.py": "from bonobo.m import f\nf(1)"},
+     True),                                                                          # must fail: Any hides the shape
     ("R14", {"knowledge.py": "PRIOR_TICKS = {'a': 1, 'b': 2}\nPRICE_SOURCE = {'knowledge.PRIOR_TICKS': {'a': 'prior'}}"},
      True),                                                                         # must fail: 'b' says no source
     ("R14", {"knowledge.py": "PRIOR_TICKS = {'a': 1}\nPRICE_SOURCE = {'knowledge.PRIOR_TICKS': {'a': 'guess'}}"},
