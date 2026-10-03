@@ -530,10 +530,14 @@ class CallSpeed(unittest.TestCase):
                 ("gravel: the shovel saves", ("mine", "minecraft:gravel", {"blocks": ["gravel"], "tier": None}), True),
                 ("must fail: iron ore, nothing saved", ("mine", "minecraft:raw_iron", {"blocks": ["iron_ore"], "tier": 1}),
                  False)]
+        def work(step, tool):
+            # the step's own breaks: a stone nowhere known is found through the soil, where a shovel does save
+            self.estimate(step, tool)
+            return step.parts["work"]
         for name, (kind, token, detail), saves in rows:
             with self.subTest(name):
                 step = Step(kind, token, 4, dict(detail, breaks=4))
-                self.assertEqual(self.estimate(step, "wooden_shovel") < self.estimate(step, None), saves)
+                self.assertEqual(work(step, "wooden_shovel") < work(step, None), saves)
 
 
 class RipeFirst(unittest.TestCase):
