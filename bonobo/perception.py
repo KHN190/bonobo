@@ -234,6 +234,7 @@ def price_inputs(state):
         food=int(state.get("food", 20)), armor=int(state.get("armor", 0)), dark=dark_here(state),
         sheltered=sheltered(state.get("skyLight", 15), lambda: False, lambda: in_site_here(state)),
         pickaxe=0 if tier is None else max(1, tier),       # tool_loss: 0 none, 1 stone-class, 2+ iron
+        ground=STATE.region,
         **({} if NIGHTS_MISSED is None else {"nights_missed": NIGHTS_MISSED()}),
         **{k: state[k] for k in KIT_PRICED if k in state})
 

@@ -114,6 +114,10 @@ def act_commit_s(act):
     ticks = sum(int(getattr(st, "est", 0) or 0) for st in getattr(act, "steps", ()))
     return ticks / TICKS_PER_S if ticks > 0 else None
 
+def ground_of(snap):
+    """The blocks perception read (perception.price_inputs' ground): the region a Cost prices digging over."""
+    return perception.price_inputs(snap.state)["ground"]
+
 def pays_switch(held_s, chosen_s, lost_s):
     """Pure (D4): a new plan replaces the held one only when its seconds and the work the switch throws away beat
     what is left of the held one."""
@@ -596,7 +600,7 @@ class Brain:
         for seq, task in enumerate(live):
             if not self.ready(f"task {task['id']}"):
                 continue
-            act, update = self.task_act(task, snap, ctx, Cost(snap, self.mem, self.blacklist,
+            act, update = self.task_act(task, snap, ctx, Cost(snap, self.mem, self.blacklist, region=ground_of(snap),
                                                               policy=self.policy_cache))
             write(task, update)
             if act is not None:
@@ -628,7 +632,7 @@ class Brain:
         name = f"{kind}: {goals.describe(goal)}"
         if not self.ready(name):
             return None
-        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED)
+        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED, region=ground_of(snap))
         try:
             steps = decompose.decompose(snap.inv, goal, cost, pending=self.mem.pending_outputs(snap.dimension))
         except Unplannable as e:
@@ -846,7 +850,7 @@ class Brain:
         except McError as e:
             api.swallowed("brain.price_table", e)
             return {}
-        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache), snap.inv)
+        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, region=ground_of(snap)), snap.inv)
 
     # -- bookkeeping
     def track(self, snap):
