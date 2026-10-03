@@ -132,6 +132,10 @@ def pays_switch(held_s, chosen_s, lost_s):
     """Pure (D4): switch only when new seconds plus the work thrown away beat the held plan's rest."""
     return chosen_s + lost_s < held_s
 
+
+EnrouteChoice = collections.namedtuple("EnrouteChoice", "candidate A_s C_s P value chosen")   # C_s None: unplannable
+
+
 def repriced_s(steps, cost, inv):
     """Seconds left of a held plan, priced as a fresh one (planner.forward); each est updated."""
     from .knowledge import held_tiers
@@ -233,7 +237,7 @@ class Brain:
         self.unplannable: dict[str, str] = {}
         self.abandoned: str | None = None         # E5: what follows the last give-up
         self.plan_switch = None       # D4: (held_s, chosen_s, lost_s, switched)
-        self.enroute_choice = None    # en-route: (candidate, A s, C s, P × value s, chosen), the round's
+        self.enroute_choice = None    # en-route: the round's EnrouteChoice, None with no candidate
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
         perception.IN_SITE = self.reflexes.in_site      # nightfall asks the night way's judgement, every Brain built
@@ -1063,13 +1067,15 @@ class Brain:
             c, _why = replan(entries + [(name, goals.have((item, n)), len(entries))], snap, cost,
                              self.mem.pending_outputs(snap.dimension))
             if c is None:
+                self.enroute_choice = EnrouteChoice(name, sum(st.est for st in held["steps"]) / TICKS_PER_S, None, p,
+                                                    bag.item_value(item, n, prices.get), False)
                 return held
             steps = c["steps"]
             a_s, c_s = (sum(st.est for st in s) / TICKS_PER_S for s in (held["steps"], steps))
-        value = p * (bag.item_value(item, n, prices.get) or 0.0)
-        chosen = _k.side_saving(1.0, value, 0.0, c_s - a_s) > 0
-        self.enroute_choice = (name, a_s, c_s, value, chosen)
-        api.detail(f"   {name}: A {a_s:.0f}s, C {c_s:.0f}s, P × value {value:.0f}s → {'C' if chosen else 'A'}")
+        value = bag.item_value(item, n, prices.get)
+        chosen = _k.side_saving(p, value or 0.0, 0.0, c_s - a_s) > 0
+        self.enroute_choice = EnrouteChoice(name, a_s, c_s, p, value, chosen)
+        api.detail(f"   {name}: A {a_s:.0f}s, C {c_s:.0f}s, P {p:.2f} × value {value or 0:.0f}s → {'C' if chosen else 'A'}")
         return dict(held, steps=steps, enroute=name) if chosen else held
 
     def light_intent(self, snap, ctx):
