@@ -132,7 +132,7 @@ def falls(step, known_y=None):
 def known_ore_y(mem, snap, step):
     """The y of the nearest remembered cell of a mine step's ore (memory only), or None."""
     blocks = step.detail.get("blocks") if step.kind == "mine" else None
-    spots = [tuple(r["pos"]) for k in blocks or () for r in mem.seen(k, snap.dimension)] if mem is not None else []
+    spots = [tuple(r["pos"]) for k in blocks or () for r in mem.seen(k, snap.dimension)]
     return min(spots, key=lambda p: math.dist(p, snap.feet))[1] if spots else None
 
 def needs_water_bucket(snap, plans, known_y=lambda step: None):

@@ -446,6 +446,17 @@ class AToolTakenIsHeld(unittest.TestCase):
         # must fail: the mine after a pickaxe taken from a chest priced bare-handed (only a crafted tool counted)
         self.assertLess(took[1], bare[1])
 
+    def test_every_tool_material_has_its_tier(self):
+        from bonobo.data import TIER_OF_MATERIAL, TOOL_USES
+        from tests.world import cost
+        c = cost(snapshot(), stone=10)
+        for material in TOOL_USES:                     # must fail: a golden or netherite pickaxe raised StopIteration
+            with self.subTest(material):
+                took = planner.price_as_run([planner.Step("withdraw", f"minecraft:{material}_pickaxe", 1,
+                                                          {"pos": [0, 64, 0]})], [], c)
+                self.assertEqual(len(took), 1)
+                self.assertIn(material, TIER_OF_MATERIAL)
+
 
 class AWayNotWeighedIsSaid(unittest.TestCase):
     def test_a_capped_search_after_the_rounds_steps(self):
@@ -629,7 +640,9 @@ class ATierAboveTheOneAskedPaysOrIsNotTried(unittest.TestCase):
     def test_rows(self):
         search = planner.Search(NullCost())
         # (blocks the pickaxe will break, the tiers offered when any pickaxe serves)
-        for blocks, iron in ((10, False), (2000, True)):
+        # a tier is never cut by two least prices' difference: the least of the cheaper tier is no bound on its making
+        # (P5: a stone hoe beside a held pickaxe, 1 log fewer than a wooden one, was cut)
+        for blocks, iron in ((10, True), (2000, True)):
             with self.subTest(blocks=blocks):
                 node = planner.Node(planner.from_bag(bag(inventory()), facts=NullCost().facts()), [], [])
                 mine = planner.Step("mine", "minecraft:cobblestone", blocks,
@@ -637,8 +650,31 @@ class ATierAboveTheOneAskedPaysOrIsNotTried(unittest.TestCase):
                 node.stack = [("emit", mine, 0, 0)]
                 got = search.tool(node, "pickaxe", 0, 3, 0)
                 tiers = {t[2] for c in (got or [node]) for t in c.stack if t[0] == "addtool"}
-                # must fail: an iron pickaxe made for 10 blocks a wooden one breaks (it cannot pay for itself there)
+                # must fail: an iron pickaxe cut for 10 blocks by the least prices' difference
                 self.assertEqual(2 in tiers, iron, tiers)
+
+
+class ATierStoredIsPricedTaken(unittest.TestCase):
+    def test_rows(self):
+        from tests.world import cost
+        with tempfile.TemporaryDirectory() as tmp:
+            m = Memory(os.path.join(tmp, "notes.json"))
+            m.note_container((3, 64, 0), "minecraft:overworld", [{"id": "minecraft:iron_ingot", "count": 3}])
+            prices = []
+            for mem in (None, m):
+                c = cost(snapshot(), mem=mem)
+                node = planner.Node(planner.from_bag(bag(inventory()), None, None, c.reserved, c.facts()), [], [])
+                prices.append(planner.Search(c).tool_price(node, "pickaxe", 2))
+            # must fail: the iron pickaxe priced smelting ingots a remembered chest holds (its least not a bound)
+            self.assertLess(prices[1], prices[0])
+
+
+class TheMealIsEaten(unittest.TestCase):
+    def test_rows(self):
+        meal = [planner.Step("withdraw", "minecraft:bread", 1, {"pos": [0, 64, 0]})]
+        for eaten, want in (((), 1), (("minecraft:bread",), 0)):     # must fail: the meal eaten still in the bag
+            with self.subTest(eaten=eaten):
+                self.assertEqual(planner._After(bag(inventory()), meal, eaten=eaten).count("minecraft:bread"), want)
 
 
 class AlikeOrdersAreOne(unittest.TestCase):

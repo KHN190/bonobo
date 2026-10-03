@@ -246,7 +246,7 @@ class Cost:
         out = []
         for pos, item, have in sorted(mem.stored(token, snap.dimension), key=lambda r: math.dist(r[0], snap.feet)):
             rec = mem.container_record(pos)
-            p = container_p(rec, ids, time.time() - rec.get("at", time.time()), rate) if rec else 1.0
+            p = container_p(rec, ids, time.time() - rec.get("at", time.time()), rate)
             out.append((pos, item, have, p))
         return out
 
@@ -334,7 +334,7 @@ class Cost:
         """The station a craft of `step` works at by its recipe (planner.way's), or the contract's; None for none."""
         key = ("made_at", step.token)
         if key not in self.cache:
-            ways = [w for w in (way(src, made, 1) for made, src in sources(step.token)) if w is not None]
+            ways = [way(src, made, 1) for made, src in sources(step.token)]
             self.cache[key] = next((w[2] for w in ways if w[0].kind == step.kind and w[2]), None) or step_station(step)
         return self.cache[key]
 
@@ -431,13 +431,10 @@ class Cost:
 
     def _points(self):
         """Every remembered spot in this dimension (memory: notes, stations, sites): where a plan can stand."""
-        if "points" not in self.cache:
-            dim = self.snap.dimension
-            out = [tuple(r["pos"]) for r in self.mem.data.get("seen", []) if r.get("dimension") == dim]
-            out += [tuple(s["pos"]) for s in self.mem.stations(dim)]
-            out += [tuple(s["pos"]) for s in self.mem.sites(dim) if s.get("pos")]
-            self.cache["points"] = out
-        return self.cache["points"]
+        dim = self.snap.dimension
+        out = [tuple(r["pos"]) for r in self.mem.data.get("seen", []) if r.get("dimension") == dim]
+        out += [tuple(s["pos"]) for s in self.mem.stations(dim)]
+        return out + [tuple(s["pos"]) for s in self.mem.sites(dim)]
 
     def _walk(self, step, at=None, held=None, dig=True):
         return sum(self._walk_parts(step, at, held, dig).values())

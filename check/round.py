@@ -237,6 +237,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
         b.place = None
         b.policy_cache = b.policy(snap, snap.night)
         bctx = b.context(snap.dimension)
+        b.needs.observe(snap)                  # as Brain._round_body: a tool worn out since last round is broken
         world.posts.clear()
         offered = []
 

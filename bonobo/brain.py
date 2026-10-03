@@ -162,7 +162,7 @@ def act_on_surface(act):
 def craft_run(steps, first, inv=None):
     """Pure: `first` and the crafts straight after it: one table sitting, not one per round — up to the first craft
     whose inputs the bag (`inv`) and the crafts before it do not hold (its coal still to be mined)."""
-    if first.kind != "craft" or first not in steps:
+    if first.kind != "craft":
         return [first]
     run, made = [], {}
     for st in steps[steps.index(first):]:
@@ -179,8 +179,6 @@ def craft_run(steps, first, inv=None):
 
 def keeps_table(steps, run):
     """Pure: a craft later in the plan than `run` needs a table — the one placed now is left standing."""
-    if not run or run[-1] not in steps:
-        return False
     return any(st.kind == "craft" and craft.recipe_needs_table(st.token) for st in steps[steps.index(run[-1]) + 1:])
 
 def craft_act(layer, name, ctx, steps, step, night, task=None, inv=None):
@@ -606,7 +604,7 @@ class Brain:
         # the gate's facts: what is cooling, and whether the surface is closed (met and unplannable needs are judged
         # where proposed, never intents)
         def facts_of(intents):
-            return {"cooling": {i.key for i in intents if i.key and not self.ready(i.key)},
+            return {"cooling": {i.key for i in intents if not self.ready(i.key)},
                     "surface_closed": snap.night}
 
         def timed(name, ask):
@@ -798,13 +796,6 @@ class Brain:
         finally:
             self.task_writes = None
 
-    def _write(self, task, **fields):
-        """Kept while deciding, written at once otherwise."""
-        if self.task_writes is not None:
-            self.task_writes.update(fields)
-        else:
-            tasks.update(task["id"], **fields)
-
     def _task_act(self, task, snap, ctx, cost, held):
         goal = tasks.goal_of(task)
         # reconcile: the remainder is read each round ({} = done); the held plan is a cache of how, never a count
@@ -882,7 +873,7 @@ class Brain:
 
     def finish(self, task, state, reason):
         self.just_finished = True
-        self._write(task, **tasks.marked(state, reason))
+        self.task_writes.update(tasks.marked(state, reason))     # kept while deciding: the caller writes them
         self.held.pop(task["id"], None)
         self.retry.succeeded(f"task {task['id']}")
         if state == "done":
@@ -912,13 +903,8 @@ class Brain:
                      goals.NIGHT_STOCK[-1])
         return self.need_act("night stock", goals.have(*needs), snap, ctx)
 
-    def price_table(self, snap=None):
+    def price_table(self, snap):
         """{item: seconds to get one another way}, for skills that ask what a thing is worth."""
-        try:
-            snap = snap or Snapshot.read(_k.SOURCE_BLOCKS, survive.ROUND_GROUND)
-        except McError as e:
-            api.swallowed("brain.price_table", e)
-            return {}
         return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache,
                            stop=api.stop_asked), snap.inv)
 
