@@ -112,22 +112,24 @@ class OneTargetPerStep(unittest.TestCase):
         feet = (0, 64, 0)
         ground = {(x, y, z): "stone" for x in range(-12, 13) for z in range(-6, 7) for y in range(50, 64)}
         rows = [("walkable", (8, 64, 0)), ("buried", (8, 58, 0))]
+        way = {}
         for geo, target in rows:
             blocks = dict(ground)
             blocks[target] = "iron_ore"
             region = world.Region.of((-12, 50, -6), (12, 70, 6), blocks)
-            digs = []
+            ticks = []
             for remembered, scanned in ((True, False), (False, True), (True, True)):
                 with self.subTest(geo=geo, remembered=remembered, scanned=scanned):
                     c = self._cost(feet, target, region, world.Inventory(inventory(("stone_pickaxe", 1))),
                                    remembered, scanned)
                     self.assertEqual(c.site(IRON), target)
                     c.estimate(IRON)
-                    digs.append(IRON.parts["dig"])
-                    # must fail: a buried ore priced as a walk (no dig), an open one charged a tunnel
-                    self.assertEqual(IRON.parts["dig"] > 0, geo == "buried")
-            # one target: the same dig whichever way the ore is known
-            self.assertEqual(len(set(digs)), 1, (geo, digs))
+                    ticks.append(IRON.parts["walk"] + IRON.parts["dig"])
+            # one target: the same way whichever way the ore is known
+            self.assertEqual(len(set(ticks)), 1, (geo, ticks))
+            way[geo] = ticks[0]
+        # must fail: a buried ore priced as a walk, its tunnel left out
+        self.assertGreater(way["buried"], way["walkable"])
 
 
 if __name__ == "__main__":

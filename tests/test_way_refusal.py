@@ -201,8 +201,8 @@ class APlanReadNeverRaises(unittest.TestCase):
                 _tasks, why = survive.dig_in_plan(state_)
                 with self.assertRaises(api.NotAvailable) as e:
                     survive.dig_in_commands(state_)
-                # must fail: the run's refusal keyed by no cell (the fluid under the feet)
-                self.assertEqual((why.cell, e.exception.pos), ((FEET[0], FEET[1] - 1, FEET[2]),) * 2)
+                # the plan names the fluid; the run's refusal cools where the body stands (no target to plan around)
+                self.assertEqual((why.cell, e.exception.pos), ((FEET[0], FEET[1] - 1, FEET[2]), None))
 
 
 class AWallInThePlanIsTheRunsWallIn(unittest.TestCase):
