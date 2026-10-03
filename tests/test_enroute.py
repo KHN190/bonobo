@@ -1,6 +1,6 @@
 """En-route (docs/refactor.md 顺路插入, G3/K4): once a planning round, what lies beside the leg the next step walks is
 taken on the way when P(used later) × (its price later − its work now) > the detour (knowledge.side_saving) — wanted
-by the held plan (P 1) or a later milestone (P 1/(1+k), k down the chain); a remembered chest by its contents × the
+by the held plan (P 1) or a later milestone (P 1/(1+k), k down the chain), net of the bag; a remembered chest by its contents × the
 chance they are still there; an unopened chest within reach of the leg looked into. The plan_proposals rows go
 through the production round with what the base has, so they are red there by assertion."""
 import os
@@ -19,24 +19,33 @@ ORE = (40, 64, 0)
 KIT = (("stone_pickaxe", 1), ("stone_sword", 1), ("stone_axe", 1), ("crafting_table", 1), ("furnace", 1), ("bread", 8))
 
 
-def ground():
-    """Dirt over stone from the feet to an iron ore 40 east: the leg the plan's next step walks."""
+def ground(chest=None):
+    """Dirt over stone from the feet to an iron ore 40 east: the leg the plan's next step walks; a `chest` on it."""
     blocks = {(x, y, z): "dirt" if y >= 62 else "stone" for x in range(-8, 49) for z in range(-8, 9)
               for y in range(58, 64)}
     blocks[ORE] = "iron_ore"
+    if chest is not None:
+        blocks[chest] = "chest"
     return world.Region.of((-8, 58, -8), (48, 70, 8), blocks)
 
 
-def proposals(mobs):
-    """The round's plan proposals for a raw iron task, the iron ore 40 east, with `mobs` in sight."""
+def proposals(mobs, chest=None, contents=None, bag=()):
+    """The round's plan proposals for a raw iron task, the iron ore 40 east, with `mobs` in sight, a `chest` beside
+    the leg (its `contents` remembered, or unopened), `bag` held besides the kit."""
     tmp = tempfile.mkdtemp()
     lifecycle.reset_all(caches=False)
     with mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")), \
             mock.patch.object(api, "api", side_effect=AssertionError("the round read the world")):
         b = brain_fixture()
+        b.mem.clock = 0
         hits = {"iron_ore": [{"x": ORE[0], "y": ORE[1], "z": ORE[2], "distance": 40.0, "block": "minecraft:iron_ore"}]}
-        snap = world.Snapshot.from_readings(state(x=.5, y=64, z=.5), world.Inventory(inventory(*KIT)), hits, mobs,
-                                            ground())
+        if chest is not None:
+            hits["chest"] = [{"x": chest[0], "y": chest[1], "z": chest[2], "distance": float(chest[0]),
+                              "block": "minecraft:chest"}]
+        if contents is not None:
+            b.mem.note_container(chest, D, [{"id": i, "count": n, "slot": k} for k, (i, n) in enumerate(contents)])
+        snap = world.Snapshot.from_readings(state(x=.5, y=64, z=.5), world.Inventory(inventory(*KIT, *bag)), hits,
+                                            mobs, ground(chest))
         b.round_snap = snap
         tasks.add(goals.have(("minecraft:raw_iron", 1)))
         return b.plan_proposals(snap, round_ctx(b, snap))
@@ -59,6 +68,21 @@ class TheRoundTakesWhatIsOnTheWay(unittest.TestCase):
         got = proposals([sheep(20, 40)])
         self.assertNotIn("enroute", [i.kind for i in got])
         self.assertEqual(arbiter.arbitrate(got).kind, "queue")
+
+    def test_a_chest_beside_the_leg_gives_its_diamond_not_its_logs(self):
+        """The user's scene: the next step mines iron, an unopened chest beside that leg, 64 logs in the bag. The
+        chest is opened; seen to hold diamond and logs, the diamond (the diamond tools' need) is taken, the logs
+        (the bag covers every need) left."""
+        chest, bag = (20, 64, 1), [("oak_log", 64)]
+        got = proposals([], chest, bag=bag)
+        chosen = arbiter.arbitrate(got)
+        # must fail: the chest walked past, its diamond fetched on a trip of its own later
+        self.assertEqual((chosen.kind, chosen.action.step.kind, chosen.action.step.detail["pos"]),
+                         ("enroute", "look", chest), [(i.kind, i.key) for i in got])
+        got = proposals([], chest, [("minecraft:diamond", 2), ("minecraft:oak_log", 10)], bag)
+        taken = [(i.action.step.kind, i.action.step.token) for i in got if i.kind == "enroute"]
+        self.assertEqual(taken, [("withdraw", "minecraft:diamond")], [(i.kind, i.key) for i in got])
+        self.assertEqual(arbiter.arbitrate(got).kind, "enroute")
 
 
 def scene(notes=(), containers=(), chests=()):
@@ -89,26 +113,27 @@ class CostEnroute(unittest.TestCase):
         return [(st.kind, st.token, where) for _s, st, where in c.enroute((0, 64, 0), (45, 64, 0), wanted, PRICE)]
 
     def test_rows(self):
-        rows = [("a tree beside the leg, logs wanted: gathered", scene(notes=[("tree", (15, 64, 2))]), {"log": 1.0},
+        rows = [("a tree beside the leg, logs wanted: gathered", scene(notes=[("tree", (15, 64, 2))]), {"log": (1.0, 4)},
                  [("gather", "log", (15, 64, 2))]),
                 ("must fail: a tree 100 off the leg: its detour costs more than its logs",
-                 scene(notes=[("tree", (20, 64, 100))]), {"log": 1.0}, []),
-                ("a tree beside the leg, logs not wanted: skipped", scene(notes=[("tree", (15, 64, 2))]), {"wool": 1.0}, []),
+                 scene(notes=[("tree", (20, 64, 100))]), {"log": (1.0, 4)}, []),
+                ("a tree beside the leg, logs not wanted: skipped", scene(notes=[("tree", (15, 64, 2))]), {"wool": (1.0, 1)}, []),
                 ("a remembered chest with coal beside the leg: withdrawn",
-                 scene(containers=[((30, 64, 1), [("minecraft:coal", 5)])]), {"minecraft:coal": 1.0},
+                 scene(containers=[((30, 64, 1), [("minecraft:coal", 5)])]), {"minecraft:coal": (1.0, 5)},
                  [("withdraw", "minecraft:coal", (30, 64, 1))]),
-                ("an unopened chest within reach of the leg: looked into", scene(chests=[(35, 64, 1)]), {"log": 1.0},
+                ("an unopened chest within reach of the leg: looked into", scene(chests=[(35, 64, 1)]), {"log": (1.0, 4)},
                  [("look", "minecraft:chest", (35, 64, 1))]),
-                ("an unopened chest 10 off: skipped", scene(chests=[(35, 64, 10)]), {"log": 1.0}, [])]
+                ("an unopened chest 10 off: skipped", scene(chests=[(35, 64, 10)]), {"log": (1.0, 4)}, [])]
         for name, c, wanted, want in rows:
             with self.subTest(name):
                 self.assertEqual(self.taken(c, wanted), want)
 
-    def test_raw_tokens(self):
-        """What a later milestone's needs come down to: the got tokens its recipes read."""
+    def test_raw_needs(self):
+        """What a later milestone's needs come down to: the got tokens its recipes read, and how many."""
         c = scene()
-        self.assertEqual(c.raw_tokens("minecraft:iron_pickaxe"), {"log", "minecraft:raw_iron"})
-        self.assertIn("wool", c.raw_tokens("bed"))
+        self.assertEqual(c.raw_needs("minecraft:iron_pickaxe", 1), {"log": 1, "minecraft:raw_iron": 3})
+        self.assertEqual(c.raw_needs("minecraft:diamond_pickaxe", 1), {"log": 1, "minecraft:diamond": 3})
+        self.assertEqual(c.raw_needs("bed", 1)["wool"], 3)
 
 
 if __name__ == "__main__":

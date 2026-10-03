@@ -1015,18 +1015,21 @@ class Brain:
                                    max(0.0, later_s - _k.dawn_s(snap.state)), 0.0)
 
     def enroute_wanted(self, snap, cost, held, own=None):
-        """{item: P it is used later}: what the held plan's other steps get (P 1), and what each later milestone's needs
-        come down to (Cost.raw_tokens), P falling with its distance down the chain (1 / (1 + k), the k-th after the
-        current one)."""
-        wanted = {st.token: 1.0 for st in held["steps"] if st.kind in cost.GOT and st is not own}
+        """{item: (P it is used later, how many are still lacked)}: what the held plan's other steps get (P 1, their
+        counts: the plan is made from the bag), and what each later milestone's needs come down to (Cost.raw_needs)
+        less what the bag holds, P falling with its distance down the chain (1 / (1 + k), the k-th after the current
+        one). An item the bag already holds enough of is not wanted."""
+        wanted = {st.token: (1.0, st.count) for st in held["steps"] if st.kind in cost.GOT and st is not own}
         later = [name for name in goals.MILESTONES
                  if goals.remainder(goals.make("milestone", name=name), snap, self.mem) != {}][1:]
         for k, name in enumerate(later, start=1):
             rows = goals.MILESTONES[name]
             for need in rows if isinstance(rows, list) else ():
-                token = _k.tool_item(need[1], need[2]) if need[0] == "tool" else need[0]
-                for t in cost.raw_tokens(token):
-                    wanted[t] = max(wanted.get(t, 0.0), 1.0 / (1 + k))
+                token, n = (_k.tool_item(need[1], need[2]), 1) if need[0] == "tool" else (need[0], need[1])
+                for t, m in cost.raw_needs(token, n).items():
+                    lacked = m - snap.inv.count(t)
+                    if lacked > 0 and 1.0 / (1 + k) > wanted.get(t, (0.0, 0))[0]:
+                        wanted[t] = (1.0 / (1 + k), lacked)
         return wanted
 
     def enroute_intent(self, snap, ctx, cost, act, held):

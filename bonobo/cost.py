@@ -564,21 +564,22 @@ class Cost:
 
     GOT = ("mine", "gather", "hunt", "take")      # step kinds that get a thing where it is (no input to make it from)
 
-    def raw_tokens(self, token, seen=None):
-        """Pure over the recipes (knowledge.sources, planner.way): the tokens a gather, mine, hunt or take gets that
-        making `token` reads — itself when it is got so; what a later milestone's needs come down to (enroute)."""
-        seen = set() if seen is None else seen
+    def raw_needs(self, token, n, seen=()):
+        """Pure over the recipes (knowledge.sources, planner.way): {token a gather, mine, hunt or take gets: how many}
+        making `n` of `token` reads, along its first way (the tables' own order) — what a later milestone's needs come
+        down to (enroute)."""
         if token in seen:
-            return set()
-        seen.add(token)
-        out = set()
+            return {}
         for made, src in sources(token):
             if src[0] in self.GOT:
-                out.add(made)
-            elif src[0] in ("craft", "smelt"):
-                for t, _n in way(src, made, 1)[1]:
-                    out |= self.raw_tokens(t, seen)
-        return out
+                return {made: n}
+            if src[0] in ("craft", "smelt"):
+                out = {}
+                for t, k in way(src, made, n)[1]:
+                    for raw, m in self.raw_needs(t, k, seen + (token,)).items():
+                        out[raw] = out.get(raw, 0) + m
+                return out
+        return {}
 
     def got_step(self, item, kind, n):
         """The step that gets `n` of `item` from a `kind` (a block, a mob, "tree") where it stands, or None."""
@@ -594,23 +595,24 @@ class Cost:
     def enroute(self, here, there, wanted, price):
         """[(saving s, step, where)] for what lies beside the leg `here` → `there` worth taking on the way (G3, K4:
         knowledge.side_saving): each thing seen or remembered (the notes' yields, bag.note_yields; a container's
-        remembered contents × the chance they are still there, container_p) yielding an item `wanted` ({item: P used
-        later}), its later price bag.item_value at `price`, its work now the step's own (work), its detour the walk
-        off the leg and back plus the door's way to it (reach). An unopened chest within reach of the leg is looked
-        into (its detour a walk past it: free); far ones are skipped. Best first, only s > 0."""
+        remembered contents × the chance they are still there, container_p) yielding an item `wanted` ({item: (P used
+        later, how many still lacked)}), as many as lacked, its later price bag.item_value at `price`, its work now the
+        step's own (work), its detour the walk off the leg and back plus the door's way to it (reach). An unopened
+        chest within reach of the leg is looked into (its detour a walk past it: free); far ones are skipped. Best
+        first, only s > 0."""
         from .bag import item_value, note_yields
         from .knowledge import side_saving
         if not wanted or here is None or there is None:
             return []
         here, there, dim = tuple(here), tuple(there), self.snap.dimension
         leg = walk_ticks(math.dist(here, there)) / TICKS_PER_S
-        best_later = max(p * (item_value(i, 64, price) or 0.0) for i, p in wanted.items())
+        best_later = max(p * (item_value(i, n, price) or 0.0) for i, (p, n) in wanted.items())
 
         def detour(c):
             return (walk_ticks(math.dist(here, c)) + walk_ticks(math.dist(c, there))) / TICKS_PER_S - leg
 
         def want(item):
-            return next((p for w, p in wanted.items() if w == item or mid(item) in members(w)), 0.0)
+            return next((pn for w, pn in wanted.items() if w == item or mid(item) in members(w)), (0.0, 0))
         found = {}
         for r in self.mem.data.get("seen", []):
             if r.get("dimension") == dim:
@@ -625,7 +627,7 @@ class Cost:
             off = detour(c)
             if off >= best_later:
                 continue                   # no yield can pay this walk back (a lower bound: the way only adds)
-            items = [(i, n, want(i)) for i, n in note_yields(kind).items() if want(i) > 0]
+            items = [(i, min(n, want(i)[1]), want(i)[0]) for i, n in note_yields(kind).items() if want(i)[0] > 0]
             if not items:
                 continue
             got = None if f"minecraft:{bare(kind)}" in MOB_KINDS else self.reach(c, stand_kind([kind]) or "mine")
@@ -649,7 +651,8 @@ class Cost:
             c = tuple(rec["pos"])
             off = detour(c)
             for item, have in rec["items"].items():
-                p = want(item)
+                p, need = want(item)
+                have = min(have, need)            # what the plan or a milestone still lacks, never the whole chest
                 if p <= 0 or have <= 0:
                     continue
                 chance = container_p(rec, {item}, time.time() - rec.get("at", time.time()), rate)
