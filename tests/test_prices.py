@@ -33,7 +33,10 @@ class ThePriceLine(unittest.TestCase):
         mine = {"type": "mine", "startTick": 100, "endTick": 120, "result": {"block": "minecraft:stone", "brokeTick": 117}}
         rows = [("must fail: a mine's break apart from its collect", mine, ["mine", 100, 117, 120, 3]),
                 ("a walk breaks nothing", {"type": "goto", "startTick": 90, "endTick": 99, "result": None},
-                 ["goto", 90, None, 99, 3])]
+                 ["goto", 90, None, 99, 3]),
+                ("must fail: a sweep's pickups", {"type": "collect", "startTick": 120, "endTick": 150,
+                                                  "result": {"collected": 2, "pickTicks": [128, 139]}},
+                 ["collect", 120, [128, 139], 150, 3])]
         for name, rec, want in rows:
             with self.subTest(name):
                 self.assertEqual(api.task_ticks(rec, 3), want)
