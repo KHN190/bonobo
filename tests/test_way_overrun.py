@@ -142,6 +142,30 @@ class RefutedPrice(unittest.TestCase):
         # must fail: the refuted rest under the plan's own lower bound (P3: lb ≤ the chosen price)
         self.assertEqual(c.estimate(step), bound)
 
+    def test_a_cheaper_second_source_is_picked(self):
+        """The near target (buried) refuted dear: the far one (open on the floor, no dig) beats it on a plain walk."""
+        cost_of, step, near, far, mem, bag = _refuted_scene()
+        c0 = cost_of(bag)
+        self.assertEqual(c0.site(step), near, "fixture must pick the near one first, unrefuted")
+        self._refute(mem, step, near, 1000.0, bag)
+        c = cost_of(bag)
+        # must fail: still priced (and sited) at the dear refuted target, not G3's cheaper second source
+        self.assertEqual(c.site(step), far)
+
+    def test_a_bag_change_lifts_the_refutation(self):
+        """The refutation is kept under the bag's state (ban_state): a different bag is a different state, so the
+        same target prices fresh again (G3/E5: the fact only lifts by the state change it was measured in)."""
+        from bonobo.world import Inventory
+        from tests.world import inventory
+        cost_of, step, near, _far, mem, bag = _refuted_scene()
+        self._refute(mem, step, near, 0.5, bag)
+        new_bag = Inventory(inventory(("stone_pickaxe", 1), ("torch", 4)))
+        c = cost_of(new_bag)
+        self.assertEqual(c.site(step), near)
+        c.estimate(step)
+        # must fail: the lifted refutation still priced from the old, refuted rest
+        self.assertNotIn("refuted", step.parts)
+
 
 class Accept7MineStep(unittest.TestCase):
     """The production path (dispatch.run_priced → gather._go_way → nav), accept7's shape: an ore 67 off and 10 down
