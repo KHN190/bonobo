@@ -11,7 +11,7 @@ from .api import McError, NotAvailable, log
 from .data import DOOR_NEAR, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .game import EYE_HEIGHT, PLAYER_SPRINT
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
-from .knowledge import dig_ticks
+from .knowledge import WAY_BLOCKS, dig_ticks
 from .bag import holds_up
 from .beliefs import TICKS_PER_S
 from collections.abc import Mapping
@@ -232,7 +232,7 @@ def mod_features():
 
 def building_of(inv):
     """Pure: the building block the bag holds most of, or None."""
-    options = [b for b in GROUPS["building"] if inv.usable(b)]
+    options = [b for b in WAY_BLOCKS if inv.usable(b)]
     return max(options, key=inv.usable) if options else None
 
 def building_item():

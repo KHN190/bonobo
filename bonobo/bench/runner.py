@@ -699,6 +699,24 @@ def _write_report(folder, data):
         json.dump(data, f, indent=1, default=str)
 
 
+def _raise_on_term():
+    """A stop (SIGTERM) raises in the row like an interrupt, so a cut run unwinds through its report; the handler it
+    replaced, or None off the main thread (a signal is set there only)."""
+    import signal
+
+    def term(signum, _frame):
+        raise SystemExit(f"stopped (signal {signum})")
+    if threading.current_thread() is not threading.main_thread():
+        return None
+    return (signal.signal(signal.SIGTERM, term),)
+
+
+def _restore_term(saved):
+    import signal
+    if saved is not None:
+        signal.signal(signal.SIGTERM, saved[0])
+
+
 def drop_report(folder):
     """A passed row writes none: its started report goes."""
     import shutil
@@ -971,6 +989,7 @@ def run_named(name, make_ctx):
     row_mark = _api.ticks_mark()
     os.environ["MC_BENCH_TICK_RATE"] = str(rate or TICKS_PER_S)
     folder = start_report(name, row_t0)
+    term = _raise_on_term()
     try:
         if rate:
             # waiting-heavy rows run the game faster: skills wait in ticks, only wall time shrinks; reset below
@@ -1006,8 +1025,10 @@ def run_named(name, make_ctx):
         from .. import brain as _brain
         _report(folder, failure_record(name, code, "cut", f"{CUT}: {type(cut).__name__} {cut}", time.time() - row_t0,
                                        feedback, trace, console.lines, [a for a in _brain.ACTS if a["start"] >= row_t0]))
+        report_written()             # its world reads and the file before the process goes
         raise
     finally:
+        _restore_term(term)
         stop.set()
         sys.stdout = console.real
         if rate:
