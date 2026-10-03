@@ -33,7 +33,8 @@ def fitted(current, origin, gmean, n, tag, inverse=False):
 
 def current_values():
     """{item: (value now, inverse)} of every fittable item."""
-    out = {f"PRIOR_TICKS.{k}": (v, False) for k, v in knowledge.PRIOR_TICKS.items() if isinstance(v, (int, float))}
+    out: dict[str, tuple[float, bool]] = {f"PRIOR_TICKS.{k}": (v, False) for k, v in knowledge.PRIOR_TICKS.items()
+                                          if isinstance(v, (int, float))}
     out.update({f"knowledge.GROW_S.{k}": (v, False) for k, v in knowledge.GROW_S.items()})
     out["data.WALK_BLOCKS_PER_TICK"] = (data.WALK_BLOCKS_PER_TICK, True)
     out["plan.seek_prior_s"] = (float(beliefs.CONFIG["plan"]["seek_prior_s"]), False)

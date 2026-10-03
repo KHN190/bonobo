@@ -46,11 +46,14 @@ class LookingAt(TypedDict):
     entity: NotRequired[int]
 
 
+TaskStatus = Literal["running", "succeeded", "failed", "cancelled"]     # the jar's Task.Status, lowercased (Task.toJson)
+
+
 class TaskResult(TypedDict):
     """Task.toJson: GET /task?id=, a posted chain's entries, /state's control.task."""
     id: int
     type: str
-    status: Literal["running", "succeeded", "failed", "cancelled"]
+    status: TaskStatus
     message: str
     seconds: float
     doing: str
