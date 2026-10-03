@@ -624,6 +624,13 @@ class Cost:
 
         def want(item):
             return next((pn for w, pn in wanted.items() if w == item or mid(item) in members(w)), (0.0, 0))
+
+        def there(step, c):
+            # what the plan's own sources are held to: not banned, a way the door can make
+            if tuple(c) in self.not_there(False):
+                return False
+            kind = "attack" if step.kind == "hunt" else self.way_kind(step)
+            return kind is None or self.unfixable(c, kind) is None
         found = {}
         for r in self.mem.data.get("seen", []):
             if r.get("dimension") == dim:
@@ -632,12 +639,15 @@ class Cost:
             for h in hits:
                 found.setdefault((h["x"], h["y"], h["z"]), kind)
         for e in self.snap.mobs or ():
+            if e.get("id") is not None and banned(self.blacklist, (e["id"], 0, 0)):
+                continue
             found.setdefault((math.floor(e["x"]), math.floor(e["y"]), math.floor(e["z"])), bare(e["type"]))
         out = []
         for c, kind in found.items():
             for item, n in note_yields(kind).items():
                 p, need = want(item)
                 step = self.got_step(item, kind, min(n, need)) if p > 0 else None
+                step = step if step is not None and there(step, c) else None
                 later = item_value(item, min(n, need), hidden(step, c)) if step is not None else None
                 if later is not None:
                     out.append((bound(p, later, step, c), step, c, item, min(n, need), p))
@@ -652,6 +662,8 @@ class Cost:
                     continue
                 chance = container_p(rec, {item}, time.time() - rec.get("at", time.time()), rate)
                 step = Step("withdraw", item, have, {"pos": list(c), "p": chance})
+                if not there(step, c):
+                    continue
                 later = item_value(item, have, hidden(step, c))
                 if later is not None:
                     out.append((bound(p * chance, later, step, c), step, c, item, have, p * chance))
@@ -660,6 +672,8 @@ class Cost:
             if self.mem.container_record(c) is not None:
                 continue
             look = Step("look", "container", 1, {"pos": list(c)})
+            if not there(look, c):
+                continue
             for item, (p, n) in wanted.items():
                 held = sum(1 for r in records if any(mid(i) in members(item) or i == item for i in r["items"]))
                 later = item_value(item, n, hidden(look, c))
@@ -727,7 +741,8 @@ class Cost:
         out = {"walk": 0, "dig": 0, "surface": 0, "seek": 0}
         site = self.site(step) if at is not None else None
         kind = self.way_kind(step)
-        mob = min(self._mobs(step.detail.get("types", ())), key=lambda m: m[0], default=(None, None))[1] if k == "hunt" else None
+        mobs = self._mobs(step.detail.get("types", ())) if k == "hunt" else ()
+        mob = min(mobs, key=lambda m: m[0], default=(None, None))[1]
         if site is not None and kind is not None and self.unfixable(site, kind, at, spent) is not None:
             out["seek"] = self.find_ticks(step_kinds(step), held, at)
         elif mob is not None and (ways := self.reach_ticks(mob, "attack", at, spent)) is not None:
