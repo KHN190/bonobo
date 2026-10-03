@@ -464,6 +464,8 @@ CHUNK_BLOCKS = 16
 # Minecraft Wiki, "Village": one village per 34×34-chunk region; a search covers SEARCH_LEGS looks of SEARCH_LOOK_R.
 VILLAGE_REGION_BLOCKS = 34 * CHUNK_BLOCKS
 SEARCH_LEGS, SEARCH_LOOK_R = 6, 48
+SEARCH_RINGS = (SEARCH_LOOK_R // 2, SEARCH_LOOK_R)     # a look near first, then once at its full reach, then a seek
+SEARCH_MOB_R = 64          # how far a look sees mobs (/entities)
 VILLAGE_ONLY = ([f"{c}_bed" for c in COLORS] + [f"{c}_wool" for c in COLORS] + ["villager", "hay_block", "bell",
                 "smithing_table", "stonecutter", "cauldron", "bookshelf", "wheat", "carrots", "potatoes", "beetroots"])
 # Minecraft Wiki, "Ore" (Java 1.18+ generation): per ore, its placements as (veins a chunk, vein size, lowest y,

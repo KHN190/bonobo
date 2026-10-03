@@ -8,15 +8,16 @@ from . import knowledge as K
 from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
+from .data import SEARCH_LOOK_R, SEARCH_MOB_R, SEARCH_RINGS
 from .data import LEVEL_SIGHT_DEPTH, BAN_MAX_S, TASK_WAIT_S, WORK_REACH, cannot_reach, bare, mid
 from .knowledge import FIND_AT, members
 from .data import GROUPS, MINE_YIELD, PLACEABLE_AS
 from .game import JUMP_BLOCKS
 from .bag import mineable, opener, pickup_whitelist, refused
 from .world import Inventory, Region, cell_add, connected, entities, find, region_around, ripe_near
-from .skillcore import ToolMissing, mine_cell, gained
+from .skillcore import ToolMissing, mine_cell, gained, settle
 from .world import feet
-from .explore import surface_first, explore_for, approach_policy
+from .explore import surface_first, explore_for, approach_policy, seek_blocks
 from .fluids import CAVE_AIR, fluid_faces, seal_plan
 from .knowledge import swimming
 from typing import TYPE_CHECKING
@@ -45,20 +46,27 @@ def _reach_budget(spent, blocks, why=None):
     if spent >= REACH_BUDGET:
         raise api.NavFailed(why or f"{blocks[0]}: {spent} unreachable in a row — not from this spot")
 
-SEEK_RADII = (24, 48)     # a mining pass looks near first, then once wider
+def _look_further(ctx, blocks, drop, radius, why):
+    """A look that found none: the next ring (knowledge.next_look), else a seek further out (explore.seek_blocks, its
+    own NotAvailable once the legs are spent); the radius the next pass looks at."""
+    wider = K.next_look(radius)
+    if wider is not None:
+        api.detail(f"  mine {bare(drop)}: {why} within {radius}, looking at {wider}")
+        return wider
+    api.detail(f"  mine {bare(drop)}: {why} within {radius}, seeking further")
+    seek_blocks(ctx, list(blocks))
+    return SEARCH_RINGS[0]
 
-def seek_hits(blocks, found, radius, blocked, protected):
-    """Pure: what a mining pass may go for, from what `/find` saw — sealed or exposed alike, minus bans and our own builds."""
+
+def seek_hits(blocks, found, blocked, protected):
+    """Pure: (what a mining pass may go for, from what `/find` saw — sealed or exposed alike, minus bans and our own
+    builds; why none, when none)."""
 
     at = [(h, (h["x"], h["y"], h["z"])) for h in found]
     hits = [h for h, p in at if not blocked(p) and p not in protected]
-    if hits:
-        return hits
-    if radius < SEEK_RADII[-1]:
-        return None
     banned = sum(1 for _, p in at if blocked(p))
-    why = f": {len(found)} in range but {banned} banned, {len(found) - banned} protected" if found else ""
-    raise NotAvailable(f"no {blocks[0]} within {SEEK_RADII[-1]} blocks{why}")
+    why = f"{len(found)} in range but {banned} banned, {len(found) - banned} protected" if found else "none in range"
+    return hits, ("" if hits else why)
 
 def noted_hits(notes, blocks, blocked, protected):
     """Pure: remembered cells of `blocks` a mining pass may go straight to, shaped like /find's answer, minus bans and builds."""
@@ -221,7 +229,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     """Tunnel to the nearest reachable vein of `blocks` and mine it until `count` more `token` are held."""
     drop = token
     target = Inventory().count(drop) + count
-    radius = SEEK_RADII[0]
+    radius = SEARCH_RINGS[0]
     # unreachable is about where we stand, not the block: one budget for every way of not getting there, then fail as nav (the retry waits for a change of place)
     unreachable = 0
     empty_batches = 0    # batches the mod could not break at all; a few in a row means the seam really is dead
@@ -254,15 +262,11 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                     + find(blocks, radius=radius, limit=60)}.values())
         open_set = {(h["x"], h["y"], h["z"]) for h in exposed_hits}
         fresh = [h for h in raw if (h["x"], h["y"], h["z"]) not in no_cell]
-        if raw and not fresh:
-            if radius < SEEK_RADII[-1]:
-                radius = SEEK_RADII[-1]
-                continue
-            raise NotAvailable(f"no {blocks[0]} vein mineable from here ({len(no_cell)} seen, none with a cell to break)")
-        hits = seek_hits(blocks, fresh, radius, ctx.blocked, ctx.policy.protected)
-        if hits is None:
-            api.detail(f"  mine {bare(drop)}: none within {radius}, looking wider")
-            radius = SEEK_RADII[-1]
+        hits, why = seek_hits(blocks, fresh, ctx.blocked, ctx.policy.protected)
+        if not hits:
+            if settle(lambda: Inventory().count(drop), lambda n: n >= target) >= target:
+                continue            # our own dig took the last one and its drop came in late: not a miss
+            radius = _look_further(ctx, blocks, drop, radius, why if raw else "none in range")
             continue
         start = feet()
         if swimming(api.get("/state")):
@@ -542,20 +546,12 @@ def strip_mine_step(ctx, length=16):
 
 def _hunt_seen(types):
     """The prey in sight as a detail line: id and distance each."""
-    return ", ".join(f"{n['id']}@{n['distance']:.1f}" for n in entities(64, types)) or "none"
+    return ", ".join(f"{n['id']}@{n['distance']:.1f}" for n in entities(SEARCH_MOB_R, types)) or "none"
 
 HUNT_REACH = 6          # an animal this near after the walk is attacked where it stands
 
-def after_approach(seen, target_id, reach):
-    """Pure: after the walk to a moving animal — ("attack", it) within `reach`, ("chase", it) still in sight but
-    gone on (the next round walks to where it is now), ("next", None) out of sight (the nearest other one next)."""
-    e = next((n for n in seen if n["id"] == target_id), None)
-    if e is None:
-        return "next", None
-    return ("attack" if e["distance"] <= reach else "chase"), e
-
 def _hunt_progress(token, types):
-    near = entities(64, types)
+    near = entities(SEARCH_MOB_R, types)
     # closing in (4-block bins) or collecting drops is progress; circling is not
     return Inventory().count(token), (int(near[0]["distance"] // 4) if near else None)
 
@@ -573,7 +569,7 @@ def hunt(ctx, token, count, types, night):
         if Inventory().count(token) >= target:
             return
         yield _hunt_progress(token, types)
-        prey = [e for e in entities(64, types) if not ctx.blocked((e["id"], 0, 0))]
+        prey = [e for e in entities(SEARCH_MOB_R, types) if not ctx.blocked((e["id"], 0, 0))]
         if not prey:
             if night:
                 raise NotAvailable(f"no {types[0]} nearby at night")
@@ -589,11 +585,9 @@ def hunt(ctx, token, count, types, night):
             continue
         if e["distance"] > 4:
             # walk and bridge to animals, never tunnel
-            nav.arrived_near((math.floor(e["x"]), math.floor(e["y"]), math.floor(e["z"])), approach_policy(ctx.policy),
-                      range_=3, attempts=2)
-            step, near = after_approach(entities(64, types), e["id"], HUNT_REACH)
-            if step != "attack" or near is None:
-                api.detail(f"   hunt: prey {e['id']} {'moved on' if step == 'chase' else 'lost'}: the nearest again")
+            how, near = nav.chase(e["id"], types, approach_policy(ctx.policy), HUNT_REACH)
+            if how != "near" or near is None:
+                api.detail(f"   hunt: prey {e['id']} {how}: the nearest again")
                 continue
             e = near
         api.detail(f"   hunt: prey {e['id']} at {(round(e['x'], 1), round(e['y'], 1), round(e['z'], 1))} "
@@ -673,7 +667,7 @@ def take(ctx, token, count, blocks):
     for _ in range(want * 2):
         if got >= want:
             return got
-        hits = [h for h in (find(blocks, radius=48, limit=20) or ())
+        hits = [h for h in (find(blocks, radius=SEARCH_LOOK_R, limit=20) or ())
                 if not ctx.blocked((h["x"], h["y"], h["z"]))
                 and (h["x"], h["y"], h["z"]) not in ctx.policy.protected]
         if bare(token) == "wheat":

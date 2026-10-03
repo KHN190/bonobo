@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Mapping, TypeVar, cast
 
 from . import api, lifecycle
 from .game import EYE_HEIGHT
+from .data import SEARCH_LOOK_R, SEARCH_MOB_R
 from .data import (DAY_END, DAY_TICKS, FACT_TTL_S, is_night, DOOR_SUFFIX, GROUPS, HAZARD, NIGHT_END, OPEN_PROP, PARTIAL_SUFFIX, PASSABLE,
                    PASSABLE_SUFFIX, is_door,
                    PLAYER_MADE_SUFFIX, TIER_OF_MATERIAL, UNBREAKABLE, bare, living, mid)
@@ -289,7 +290,7 @@ def _per_block_ok():
         api.swallowed("world._per_block_ok", e)
         return False
 
-def nearest(kinds, feet, dimension, radius: float = 48, union=(), skip=None):
+def nearest(kinds, feet, dimension, radius: float = SEARCH_LOOK_R, union=(), skip=None):
     """Blocks to the nearest of `kinds` in sight, or None — estimates never search the world themselves. `skip`:
     cells that are not there for this ask (a gather source is never a home block)."""
 
@@ -303,8 +304,8 @@ def nearest(kinds, feet, dimension, radius: float = 48, union=(), skip=None):
     if missing:
         ask = sorted({bare(u) for u in union} | set(missing)) if _per_block_ok() else missing
         ids = ",".join(mid(b) for b in ask)
-        path = (f"/find?blocks={ids}&radius=48&limit={len(ask) * (SIGHT_PER_BLOCK + 1) + 8}"
-                f"&perBlock={SIGHT_PER_BLOCK}" if _per_block_ok() else f"/find?blocks={ids}&radius=48&limit=20")
+        path = (f"/find?blocks={ids}&radius={SEARCH_LOOK_R}&limit={len(ask) * (SIGHT_PER_BLOCK + 1) + 8}"
+                f"&perBlock={SIGHT_PER_BLOCK}" if _per_block_ok() else f"/find?blocks={ids}&radius={SEARCH_LOOK_R}&limit=20")
         try:
             hits = api.get(path)["blocks"]
         except api.McError:
@@ -326,7 +327,7 @@ def nearest(kinds, feet, dimension, radius: float = 48, union=(), skip=None):
         got = [near[n] for n in names if near.get(n) is not None and near[n] <= radius]
     return min(got) if got else None
 
-def look_around(feet, dimension, kinds, radius=64):
+def look_around(feet, dimension, kinds, radius=SEARCH_MOB_R):
     """The round's one look (P1: read into the snapshot, the estimates read it, never the world): ({block: [hit]} of
     `kinds` in sight, [living entities within `radius`])."""
     nearest(kinds, feet, dimension, union=kinds)

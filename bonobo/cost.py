@@ -5,6 +5,7 @@ import time
 
 from . import api
 from .api import Interrupted, McError
+from .data import SEARCH_LOOK_R
 from .data import MEASURED_BAND, MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, GROUPS, NAV_NODES, bare, mid
 from .knowledge import SURFACE_Y, sources, step_station, work_s, food_count, soil_depth, dawn_s, body_facts, expected_find_s, step_kinds, WALK_TICKS_PER_BLOCK, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
@@ -162,7 +163,7 @@ class Cost:
         hit = self._nearest(kinds, sources)
         return hit[1] if hit else None
 
-    def distance(self, blocks, radius: float = 48, sources=False):
+    def distance(self, blocks, radius: float = SEARCH_LOOK_R, sources=False):
         """Blocks to the nearest one of these: remembered (no world read), else in sight now (one cached /find), else
         None. `sources`: what a gather or a mine takes from — a protected cell (a home block) is not there."""
 
@@ -370,7 +371,7 @@ class Cost:
         if k == "gather":
             return self.distance(GROUPS["log"], sources=True)
         if k in ("mine", "take"):
-            return self.distance(step.detail.get("blocks", ()), 32, sources=True)
+            return self.distance(step.detail.get("blocks", ()), sources=True)
         return self._entity(step.detail.get("types", ()))
 
     def known_source(self, step):

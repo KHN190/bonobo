@@ -1319,3 +1319,28 @@ def pit_exit_tasks(region, feet, block=None):
 def ride_boat(ctx, target):
     """Shell, never planned: boat on water, row to `target`, boat taken back."""
     raise NotImplementedError("ride_boat: a shell")
+
+
+def after_approach(seen, target_id, reach):
+    """Pure: after a walk to a moving thing (a mob, a drop) — ("near", it) within `reach`, ("moved", it) still in sight
+    but gone on (walked to where it is now), ("lost", None) out of sight (the nearest other one next)."""
+    e = next((n for n in seen if n["id"] == target_id), None)
+    if e is None:
+        return "lost", None
+    return ("near" if e["distance"] <= reach else "moved"), e
+
+
+def chase(target_id, types, policy, reach, tries=WAY_TRIES):
+    """Walk to a moving thing where it is now, read again after each walk (after_approach), never to where it was:
+    ("near", it), ("lost", None), or ("far", it) after `tries` walks that never closed in (out of reach)."""
+    from .data import SEARCH_MOB_R
+    from .world import entities
+    last = None
+    for _ in range(tries):
+        how, e = after_approach(entities(SEARCH_MOB_R, types), target_id, reach)
+        if how != "moved" or e is None:
+            return how, e
+        last = e
+        arrived_near((math.floor(e["x"]), math.floor(e["y"]), math.floor(e["z"])), policy, range_=reach / 2, attempts=1)
+    how, e = after_approach(entities(SEARCH_MOB_R, types), target_id, reach)
+    return ("far", e or last) if how == "moved" else (how, e)

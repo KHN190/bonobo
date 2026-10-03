@@ -4,7 +4,7 @@ import math
 from . import knowledge as K, farming
 from . import api, nav
 from .api import McError, NotAvailable, log
-from .data import GROUPS
+from .data import GROUPS, SEARCH_LOOK_R
 from .explore import seek_blocks
 from .skill import skill
 from .skillcore import gained, settle
@@ -67,13 +67,13 @@ def chop(ctx, n):
         if Inventory().count("log") >= target:
             return
         yield Inventory().count("log")   # progress = logs held; walking between trees isn't progress
-        logs = [t for t in find(GROUPS["log"], radius=48, limit=80) if not ctx.blocked((t["x"], t["y"], t["z"]))
+        logs = [t for t in find(GROUPS["log"], radius=SEARCH_LOOK_R, limit=80) if not ctx.blocked((t["x"], t["y"], t["z"]))
                 and (t["x"], t["y"], t["z"]) not in ctx.policy.protected]
         if not logs:
             try:
                 seek_blocks(ctx, GROUPS["log"])
             except NotAvailable as e:
-                ctx.mem.forget_seen("tree", feet(), ctx.dimension, radius=48)
+                ctx.mem.forget_seen("tree", feet(), ctx.dimension, radius=SEARCH_LOOK_R)
                 raise NotAvailable(f"no trees found nearby, even after exploring ({e})")
             continue
         # by walk price, not the nearest seen
