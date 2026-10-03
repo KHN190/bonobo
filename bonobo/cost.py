@@ -457,7 +457,12 @@ class Cost:
         when the site is unknown, its search with the tools `held` ({tool kind: tier}) then."""
         site = self.site(step)
         if site is None:
-            return self._walk(step, held=held, dig=False)
+            # the least over every place it may start from (step_state's `at`): the run prices it from one of them
+            key = ("walk_lb_unknown", step.kind, tuple(step_kinds(step)), tuple(sorted((held or {}).items())))
+            if key not in self.cache:
+                self.cache[key] = min(self._walk(step, at=p, held=held, dig=False)
+                                      for p in [None, *sorted(self.places())])
+            return self.cache[key]
         key = ("walk_lb", tuple(site), step.kind, tuple(self._kinds_of(step) or ()))
         if key not in self.cache:
             # from every place a plan may stand before it: remembered, a container, the look's (site's own answers)
@@ -505,6 +510,14 @@ class Cost:
             out["walk"] = round(through * TICKS_PER_S) if through is not None else \
                 walk_ticks(math.dist(self.snap.feet, tuple(step.detail["pos"])))
         return out
+
+    def dig_lb(self, step, held=None):
+        """Ticks no dig to this step's ore in sight can beat: the least of dig_to over every place it may start from
+        (step_state's `at`), as walk_lb is the least walk."""
+        key = ("dig_lb", step.kind, tuple(step_kinds(step)), tuple(sorted((held or {}).items())))
+        if key not in self.cache:
+            self.cache[key] = min(self.dig_to(step, held, p) for p in [None, *sorted(self.places())])
+        return self.cache[key]
 
     def dig_to(self, step, held=None, at=None):
         """Ticks the digging to the nearest one in sight takes (work_of's breaks beyond the step's own), each break

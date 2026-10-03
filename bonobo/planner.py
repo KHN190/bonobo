@@ -699,7 +699,7 @@ class Search:
         walk = 0 if self.cost.site(step) in self.walked(node) else self.cost.walk_lb(step, held)
         if step.kind == "withdraw" and step.detail.get("p"):
             return round((ticks + walk) / step.detail["p"])
-        return ticks + self.cost.dig_to(step, held) + walk
+        return ticks + self.cost.dig_lb(step, held) + walk
 
     def walked(self, node):
         """The places the node's steps work at (forward's route passes each)."""
@@ -2065,6 +2065,9 @@ class NullCost:
     def dig_to(self, step, held=None):
         """Ticks the digging to it takes (its work_of beyond its own work), with `held`."""
         return dig_to_ticks(self.work_of(step)[0], step, held or {}, TICKS_PER_S)
+
+    def dig_lb(self, step, held=None):
+        return self.dig_to(step, held)
 
     def walk_lb(self, step, held):
         return 0
