@@ -238,7 +238,7 @@ class Cost:
         sight — used where it stands, never made again."""
         if self.mem is not None and self.snap is not None:
             feet, dim = self.snap.feet, self.snap.dimension
-            if any(s.get("block") in (block, bare(block)) for s in self.mem.stations(dim, near=feet, within=STATION_R)):
+            if self.mem.known_stations(block, dim, near=feet, within=STATION_R):
                 return True
             if any(MACHINE_PROVIDES.get(tag) == mid(block) for m in self.mem.machines(dim)
                    if math.dist(m["origin"], feet) <= STATION_R for tag in m.get("tags", ())):

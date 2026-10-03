@@ -12,7 +12,7 @@ asked them). check/round.py puts them in ctx:
   switches   [(fresh, staying, lost, noise, switched)] every switch the kernel weighed this round
   holds      [(held name, chosen name, because)] every kernel.Held decision this round
   plan_hand_made  the held plan is check/dims/plan_held's hand-made one (P2 does not judge it)
-  bound      planner.plan_bound of the task's needs from this bag (P3: at most the plan's price)
+  bound      check.round.plan_bound of the task's needs from this bag (P3: at most the plan's price)
 An invariant whose ctx is missing is Unchecked, said why."""
 import math
 

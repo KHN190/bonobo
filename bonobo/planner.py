@@ -22,7 +22,7 @@ from . import api, lifecycle
 from .api import McError
 from .data import GROUPS, OVERWORLD, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_USES, bare, mid
 from .beliefs import CONFIG, TICKS_PER_S, fights_back
-from .knowledge import (ALL_FOOD, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, tool_item, tool_kind, spare_uses, work_s, working)
+from .knowledge import (ALL_FOOD, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 
 MAX_DEPTH = 14
@@ -652,6 +652,7 @@ class Search:
 
     def tasks(self, token, n, depth, start, step, inputs, station, adds):
         """The run-order tasks of one way: its inputs, its station, its call's own needs, the step, what it adds."""
+        station = station or step_station(step)       # the contract's own station where the recipe names none
         out: list[tuple] = [("need", t, c, depth + 1, False) for t, c in inputs]
         if step.kind == "smelt":
             out.append(("fuel", step, depth))
@@ -876,7 +877,8 @@ class Search:
             elif need[0] == "fact":
                 after.append(("fact", need[1], need[2], 0))
             elif need[0] == "do":
-                after += [("prep", need[1], 0), ("emit", need[1], 0, 0)]
+                station = step_station(need[1])
+                after += ([("station", station, 0)] if station else []) + [("prep", need[1], 0), ("emit", need[1], 0, 0)]
             elif mid(need[0]) in STATIONS:
                 # a station the goal asks for stands from when it is had: every later step reuses it, none makes another
                 run += [("need", need[0], int(need[1]), 0, False), ("add", need[0], int(need[1]))]
@@ -1027,8 +1029,7 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None):
     root = Node(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()), [], [])
     # one plan per question a round asks (the same needs from the same bag: needs, upkeep, queue, night)
     cache = getattr(cost, "cache", None)
-    key = ("plan", tuple(tuple(n) if isinstance(n, (list, tuple)) else n for n in needs), root.inv.signature(),
-           tuple(sorted(kinds)) if kinds else None)
+    key = ("plan", tuple(repr(tuple(n)) for n in needs), root.inv.signature(), tuple(sorted(kinds)) if kinds else None)
     if cache is not None and key in cache:
         return [(name, seconds, [Step(s.kind, s.token, s.count, dict(s.detail), s.est) for s in steps])
                 for name, seconds, steps in cache[key]]
@@ -1042,14 +1043,6 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None):
         cache[key] = [(name, seconds, [Step(s.kind, s.token, s.count, dict(s.detail), s.est) for s in steps])
                       for name, seconds, steps in got]
     return got
-
-
-def plan_bound(inv, needs, cost, pending=None, jobs=None):
-    """Ticks no plan for `needs` from this bag can cost less than: the search's own bound at its root."""
-    root = Node(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()), [], [])
-    root.stack = [("tool", n[1], int(n[2]), 1, 0) if n[0] == "tool" else ("need", n[0], int(n[1]), 0, False)
-                  for n in reversed(list(needs)) if n[0] not in ("fact", "do")]
-    return Search(cost).h(root)
 
 
 def plan_needs(inv, needs, cost, pending=None, jobs=None, kinds=None):

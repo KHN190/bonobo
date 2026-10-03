@@ -257,7 +257,6 @@ def plan_ctx(b, act, snap, mem, world):
     goal = out["task_goal"]
     from bonobo import goals
     if held is not None and goal and goal["goal"] in goals.ITEM_GOALS:
-        from bonobo.planner import plan_bound
         out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost)
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
     out["plan_switch"] = getattr(b, "plan_switch", None)
@@ -266,6 +265,15 @@ def plan_ctx(b, act, snap, mem, world):
     if pos is not None:
         out["way"] = ways(snap, world, tuple(pos))
     return out
+
+
+def plan_bound(inv, needs, cost, pending=None, jobs=None):
+    """Ticks no plan for `needs` from this bag can cost less than: the planner's search's own bound at its root."""
+    from bonobo.planner import Node, Search, from_bag
+    root = Node(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()), [], [])
+    root.stack = [("tool", n[1], int(n[2]), 1, 0) if n[0] == "tool" else ("need", n[0], int(n[1]), 0, False)
+                  for n in reversed(list(needs)) if n[0] not in ("fact", "do")]
+    return Search(cost).h(root)
 
 
 def candidates(task, snap, mem, cost):

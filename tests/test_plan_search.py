@@ -37,6 +37,23 @@ class OneStationOfAKind(unittest.TestCase):
                                      and s.token == "minecraft:crafting_table"), 1)
 
 
+class TheContractsStation(unittest.TestCase):
+    """A step whose contract works at a station (knowledge.step_station: sleep at a bed, brew at a stand) has it first:
+    carried or standing, else made."""
+
+    def test_sleep_has_its_bed(self):
+        from bonobo.planner import Step
+        # (situation, carried) → the bed made before the sleep?
+        rows = [("a bed carried: sleep", [("white_bed", 1)], False),
+                ("must fail: an empty bag: a bed made first (the contract's station, not a step that cannot run)", [],
+                 True)]
+        for name, carried, made in rows:
+            with self.subTest(name):
+                steps = plan_needs(bag(inventory(*carried)), [("do", Step("sleep", "bed", 1, {}))], NullCost())
+                self.assertEqual((steps[-1].kind, any(s.kind == "craft" and s.token.endswith("bed") for s in steps)),
+                                 ("sleep", made))
+
+
 class TheBoundNeverOverprices(unittest.TestCase):
     """Bound.least (what is held credited at every level) is at most what the plan the planner finds pays: A* and
     the incumbent's pruning drop nothing cheaper."""
