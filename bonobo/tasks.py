@@ -57,13 +57,10 @@ def update(task_id, path=None, **fields):
     return None
 
 def marked(state, reason=""):
-    """Pure: the fields a task in `state` gets (`reason`, and no plan once it is not live)."""
+    """Pure: the fields a task in `state` gets."""
     if state not in STATES:
         raise ValueError(f"unknown task state {state!r}")
-    fields: dict[str, Any] = {"state": state, "reason": reason}
-    if state not in LIVE:
-        fields["plan"] = None
-    return fields
+    return {"state": state, "reason": reason}
 
 def mark(task_id, state, reason="", path=None):
     return update(task_id, path=path, **marked(state, reason))
@@ -73,7 +70,7 @@ def cancel(task_id=None, path=None, reason="cancelled"):
     items = load(path)
     for t in items:
         if t["state"] in LIVE and (task_id is None or t["id"] == task_id):
-            t["state"], t["reason"], t["plan"] = "cancelled", reason, None
+            t["state"], t["reason"] = "cancelled", reason
     save(items, path)
 
 def drop_done(path=None):

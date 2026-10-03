@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import collections
 import json
+import math
 import os
 import time
 import traceback
@@ -512,7 +513,7 @@ class Brain:
         tape.event(act.name, outcome, str(self.last_failure.__dict__) if self.last_failure else "")
         tape.end(self, act, snap)
         if act.task is not None:
-            write(act.task, self.after_step(act, outcome, Inventory))
+            write(act.task, self.after_step(act, outcome))
 
     def idle_wait(self, work_queued):
         """Nothing to do: wait up to IDLE_WAIT_TICKS in IDLE_SLICE_TICKS slices, ending as soon as work is queued. The
@@ -673,12 +674,11 @@ class Brain:
             self.finish(task, "done", "")
             return None
         held = self.held.get(task["id"])
-        if held is None and task.get("plan"):
-            # a plan saved before a restart is a hint, checked against the bag like any event
-            held = {"steps": [decompose.from_dict(d) for d in task["plan"]], "sig": None, "event": True,
-                    "dim": snap.dimension}
-        if held is None or held["event"] or held.get("want") != rest or held["dim"] != snap.dimension:
-            same = held is not None and held.get("want") == rest and held["dim"] == snap.dimension
+        # K4: no step count is kept — after a step of ours ran, or the world changed, the plan is made again from it
+        if held is None or held["event"] or held.get("ran") or held["sig"] != bag_signature(snap.inv) \
+                or held.get("want") != rest or held["dim"] != snap.dimension:
+            same = held is not None and not held.get("ran") and held.get("want") == rest \
+                and held["dim"] == snap.dimension
             held = self.repair(task, goal, snap, held, cost, same)
             if held is None:
                 return None
@@ -693,7 +693,7 @@ class Brain:
                 return None
             self.fail_task(task, f"nothing left to plan, still short of {waiting}")
             return None
-        step = next((s for s in held["steps"] if self.valid(s, snap, ctx)), None)
+        step = next((s for s in held["steps"] if not met(s, snap) and self.valid(s, snap, ctx)), None)
         if step is None and ctx is not None:
             kinds = self.fight_blocked(held["steps"], snap, ctx)
             act = self.raise_line(kinds, snap, ctx) if kinds else None
@@ -738,7 +738,6 @@ class Brain:
 
     def raise_line(self, kinds, snap, ctx):
         """The first step toward the cheapest kit that clears the fight line, or None."""
-        import math
         priced = [(self.needs.plan_s(goals.have(*rows), snap), rows) for rows in line_raisers(kinds, snap.state, snap.inv)]
         priced = [(secs, rows) for secs, rows in priced if secs < math.inf]
         if not priced:
@@ -747,12 +746,8 @@ class Brain:
         return self.need_act("fight line", goals.have(*rows), snap, ctx)
 
     def repair(self, task, goal, snap, held, cost, same=False):
-        """Bring the held plan up to date: run-once goals keep what is left (a road walks on); item goals are re-solved
-        from the bag, the new plan taken over a held one for the same want only when it pays the switch (D4)."""
-        if held is not None and goal["goal"] in goals.RUN_ONCE:
-            held.update(event=False, sig=bag_signature(snap.inv), dim=snap.dimension)
-            self.held[task["id"]] = held
-            return held
+        """The plan made again from the world (K4), taken over a held one for the same want only when it pays the
+        switch (D4); after a step of ours ran the fresh plan is simply what is left."""
         old = held if same and held["steps"] else None
         held, why = replan(task, goal, snap, cost, self.mem.pending_outputs(snap.dimension))
         if held is None:
@@ -769,27 +764,26 @@ class Brain:
                 return old
         steps = held["steps"]
         self.held[task["id"]] = held
-        self._write(task, state="running", plan=[decompose.to_dict(s) for s in steps])
+        self._write(task, state="running")
         tape.event(f"task {task['id']}", "plan", " → ".join(map(str, steps)))
         if steps:
             api.detail(f"   plan for {tasks.describe_task(task)}: " + " → ".join(map(str, steps)))
         return held
 
-    def after_step(self, act, outcome, bag_now):
-        """The held plan after a step's outcome; returns the task fields to write. `bag_now()` is read only on success."""
-        return self._collecting(lambda: self._after_step(act, outcome, bag_now))[1]
+    def after_step(self, act, outcome):
+        """The held plan after a step's outcome; returns the task fields to write."""
+        return self._collecting(lambda: self._after_step(act, outcome))[1]
 
-    def _after_step(self, act, outcome, bag_now):
+    def _after_step(self, act, outcome):
         task = act.task
         held = self.held.get(task["id"])
         if held is None:
             return
         if outcome == "ok":
-            for st in act.steps:
-                if st in held["steps"]:
-                    held["steps"].remove(st)
-            held["sig"] = bag_signature(bag_now())
-            self._write(task, plan=[decompose.to_dict(s) for s in held["steps"]])
+            if held.get("want") is None and held["steps"] and held["steps"][-1] in act.steps:
+                self.finish(task, "done", "")       # a run-once goal: its own step ran, its contract took the world
+                return
+            held["ran"] = True                        # the next round plans again from what the world holds
             return
         held["event"] = True                          # failed or interrupted: repair before the next step
         verdict = self.last_failure
@@ -919,6 +913,12 @@ def outcome_of(err) -> "tuple[Outcome, Source | None]":
         return "ok", None
     source = retry.source_of(err)
     return ("interrupted" if arbiter.resume_of(source)[0] else "failed"), source
+
+def met(step, snap):
+    """Pure: the world already holds what `step` makes where only the world can say (a walk's end): not run again."""
+    if step.kind == "goto" and step.detail.get("pos") is not None:
+        return math.dist(snap.feet, tuple(step.detail["pos"])) <= float(step.detail.get("range", 2))
+    return False
 
 def replan(task, goal, snap, cost, pending=None):
     """Pure given the cost: (held, None), or (None, why) when `goal` cannot be planned."""

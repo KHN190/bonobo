@@ -28,7 +28,7 @@ class Steps(unittest.TestCase):
         (task, of(task="tool"), dec("task t1", "log"), {"step_kind": "gather"}, {}),   # must fail: not run once
         (task, of(task="road"), dec("task t1", "pos"), {"step_kind": "goto"}, {"plan_held": "walking"}),   # must fail: a road is two legs
         (task, of(task="road", plan_held="walking"), dec("task t1", "pos"), {"step_kind": "goto"}, {"task": "none"}),
-        (task, of(task="planned", pickaxe=2), dec("task t1"), {}, {"task": "none"}),
+        (task, of(task="expired", pickaxe=2), dec("task t1"), {}, {"task": "none"}),
         (task, of(task="tool", pickaxe=2), Decision(None, None, None, None, (), None, None, ()), {}, {"task": "none"}),
         (task, of(task="tool", pickaxe=1), dec("task t1", "log"), {"step_kind": "gather"}, {}),   # not held yet
     ]

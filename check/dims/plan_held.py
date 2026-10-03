@@ -1,8 +1,8 @@
 """plan_held: what the brain holds for the queue's first task from an earlier round (brain.held: the plan cache
-_task_act checks cheaply and repairs on events) — none; a plan marked for repair (an event); a plan run out while
-the goal is still short (waiting, or failed); a plan none of whose steps can run (the step cools); a run-once goal
-whose plan has run (done); a road with legs left after an event (repair keeps them). Read only over the task values
-it is made for."""
+_task_act checks cheaply and makes again from the world on events, K4) — none; a plan marked for repair (an event); a
+plan run out while the goal is still short (waiting, or failed); a plan none of whose steps can run (the step cools); a
+step of it just ran (the next round plans again from the world, no step count kept); a road held after an event. Read
+only over the task values it is made for."""
 NAME = "plan_held"
 VALUES = ("none", "event", "emptied", "stuck", "ran", "walking", "other_dim", "craft_run", "replan_fails")
 # other_dim: held in the other dimension (repaired on arrival); craft_run: crafts in a row from carried logs, short of
@@ -72,7 +72,8 @@ def _held_for(value, goal, snap, mem):
         # its inputs are not in the bag: runnable() refuses it (brain.valid)
         return dict(out, steps=[_iron_pickaxe({"minecraft:iron_ingot": 3, "minecraft:stick": 2})])
     if value == "ran":
-        return dict(out, steps=[])
+        return dict(out, steps=[Step("skill", goal["args"]["name"], 1, {"args": list(goal["args"].get("args", []))})],
+                    ran=True)
     if value == "other_dim":
         other = "minecraft:the_nether" if snap.dimension == "minecraft:overworld" else "minecraft:overworld"
         return dict(out, steps=[_iron_pickaxe()], dim=other)
@@ -106,8 +107,10 @@ def alpha(a):
         return "walking" if any(s.kind == "goto" for s in h["steps"]) else "event"
     if len(h["steps"]) > 1 and all(s.kind in ("craft", "mine") for s in h["steps"]):
         return "craft_run"
+    if h.get("ran"):
+        return "ran"
     if not h["steps"]:
-        return "ran" if h["want"] is None else "emptied"
+        return "emptied"
     return "stuck"
 
 

@@ -2,14 +2,16 @@
 
 import math
 
+from . import roads
 from .data import bare
+from .roads import SNAP as ROAD_RANGE     # at a road's end: within one waypoint of it
 from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held_count, kit_needs, reconcile,  # noqa: F401
                         tool_ok)
 
 TEMPLATES = ("have", "craft", "milestone", "goto", "road", "build", "sleep", "skill", "effect")
 ITEM_GOALS = ("have", "craft", "milestone")
-# Goals whose "done" is that their plan ran: nothing in the world says a skill was run or a road walked.
-RUN_ONCE = ("road", "skill", "effect")
+# Goals whose own last step, accepted by its contract on the world, ends them (no world state names a skill run).
+RUN_ONCE = ("skill", "effect")
 # Milestones whose plan goes on past holding things (decompose.THEN): done when that plan has run.
 RUN_AFTER = ("end portal",)
 
@@ -129,9 +131,18 @@ def _build_remainder(goal, snap, mem):
 def _sleep_remainder(goal, snap, mem):
     return {"night": 1} if snap.night else {}
 
+@desired("road")
+def _road_remainder(goal, snap, mem):
+    a, b = goal["args"]["a"], goal["args"]["b"]
+    legs = (mem.data.get("roads") or {}).get(snap.dimension, []) if mem is not None else []
+    away = math.dist(snap.feet, tuple(b)) - ROAD_RANGE
+    if roads.walked_between(legs, a, b) and away <= 0:
+        return {}
+    return {"road walked": 0 if roads.walked_between(legs, a, b) else 1, "blocks away": round(max(0.0, away), 1)}
+
 @desired(*RUN_ONCE)
 def _ran(goal, snap, mem):
-    return None                           # nothing in the world says a skill was run or a road walked
+    return None                           # a skill's own step accepted by its contract ends it (brain._after_step)
 
 def _registered():
     missing = [t for t in TEMPLATES if t not in DESIRED]
