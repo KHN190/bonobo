@@ -176,18 +176,14 @@ def step_keys(step):
     """The effects a plan step asks for, most specific first."""
     return [f"{step.kind}:{step.token}", f"item:{step.token}", step.kind]
 
-_PROVIDERS: dict = {}
-
-
 def providers(effect):
     """Contracts that provide `effect`, preferred first (kept per registry version)."""
-    if _PROVIDERS.get("version") != REGISTRY.version:
-        _PROVIDERS.clear()
-        _PROVIDERS["version"] = REGISTRY.version
-    key = ("effect", effect)
-    if key not in _PROVIDERS:
-        _PROVIDERS[key] = sorted((c for c in REGISTRY.values() if effect in c.provides), key=lambda c: -c.prefer)
-    return list(_PROVIDERS[key])
+    return list(_providers_at(effect, REGISTRY.version))
+
+
+@functools.lru_cache(maxsize=4096)
+def _providers_at(effect, _version):
+    return tuple(sorted((c for c in REGISTRY.values() if effect in c.provides), key=lambda c: -c.prefer))
 
 def provider(ctx, step):
     """(runner, args) of the skill that carries out `step` here, or None when no registered skill can."""
