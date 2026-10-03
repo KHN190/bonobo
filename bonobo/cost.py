@@ -591,13 +591,14 @@ class Cost:
                 return way(src, made, max(1, round(n)))[0]
         return None
 
-    def enroute(self, here, there, wanted, price):
+    def enroute(self, here, there, wanted, hidden, free_s=0.0):
         """[(bound s, step, where, item, n, P)] for what lies beside the leg `here` → `there`, best first by a cheap
         bound (knowledge.side_saving over the straight detour; the planner prices the real one, brain.enroute_plan):
         each thing seen or remembered (bag.note_yields) yielding an item `wanted` ({item: (P used later, how many
         still lacked)}); a container's remembered contents by the chance they are still there (container_p); an
         unopened chest looked into, the best wanted item by the chance a chest holds it (planner.p_unknown over the
-        chests seen). Its later price bag.item_value at `price`; only s > 0."""
+        chests seen). Its later price bag.item_value at `hidden(step, where)`, the prices with that source hidden;
+        its work and detour cost nothing within `free_s` (seconds waited anyway); only s > 0."""
         from .bag import item_value, note_yields
         from .knowledge import side_saving
         from .planner import p_unknown
@@ -608,6 +609,9 @@ class Cost:
 
         def detour(c):
             return (walk_ticks(math.dist(here, c)) + walk_ticks(math.dist(c, there))) / TICKS_PER_S - leg
+
+        def bound(p, later, step, c):
+            return side_saving(p, later, 0.0, max(0.0, self.work(step) / TICKS_PER_S + detour(c) - free_s))
 
         def want(item):
             return next((pn for w, pn in wanted.items() if w == item or mid(item) in members(w)), (0.0, 0))
@@ -625,10 +629,9 @@ class Cost:
             for item, n in note_yields(kind).items():
                 p, need = want(item)
                 step = self.got_step(item, kind, min(n, need)) if p > 0 else None
-                later = item_value(item, min(n, need), price) if step is not None else None
+                later = item_value(item, min(n, need), hidden(step, c)) if step is not None else None
                 if later is not None:
-                    out.append((side_saving(p, later, self.work(step) / TICKS_PER_S, detour(c)), step, c, item,
-                                min(n, need), p))
+                    out.append((bound(p, later, step, c), step, c, item, min(n, need), p))
         rate = self.mem.container_change_rate()
         records = [r for r in self.mem.data.get("containers", {}).values() if r.get("dimension") == dim]
         for rec in records:
@@ -640,10 +643,9 @@ class Cost:
                     continue
                 chance = container_p(rec, {item}, time.time() - rec.get("at", time.time()), rate)
                 step = Step("withdraw", item, have, {"pos": list(c), "p": chance})
-                later = item_value(item, have, price)
+                later = item_value(item, have, hidden(step, c))
                 if later is not None:
-                    out.append((side_saving(p * chance, later, self.work(step) / TICKS_PER_S, detour(c)), step, c,
-                                item, have, p * chance))
+                    out.append((bound(p * chance, later, step, c), step, c, item, have, p * chance))
         for h in (self.snap.hits or {}).get("chest", ()):
             c = (h["x"], h["y"], h["z"])
             if self.mem.container_record(c) is not None:
@@ -651,11 +653,10 @@ class Cost:
             look = Step("look", "container", 1, {"pos": list(c)})
             for item, (p, n) in wanted.items():
                 held = sum(1 for r in records if any(mid(i) in members(item) or i == item for i in r["items"]))
-                later = item_value(item, n, price)
+                later = item_value(item, n, hidden(look, c))
                 if later is not None:
                     chance = p * p_unknown(held, len(records))
-                    out.append((side_saving(chance, later, self.work(look) / TICKS_PER_S, detour(c)), look, c,
-                                item, n, chance))
+                    out.append((bound(chance, later, look, c), look, c, item, n, chance))
         return sorted((r for r in out if r[0] > 0), key=lambda r: -r[0])
 
     def _kinds_of(self, step):

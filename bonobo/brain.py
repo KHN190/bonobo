@@ -1066,10 +1066,18 @@ class Brain:
         if "enroute" in held:          # already checked (round_for's own cache: unchanged since), not asked twice
             return held
         sites = [at for at in map(cost.site, held["steps"]) if at is not None]
-        prices = self.price_table(snap)
+        hidden_by = {}
+
+        def hidden(st, at):
+            key = (st.kind == "look", tuple(at))
+            if key not in hidden_by:
+                hidden_by[key] = self.hidden_prices(snap, st, at).get
+            return hidden_by[key]
+        # a running furnace is waited on anyway: C's extra seconds within that wait are free
+        wait_s = furnace_wait_s(self.mem.jobs(snap.dimension))
         # a plan worked where the body stands (await, craft) still looks beside the feet
         got = cost.enroute(snap.feet, sites[0] if sites else snap.feet,
-                           self.enroute_wanted(snap, cost, entries, held["steps"]), prices.get)
+                           self.enroute_wanted(snap, cost, entries, held["steps"]), hidden, wait_s)
         # one candidate: the best not already a place the plan works (its yield is A's)
         _bound, step, where, item, n, p = next((r for r in got if tuple(r[2]) not in map(tuple, sites)),
                                                (None,) * 6)
@@ -1089,9 +1097,7 @@ class Brain:
                 return dict(held, enroute=None)
             steps = c["steps"]
             a_s, c_s = (sum(st.est for st in s) / TICKS_PER_S for s in (held["steps"], steps))
-        value = bag.item_value(item, n, self.hidden_prices(snap, step, where).get)
-        # a running furnace is waited on anyway: C's extra seconds within that wait are free
-        wait_s = furnace_wait_s(self.mem.jobs(snap.dimension))
+        value = bag.item_value(item, n, hidden(step, where))
         chosen = _k.side_saving(p, value or 0.0, 0.0, max(0.0, c_s - a_s - wait_s)) > 0
         self.enroute_choice = EnrouteChoice(name, a_s, c_s, p, value, chosen, wait_s)
         api.detail(f"   {name}: A {a_s:.0f}s, C {c_s:.0f}s, furnace wait {wait_s:.0f}s, P {p:.2f} × value "
