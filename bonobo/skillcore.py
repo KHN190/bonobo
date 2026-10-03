@@ -7,7 +7,7 @@ from . import api, beliefs, knowledge as _know, lifecycle, tape
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import BAN_MAX_S, REACH, bare
-from .game import EYE_HEIGHT
+from .game import EYE_HEIGHT, SUFFOCATION
 from .world import BAG_SLOTS, Inventory, Region, Versioned, cell_add, inventory_now, box, screen_slot
 from typing import TYPE_CHECKING, cast
 
@@ -195,10 +195,21 @@ def eye_cell(s):
     return s["blockX"], math.floor(s["y"] + EYE_HEIGHT), s["blockZ"]
 
 
+RECENT_HIT_TICKS = 40          # a hit this many ticks old still says what hurts the body (suffocation hits each 10)
+
+
+def hurt_lately_by(s, sources, within=RECENT_HIT_TICKS):
+    """Pure: /state's last damage (the jar's lastDamage: source, gameTime) is one of `sources`, within `within` ticks."""
+    last = s.get("lastDamage") or {}
+    now, at = s.get("gameTime"), last.get("gameTime")
+    return last.get("source") in sources and now is not None and at is not None and now - at <= within
+
+
 def head_buried_in(region, s):
-    """Pure: the eyes are inside a solid block of `region` (the round's ground); not known when it was not read."""
+    """Pure: the eyes are inside a solid block of `region` (the round's ground); with the ground not read, the body's
+    own evidence: suffocation damage taken lately (/state lastDamage, the game's damage source)."""
     if region is None:
-        return False
+        return hurt_lately_by(s, SUFFOCATION)
     return region.buries(eye_cell(s))
 
 def hold_clicks(slots, selected, item, price=None):

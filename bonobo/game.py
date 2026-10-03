@@ -55,3 +55,4 @@ PLAYER_SPRINT = 5.612            # blocks/s sprinting (Minecraft Wiki, Sprinting
 # RangedBowAttackGoal strafe(-0.5) × MoveControl.strafe 0.25 × movement_speed 0.25 × 43.17 b/s per unit; not measured (bench combat__shield_arrows)
 BOW_RETREAT = {"minecraft:skeleton": 0.5 * 0.25 * 0.25 * 43.17, "minecraft:stray": 0.5 * 0.25 * 0.25 * 43.17}
 WAYPOINT_R = 6                   # a road's ends within this many blocks are the same waypoint
+SUFFOCATION = ("inWall",)        # the damage source name of a head inside a block (DamageTypes.IN_WALL, /state lastDamage)
