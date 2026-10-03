@@ -5,7 +5,7 @@ import math
 from .game import COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
 from .data import ANIMAL_HP, BASE_MARKERS, DAY_END, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, DEEPSLATE_ORE_HARDNESS, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
 from .data import TAKEABLE
-from .data import COLORS, WOODS, ATTACKS_PER_S, HAND_ATTACKS_PER_S, HAND_DAMAGE, NETHER, PIGLIN_BARTER
+from .data import COLORS, WOODS, ATTACKS_PER_S, HAND_ATTACKS_PER_S, HAND_DAMAGE, NETHER, OVERWORLD, PIGLIN_BARTER, is_night
 
 # group recipes: the output follows the input variant; the craft skill picks one owned member with enough
 GROUP_RECIPES = {
@@ -22,12 +22,18 @@ STEP_SETS = None       # fn(step) → {fact: value} its run leaves (skill.sets_o
 STEP_USES = None       # fn(step) → {item: n} of its needs its run uses up (skill.step_uses)
 FIGHT_LINE = None      # fn(contract, args, state, inv) → (ok, why): S5's one judge (brain.fight_line_holds)
 FACT_STEPS = None      # fn(fact, value) → [(kind, token)] of the steps that set it (skill.steps_for_fact)
+STEP_STATION = None    # fn(step) → the station its contract works at, carried or standing, or None (skill.station_of_step)
 
 def step_call(step):
     """The needs of what carries out `step`, skill modules loaded first; {} when none is wired in."""
 
     producers()
     return STEP_CALL(step) if STEP_CALL is not None else {}
+
+def step_station(step):
+    """The station `step`'s contract works at, carried or standing (None when none, or none is wired in)."""
+    producers()
+    return STEP_STATION(step) if STEP_STATION is not None else None
 
 def fact_steps(fact, value):
     """[(kind, token)] of the steps that set `fact` to `value` ([] when none is wired in)."""
@@ -200,20 +206,30 @@ DROWNING_TICKS = 100     # ~5 s of air: below this a breath comes before any wor
 FALL_TAKES_HANDS = 2.0   # blocks: a fall longer than this takes the hands (the fall is under way)
 
 def body_facts(state):
-    """Pure: {"footing": standing on something, "hands_free": hands for work} from the snapshot's body — a body with
-    no readings is a standing one."""
+    """Pure: {"footing": standing on something, "hands_free": hands for work, "night": the night (is_night),
+    "covered": rock over the feet (under_rock)} from the snapshot's body — a body with no readings is a standing one,
+    by day, in the open."""
     state = state or {}
     swimming = bool(state.get("inWater")) and not state.get("onGround", False)
     falling = float(state.get("fallDistance", 0) or 0) > FALL_TAKES_HANDS
     held = bool((state.get("control") or {}).get("paused"))
     drowning = float(state.get("air", AIR_FULL) or 0) <= DROWNING_TICKS
+    night = "timeOfDay" in state and is_night(int(state["timeOfDay"]), state.get("dimension", OVERWORLD))
     return {"footing": not swimming and bool(state.get("onGround", True)),
-            "hands_free": not (falling or held or drowning)}
+            "hands_free": not (falling or held or drowning),
+            "night": night, "covered": "skyLight" in state and under_rock(state["skyLight"])}
 
-def body_when(footing=True):
-    """A contract's `when` for work done with the hands (and, `footing`, standing): the body facts it needs."""
-    need = [("hands_free", True)] + ([("footing", True)] if footing else [])
-    return lambda step, facts: list(need)
+def body_when(footing=True, surface=False):
+    """A contract's `when` for work done with the hands (and, `footing`, standing): the body facts it needs — at
+    night, `surface` work (out under the sky) the night over (S4), any other work under cover (R3 prices the two)."""
+    need, at_night = [("hands_free", True)] + ([("footing", True)] if footing else []), night_when(surface)
+    return lambda step, facts: list(need) + at_night(step, facts)
+
+def night_when(surface=False):
+    """A contract's `when` at night: `surface` work the night over (S4), any other work under cover (R3 prices the
+    two); nothing by day."""
+    need = [("night", False)] if surface else [("covered", True)]
+    return lambda step, facts: list(need) if facts.get("night") else []
 
 PRODUCERS = []  # the registered skills' producing tables, filled by the `skill` decorator
 # loaded by name before the tables are read (a string, not an import: knowledge stays below the skills)

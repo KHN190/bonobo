@@ -330,3 +330,33 @@ class AWayPassesItsOwnGate(unittest.TestCase):
         # must fail: judged over the undug region (the old gate), its first goto into rock fails
         self.assertIsNone(nav.unstandable(steps, region, feet))
 
+
+class NeverDigsItsFloor(unittest.TestCase):
+    """bag.holds_up in a dug way: no step breaks the floor the body stands on nor its own column below; a staircase
+    down digs its next step on purpose (only the own column counts there)."""
+
+    def test_rows(self):
+        from bonobo.bag import holds_up
+        from bonobo.world import Inventory
+        # (situation, cells, down) → refused with "support at"
+        rows = [("must fail: the floor under the body", [(0, 63, 0)], False, True),
+                ("must fail: deeper in the own column, digging down", [(0, 60, 0)], True, True),
+                ("must fail: a diagonal floor cell, level way", [(1, 63, 0)], False, True),
+                ("a staircase's next step down", [(1, 63, 0)], True, False),
+                ("beside the body", [(1, 65, 0)], False, False)]
+        for name, cells, down, refused in rows:
+            with self.subTest(name):
+                tasks, why = nav.open_tasks(ground(top=66), cells, [], FEET, (), [], FEET, down)
+                self.assertEqual(tasks is None and "support at" in (why or ""), refused, why)
+        inv = Inventory({"slots": [dict(PICK, slot=0)], "equipment": {}})
+        for target in (TARGET, (6, 63, 0)):
+            with self.subTest(target=target):
+                steps, why, _s = nav.plan_way(ground(), FEET, target, "mine", inv, set())
+                self.assertTrue(steps, why)
+                at = FEET
+                for t in steps:
+                    if t["type"] == "goto":
+                        at = (t["x"], t["y"], t["z"])
+                    elif t["type"] == "mine":
+                        self.assertFalse(holds_up(at, (t["x"], t["y"], t["z"]), down=True), (at, t))
+

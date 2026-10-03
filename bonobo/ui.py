@@ -60,7 +60,7 @@ def _enchanted(item):
     """How many of `item` carried are enchanted (the jar reports `enchanted` on a stack from 0.1.39)."""
     return sum(1 for s in Inventory().slots if s["id"] == item and s.get("enchanted"))
 
-@skill(gives=["state:enchanted"], remaining=_k.enchanted(lambda c: c.args[1]), needs={"minecraft:lapis_lazuli": 1}, start=lambda c: _enchanted(c.args[1]), verify=lambda c: _enchanted(c.args[1]) > c.base, budget=180, stall=60, provides={"enchant": lambda ctx, s: (mid(s.token),)})
+@skill(gives=["state:enchanted"], remaining=_k.enchanted(lambda c: c.args[1]), needs={"minecraft:lapis_lazuli": 1}, start=lambda c: _enchanted(c.args[1]), verify=lambda c: _enchanted(c.args[1]) > c.base, budget=180, stall=60, provides={"enchant": lambda ctx, s: (mid(s.token),)}, station="minecraft:enchanting_table")
 def enchant_item(ctx, item):
     """At an enchanting table (found or carried): put the item and lapis in, press the best affordable option, take the item back."""
 
@@ -130,7 +130,7 @@ def _anvil_args(ctx, step):
     return (item, material) if material else None
 
 @skill(gives=["state:repaired"], remaining=_k.worn(lambda c: c.args[1]), needs={}, start=lambda c: _most_worn(c.args[1]), verify=lambda c: _most_worn(c.args[1]) < c.base,
-       budget=180, stall=60, prefer=-1, provides={"repair": _anvil_args})
+       budget=180, stall=60, prefer=-1, provides={"repair": _anvil_args}, station="minecraft:anvil")
 def anvil_repair(ctx, item, material):
     """At an anvil: item + repair material (e.g. diamond pickaxe + diamonds), take the result when the level cost is affordable."""
 

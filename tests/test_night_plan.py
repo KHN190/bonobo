@@ -28,8 +28,11 @@ class BedRoom(unittest.TestCase):
         flat = ground()
         trees = ground({(x, y, z): "oak_log" for x in range(-4, 5) for z in range(-4, 5) for y in (64, 65)
                         if (x, z) != (0, 0)})
+        # bedrock all round but one room a step down beside the body: its foot is the body's floor (bag.holds_up)
+        floor_only = ground({(x, y, z): "bedrock" for x in range(-4, 5) for z in range(-4, 5) for y in range(63, 69)})
+        floor_only.blocks.update({c: "grass_block" for c in ((1, 63, 0), (2, 63, 0), (1, 64, 0), (2, 64, 0))})
         # (situation, region, protected) → (tasks?, a room found)
-        rows = [("flat ground: a room as it stands, nothing dug", flat, (), 0, True),
+        rows = [("must fail: the only room digs the body's floor", floor_only, (), None, False),("flat ground: a room as it stands, nothing dug", flat, (), 0, True),
                 ("logs 2 high all round: the cheapest room is on top of them, its 2 log cells dug", trees, (), 2, True),
                 ("must fail: every candidate in the home", flat,
                  {(x, y, z) for x in range(-4, 5) for z in range(-4, 5) for y in (63, 64, 65)}, None, False)]

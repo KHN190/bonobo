@@ -253,7 +253,7 @@ def farm_done(result, base, held, growing):
     return bool(result) and growing(result)
 
 @skill(gives=K.GIVES_FARM, needs={"minecraft:wheat_seeds": 1, "minecraft:water_bucket": 1, "tool:hoe:0": 1}, commands=lambda state, args: plant_farm_commands(state, args), start=lambda c: _crop_held(), verify=lambda c: farm_done(c.result, c.base, _crop_held, _plot_growing), budget=300, stall=90,
-       provides={"farm": lambda ctx, s: ()})
+       provides={"farm": lambda ctx, s: ()}, when=K.night_when(surface=True))
 def plant_farm(ctx):
     """Wheat: reap a grown crop nearby first, else make a 3×3 plot (dig, water, till, sow) and start a crop job."""
 
@@ -455,7 +455,7 @@ def _babies():
 
 @skill(gives=["state:bred"], remaining=_k.babies, needs={}, start=lambda c: _babies(), verify=lambda c: _babies() > c.base, budget=180, stall=60,
        commands=lambda state, args: breed_commands(state, args),
-       provides={"breed": lambda ctx, s: ()})
+       provides={"breed": lambda ctx, s: ()}, when=K.night_when(surface=True))
 def breed(ctx):
     """Feed two adults of one kind the food they breed on; a breed job marks the 5-minute cooldown there."""
     animals = entities(24)

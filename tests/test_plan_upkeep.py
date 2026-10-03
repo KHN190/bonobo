@@ -926,6 +926,33 @@ class HeldPlans(unittest.TestCase):
             finally:
                 q.restore()
 
+    def test_a_new_plan_replaces_the_held_one_only_when_it_pays(self):
+        """D4: on an event for the same want, the re-solved plan is taken only when its seconds and the work the
+        switch throws away beat the held plan priced again now (K4)."""
+        from bonobo.beliefs import TICKS_PER_S
+        # (situation, the new plan's seconds, seconds thrown away) → the new plan taken
+        rows = [("much cheaper: taken", 1.0, 0.0, True),
+                ("must fail: cheaper by less than it throws away: the held kept", 1.0, 1e6, False),
+                ("must fail: dearer: the held kept", 1e6, 0.0, False)]
+        for name, new_s, lost, taken in rows:
+            q = Held(goals.have(("log", 8)))
+            try:
+                with self.subTest(name):
+                    q.round(inventory())
+                    held = q.b.held["t1"]
+                    held["event"] = True
+                    other = planner.Step("take", "log", 8, {"blocks": ["oak_log"]})
+                    other.est = int(new_s * TICKS_PER_S)
+                    fresh = {"steps": [other], "sig": None, "event": False, "dim": held["dim"]}
+                    with mock.patch.object(brainmod, "replan", return_value=(fresh, None)), \
+                            mock.patch.object(brainmod, "thrown_s", return_value=lost):
+                        q.round(inventory())
+                    self.assertEqual(q.b.held["t1"] is fresh, taken)
+                    held_s, chosen_s, lost_s, switched = q.b.plan_switch
+                    self.assertEqual((switched, chosen_s + lost_s < held_s), (taken, taken))
+            finally:
+                q.restore()
+
     # (bag, what idle prepares first, or None when everything is held)
     PREPARE = [(inventory(), ("tool", "pickaxe", 1)),
                (inventory(("stone_pickaxe", 1)), ("tool", "sword", 1)),

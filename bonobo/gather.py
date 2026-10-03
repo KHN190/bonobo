@@ -528,7 +528,7 @@ def _hunt_progress(token, types):
 
 @skill(gives=K.GIVES_HUNT, needs=lambda a: {"tool:sword:1": 1} if beliefs.fights_back(a[3]) else {},
        fights=lambda c: c.args[3] if beliefs.fights_back(c.args[3]) else (),
-       when=lambda s, f: K.body_when(footing=False)(s, f) + K.lives_in(s.detail.get("types") or ()),
+       when=lambda s, f: K.body_when(footing=False, surface=True)(s, f) + K.lives_in(s.detail.get("types") or ()),
        start=lambda c: Inventory().count(c.args[1]), done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2],
        budget=480, stall=60, units=lambda c: c.args[2], key=lambda c: f"hunt:{c.args[1]}",
        provides={"hunt": lambda ctx, s: (s.token, s.count, s.detail["types"], getattr(ctx, "night", False))},
@@ -629,7 +629,7 @@ def _take_needs(token):
     return {} if tool is None else {f"tool:{tool[0]}:{tool[1]}": 1}
 
 @skill(gives=K.GIVES_TAKE, needs=lambda a: _take_needs(a[1]), start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
-       budget=180, stall=45, provides={"take": lambda ctx, s: (s.token, s.count, s.detail["blocks"])}, when=K.body_when(),
+       budget=180, stall=45, provides={"take": lambda ctx, s: (s.token, s.count, s.detail["blocks"])}, when=K.body_when(surface=True),
        fills_bag=lambda c: members(c.args[1]))
 def take(ctx, token, count, blocks):
     """Break blocks that ARE the thing and pick them up: a village's bed, furnace, table, hay, crops."""
