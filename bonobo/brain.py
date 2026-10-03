@@ -565,6 +565,14 @@ class Brain:
 
     # -- deciding (nothing acts in here beyond queueing tasks)
     def decide(self, snap, ctx):
+        """One round: its search steps counted from here, to the user's cap (planner.ROUND_STEPS, P4)."""
+        planner.SPENT["round"] = planner.SPENT["steps"]
+        try:
+            return self._decide_round(snap, ctx)
+        finally:
+            planner.SPENT["round"] = None
+
+    def _decide_round(self, snap, ctx):
         """Every layer proposes, the arbiter chooses; nothing here ranks."""
         def fast():
             out = []

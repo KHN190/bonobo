@@ -804,6 +804,11 @@ class Search:
                 return got
         return None
 
+    @staticmethod
+    def cut():
+        """A search the round's budget stopped short: said (budget_spent), P5 and the G3 checks read it."""
+        SPENT["budget"] += 1
+
     def dead(self, why):
         self.reasons.append(why)
         return []
@@ -1195,6 +1200,9 @@ class Search:
     def settle(self, node, floor=0, cap=math.inf):
         """`node` run down to `floor`, each choice on the way settled by what its options' own runs cost (each run t…"""
         while len(node.stack) > floor:
+            if cap < math.inf and round_spent() and not self.exact:
+                Search.cut()
+                return None                   # the round's steps spent and a way already had: this one is not weighed
             if cap < math.inf and node.g + self.h(node, floor) > cap:
                 return None                   # no cap yet: nothing to prune against, the bound not asked
             got = self.advance(node, floor)
@@ -1202,10 +1210,10 @@ class Search:
                 return node
             best, best_f, before = None, math.inf, len(self.reasons)
             for k, c in enumerate(sorted(got, key=lambda c: (c.g + self.h(c, c.horizon), c.tie))):
-                width = DIVE_WIDTH if self.spent <= DIVE_NODES else 1      # the budget spent: the first way that can be had
+                width = DIVE_WIDTH if self.spent <= DIVE_NODES and not round_spent() else 1   # spent: the first way that can be had
                 if width == 1 and k == 1 and not self.exact:
                     SPENT["budget"] += 1
-                if best is not None and self.greedy and not self.exact and floor > 0 and k >= width:
+                if best is not None and self.greedy and not self.exact and (floor > 0 or round_spent()) and k >= width:
                     break                     # inside a choice, the few least-bound ways; A* weighs the rest
                 done = self.settled(c, cap if best is None else min(cap, best_f))
                 # weighed with what is left after it: a trip one way makes, the rest of the plan takes free
@@ -1285,7 +1293,7 @@ class Search:
         push(self.h(root), (), root)
         nodes = 0
         visited: dict = {}                  # the transposition table: (what is left, the bag, what is open) → least g
-        while heap and (nodes <= MAX_NODES or self.exact):
+        while heap and (self.exact or nodes <= MAX_NODES and not round_spent()):
             f, tie, n = heapq.heappop(heap)
             if (f, tie) >= ((best[0], best[1]) if best is not None else (cap, ())):
                 break
@@ -1309,7 +1317,7 @@ class Search:
                 fc = c.g + self.h(c)
                 if fc < cap and (best is None or (fc, c.tie) < (best[0], best[1])):
                     push(fc, c.tie, c)
-        if heap and nodes > MAX_NODES and not self.exact and (best is None or heap[0][0] < best[0]):
+        if heap and (nodes > MAX_NODES or round_spent()) and not self.exact and (best is None or heap[0][0] < best[0]):
             SPENT["budget"] += 1              # stopped with cheaper possible: P5 may be missed, said (budget_spent)
         if best is None and cap < math.inf:
             raise Dearer(f"no plan under {cap:.0f} ticks")
@@ -1458,7 +1466,13 @@ def plan_name(steps):
     return " → ".join(dict.fromkeys(f"{s.kind} {bare(s.token)}" for s in steps)) or "nothing to do"
 
 
-SPENT = {"steps": 0, "budget": 0}      # search steps advanced, searches a budget stopped (counted by the round)
+SPENT: dict = {"steps": 0, "budget": 0, "round": None}   # steps advanced, searches a budget stopped, where a round began
+ROUND_STEPS = 1500      # the user's cap on a round's search steps, against a runaway search (P4)
+
+
+def round_spent():
+    """Pure given SPENT: a round is open (brain.decide marks where it began) and has advanced its cap of steps."""
+    return SPENT["round"] is not None and SPENT["steps"] - SPENT["round"] >= ROUND_STEPS
 lifecycle.in_place(__name__, "SPENT")
 
 
@@ -1640,6 +1654,9 @@ def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False, settle
         # what needs no search priced first: its seconds cap every search after it
         combos.sort(key=lambda c: (any(opt[1] for opt in c) or bool(fixed), floor[id(c)]))
     for combo in combos:
+        if best is not None and not exact and round_spent():
+            Search.cut()                    # the round's steps spent: the ways not yet weighed are not (budget_spent)
+            break
         if best is not None and len(combos) > 1 and floor[id(combo)] >= best[0][0]:
             why.append(" + ".join(opt[0] for opt in combo) + ": dearer at the least than the way taken")
             continue
