@@ -15,6 +15,7 @@ asked them). check/round.py puts them in ctx:
   search_steps  the search steps brain.decide took this round (P4: at most ROUND_STEPS)
   exact_s    the unbudgeted search's cheapest seconds for the task's needs (P5: the chosen plan no slower)
   bound      check.round.plan_bound of the task's needs from this bag (P3: at most the plan's price)
+  food_left_s  planner.food_left_s: seconds the bar lasts with nothing eaten (None: food carried or no body read)
 An invariant whose ctx is missing is Unchecked, said why."""
 import math
 
@@ -285,4 +286,16 @@ def P5(b, d, a, ctx):
     return None
 
 
-CHECKS = {"D4": D4, "D6": D6, "P2": P2, "P3": P3, "P4": P4, "P5": P5, "R1": R1, "R2": R2, "R4": R4}
+def S8(b, d, a, ctx):
+    """Hunger along the plan's clock never reaches zero: the held plan puts food in the bag before the bar runs out
+    (planner.fed_in_time on its own steps), or it was not planned and the round said why (D1)."""
+    plan, left = _plan(ctx), ctx.get("food_left_s")
+    if plan is None:
+        return Unchecked("no held plan this round (the act is not the queue's)")
+    from bonobo.planner import fed_in_time
+    if not fed_in_time(plan, left):
+        return f"the plan starves: the bar runs out in {left:.0f} s before any step of it makes food"
+    return None
+
+
+CHECKS = {"S8": S8, "D4": D4, "D6": D6, "P2": P2, "P3": P3, "P4": P4, "P5": P5, "R1": R1, "R2": R2, "R4": R4}

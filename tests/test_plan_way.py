@@ -285,13 +285,13 @@ class SafeDepth(unittest.TestCase):
 
 class PickSeed(unittest.TestCase):
     """gather.pick_seed: the vein whose way is cheapest, not the nearest (§12 A4); an unpriced one by the least its
-    way can take (gather.least_way_s: the straight walk), never ranked after the priced (V1)."""
+    way can take (nav.least_way_s: the straight walk), never ranked after the priced (V1)."""
 
     def test_rows(self):
         from bonobo import gather
         near, far = (1, 50, 0), (6, 60, 0)
         start = (0, 50, 0)
-        lb = {c: gather.least_way_s(c, start) for c in (near, far)}
+        lb = {c: nav.least_way_s(c, start) for c in (near, far)}
         # (situation, [(cell, way seconds, the least its way takes)]) → the chosen
         rows = [("must fail: a buried near vein (40 s of digging) over an open one (5 s walk)",
                  [(near, 40.0, lb[near]), (far, 5.0, lb[far])], far),

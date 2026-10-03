@@ -221,7 +221,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             return
         yield None
         require_pickaxe(tier)
-        # remembered first, /find only when no noted cell is left; a buried cell's way is planned (nav.plan_way)
+        # remembered and seen alike (one look a pass); a buried cell's way is planned (nav.plan_way)
         notes = [n for b in blocks for n in ctx.mem.seen(b, ctx.dimension)] if ctx.mem is not None else []
         noted = [h for h in noted_hits(notes, blocks, ctx.blocked, ctx.policy.protected)
                  if (h["x"], h["y"], h["z"]) not in no_cell]

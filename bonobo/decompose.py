@@ -155,9 +155,17 @@ def cheapest(key, amount, default, inv, cost, extra=None, facts=None, priced=Fal
     steps = None if name == "default" else steps
     return (steps, name, best) if priced else (steps, name)
 
+NIGHT_ITSELF = ("wait_s",)        # an extra spent in the night, never in the light before it
+
+
 def extra_s(keys, facts):
     """Pure: a source's own extra seconds the place facts say (a walk, the night waited)."""
     return sum(float((facts or {}).get(k, 0.0)) for k in keys)
+
+
+def day_extra_s(keys, facts):
+    """Pure: a source's extra seconds spent before dark (a walk), the night itself left out."""
+    return extra_s(tuple(k for k in keys if k not in NIGHT_ITSELF), facts)
 
 def priced_ways(key, amount, default, inv, cost, extra=None, facts=None, free_only=False):
     """Every way to `key` × amount priced once: ([(name, its plan's seconds, steps, the facts its extra seconds are
@@ -295,13 +303,14 @@ def night_left_s(snap):
     t = int(snap.time) % DAY_TICKS
     return (NIGHT_END - t) / TICKS_PER_S if is_night(t, getattr(snap, "dimension", "minecraft:overworld")) else None
 
-def night_facts(soft, cooled=(), dig_site=True, home_walk_s=None, night_left_s=None):
+def night_facts(soft, cooled=(), dig_site=True, home_walk_s=None, night_left_s=None, covered_work_s=0.0):
     """The place facts the night's pricing reads: the soft-ground reading (seconds to hand-diggable ground, or None),
     the ways that failed here lately (`cooled`: their names, dropped from the pricing), whether a dig-in can finish
     here (`dig_site`, survive.dig_in_site: False → dig in is not offered), the home bed's walk (`home_walk_s`) and the
     night still ahead (`night_left_s`, a whole night when the clock is not read). Priced in seconds with the night's
     death risk (beliefs risk.*, time.death_cost_s): a walk in the open costs its seconds plus their share of an open
-    night's risk; a shelter costs the night waited in it plus a sheltered night's risk."""
+    night's risk; a shelter costs the night waited in it — the part no work under cover fills (`covered_work_s`:
+    the plan's night work, F1i) — plus a sheltered night's risk."""
 
     out: dict = {"soft_ground": False} if soft is None or soft is False else \
         {"soft_ground": True, "soft_walk_s": 0.0 if soft is True else float(soft)}
@@ -312,7 +321,7 @@ def night_facts(soft, cooled=(), dig_site=True, home_walk_s=None, night_left_s=N
     if home_walk_s is not None:
         open_rate = beliefs.value("risk.night_open") / night_s * death_s     # seconds of risk per second exposed
         out.update(home_bed=True, home_walk_s=float(home_walk_s) * (1.0 + open_rate))
-    out["wait_s"] = left + beliefs.value("risk.night_sheltered") * death_s
+    out["wait_s"] = max(0.0, left - float(covered_work_s)) + beliefs.value("risk.night_sheltered") * death_s
     if cooled:
         out["cooled"] = sorted(cooled)
     return out

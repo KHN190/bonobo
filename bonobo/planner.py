@@ -20,7 +20,7 @@ from typing import Any
 
 from . import api, lifecycle
 from .api import McError
-from .data import GROUPS, OVERWORLD, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_USES, bare, mid
+from .data import GROUPS, NIGHT_WORK, OVERWORLD, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_USES, bare, mid
 from .beliefs import CONFIG, TICKS_PER_S, fights_back
 from .knowledge import (ALL_FOOD, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
@@ -58,7 +58,7 @@ class Step:
 
 
 _MEMBERS: dict = {}     # token → the item ids it counts (knowledge.members), read once: the tables are fixed
-lifecycle.in_place(__name__, "_MEMBERS")
+lifecycle.in_place(__name__, "_MEMBERS", cache=True)
 
 
 class VirtualInventory:
@@ -288,6 +288,31 @@ def least_prices(ways):
     return price
 
 
+def covered_prices(ways, shapes, price):
+    """Pure: {token: ticks of one unit's cheapest derivation (by `price`) spent in steps done under cover
+    (data.NIGHT_WORK: mine, craft, smelt)} — what a night underground can be spent on along the way to it."""
+    def node(t):
+        return t if t in ways else mid(t) if mid(t) in ways else None
+
+    def total(asked, i):
+        per, ins, _n = ways[asked][i]
+        return per + sum(price.get(node(t), math.inf) * c for t, c in ins.items())
+    chosen = {a: min(range(len(w)), key=lambda i, a=a: total(a, i)) for a, w in ways.items() if w}
+    covered: dict = {}
+    for _ in range(len(ways) + 1):
+        changed = False
+        for asked, i in chosen.items():
+            per, ins, _n = ways[asked][i]
+            got = (per if shapes[asked][i][0].kind in NIGHT_WORK else 0.0) + \
+                sum(covered.get(node(t), 0.0) * c for t, c in ins.items())
+            if abs(got - covered.get(asked, -1.0)) > 1e-9:
+                covered[asked] = got
+                changed = True
+        if not changed:
+            break
+    return covered
+
+
 class Bound:
     """What a token costs at the least, from the tables: never above what a plan pays, whatever the bag holds.
     `scratch[token]` — ticks one unit's whole derivation takes from nothing (each way's own work with the best tools,
@@ -326,6 +351,7 @@ class Bound:
                 self.ways.setdefault(asked, []).append((self.per_run(cost, step) / out, ins, need))
                 self.shapes.setdefault(asked, []).append((step, _station, ins))
         self.scratch = least_prices(self.ways)
+        self.covered = covered_prices(self.ways, self.shapes, self.scratch)
         self.reach = {}     # token → every token its derivation may use (its inputs, theirs, …)
         for asked in self.ways:
             seen, todo = set(), [asked]
@@ -441,7 +467,7 @@ class Bound:
 
 _BOUNDS = {}      # Bound by (producers, hooks, measured durations): reused across rounds
 BOUNDS_KEPT = 4   # the offline one, the live one and a change or two in between
-lifecycle.in_place(__name__, "_BOUNDS")
+lifecycle.in_place(__name__, "_BOUNDS", cache=True)
 
 
 def bound(cost):

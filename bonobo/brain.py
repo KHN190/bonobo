@@ -53,7 +53,7 @@ TRACK_FILE = paths.data("track.jsonl")
 # Step kinds a night under cover can carry on with (data.NIGHT_WORK). Everything else (a tree, an animal, a plan's wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
 from .data import NIGHT_WORK, TICKS_PER_S  # noqa: E402
 from . import beliefs, estimate  # noqa: E402
-from .data import TOOL_MATERIAL_FOR_TIER, critical_hp, weapon_hit  # noqa: E402
+from .data import TIER_OF_MATERIAL, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, critical_hp, weapon_hit  # noqa: E402
 
 
 def fight_line_holds(contract, args, state, inv):
@@ -120,11 +120,22 @@ def pays_switch(held_s, chosen_s, lost_s):
     what is left of the held one."""
     return chosen_s + lost_s < held_s
 
-def repriced_s(steps, cost):
-    """Seconds left of a held plan, each step priced on the world now (K4: no progress stored); its est updated."""
+def repriced_s(steps, cost, inv):
+    """Seconds left of a held plan priced on the world now as a fresh plan is (planner.forward: each step with the
+    tools held by then, from where the one before leaves the body) — K4, no progress stored; each est updated."""
+    from .knowledge import held_tiers
+    from .planner import Step, forward
+    held, entries = held_tiers(inv), []
+    for i, st in enumerate(steps):
+        entries.append((Step(st.kind, st.token, st.count, dict(st.detail)), dict(held), i))
+        material, _, kind = bare(st.token).rpartition("_")
+        if st.kind == "craft" and kind in TOOL_KINDS and material in TIER_OF_MATERIAL:
+            held[kind] = max(held.get(kind, -1), TIER_OF_MATERIAL[material])
+    priced, ticks = forward(entries, cost)
+    by_key = {p.key(): p.est for p in priced}
     for st in steps:
-        st.est = cost.estimate(st)
-    return sum(st.est for st in steps) / TICKS_PER_S
+        st.est = by_key.get(st.key(), st.est)
+    return ticks / TICKS_PER_S
 
 def thrown_s(now=None):
     """Seconds of the running plan act a switch throws away: its commit less what is left (arbiter.work_left_s);
@@ -655,7 +666,7 @@ class Brain:
             act = self.prepare(snap, ctx)
             return [arbiter.Intent("plan", act, kind="idle", key=act.name, surface=True)] if act else []
         out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: survive.wait_for_day(ctx)),
-                              kind="wait for day", key="wait for day")]
+                              self.wait_why(snap), kind="wait for day", key="wait for day")]
         if "pickaxe" in self.needs.working:
             act = self.night_stock(snap, ctx)
             if act is not None:
@@ -679,7 +690,7 @@ class Brain:
             return None
         if old is not None and same and old["steps"] \
                 and [str(s) for s in old["steps"]] != [str(s) for s in held["steps"]]:
-            held_s = repriced_s(old["steps"], cost)
+            held_s = repriced_s(old["steps"], cost, snap.inv)
             chosen_s, lost_s = sum(s.est for s in held["steps"]) / TICKS_PER_S, thrown_s()
             switched = pays_switch(held_s, chosen_s, lost_s)
             self.plan_switch = (held_s, chosen_s, lost_s, switched)
@@ -713,6 +724,18 @@ class Brain:
                     and not open_air:
                 return craft_act("plan", f"round: {step_key(st)}", ctx, steps, st, snap.night, inv=snap.inv)
         return None
+
+    def wait_why(self, snap):
+        """Why the night is waited out (D1): under cover, the night's work is done; in the open, the night's ways
+        that are cooling here, or that none can be had."""
+        if not self.under_sky(snap):
+            return "night under cover: waiting for day"
+        cooled = decompose.cooled_ways(self.ready)
+        way, _secs, _steps = self.needs.overnight(snap)
+        if way is not None and not cooled:
+            return f"night in the open: {way} is the night's way"
+        return "night in the open, no way through it here: " + (
+            f"{', '.join(cooled)} failed here lately" if cooled else "none can be had")
 
     def under_sky(self, snap):
         """The body stands under the open sky (reflexes.sheltered: not under rock, walled in, nor inside a site): by

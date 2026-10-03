@@ -70,15 +70,16 @@ def cover(ctx, state):
     runner(ctx, *args)
 
 def night_options(inv, cost, facts=None, bed_too=True):
-    """[(way, its needs, the seconds it adds beyond its steps)] every way through a night — a bed (carried: the sleep
-    row's; else made), the home's bed a walk reaches, a shelter waited in — as one one-of target's options."""
-    out = [("bed", [] if inv.count("bed") > 0 else [("bed", 1)], 0.0)] if bed_too else []
+    """[(way, its needs, the seconds it adds beyond its steps, of them the ones spent before dark)] every way through
+    a night — a bed (carried: the sleep row's; else made), the home's bed a walk reaches, a shelter waited in — the
+    first three one one-of target's options."""
+    out = [("bed", [] if inv.count("bed") > 0 else [("bed", 1)], 0.0, 0.0)] if bed_too else []
     for key in ("overnight bed", "overnight"):
         sources, why = decompose.offered_sources(key, 1, inv, cost, facts)
         if not sources:
             log(f"upkeep: no {key} way ({'; '.join(why)})")
-        out += [(src["name"], list(needs) + [("do", st) for st in own],
-                 decompose.extra_s(src.get("extra_s", ()), facts)) for src, needs, own in sources]
+        out += [(src["name"], list(needs) + [("do", st) for st in own], decompose.extra_s(src.get("extra_s", ()), facts),
+                 decompose.day_extra_s(src.get("extra_s", ()), facts)) for src, needs, own in sources]
     return out
 
 def overnight(inv, cost, facts=None, bed_too=True):
@@ -93,11 +94,13 @@ def overnight(inv, cost, facts=None, bed_too=True):
         return None, math.inf, []
     chosen = {}
     try:
-        _first, steps, seconds = plan_round(inv, [Target("night", [], 0, (), tuple(options))], cost, chosen=chosen)
+        _first, steps, seconds = plan_round(inv, [Target("night", [], 0, (), tuple(o[:3] for o in options))], cost,
+                                            chosen=chosen)
     except Unplannable as e:
         log(f"upkeep: no way through the night ({e})")
         return None, math.inf, []
-    return chosen["night"], seconds, steps
+    way = chosen["night"]
+    return way, seconds + next(o[3] for o in options if o[0] == way), steps
 
 def due_now(left_s, plan_s, known, at_threshold):
     """Pure: is it time to start getting something?"""
@@ -209,24 +212,61 @@ class Needs:
         return self.needs_now
 
     def dusk_due(self, snap):
-        """(way, steps) of the night's cheapest way when dusk comes before it could be had (due_now), else None —
-        not priced at all while a way that needs nothing (a walk home, digging in by hand) ends the night inside the
-        light left (the cheapest is no dearer than it)."""
-        left = dusk_s(snap)
-        free = self.night_free_s(snap)
-        if left > 0 and free is not None and left >= free * LEAD:
+        """(way, steps) of the night's cheapest way when dusk comes before its preparation could be had (night_prep_s,
+        due_now), else None."""
+        left, prep = dusk_s(snap), self.night_prep_s(snap)
+        if prep is None:
             return None
-        way, seconds, steps = self.overnight(snap)
-        if way is not None and due_now(left, seconds, self.known(steps, snap), left <= 0):
+        way, _seconds, steps = self.overnight(snap)
+        if way is not None and due_now(left, prep, self.known(steps, snap), left <= 0):
             return way, steps
         return None
 
+    def night_prep_s(self, snap):
+        """Seconds of light the night's way needs before dark (dusk's one reading): the least of a way needing nothing
+        and the cheapest way's preparation, what the round's plan makes anyway counted at the margin; None: no way."""
+        free = self.night_free_s(snap)
+        way, seconds, steps = self.overnight(snap)
+        got = [s for s in (free, self.marginal_s(seconds, steps) if way is not None else None) if s is not None]
+        return min(got) if got else None
+
+    def route_covered_s(self, snap):
+        """Seconds of work under cover the run's route still asks (goals.MILESTONES not met, priced by the planner's
+        bound: each short item's cheapest derivation, its mine/craft/smelt part) — what a night underground is spent
+        on; it runs out as the route's digging is done."""
+        from .planner import bound
+        lb, inv, ticks = bound(self.cost(snap)), snap.inv, 0.0
+        for name in goals.MILESTONES:
+            for key, n in _k.have_remainder(inv, goals.needs(goals.make("milestone", name=name), inv)).items():
+                tool = key.startswith("tool:")
+                token = _k.tool_item(key.split(":")[1], n) if tool else key
+                ticks += lb.covered.get(token, lb.covered.get(_k.mid(token), 0.0)) * (1 if tool else n)
+        return ticks / TICKS_PER_S
+
+    def plan_steps(self):
+        """The steps the round's plans hold (the queue's and upkeep's): what is made anyway."""
+        b = self.brain
+        held = list(getattr(b, "held", {}).values()) + [getattr(b, "needs_plan", None)]
+        return list({id(st): st for h in held if h for st in h["steps"]}.values())
+
+    def marginal_s(self, seconds, steps):
+        """Pure given the plans: `seconds` of a way's `steps` less the share of each the round's plans make anyway."""
+        made = {}
+        for st in self.plan_steps():
+            made[st.key()] = made.get(st.key(), 0) + int(st.count)
+        less = 0.0
+        for st in steps:
+            have = min(int(st.count), made.get(st.key(), 0))
+            made[st.key()] = made.get(st.key(), 0) - have
+            less += (getattr(st, "est", 0) or 0) / TICKS_PER_S * (have / max(1, int(st.count)))
+        return max(0.0, seconds - less)
+
     def night_free_s(self, snap):
-        """Seconds of the cheapest way through the night that needs nothing got first (a walk home, digging in by
-        hand), priced without planning; None when none is offered. The night's cheapest is no dearer."""
+        """Seconds of light the cheapest way through the night that needs nothing got first takes (a walk home,
+        digging in by hand), the night itself left out, priced without planning; None when none is offered."""
         facts = self._facts[1] if self._facts is not None and self._facts[0] is snap else None
         cost = self.cost(snap)
-        free = [secs + decompose.extra_s(extra, facts) for key in ("overnight bed", "overnight")
+        free = [secs + decompose.day_extra_s(extra, facts) for key in ("overnight bed", "overnight")
                 for _n, secs, _st, extra in decompose.priced_ways(key, 1, list, snap.inv, cost, facts=facts,
                                                                   free_only=True)[0]]
         return min(free) if free else None
@@ -294,7 +334,8 @@ class Needs:
         _enclosed, soft_ground, dig_site = ground(reads)
         left = night_left_s(snap)
         left = None if left is None else math.ceil(left / PLAN_S_TTL) * PLAN_S_TTL     # as fine as the memo keeps it
-        facts = night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), home_walk_s(b, snap), left)
+        facts = night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), home_walk_s(b, snap), left,
+                            covered_work_s=self.route_covered_s(snap))
         self._facts = (snap, facts)
         return facts
 

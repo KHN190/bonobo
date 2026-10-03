@@ -15,7 +15,8 @@ class CoverCost(unittest.TestCase):
     def test_the_contexts_readings_reach_the_cost(self):
         seen = {}
 
-        def recorder(snap, mem=None, blacklist=None, known=None, finds=None, policy=None, ripe=None, reserved=()):
+        def recorder(snap, mem=None, blacklist=None, known=None, finds=None, policy=None, ripe=None, reserved=(),
+                     region=None, stop=None):
             seen.update(mem=mem, blacklist=blacklist, policy=policy)
             raise NotAvailable("recorded")
         from tests.world import inventory, state

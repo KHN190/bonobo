@@ -10,7 +10,16 @@ DEPENDS = (lambda f: not f["night"] and f["dimension"] == "minecraft:overworld" 
 WORLD = True         # the clock moves it
 
 DUSK_T = DAY_END - 1                 # one tick of light left: no way fits
-DAWN_T = 0                           # the whole day ahead (625 s): every way of the bags here fits (dig in, 371 s × LEAD)
+DAWN_T = 0                           # the whole day ahead (625 s): the cheapest way's prep fits
+
+
+def valid(value, f):
+    # every shelter cooling (the bed alone) or a starving body: no way's prep fits a day, so never not-dusk
+    return value or not DEPENDS[0](f) or not (f["cooled"] or f["hunger"] == "starve")
+
+
+def instead(f):
+    return True
 
 
 def domain():
@@ -24,15 +33,11 @@ def alpha(a):
     if snap.night or snap.dimension != "minecraft:overworld":
         return False
     if a.brain is not None:
-        # the brain's own night table (needs.overnight, priced once for the round): not priced while a way needing
-        # nothing already ends the night inside the light left
+        # the brain's own reading (needs.night_prep_s): the light the night's way needs before dark, never the night
         a.brain.needs.night_facts(snap)
-        free = a.brain.needs.night_free_s(snap)
-        if free is not None and dusk_s(snap) >= free * LEAD:
-            return False
-        way, seconds, _steps = a.brain.needs.overnight(snap)
-    else:
-        way, seconds, _steps = overnight(snap.inv, Cost(snap, a.mem))
+        prep = a.brain.needs.night_prep_s(snap)
+        return prep is not None and dusk_s(snap) < prep * LEAD
+    way, seconds, _steps = overnight(snap.inv, Cost(snap, a.mem))
     return way is not None and dusk_s(snap) < seconds * LEAD
 
 
