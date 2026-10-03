@@ -192,6 +192,23 @@ class ACrashIsAStatesOwn(unittest.TestCase):
         with mock.patch.object(rnd, "decide", boom), self.assertRaises(ValueError):
             explore.judge(of())
 
+    def test_a_hang_is_a_timeout(self):
+        import time
+        from unittest import mock
+        from check import round as rnd
+
+        def hang(f, fail_then_again=True):
+            while True:
+                try:
+                    time.sleep(0.05)
+                except Exception:  # guard: a production-style catch-all must not swallow the alarm
+                    pass
+        with mock.patch.object(rnd, "decide", hang):
+            _k, after, _d, _p, found, _m, _got, secs = explore.judged(of(), timeout=1)
+        self.assertEqual((after, [inv for inv, _why in found]), (None, ["TIMEOUT"]))
+        self.assertIn("'night'", found[0][1])                         # the state's facts are named
+        self.assertLess(secs, 5)
+
 
 class TheExactSearchIsCapped(unittest.TestCase):
     """round.exact_s: the unbudgeted reference stops after its step cap and says its best is unknown."""
