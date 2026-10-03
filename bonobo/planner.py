@@ -25,8 +25,8 @@ from .beliefs import CONFIG, TICKS_PER_S, fights_back
 from .knowledge import (ALL_FOOD, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 
-DIVE_NODES = 4000      # nodes the incumbent dive may advance (~0.3 s measured): spent, A* goes on without it
-MAX_NODES = 400       # A* expansions past the incumbent (~0.1 s measured): spent, the best complete plan found
+DIVE_NODES = 600      # nodes the dive weighs DIVE_WIDTH ways a choice (~0.07 s measured); then the first that can be had
+MAX_NODES = 60       # A* expansions past the incumbent (~0.01 s measured): spent, the best complete plan found
                       # stands — the incumbent at least (D1: an answer, never a hang)
 MERGEABLE = {"mine", "gather", "hunt", "smelt"}
 STATIONS = frozenset(("minecraft:crafting_table", "minecraft:furnace"))     # what way() works at, never used up
@@ -454,9 +454,12 @@ class Node:
 class Search:
     def __init__(self, cost, kinds=None):
         self.hungry = getattr(cost, "hunger_rate", lambda: 0.0)()
-        self.walks = {}                 # (token, way) → its own walk at the least (own_walk)
+        # what one search learns holds for every search of the round on the same readings (Cost.plans)
+        plans = cost.plans() if hasattr(cost, "plans") else {}
+        shared = plans.setdefault(("search", tuple(sorted(kinds)) if kinds else None), {})
+        self.walks = shared.setdefault("walks", {})       # (token, way) → its own walk at the least (own_walk)
         self.spent = 0                  # nodes advanced (the dive's budget: DIVE_NODES)
-        self.stored_c, self.near_c, self.reach_c = {}, {}, {}      # per search: stored, station_near, walk_to
+        self.stored_c, self.near_c, self.reach_c = (shared.setdefault(k, {}) for k in ("stored", "near", "reach"))
         self.greedy = False             # settle: every option weighed, or (the dive) the few least-bound ways inside a choice
         self.stop = getattr(cost, "stop", None) or (lambda: False)     # injected: true ends the search (Interrupted)
         self.cost = cost
@@ -464,8 +467,8 @@ class Search:
         self.lb = bound(cost)
         self.counter = itertools.count()
         self.reasons = []
-        self.memo = {}
-        self._sources = {}
+        self.memo = shared.setdefault("memo", {})
+        self._sources = shared.setdefault("sources", {})
         self.considered = []        # every complete plan priced: (name, seconds, steps) — the round's alternatives
         from . import knowledge
         knowledge.producers()                 # the skills registered: their hooks below are wired
@@ -919,14 +922,15 @@ class Search:
         to its horizon the same way, cheapest bound first, one that cannot beat the best so far given up; the same
         question from the same bag answered once): the node, or None when it died."""
         while len(node.stack) > floor:
-            if node.g + self.h(node, floor) > cap or self.greedy and self.spent > DIVE_NODES:
-                return None                   # dearer than the best, or the dive's budget spent: A* goes on alone
+            if node.g + self.h(node, floor) > cap:
+                return None
             got = self.advance(node, floor)
             if got is None:
                 return node
             best, before = None, len(self.reasons)
             for k, c in enumerate(sorted(got, key=lambda c: (c.g + self.h(c, c.horizon), c.tie))):
-                if best is not None and self.greedy and floor > 0 and k >= DIVE_WIDTH:
+                width = DIVE_WIDTH if self.spent <= DIVE_NODES else 1      # the budget spent: the first way that can be had
+                if best is not None and self.greedy and floor > 0 and k >= width:
                     break                     # inside a choice, the few least-bound ways; A* weighs the rest
                 done = self.settled(c, cap if best is None else min(cap, best.g))
                 if done is not None and (best is None or (done.g, done.tie) < (best.g, best.tie)):
