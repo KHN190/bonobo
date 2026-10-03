@@ -809,15 +809,20 @@ class Brain:
 
     def step_reason(self, steps, snap, ctx, skip=lambda st: False):
         """D1: why `next_step` found none — the first non-skipped step's own failing check, named (never the bare
-        default: next_step's order, read again)."""
+        default: next_step's order, read again). Every step skipped (accept5: a surface step, underground by night)
+        is still named, by the first of them — not silently the bare default either."""
+        first_skipped = None
         for st in steps:
             if skip(st):
+                first_skipped = first_skipped or st
                 continue
             if not runnable(st, snap.inv):
                 return f"{step_key(st)}: short of what it needs"
             if not self.ready(step_key(st)):
                 return f"{step_key(st)}: cooling, no seek alternative found it a way"
             return f"{step_key(st)}: its own preconditions (station, fight line) refuse it"
+        if first_skipped is not None:
+            return f"{step_key(first_skipped)}: a surface step, underground by night"
         return "no step of the plan can run from here"
 
     def wait_why(self, snap):
