@@ -646,8 +646,32 @@ class Cost:
         (step_state's `at`), as walk_lb is the least walk."""
         key = ("dig_lb", step.kind, tuple(step_kinds(step)), tuple(sorted((held or {}).items())))
         if key not in self.cache:
-            self.cache[key] = min(self.dig_to(step, held, p) for p in [None, *sorted(self.places())])
+            # branch and bound over the step's own places (places_for), nearest its site first: no dig is under 0, so
+            # the first place that needs none (the site's own cell) ends it — never one dug_way per note in memory
+            site = self.site(step)
+            order = sorted(self.places_for(step), key=lambda p: math.dist(p, site) if site is not None else 0.0)
+            best = math.inf
+            for p in [*order, None]:
+                best = min(best, self.dig_to(step, held, p))
+                if best <= 0:
+                    break
+            self.cache[key] = best
         return self.cache[key]
+
+    def places_for(self, step):
+        """The places a step's own price reads: the remembered and seen cells of its source's kinds (step_kinds) and
+        the stations it works at — a subset of places() holding the step's site, so a least over it is the least over
+        all where the site's own cell prices 0 (dig_lb)."""
+        kinds = list(self._kinds_of(step))
+        station = self.made_at(step) if step.kind == "craft" else None
+        names = {bare(k) for k in kinds} | ({bare(station)} if station else set())
+        dim = self.snap.dimension
+        out = {tuple(r["pos"]) for r in self.mem.data.get("seen", [])
+               if r.get("dimension") == dim and bare(r.get("kind", "")) in names}
+        out |= {tuple(s["pos"]) for s in self.mem.stations(dim) if bare(s.get("block") or "") in names}
+        out |= {(h["x"], h["y"], h["z"]) for k in names for h in (self.snap.hits or {}).get(k, ())}
+        site = self.site(step)
+        return frozenset(out | ({tuple(site)} if site is not None else set()))
 
     def dig_to(self, step, held=None, at=None):
         """Ticks the digging to the nearest one in sight takes (work_of's breaks beyond the step's own), each break
