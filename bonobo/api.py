@@ -39,6 +39,7 @@ class ApiState(lifecycle.State):
     soft: bool = False                   # a soft skill runs: perception's request stays for it to read, no cut
     last_segment_s: float = 2.0          # how far ahead a watcher must look: a segment's measured length
     posts: int = 0                       # POSTs sent: a read taken since the last one still describes the world
+    world_writes: int = 0                # task sends that may change blocks (all but walks): terrain reads drop
     feet_seen: "tuple[float, float, float] | None" = None     # the body's place in the last /state read
     dim_seen: "str | None" = None                              # its dimension then
     home_break: "str | None" = None      # a rescue's reason while it may break a home block (home_break_allowed)
@@ -451,6 +452,9 @@ def post(path, body=None):
         if not arbiter.BODY.owns(f"api.post({path.split('?')[0]})"):
             return {"status": "failed", "message": "body owned by the arbiter", "tasks": []}
     STATE.posts += 1
+    if path.startswith("/task") and isinstance(body, dict) and any(
+            t.get("type") not in WALKS for t in body.get("tasks") or [body]):
+        STATE.world_writes += 1
     return api("POST", path, body or {})
 
 def game_status():
