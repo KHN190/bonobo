@@ -33,7 +33,10 @@ class HuntAboveTheLine(unittest.TestCase):
              [("craft", "minecraft:stone_sword"), ("hunt", "minecraft:string")]),
             ("must fail: a stone sword carried under the line", SPLIT, [("stone_sword", 1)], None),
             ("must fail: the only sword the plan can make is under the line", SPLIT, [("cobblestone", 2)] + TABLE,
-             None)]
+             None),
+            ("must fail: a stone sword carried under the line, iron at hand: the plan raises the line itself",
+             SPLIT, [("stone_sword", 1), ("iron_ingot", 2)] + TABLE,
+             [("craft", "minecraft:iron_sword"), ("hunt", "minecraft:string")])]
 
     def test_rows(self):
         for name, hp, carried, want in self.ROWS:

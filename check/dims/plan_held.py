@@ -95,7 +95,7 @@ def prepare(brain, facts):
     seq, task = next((i, t) for i, t in enumerate(live) if t["id"] == tid)
     snap = Snapshot.from_readings(api.get("/state"), Inventory())
     brain.held[tid] = held_for(facts["plan_held"], tasks.goal_of(task), snap, brain.mem,
-                               round_key([(f"task {tid}", tasks.goal_of(task), seq)]))
+                               round_key([(f"task {tid}", tasks.goal_of(task), seq)], snap, brain.mem))
 
 
 def alpha(a):

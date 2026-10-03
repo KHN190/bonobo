@@ -58,7 +58,7 @@ class TheLookPricesTheTake(unittest.TestCase):
         for name, look, take, make, want in rows:
             with self.subTest(name):
                 c = SimpleNamespace(mem=mem, snap=snap, stored=lambda token: [],
-                                    estimate=lambda st, at=None, look=look, take=take: look if st.kind == "look" else take)
+                                    estimate=lambda st, held=None, at=None, look=look, take=take: look if st.kind == "look" else take)
                 made = [Step("craft", IRON, 24, {}, make)]
                 with mock.patch.object(planner, "plan_needs", lambda *a, **k: made):
                     got = planner.look_first(snapshot(state(), inventory()).inv, [(IRON, 24)], c)

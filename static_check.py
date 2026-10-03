@@ -590,7 +590,8 @@ def r11(trees):
                 given = way.value if isinstance(way, ast.Constant) else None if way is None else "?"
                 if given is not None and given not in ABANDON_WAYS:
                     out.append((where, f"abandon {given!r}: not one of {ABANDON_WAYS}"))
-                soft = isinstance(kws.get("soft"), ast.Constant) and kws["soft"].value is True
+                flag = kws.get("soft")
+                soft = isinstance(flag, ast.Constant) and flag.value is True
                 if given == "cover" and not (soft or "fights" in kws):
                     out.append((where, "cover after giving up, with no danger: replan"))
     return sorted(out)
