@@ -408,6 +408,24 @@ def get(path) -> dict:
     return r
 
 
+TASK_STATUSES = ("running", "succeeded", "failed", "cancelled")
+
+
+def task_result(task_id) -> "TaskResult":
+    """GET /task?id=: the jar's record of one task as a TaskResult, its fields read one by one (a record without a
+    status, or with one the jar never sends, is the jar's error, raised)."""
+    r = get(f"/task?id={task_id}")
+    try:
+        status = r["status"]
+        if status not in TASK_STATUSES:
+            raise McError(f"/task?id={task_id}: status {status!r}")
+        return {"id": int(r.get("id", task_id)), "type": str(r.get("type") or ""), "status": status,
+                "message": str(r.get("message") or ""),
+                "seconds": float(r.get("seconds") or 0.0), "doing": str(r.get("doing") or ""), "result": r.get("result")}
+    except (KeyError, TypeError, ValueError) as e:
+        raise McError(f"/task?id={task_id}: not a task record ({type(e).__name__}: {e})") from e
+
+
 def feet_seen():
     """The body's place in the last /state any code read (no read of its own), or None."""
     return STATE.feet_seen
@@ -817,14 +835,14 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
         if resume is not None:
             # The same work is already running: wait for it rather than starting it again.
             await_task(resume, wait)
-            done = [cast("TaskResult", get(f"/task?id={resume}"))]
+            done = [task_result(resume)]
         else:
             r = post("/task?wait=0", {"tasks": part, "stopOnFailure": stop_on_failure})
             queued = r.get("tasks") or []
             refuse_unqueued(r, queued=bool(queued))
             STATE.last_posted = (chain_signature(part), queued[-1]["id"])
             await_task(queued[-1]["id"], wait)
-            done = [cast("TaskResult", get(f"/task?id={t['id']}")) for t in queued]
+            done = [task_result(t['id']) for t in queued]
         for t in done:
             if t["status"] != "succeeded":
                 detail(f"  {t['type']:<9} {t['status']:<9} {t['message']}")
