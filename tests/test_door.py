@@ -186,7 +186,7 @@ class NoRoute(unittest.TestCase):
     def travel(self, way_raises=None, y_guess=False, walk=False):
         ways, legs = [], []
 
-        def reach(task, policy):
+        def reach(task, policy, faces=None, at=None, est=None):
             ways.append(task)
             if way_raises:
                 raise way_raises
