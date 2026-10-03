@@ -489,7 +489,7 @@ class Cost:
         return first if refuted is None else self._cheaper_source(step, kinds, first, refuted)
 
     def refuted_ticks(self, step, target, at=None):
-        """Ticks a run measured left of `step` at `target` past its price (Memory.refuted: nav.Overrun's rest, the one
+        """Ticks a run measured left of `step` at `target` past its price (Memory.refuted: api.Overrun's rest, the one
         writer dispatch.execute's), while the state it was measured in holds (ban_state from the step's place, the
         bag's kinds) — None when there is none or it lifted."""
         read = getattr(self.mem, "refuted_s", None)

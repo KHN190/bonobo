@@ -1,6 +1,6 @@
 """data.OVERRUN (the user's rule): a step's ways are held to OVERRUN × its as-run price (Step.est, nav.step_budget) —
 a way priced past what the step has left is refused before digging, one running past it is stopped at a segment
-boundary, the budget spent across every try and way of the step; an overrun is nav.Overrun (no ban: the round
+boundary, the budget spent across every try and way of the step; an overrun is api.Overrun (no ban: the round
 prices again), never a NavFailed keyed to the target."""
 import os
 import sys
@@ -51,7 +51,7 @@ class StepBudget(unittest.TestCase):
 
     def test_refused_before_digging(self):
         """accept7: a way priced 104 s against a 61 s step (> 1.5×): refused, nothing dug, not a NavFailed (no ban)."""
-        with nav.step_budget(61 * TICKS_PER_S), self.assertRaises(nav.Overrun) as e:
+        with nav.step_budget(61 * TICKS_PER_S), self.assertRaises(api.Overrun) as e:
             self.way(104.3)
         self.assertNotIsInstance(e.exception, api.NavFailed)      # must fail: the target banned for a price miss
         self.assertEqual(self.parts, [])
@@ -64,7 +64,7 @@ class StepBudget(unittest.TestCase):
 
     def test_stopped_at_a_segment_once_over(self):
         """Priced fine (10 s), the digging runs long: stopped before the next segment, not finished."""
-        with nav.step_budget(10 * TICKS_PER_S), self.assertRaises(nav.Overrun):
+        with nav.step_budget(10 * TICKS_PER_S), self.assertRaises(api.Overrun):
             self.way(10.0, part_s=20.0)
         self.assertEqual(self.parts, [SEGMENT])                   # must fail: the whole way dug
 
@@ -74,7 +74,7 @@ class StepBudget(unittest.TestCase):
             self.way(10.0, part_s=5.0)
             self.assertEqual(budget.spent(), 10.0)
             self.parts.clear()                                    # the step's next way: a stand not yet held
-            with self.assertRaises(nav.Overrun):
+            with self.assertRaises(api.Overrun):
                 self.way(10.0)
 
     def test_a_safety_act_inside_pauses_the_steps_clock(self):

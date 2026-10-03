@@ -504,7 +504,7 @@ class Memory:
 
     # -- skill outcomes (DEPS-style selector: plans through steps that keep failing get dearer)
     def refute(self, key, seconds, state):
-        """A step's price the run refuted (nav.Overrun): the measured rest, `seconds`, of `key` (step kind, token,
+        """A step's price the run refuted (api.Overrun): the measured rest, `seconds`, of `key` (step kind, token,
         target or None) while `state` (skillcore.ban_state) holds — in process, never saved (K4); one writer
         (dispatch.execute), one reader (Cost)."""
         self.refuted[tuple(key)] = (float(seconds), state)

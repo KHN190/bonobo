@@ -428,7 +428,7 @@ LEVEL_SIGHT_DEPTH = 2
 STAIR_CELLS = 3          # cells one staircase step clears: feet, head and the head room the walk down passes
 BAN_MAX_S = 600          # the longest any cell stays banned, however often it failed
 TASK_WAIT_S = 900
-OVERRUN = 1.5            # the user's rule: a step past this × its as-run price is stopped (nav.Overrun, re-priced);
+OVERRUN = 1.5            # the user's rule: a step past this × its as-run price is stopped (api.Overrun, re-priced);
 #                          not E4's 2× (the accuracy target an estimate is fitted to) — a stop, not a fit
 OVERRUN_FLOOR_S = 15     # the user's rule: no step's budget below this (a few-second price is all noise: a turn, a read)
 NAV_NODES = 6000
@@ -446,7 +446,7 @@ EXCEPTIONS: "dict[str, tuple[Cause, Source]]" = {
     "GameUnreachable": ("game", "game lost"),
     "NotAvailable": ("unavailable", "stuck"), "NavFailed": ("nav", "stuck"), "Unreachable": ("nav", "stuck"),
     "TaskStuck": ("stuck", "stuck"),
-    "Overrun": ("replan", "layer:plan"),                   # a price the run refuted (nav.Overrun): re-planned at once, nothing failed
+    "Overrun": ("replan", "layer:plan"),                   # a price the run refuted (api.Overrun): re-planned at once, nothing failed
     "ToolMissing": ("tool", "stuck"), "NeedMissing": ("tool", "stuck"),
     "StationMissing": ("replan", "stuck"),                 # the plan counted on a station that is gone
     "CommitmentExpired": ("replan", "layer:plan"),         # the plan grew stale: nothing failed

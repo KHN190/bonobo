@@ -121,6 +121,15 @@ class TaskStuck(McError):
 class CommitmentExpired(McError):
     """The running task outlived the commitment its plan was made under: the world owes the planner a new decision."""
 
+class Overrun(McError):
+    """A step past its budget (nav.step_budget: OVERRUN × its as-run price): its price refuted — stopped and
+    re-planned at once (EXCEPTIONS: replan, an interruption: nothing counted, banned or cooled; the skill resumes
+    from what it did), the measured rest recorded for its target (`pos`, `remaining_s`: dispatch.execute)."""
+
+    def __init__(self, message="", pos=None, remaining_s=None):
+        super().__init__(message, pos=pos)
+        self.remaining_s = remaining_s
+
 class Interrupted(McError):
     """The perception thread stopped the running task because of a danger; survival mode takes over next round."""
 

@@ -600,14 +600,6 @@ def reach_stand(task, policy, faces=None, at=None):
     raise api.NavFailed(f"no stand for {kind} {target} after {tries} ways", pos=target)
 
 
-class Overrun(McError):
-    """A step past its budget (step_budget: OVERRUN × its as-run price): its price refuted — stopped, re-planned at
-    once (data.EXCEPTIONS: replan), the measured rest recorded for its target (`pos`, `remaining_s`); no ban, no
-    cooldown."""
-
-    def __init__(self, message="", pos=None, remaining_s=None):
-        super().__init__(message, pos=pos)
-        self.remaining_s = remaining_s
 
 
 @dataclass
@@ -648,7 +640,7 @@ def check_budget(target=None, remaining_s=None):
     between legs); its rest `remaining_s` when measured, else what it spent (at least as dear again)."""
     budget = BUDGET[0]
     if budget is not None and budget.left() < 0:
-        raise Overrun(f"the step ran {budget.spent():.0f}s > its {budget.limit_s:.0f}s ({OVERRUN}× its price)",
+        raise api.Overrun(f"the step ran {budget.spent():.0f}s > its {budget.limit_s:.0f}s ({OVERRUN}× its price)",
                       pos=target, remaining_s=budget.spent() if remaining_s is None else remaining_s)
 
 
@@ -657,7 +649,7 @@ def afford(seconds, target):
     that price is the measured rest."""
     budget = BUDGET[0]
     if budget is not None and seconds > budget.left():
-        raise Overrun(f"way to {target} ~{seconds:.0f}s > the step's {budget.left():.0f}s left "
+        raise api.Overrun(f"way to {target} ~{seconds:.0f}s > the step's {budget.left():.0f}s left "
                       f"({OVERRUN}× its price, {budget.spent():.0f}s spent)", pos=target, remaining_s=seconds)
 
 

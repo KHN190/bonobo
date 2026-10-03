@@ -163,14 +163,14 @@ def execute(ctx, step, night):
         out = run_priced(ctx.dimension, step, night, run)
     except GameUnreachable:
         raise
-    except api.INTERRUPTIONS:
-        raise      # no statistics
-    except nav.Overrun as e:
+    except api.Overrun as e:
         # the one writer of a refuted price (Cost reads it): the step's measured rest at its target, while the
-        # state it was measured in holds (E5); no outcome counted — re-planned, nothing failed
+        # state it was measured in holds (E5); no outcome counted — an interruption, re-planned, nothing failed
         ctx.mem.refute(refuted_key(step, e.pos), e.remaining_s,
                        skillcore.ban_state(api.STATE.feet_seen, api.STATE.kinds_seen))
         raise
+    except api.INTERRUPTIONS:
+        raise      # no statistics
     except (McError, skillcore.ToolMissing) as e:
         ctx.mem.record_outcome(f"nav:{step.kind}" if retry.cause_of(e) == "nav" else key, False)
         raise
