@@ -48,8 +48,18 @@ def _cheapest(ctx):
     name, seconds, steps = found[0]
     for other, s, st in found[1:]:
         if s + TOL_S < seconds or (abs(s - seconds) <= TOL_S and _tier(st) < _tier(steps)):
-            return f"chose {name} ({seconds:.2f} s, tier {_tier(steps)}) over {other} ({s:.2f} s, tier {_tier(st)})"
+            return _g3(ctx, f"chose {name} ({seconds:.2f} s, tier {_tier(steps)}) over {other} ({s:.2f} s, tier {_tier(st)})",
+                       seconds - s)
     return None
+
+
+def _g3(ctx, why, lost_s):
+    """A G3 refinement's verdict: where the search's budget was spent, what the cut cost is the run's distribution
+    (p5_loss_s), as P5's; else the violation."""
+    if not ctx.get("budget_spent"):
+        return why
+    ctx.setdefault("p5_loss_s", lost_s)
+    return Unchecked(f"budget spent (P4 before G3): {why}")
 
 
 def D6(b, d, a, ctx):
@@ -144,7 +154,9 @@ def R2(b, d, a, ctx):
         take = Step("withdraw", item, min(have, max(1, int(st.count))), {"pos": list(pos)})
         take_t, make_t = price(take), int(getattr(st, "est", 0) or price(st))
         if take_t + TOL_TICKS < make_t:
-            return (f"{st} ({make_t} ticks) while {pos} holds {have} {item} (taking: {take_t} ticks)")
+            from bonobo.game import TICKS_PER_S
+            return _g3(ctx, f"{st} ({make_t} ticks) while {pos} holds {have} {item} (taking: {take_t} ticks)",
+                       (make_t - take_t) / TICKS_PER_S)
     return None
 
 

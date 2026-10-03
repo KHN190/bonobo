@@ -119,6 +119,8 @@ class Plan(unittest.TestCase):
         # the candidates the search priced, the chosen first: the fewest seconds, a tie the lowest tier
         ("R1", {"candidates": [("stone", 3.0, [STONE_PICK]), ("iron", 5.0, [IRON_PICK])]}, False),
         ("R2", {"candidates": [("iron", 5.0, [IRON_PICK]), ("stone", 3.0, [STONE_PICK])]}, True),   # must fail: dearer
+        # the search's budget spent: the cut is the run's loss distribution (as P5), not a violation
+        ("R2", {"candidates": [("iron", 5.0, [IRON_PICK]), ("stone", 3.0, [STONE_PICK])], "budget_spent": True}, False),
         ("R4", {"candidates": [("iron", 3.0, [IRON_PICK]), ("stone", 3.0, [STONE_PICK])]}, True),   # must fail: tie, higher tier
         ("R1", {"candidates": [("stone", 3.0, [STONE_PICK]), ("iron", 3.0, [IRON_PICK])]}, False),
         ("D6", {"candidates": [("stick", 3.0, [step("craft", "minecraft:stick", 60)])], "price_run": run}, False),
