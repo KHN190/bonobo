@@ -567,6 +567,7 @@ class Brain:
         could be planned (`unplannable`) is this round's alone."""
         planner.SPENT["round"] = planner.SPENT["steps"]
         self.unplannable.clear()
+        planner.PATHS.clear()
         try:
             return self._decide_round(snap, ctx)
         finally:

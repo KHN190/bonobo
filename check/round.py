@@ -262,6 +262,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
             act = b.decide(snap, bctx)
         ctx["decide_calls"] = calls                              # K10: every jar call the decision made itself
         ctx["search_steps"] = SPENT["steps"] - began            # the round's own thinking, the checker's readings apart
+        ctx["paths"] = list(planner.PATHS)      # each plan the round's searches took: its price as run, (g, h) on its way
         ctx["budget_spent"] = SPENT["budget"] > cut              # a search stopped by its budget this round
         ctx["body_read"], ctx["fact_ages"] = fact_ages(b, snap)
         if ctx.get("hazard_at") is not None:
