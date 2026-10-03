@@ -246,6 +246,49 @@ class HuntChaseOverrun(unittest.TestCase):
         self.assertLessEqual(len(chases), 2, "must fail: a 3rd chase tried past the step's budget")
 
 
+class SeekLegOverrun(unittest.TestCase):
+    """The production path (dispatch.run_priced -> explore.seek -> explore.seek_blocks -> skill._drive ->
+    nav.check_budget): nothing in sight or remembered, so seek falls through to seek_blocks's `_search`, stubbed to
+    a fixed-cost generator (a leg finds nothing, a fake clock +30s each -- what's under test is the skill-driver/
+    budget interplay, not _search's own frontier search). Priced 20s, budget 30s (OVERRUN_FLOOR_S-clear): stopped
+    after 2 legs, never the 6 of SEARCH_LEGS (base 2000ec2: no check_budget at all, red by assertion)."""
+
+    def test_stopped_after_two_legs(self):
+        from bonobo import dispatch, explore, skillcore
+        from bonobo.planner import Step
+        from tests.world import memory, state
+
+        clock = [0.0]
+        legs = []
+        st = state(x=.5, y=64.0, z=.5)
+
+        def api_get(path):
+            if path.startswith("/state"):
+                return st
+            raise AssertionError(f"unexpected api.get {path}")
+
+        def fake_search(ctx, kinds, look, radius, legs_n):
+            for _ in range(legs_n):
+                legs.append(1)
+                clock[0] += 30.0
+                yield (0, 0)
+            raise api.NotAvailable("stub: never found")
+
+        ctx = skillcore.Context(memory(), nav.Policy(), "minecraft:overworld")
+        step = Step("seek", "minecraft:iron_ore", 1, {"kinds": ["minecraft:iron_ore"]}, 20 * TICKS_PER_S)
+        with mock.patch.object(api, "get", api_get), mock.patch.object(explore, "log", lambda *a: None), \
+                mock.patch.object(explore, "feet", lambda: (0, 64, 0)), \
+                mock.patch.object(explore, "find", lambda *a, **k: []), \
+                mock.patch.object(explore, "entities", lambda *a, **k: []), \
+                mock.patch.object(explore, "_search", fake_search), \
+                mock.patch.object(nav.time, "time", lambda: clock[0]), \
+                mock.patch.object(dispatch, "trace", lambda *a, **k: None), \
+                self.assertRaises(api.McError):
+            dispatch.run_priced("minecraft:overworld", step, False,
+                                lambda: explore.seek(ctx, ["minecraft:iron_ore"]))
+        self.assertLessEqual(len(legs), 2, "must fail: a 3rd leg tried past the step's budget")
+
+
 class OverrunIsReplannedNotFailed(unittest.TestCase):
     """brain.outcome_of(Overrun) == "interrupted" (data.EXCEPTIONS["Overrun"]: replan, layer:plan; arbiter.RESUME_OF
     "same"): Brain.failed returns before writing a retry entry or a ban (brain.py:368's early return) -- new API
