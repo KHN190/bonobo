@@ -541,6 +541,10 @@ def tool_for(inv, block, min_left=2):
     breaks it in the fewest ticks (cheapest_equal over break_ticks)."""
     return cheapest_equal(["hand"] + _carried_tools(inv, min_left), lambda i: break_ticks(block, i), item_tier)
 
+def tool_uses_left(inv, item):
+    """Pure: uses `item` has left in the bag (maxDamage - damage), 0 when it isn't carried (arm: spare_uses/working)."""
+    return next((s.get("maxDamage", 0) - s.get("damage", 0) for s in getattr(inv, "slots", ()) if s["id"] == item), 0)
+
 def dig_ticks(blocks, inv):
     """Pure: ticks the breaks of `blocks` (a block name per cell) take, each with the item tool_for holds for it."""
     return sum(break_ticks(b, tool_for(inv, b)) + break_overhead() for b in blocks)

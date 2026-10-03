@@ -342,7 +342,10 @@ ARM_REGION_MAX = 4096       # cells one read may cover to name what a chain's mi
 def arm(tasks, inv=None, read_blocks=True):
     """The item each mine or attack holds, named where none is (knowledge.tool_for / weapon_for): reads only when a
     task lacks one — the bag (unless `inv`, the one perception already holds, is given) and the blocks the mines
-    break (unless `read_blocks` is off: a mine then names the bare-block tool). HOLD puts that item in hand (I2)."""
+    break (unless `read_blocks` is off: a mine then names the bare-block tool). HOLD puts that item in hand (I2).
+    A tool that would not outlast the chain's own count of mines needing it (spare_uses/working) cuts the chain
+    there instead of silently arming the rest with a worse one: the round re-plans (planner.tool prices a new one
+    by seconds, R1/G3), never a mid-chain tier downgrade."""
     mines = [t for t in tasks if t.get("type") == "mine" and "item" not in t]
     if not mines and not any(t.get("type") == "attack" and "item" not in t for t in tasks):
         return tasks
@@ -364,14 +367,22 @@ def arm(tasks, inv=None, read_blocks=True):
     except McError as e:              # no world to read (an offline test): the tasks go as they were — said, never silent
         api.detail(f"  arm: {type(e).__name__}: {e} — {[t.get('type') for t in tasks]} sent without naming what they hold")
         return tasks
-    out = []
+    out, spent = [], {}            # item -> mines already counted against it in this chain
     for t in tasks:
         kind = t.get("type")
         if "item" in t or kind not in ("mine", "attack"):
             out.append(t)
-        elif kind == "mine":
-            out.append({**t, "item": _know.tool_for(inv, names.get((t["x"], t["y"], t["z"])))})
-        else:
+            continue
+        if kind == "attack":
             out.append({**t, "item": _know.attack_weapon(inv, beliefs.COMMON_FOE_HP) or "hand"})
+            continue
+        block = names.get((t["x"], t["y"], t["z"]))
+        item = _know.tool_for(inv, block)
+        if item != "hand" and _know.tool_kind(block) is not None:
+            used = spent.get(item, 0) + 1
+            if not _know.working(_know.tool_uses_left(inv, item), used):
+                break               # the tool would not survive this one more: cut the chain here, not downgrade
+            spent[item] = used
+        out.append({**t, "item": item})
     return out
 
