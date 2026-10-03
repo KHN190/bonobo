@@ -74,6 +74,32 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
                 want = UNKNOWN_WALK_TICKS if where is None else walk_ticks(math.dist(Snap().feet, where))
                 self.assertEqual(walk, want)
 
+    def test_a_refused_route_is_not_there(self):
+        """One reachability reading (cost.route_refused, the game's route cache): a remembered spot whose route was asked
+        and not found is not there, for the walk and for Cost.reachable alike."""
+        from bonobo import cost as costmod
+        from bonobo.cost import UNKNOWN_WALK_TICKS
+        pos = (3, 64, 3)
+        # (situation, the game's answer to the route there) → (the walk priced, reachable)
+        rows = [("not asked: there", None, (walk_ticks(math.dist(Snap().feet, pos)), True)),
+                ("asked and found: there", (True, 2.0), (walk_ticks(math.dist(Snap().feet, pos)), True)),
+                ("must fail: asked and not found: a search, not a walk to it", (False, None), (UNKNOWN_WALK_TICKS, False))]
+        for name, answer, want in rows:
+            with self.subTest(name):
+                m = mem()
+                m.note_here("stone", pos, "minecraft:overworld")
+                key = costmod.route_key(pos, 2.0, costmod.NAV_NODES)
+                saved = dict(costmod.ROUTES)
+                try:
+                    if answer is not None:
+                        costmod.ROUTES[key] = answer
+                    cost = Cost(Snap(), m, finds={})
+                    step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
+                    self.assertEqual((cost.estimate(step) - cost.work(step), cost.reachable(["stone"])), want)
+                finally:
+                    costmod.ROUTES.clear()
+                    costmod.ROUTES.update(saved)
+
 
 # ----------------------------------------------------------------------------------- what memory is for
 

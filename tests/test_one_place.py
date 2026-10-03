@@ -207,26 +207,32 @@ class ToolWear(unittest.TestCase):
                 self.assertEqual((knowledge.usable(left), knowledge.working(left)), want)
         self.assertLess(knowledge.TOOL_USABLE, knowledge.TOOL_WORKING)
 
-    def test_planner_and_solver_read_one_margin(self):
+    def test_planner_reads_the_margin(self):
         from bonobo import knowledge
-        from bonobo.planner import NullCost, Planner
-        # (situation, uses left on an iron pickaxe) → kept by the planner, working for the solver (actions.state_of)
-        rows = [("nine left: working (P2: the planner replaced it, the solver mined with it)", 9, True),
-                ("must fail: two left: neither plans with it", knowledge.TOOL_WORKING - 1, False)]
+        from bonobo.data import TOOL_USES
+        from bonobo.planner import NullCost, plan_needs
+        from tests.world import bag, inventory, slot
+        # (situation, uses left on an iron pickaxe) → kept by the planner (knowledge.working: the jar holds ≥ 2)
+        rows = [("nine left: working", 9, True),
+                ("must fail: two left: the planner does not plan with it", knowledge.TOOL_WORKING - 1, False)]
         for name, left, want in rows:
             with self.subTest(name):
-                planned = Planner({}, [("pickaxe", 2, left)], NullCost()).plan([("tool", "pickaxe", 2)])
+                bag_ = bag(inventory(slot("iron_pickaxe", 1, TOOL_USES["iron"] - left)))
+                planned = plan_needs(bag_, [("tool", "pickaxe", 2)], NullCost())
                 self.assertEqual((planned == [], knowledge.working(left)), (want, want))
 
     def test_enough_for_the_work_is_one_rule(self):
         from bonobo import knowledge
-        from bonobo.planner import NullCost, Planner
-        # (situation, uses left on a wooden pickaxe, blocks to mine) → the carried one does it, for planner and solver
+        from bonobo.data import TOOL_USES
+        from bonobo.planner import NullCost, plan_needs
+        from tests.world import bag, inventory, slot
+        # (situation, uses left on a wooden pickaxe, blocks to mine) → the carried one does it: left ≥ uses + margin
         rows = [("40 left, 30 to mine: enough", 40, 30, True),
-                ("must fail: 20 left, 30 to mine: the planner kept it (it read the margin only)", 20, 30, False)]
+                ("must fail: 20 left, 30 to mine: another pickaxe first", 20, 30, False)]
         for name, left, n, want in rows:
             with self.subTest(name):
-                steps = Planner({}, [("pickaxe", 0, left)], NullCost()).plan([("minecraft:cobblestone", n)])
+                bag_ = bag(inventory(slot("wooden_pickaxe", 1, TOOL_USES["wooden"] - left)))
+                steps = plan_needs(bag_, [("minecraft:cobblestone", n)], NullCost())
                 kept = not any(s.kind == "craft" and s.token.endswith("_pickaxe") for s in steps)
                 self.assertEqual((kept, knowledge.working(left, n), knowledge.spare_uses(left) >= n), (want,) * 3)
 

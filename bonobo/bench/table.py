@@ -203,12 +203,23 @@ def row_budget(row):
     return words_scene.limit()
 
 
+def est_budget(row, setup):
+    """A row's budget from its estimate word (words.est): production's seconds for its goal over its own scene, at
+    the row's tick rate, × the bench's slack (the row limit applied with the rest, acceptance aside)."""
+    import math
+    from ..data import TICKS_PER_S
+    from .bench_bases import TARGET_SLACK
+    from .words.est import est_s
+    seconds = est_s(row["est"], setup, row.get("dimension") or "minecraft:overworld")
+    return max(1, math.ceil(seconds * TICKS_PER_S / row.get("tick_rate", TICKS_PER_S) * TARGET_SLACK))
+
+
 def build(row, tier):
     """A table row → the runner's row dict."""
     from .runner import ROW_LIMIT_S
     setup = list(row["setup"]) if "scene" not in row else words_scene.scene(row["scene"])    # a one-off row: its commands
     out = {"doc": row["doc"], "module": row["module"], "setup": setup,
-           "run": make_word(row["run"]), "budget": row.get("budget") or row_budget(row), "tier": tier}
+           "run": make_word(row["run"]), "tier": tier}
     if "why" in row and not callable(row["check"]):
         out["check"] = resolve("_named_all")([(make_word(c), w) for c, w in zip(row["check"], row["why"])])
     else:
@@ -222,8 +233,9 @@ def build(row, tier):
     jobs = kit_jobs(row)
     if jobs:                                 # the kit rule: the best work tool per job, the sword a fight calls for
         out["setup"] = out["setup"] + resolve("_kit_gives")(out, jobs)
+    out["budget"] = row.get("budget") or (est_budget(row, out["setup"]) if "est" in row else row_budget(row))
     for k, v in row.items():
-        if k not in out and k not in ("name", "scene", "why", "no_detail", "kit"):
+        if k not in out and k not in ("name", "scene", "why", "no_detail", "kit", "est"):
             out[k] = dec(v)
     if "expect" not in out and not out.get("raw"):
         out["expect"] = words_scene.scene_expect(out["setup"])     # what its own scene built, the one signature

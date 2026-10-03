@@ -7,6 +7,7 @@ from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledg
 from . import api, nav, skillcore
 from . import world
 from .api import McError, NotAvailable, log
+from .data import THE_END
 from .skill import skill
 from .world import Inventory, Region, cells_with, find
 
@@ -151,7 +152,9 @@ def _frame_region():
 
 PORTAL_ARRIVE_S = 10.0     # standing in the portal this long without a dimension change: it did not take us
 
-@skill(gives=["state:in_the_end"], remaining=_k.is_in_dimension(lambda c: "minecraft:the_end"), needs={}, done=lambda c: api.get("/state")["dimension"] == "minecraft:the_end", budget=120, stall=60)
+@skill(gives=["state:in_the_end"], remaining=_k.is_in_dimension(lambda c: THE_END), needs={}, done=lambda c: api.get("/state")["dimension"] == THE_END, budget=120, stall=60,
+       provides={"enter:end": lambda ctx, s: ()}, when=lambda s, f: [("state:end_portal_open", True)],
+       sets={"*": {"dimension": THE_END}})
 def enter_end(ctx):
     """Jump into the activated end portal (the centre of the frame ring)."""
     centre = portal_centre([(h["x"], h["y"], h["z"]) for h in find(["end_portal_frame"], radius=32, limit=12)])

@@ -96,7 +96,7 @@ class Equivalence(unittest.TestCase):
         name, row = "iron_ingots", table.rows("core")["iron_ingots"]
         want = recorded()[name]
         rows = [("scene: one block moved", dict(row, scene=[("floor", "stone", 8, 5)] + row["scene"][1:])),
-                ("budget one less", dict(row, budget=row["budget"] - 1)),
+                ("budget one less", dict(row, budget=table.build(row, "core")["budget"] - 1)),
                 ("a queue where there was none", dict(row, queue=[{"goal": "have", "args": {"needs": [["log", 1]]}}])),
                 ("another check", dict(row, check=[("count", "minecraft:iron_ingot", ">=", 2)]))]
         for why, changed in rows:
@@ -222,6 +222,21 @@ class TierRules(unittest.TestCase):
         # must fail: a row over the limit is cut to it by the interpreter, not kept
         over = dict(table.rows("core")["iron_ingots"], budget=runner.ROW_LIMIT_S + 5)
         self.assertEqual(table.build(over, "core")["budget"], runner.ROW_LIMIT_S)
+
+    def test_budgets_are_the_estimate(self):
+        # V10: a row naming its goal (est) is budgeted at production's price of it over its own scene × the slack
+        for tier, rows in tables().items():
+            for name, row in rows.items():
+                if "est" in row:
+                    with self.subTest(name):
+                        got = table.build(row, tier)
+                        want = table.est_budget(row, got["setup"])
+                        self.assertEqual(got["budget"], want if tier == "acceptance" else min(want, runner.ROW_LIMIT_S))
+        # must fail: one more of the goal costs more (the budget reads the goal, not a number)
+        row = table.rows("core")["iron_ingots"]
+        more = dict(row, est=("plan", [("minecraft:iron_ingot", 30)]))
+        self.assertGreater(table.est_budget(more, table.build(more, "core")["setup"]),
+                           table.est_budget(row, table.build(row, "core")["setup"]))
 
     def test_fight_rows_only_in_combat(self):
         out = sorted(n for t, rows in tables().items() for n, r in rows.items()

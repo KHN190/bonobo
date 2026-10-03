@@ -239,7 +239,24 @@ def recipes():
         r[f"minecraft:{material}_shovel"] = ([None, tok, None, None, s, None, None, s, None], 1)
         r[f"minecraft:{material}_sword"] = ([None, tok, None, None, tok, None, None, s, None], 1)
         r[f"minecraft:{material}_hoe"] = ([tok, tok, None, None, s, None, None, s, None], 1)
+    r.update(vanilla_recipes())
     return r
+
+def vanilla_recipes():
+    """The game's own recipe files (vanilla/recipe, copied from the 1.21.11 jar's data/minecraft/recipe): item →
+    (pattern, output count) in recipes()' form."""
+    import json
+    import os
+    out = {}
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vanilla", "recipe")
+    for name in sorted(os.listdir(folder)):
+        with open(os.path.join(folder, name), encoding="utf-8") as f:
+            got = json.load(f)
+        if got["type"] != "minecraft:crafting_shapeless":
+            raise ValueError(f"{name}: recipe type {got['type']} not read")
+        cells = list(got["ingredients"])
+        out[got["result"]["id"]] = (cells + [None] * ((4 if len(cells) <= 4 else 9) - len(cells)), got["result"]["count"])
+    return out
 
 RECIPES = recipes()
 
@@ -396,7 +413,7 @@ SLEEP_BLOCKERS = {f"minecraft:{n}" for n in (
 SLEEP_BLOCKERS_ANGRY = {"minecraft:zombified_piglin"}
 BED_BOX = (8.0, 5.0, 8.0)        # trySleep's monster box: the bed's bottom centre ± these
 BED_REACH = (3.0, 2.0, 3.0)      # trySleep's isBedWithinRange: the player within these of the bed's bottom centre
-TORCH_LIGHT = 15                 # a torch's block light; one less per block away
+TORCH_LIGHT = 14                 # a torch's block light (Minecraft Wiki, Light: torch 14); one less per block away
 REPAIR_BONUS_PARTS = 20          # combining two tools adds 1/this of the max durability
 DEEPSLATE_TOP = 0        # below this y the overworld's rock is deepslate
 # overworld soil over the rock, in blocks, where the column under the feet is not read (knowledge.soil_depth):

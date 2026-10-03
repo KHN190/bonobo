@@ -29,7 +29,7 @@ ROWS = [
          scene=[('floor', 'stone', 6, 12), ('fill', ('@', 0, -5, 0), ('@', 0, -4, 0), 'air'), ('stand', 0, -5),
                 ('cmd', 'clear @p'), ('give', 'stone_pickaxe'), ('give', 'cobblestone', 32)],
          run=('do', 'bonobo.nav.go_to', [('@', 3, 0, 3), ('$ctx', 'policy')], {'range_': 0.6}),
-         check=[('arrived', ('@', 3, 0, 3), 0.6)], budget=25,
+         check=[('arrived', ('@', 3, 0, 3), 0.6)], est=('way', ('@', 3, 0, 3)),
          expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'stone', 169, 169)], mod=['travel'], point='B',
          skills=['travel_to']),
     dict(name='slice_nether_kit', module='brain',
@@ -52,7 +52,8 @@ ROWS = [
          scene=[('floor',), ('fill', ('@', 8, -3, -3), ('@', 20, -1, 3), 'stone'), ('stand', -2),
                 ('give', 'cooked_beef', 4)],
          run=('&walk_once',), before=[('start', 'eat_while_walking'), ('&hunger_drained',)],
-         check=[('call', 'walk_ate', [])], budget=25, skills=['goto'],
+         check=[('call', 'walk_ate', [])], est=('step', 'goto', '', 1, {'pos': ('@', 18, 0, 0)}),
+         skills=['goto'],
          tier_fixed='common', combat=False, stochastic=False, tags={'base': 'nav', 'state': 'hungry'}),
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
@@ -93,5 +94,5 @@ CODE_ROWS = [
                     # mid-work: the resume found raw iron still to load (an interrupt landing after the last furnace
                     # counted as one, and the row passed in 1.6 s with nothing resumed)
                     lambda api, inv: RESUMED_LEFT.get("smelt_job_interrupted", 0) >= 1),
-         budget=BASES["smelt"]["budget"]),       # an interrupted run keeps its base's time
+         est=BASES["smelt"]["est"]),       # an interrupted run keeps its base's time
 ]

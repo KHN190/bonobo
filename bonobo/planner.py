@@ -22,13 +22,16 @@ from . import api, lifecycle
 from .api import McError
 from .data import GROUPS, OVERWORLD, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_USES, bare, mid
 from .beliefs import CONFIG, TICKS_PER_S, fights_back
-from .knowledge import (ALL_FOOD, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, tool_item, tool_kind, spare_uses, work_s, working)
+from .knowledge import (ALL_FOOD, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 
 MAX_DEPTH = 14
 MAX_NODES = 400       # A* expansions past the incumbent (~0.1 s measured): spent, the best complete plan found
                       # stands — the incumbent at least (D1: an answer, never a hang)
 MERGEABLE = {"mine", "gather", "hunt", "smelt"}
+STATIONS = frozenset(("minecraft:crafting_table", "minecraft:furnace"))     # what way() works at, never used up
+FOOD_IDS = frozenset(mid(f) for f in ALL_FOOD)          # what the eat reflex eats
+MAKES_FOOD = ("smelt", "craft", "take", "withdraw", "trade", "await")   # steps that put food in the bag
 MERGEABLE_CRAFTS = {"planks", "minecraft:stick", "minecraft:torch", "minecraft:ladder"}
 REORDER_MAX = 10      # steps with a known place an order is searched over exactly (2^n states)
 
@@ -246,6 +249,7 @@ class Bound:
     def __init__(self, cost):
         from .knowledge import producers
         self.ways = {}      # asked token → [(ticks per unit, {input: per unit}, {tool kind: tier})]
+        self.shapes = {}    # asked token → [(its unit step, the station it works at or None, {input: per unit})]
         tokens = {t for g in producers() for t in g.keys()} | set(GROUPS) | {"food"}
         for asked in sorted(tokens):
             for token, src in sources(asked) if asked != "food" else [(f, s) for f in ALL_FOOD for _m, s in
@@ -268,6 +272,7 @@ class Bound:
                         need[kind] = max(need.get(kind, 0), int(tier))
                 ins = {t: c / out for t, c in inputs if step.kind != "farm"}
                 self.ways.setdefault(asked, []).append((self.per_run(cost, step) / out, ins, need))
+                self.shapes.setdefault(asked, []).append((step, _station, ins))
         scratch = {}
         for _ in range(len(self.ways) + 1):
             changed = False
@@ -308,6 +313,20 @@ class Bound:
             if not changed:
                 break
         self.tools = tools
+        stations: dict = {}  # token → the stations every way to make it works at (through its inputs)
+        for _ in range(len(self.shapes) + 1):
+            changed = False
+            for asked, shapes in self.shapes.items():
+                got = None
+                for _step, station, ins in shapes:
+                    here = ({station} if station else set()).union(*(self.tools_of(stations, t) or set() for t in ins))
+                    got = here if got is None else got & here
+                if got and got != stations.get(asked):
+                    stations[asked] = got
+                    changed = True
+            if not changed:
+                break
+        self.stations = stations
 
     @staticmethod
     def per_run(cost, step):
@@ -398,6 +417,7 @@ class Node:
 
 class Search:
     def __init__(self, cost, kinds=None):
+        self.hungry = getattr(cost, "hunger_rate", lambda: 0.0)()
         self.cost = cost
         self.kinds = kinds              # step kinds allowed (None: all)
         self.lb = bound(cost)
@@ -441,7 +461,32 @@ class Search:
                 _op, kind, tier, uses, _depth = task
                 if not inv.has_tool(kind, tier, uses):
                     tool = max(tool, self.lb.least(tool_item(kind, tier), 1, held, memo))
-        return max(units, tool)
+        station, walk = 0.0, 0.0
+        for task in node.stack[floor:]:
+            if task[0] != "need" or held(task[1]) >= task[2]:
+                continue
+            for s in self.lb.tools_of(self.lb.stations, task[1]) or ():
+                if held(s) <= 0 and not self.cost.station_near(s) and not getattr(self.cost, "stored", lambda t: [])(s):
+                    station = max(station, self.lb.least(s, 1, held, memo))
+            walk = max(walk, self.reach_lb(task[1], held, set()))
+        return max(units + walk, tool, station)
+
+    def reach_lb(self, token, held, seen):
+        """Ticks no plan for `token` can walk less than: over its every way, the straight walk to the nearest known
+        source of what that way's work or its inputs take from the world (0 where none is known, where some is
+        held or stored, or where a way needs no walk) — the least over its ways."""
+        if token in seen or held(token) > 0 or getattr(self.cost, "stored", lambda t: [])(token):
+            return 0.0
+        seen = seen | {token}
+        best = math.inf
+        for step, _station, ins in self.lb.shapes.get(token, self.lb.shapes.get(mid(token), ())):
+            own = 0.0
+            if step.kind in ("mine", "gather", "hunt", "take") and getattr(self.cost, "site", lambda s: None)(step):
+                own = float(self.cost.walk_lb(step))
+            best = min(best, max([own] + [self.reach_lb(t, held, seen) for t in ins]))
+            if best <= 0:
+                return 0.0
+        return 0.0 if best == math.inf else best
 
     # -- one node to its next choice: resolved in place; returns children, [] when it died, None when complete
     def advance(self, node, floor=0):
@@ -565,9 +610,28 @@ class Search:
             if src[0] == "take" and getattr(self.cost, "site", lambda s: None)(step) is None:
                 continue                # a thing standing in the world is taken only where one is known
             out.append(((0, 0, i), self.tasks(token, n, depth, len(node.steps), *got)))
+            carried = self.from_carried(node, src, made, n)
+            if carried:
+                # the action keyed by its inputs' source: what the bag's inputs make is its own step, run when it pays
+                out.append(((0, 0, i, 1), self.tasks(token, carried, depth, len(node.steps), *way(src, made, carried))
+                            + [("need", token, n - carried, depth, False)]))
         if self.kinds is None:
             out += self.withdrawals(node, token, n, depth)
         return out
+
+    @staticmethod
+    def from_carried(node, src, made, n):
+        """The most of `n` a craft or smelt makes from inputs the bag already holds (0 < k < n), else 0: when only
+        part is carried, that part is a step of its own (an input on its way never holds the carried part back)."""
+        if src[0] not in ("craft", "smelt") or n < 2:
+            return 0
+        if all(node.inv.available(t) >= c for t, c in way(src, made, n)[1]):
+            return 0
+        for k in range(n - 1, 0, -1):
+            got = way(src, made, k)
+            if got[0].count < n and all(node.inv.available(t) >= c for t, c in got[1]):
+                return got[0].count
+        return 0
 
     def withdrawals(self, node, token, n, depth):
         """Taking it from a container that holds it (memory.stored, each weighed by the chance it still does): as
@@ -588,6 +652,7 @@ class Search:
 
     def tasks(self, token, n, depth, start, step, inputs, station, adds):
         """The run-order tasks of one way: its inputs, its station, its call's own needs, the step, what it adds."""
+        station = station or step_station(step)       # the contract's own station where the recipe names none
         out: list[tuple] = [("need", t, c, depth + 1, False) for t, c in inputs]
         if step.kind == "smelt":
             out.append(("fuel", step, depth))
@@ -741,7 +806,11 @@ class Search:
         for kind in {k for k in map(tool_kind, breaks) if k is not None} | ({"sword"} if kills else set()):
             if kind in held:
                 node.inv.wear(kind, 0, self.uses(step, kind))
-        node.g += self.cost.work(step, held) + self.cost.dig_to(step, held) + self.cost.walk_lb(step)
+        ticks = self.cost.work(step, held) + self.cost.dig_to(step, held) + self.cost.walk_lb(step)
+        if self.hungry and not node.inv.facts.get("fed"):
+            ticks += round(ticks * self.hungry)         # F1l: hunger's seconds until a step makes food
+            node.inv.facts["fed"] = mid(step.token) in FOOD_IDS and step.kind in MAKES_FOOD
+        node.g += ticks
         node.inv.facts.update(self.sets(step))
         node.steps.append((step, held, start))      # start: where the steps it needs begin
         return None
@@ -808,7 +877,11 @@ class Search:
             elif need[0] == "fact":
                 after.append(("fact", need[1], need[2], 0))
             elif need[0] == "do":
-                after += [("prep", need[1], 0), ("emit", need[1], 0, 0)]
+                station = step_station(need[1])
+                after += ([("station", station, 0)] if station else []) + [("prep", need[1], 0), ("emit", need[1], 0, 0)]
+            elif mid(need[0]) in STATIONS:
+                # a station the goal asks for stands from when it is had: every later step reuses it, none makes another
+                run += [("need", need[0], int(need[1]), 0, False), ("add", need[0], int(need[1]))]
             else:
                 # a goal's items are to be held: had, then counted back for what the plan does after them
                 run.append(("need", need[0], int(need[1]), 0, False))
@@ -876,9 +949,13 @@ def forward(entries, cost):
         held.append(h)
     order = walk_order(steps, cost)
     out, at, total = [], None, 0
+    hungry = getattr(cost, "hunger_rate", lambda: 0.0)()      # F1l: hunger's seconds until a step makes food
     for i in order:
         step = steps[i]
         step.est = cost.estimate(step, held[i], at)
+        if hungry:
+            step.est += round(step.est * hungry)
+            hungry = 0.0 if mid(step.token) in FOOD_IDS and step.kind in MAKES_FOOD else hungry
         site = cost.site(step) if hasattr(cost, "site") else None
         at = site if site is not None else at
         total += step.est
@@ -950,12 +1027,22 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None):
     if not needs:
         return [(plan_name([]), 0.0, [])]
     root = Node(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()), [], [])
+    # one plan per question a round asks (the same needs from the same bag: needs, upkeep, queue, night)
+    cache = getattr(cost, "cache", None)
+    key = ("plan", tuple(repr(tuple(n)) for n in needs), root.inv.signature(), tuple(sorted(kinds)) if kinds else None)
+    if cache is not None and key in cache:
+        return [(name, seconds, [Step(s.kind, s.token, s.count, dict(s.detail), s.est) for s in steps])
+                for name, seconds, steps in cache[key]]
     search = Search(cost, kinds)
     chosen = search.plan(root, list(needs))
     out = {plan_name(chosen): (plan_name(chosen), sum(s.est for s in chosen) / TICKS_PER_S, chosen)}
     for name, seconds, steps in sorted(search.considered, key=lambda c: c[1]):
         out.setdefault(name, (name, seconds, steps))
-    return list(out.values())
+    got = list(out.values())
+    if cache is not None:
+        cache[key] = [(name, seconds, [Step(s.kind, s.token, s.count, dict(s.detail), s.est) for s in steps])
+                      for name, seconds, steps in got]
+    return got
 
 
 def plan_needs(inv, needs, cost, pending=None, jobs=None, kinds=None):

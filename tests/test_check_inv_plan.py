@@ -124,6 +124,10 @@ class Plan(unittest.TestCase):
         ("D4", {"switches": [(4.0, 2.0, 3.0, 1.0, True)], "holds": [("a", "b", "better")]}, True),   # must fail
         ("D4", {"switches": [], "holds": [("a", "b", "better")]}, True),     # must fail: changed without weighing
         ("D4", {"switches": [], "holds": [("a", "b", "assumption")]}, False),
+        ("P3", {"plan": BEEF_IN_ORDER, "bound": 150}, False),
+        ("P3", {"plan": BEEF_IN_ORDER, "bound": 155}, False),            # boundary: the plan's own price
+        ("P3", {"plan": BEEF_IN_ORDER, "bound": 400}, True),             # must fail: the bound above what is paid
+        ("P3", {"plan": BEEF_IN_ORDER, "bound": 400, "plan_hand_made": True}, False),   # a hand-made plan: not judged
         # a held plan against the round's chosen one: (held_s, chosen_s, lost_s, switched)
         ("D4", {"plan_switch": (30.0, 10.0, 5.0, True)}, False),
         ("D4", {"plan_switch": (30.0, 28.0, 5.0, True)}, True),     # must fail: the switch throws away more than it saves
