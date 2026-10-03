@@ -85,7 +85,9 @@ def mine_segment_commands(state, args):
 
     cells, drop, tier = args
     only = pickup_whitelist(state["inv"].used_slots(), [drop])
-    return nav.mine_batch(cells, state.get("feet"), require_drops=tier is not None, collect=True, only=only or None)
+    ground = state.get("region")     # a step's head room broken where it reads solid (nav.mine_batch)
+    return nav.mine_batch(cells, state.get("feet"), require_drops=tier is not None, collect=True, only=only or None,
+                          solid=ground.solid if ground is not None else None)
 
 def spent_cells(sent, name_at, blocks) -> list[Cell]:
     """Pure: the sent cells whose block is gone in a fresh read (`name_at(cell)`) — their notes are spent; a cell
@@ -397,7 +399,8 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         before = Inventory().count(drop)
         sent |= set(vein)
         try:
-            batch = mine_segment_commands({"inv": Inventory(), "feet": here_now}, (vein, drop, tier))
+            batch = mine_segment_commands({"inv": Inventory(), "feet": here_now, "region": region.now()},
+                                          (vein, drop, tier))
             r = nav.run_cells("mine_many", batch[:-1], then=batch[-1], wait=TASK_WAIT_S)
         except api.Unreachable as out:
             region = region.now()         # the batch broke what it could
