@@ -210,7 +210,8 @@ class Memory:
         self._tick_read = (time.time(), value)
         return value
 
-    def __init__(self, path=NOTES_FILE):
+    def __init__(self, path=None):
+        path = NOTES_FILE if path is None else path          # read when made: a moved notes file is the one used
         self.path = path
         self.homes_path = os.path.join(os.path.dirname(path), HOMES_NAME)
         self.data: dict[str, Any] = read_notes(path)

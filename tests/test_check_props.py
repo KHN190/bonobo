@@ -132,6 +132,8 @@ class ColdIsWarm(unittest.TestCase):
         self.assertEqual(rnd.warm_name(f, explore.POLLUTE), rnd.decide(f, fail_then_again=False)[0].name)
         self.assertIn(("bonobo.planner", ("_BOUNDS",)), lifecycle.CACHES)      # what the warm round keeps
 
+
+class Generated(unittest.TestCase):
     @settings(max_examples=EXAMPLES, deadline=None, derandomize=True, database=None, suppress_health_check=[HealthCheck.too_slow])
     @given(states)
     def test_any_state(self, f):

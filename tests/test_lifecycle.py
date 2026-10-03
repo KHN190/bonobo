@@ -29,6 +29,7 @@ ALLOW = {
     ("bonobo.api", "LAST_DETAIL"): "the process's liveness (the watchdog's freeze clock): per process, not per life",
     # containers mutated in place
     ("bonobo.lifecycle", "_RESETS"): "the registry itself",
+    ("bonobo.lifecycle", "CACHES"): "import-time: which registered resets are caches (D8)",
     ("bonobo.paths", "_SESSION"): "the session registry itself (paths.session; renewed by paths.renew_session)",
     ("bonobo.fight_loop", "BATCH"): "import-time registry (skills lend their batches)",
     ("bonobo.fight_loop", "REGION"): "import-time registry (skills lend their regions)",
