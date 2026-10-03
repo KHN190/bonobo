@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
-from .data import DOOR_NEAR, ENTITY_REACH, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .data import DOOR_NEAR, ENTITY_REACH, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH, bare, OUTLINE_PASSABLE, OUTLINE_PASSABLE_SUFFIX  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .game import EYE_HEIGHT, PLAYER_SPRINT
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
 from .knowledge import WAY_BLOCKS, dig_ticks, find_class
@@ -514,6 +514,27 @@ def _read_box(cells, pad=REACH):
 _IN_WAY = [0]            # how deep a way's own steps are being sent (their gate never asks for another way)
 lifecycle.in_place(__name__, "_IN_WAY")
 
+def _thin_cover(region, cell):
+    """Pure: the OUTLINE_PASSABLE block straight above `cell` (its only open face once mined) — one whose outline
+    still stops the jar's sight ray though the body walks through it — or None."""
+    above = cell_add(cell, (0, 1, 0))
+    name = bare(region.name(above))
+    return above if name in OUTLINE_PASSABLE or name.endswith(OUTLINE_PASSABLE_SUFFIX) else None
+
+def _cover_thin_tops(tasks, region):
+    """Mutates `tasks`: before any plain mine task (not `down`) whose top is covered by a thin outlined block
+    (_thin_cover), a mine task for that cover — unasked, the jar's ray never reaches the target's one open face."""
+    i = 0
+    while i < len(tasks):
+        t = tasks[i]
+        if t.get("type") == "mine" and "x" in t and not t.get("down"):
+            cover = _thin_cover(region, _cell_of(t))
+            if cover is not None and not any(tt.get("type") == "mine" and "x" in tt and _cell_of(tt) == cover
+                                              for tt in tasks[:i]):
+                tasks.insert(i, mine_task(cover))
+                i += 1
+        i += 1
+
 def gate(tasks, policy):
     """api.GATE (I4): each act (act_of: mine/place/use, a use_item on a block, a mob act where the mob is now) goes
     out only from a stand where the jar's own check holds (stands_for); one that fails gets its way first
@@ -528,6 +549,7 @@ def gate(tasks, policy):
         where = mob_cells(tasks)
         cells = [c for c in (target_of(t, None, where) for t, _s in pairs) if c is not None]
         region = _read_box(cells + [s for _t, s in pairs])
+        _cover_thin_tops(tasks, region)
         tasks[:] = standable_order(tasks, region, feet())
         bad = unstandable(tasks, region, feet(), where)
         if bad is None:

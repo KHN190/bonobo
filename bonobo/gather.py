@@ -230,7 +230,14 @@ def _go_way(ctx, region, start, target, faces, drop):
     if api.BUDGET[0] is not None:
         whole = nav.reach(region, start, target, "mine", Inventory(), ctx.policy.protected, walks=walks)
         api.afford(max(seconds or 0.0, whole.seconds if whole.stand is not None else 0.0), target)
-    nav.run_way(steps, ctx.policy, target)
+    try:
+        nav.run_way(steps, ctx.policy, target)
+    except (api.Unreachable, api.NavFailed) as out:
+        # the way's own chain named a cell the jar could not reach from here, now: banned (ctx.ban), this pass tries another
+        for p in (getattr(out, "cells", None) or [getattr(out, "pos", None) or target]):
+            ctx.ban(p)
+        api.detail(f"  mine {bare(drop)}: way to {target} refused by the jar ({out}), banned")
+        return False
     return True
 
 @skill(gives=K.GIVES_MINE, needs=lambda a: {} if a[4] is None else {f"tool:pickaxe:{a[4]}": 1}, start=lambda c: Inventory().count(c.args[1]),
