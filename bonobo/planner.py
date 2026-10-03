@@ -229,12 +229,14 @@ def way(src, token, n, ripe=0) -> tuple[Step, list, str | None, list]:
         _, pattern, out = src
         times = math.ceil(n / out)
         inputs = Counter(p for p in pattern if p)
-        step = Step("craft", token, times * out, {"times": times, "inputs": {t: c * times for t, c in inputs.items()}})
-        return step, [(t, c * times) for t, c in inputs.items()], \
-            ("minecraft:crafting_table" if len(pattern) == 9 else None), [(token, times * out)]
+        station = "minecraft:crafting_table" if len(pattern) == 9 else None
+        step = Step("craft", token, times * out, {"times": times, "inputs": {t: c * times for t, c in inputs.items()},
+                                                  **({"station": station} if station else {})})
+        return step, [(t, c * times) for t, c in inputs.items()], station, [(token, times * out)]
     if kind == "smelt":
         _, inp = src
-        return Step("smelt", token, n, {"input": inp, "inputs": {inp: n}}), [(inp, n)], "minecraft:furnace", []
+        return Step("smelt", token, n, {"input": inp, "inputs": {inp: n}, "station": "minecraft:furnace"}), [(inp, n)], \
+            "minecraft:furnace", []
     if kind == "mine":
         _, blocks, tier = src
         per = MINE_YIELD.get(mid(token), 1)
@@ -1630,17 +1632,20 @@ def _ids_made(step):
 
 
 def _ids_used(step):
-    """Pure: the item ids a step takes: its inputs, its container, its input."""
+    """Pure: the item ids a step takes or must have: its inputs, its container, its input, its station (the recipe's
+    or its contract's)."""
     return set().union(*(_ids(t) for t in list(step.detail.get("inputs", {})) + [step.detail.get("container"),
-                                                                                    step.detail.get("input")]))
+                                                                                    step.detail.get("input"),
+                                                                                    step.detail.get("station"),
+                                                                                    step_station(step)]))
 
 
 def step_needs(steps):
     """Pure:"""
     makes = [_ids_made(s) for s in steps]
     uses = [_ids_used(s) for s in steps]
-    kept = [s.kind == "craft" and (bare(s.token).endswith(("_pickaxe", "_axe", "_shovel", "_sword", "_hoe"))
-                                   or mid(s.token) in STATIONS) for s in steps]
+    # a tool or station is had from the step that brings it, however (craft, take, withdraw): every later step may need it
+    kept = [any(bare(i).rpartition("_")[2] in TOOL_KINDS or i in STATIONS for i in m) for m in makes]
     need: list[set] = []
     for j in range(len(steps)):
         direct = {i for i in range(j) if makes[i] & uses[j] or kept[i]}
