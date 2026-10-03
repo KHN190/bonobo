@@ -156,10 +156,8 @@ def thrown_s(now=None):
     return 0.0 if left is None else cur.commit_s - left
 
 def act_on_surface(act):
-    """Pure: does this act's step walk the surface (arbiter.on_surface)? An act with no step (a chain, a whole
-    skill) is judged by what it runs elsewhere: not flagged."""
-    step = getattr(act, "step", None)
-    return step is not None and arbiter.on_surface(step.kind)
+    """Pure: does this plan act's step (craft_act always names one) walk the surface (arbiter.on_surface)?"""
+    return arbiter.on_surface(act.step.kind)
 
 def craft_run(steps, first, inv=None):
     """Pure: `first` and the crafts straight after it: one table sitting, not one per round — up to the first craft
@@ -1003,7 +1001,7 @@ def outcome_of(err) -> "tuple[Outcome, Source | None]":
 
 def met(step, snap):
     """Pure: the world already holds what a walk makes."""
-    if step.kind == "goto" and step.detail.get("pos") is not None:
+    if step.kind == "goto":
         return math.dist(snap.feet, tuple(step.detail["pos"])) <= float(step.detail.get("range", 2))
     return False
 

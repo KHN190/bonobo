@@ -138,8 +138,6 @@ def _decompose(inv, goal, cost, pending) -> list[Step]:
         look = planner_look_first(inv, goals.needs(goal, inv), cost, pending)
         if look:
             return look
-    if template in ("goto", "road"):
-        return [need[1] for need in round_needs(goal, inv, cost) if isinstance(need[1], Step)]
     return solve_needs(inv, round_needs(goal, inv, cost), cost, pending, jobs)
 
 def round_needs(goal, inv, cost) -> list:
