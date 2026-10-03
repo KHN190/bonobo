@@ -1507,7 +1507,6 @@ def p_unknown(k, n):
 
 def look_first(inv, needs, cost, pending=None):
     """[the look into an unopened home container] when its expected seconds beat making what is short — the look, th…"""
-    from . import goals
     mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
     if mem is None or snap is None or not hasattr(mem, "home_containers"):
         return []
@@ -1520,7 +1519,7 @@ def look_first(inv, needs, cost, pending=None):
             continue
         token, n = need[0], int(need[1])
         held = {token: sum(have for _p, _i, have, _pr in cost.stored(token))}
-        short = goals.have_remainder(inv, [[token, n]], {**(pending or {}), **held}).get(token, 0)
+        short = have_remainder(inv, [[token, n]], {**(pending or {}), **held}).get(token, 0)
         if short <= 0:
             continue
         try:
