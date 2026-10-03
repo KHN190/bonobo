@@ -177,6 +177,23 @@ class ADigInThePlanIsTheRunsDigIn(unittest.TestCase):
                     self.assertIs(survive.dig_in_site(region, feet, inv=inv), runs)
 
 
+class APlanReadNeverRaises(unittest.TestCase):
+    """A fact read (needs.night_facts → night_ground → dig_in_site → dig_in_plan) says "not here", never raises:
+    a column with a fluid under the feet."""
+
+    def test_rows(self):
+        from bonobo import survive
+        from bonobo.data import HAZARD
+        for under in sorted(HAZARD & {"lava", "water"}):
+            with self.subTest(under=under):
+                blocks, _t = geometry("flat", "stone")
+                blocks[(FEET[0], FEET[1] - 1, FEET[2])] = under
+                region = FakeRegion(LO, HI, blocks)
+                # must fail: NotAvailable("unsafe to dig down here") out of a fact read
+                self.assertIs(survive.dig_in_site(region, FEET, inv=inventory_of(CARRIED)), False)
+                self.assertIs(survive.dig_in_site(region, FEET), False)
+
+
 class AWallInThePlanIsTheRunsWallIn(unittest.TestCase):
     """K1 for the night's pod: the plan's needs for it (survive.pod_needs on the snapshot) are its run's own count
     (pod_plan: walls, roof and the supports they stand on), so the plan offers it exactly when the run builds it."""

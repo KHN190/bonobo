@@ -106,10 +106,7 @@ def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
     what the shaft itself digs that places (stone → cobblestone, dirt: data.PLACEABLE_AS, the building group) — cover
     (the last JUMP_BLOCKS jumped)."""
     depth = feet_at[1] - target[1]
-    try:
-        tasks, safe = nav.dig_down_tasks(region, feet_at, depth, protected)
-    except NotAvailable as e:
-        return None, str(e)
+    tasks, safe = nav.dig_down_tasks(region, feet_at, depth, protected)
     if safe < depth:
         return None, f"lava, water or a cave {safe + 1} down"
     x, y, z = feet_at

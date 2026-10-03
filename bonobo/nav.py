@@ -923,12 +923,11 @@ def safe_depth(region, feet, depth, protected=(), dug_to=None):
     return safe
 
 def dig_down_tasks(region, feet, depth, protected=(), use_ladders=False, dug_to=None):
-    """Pure: (tasks, depth that is safe) for digging straight down from `feet` (safe_depth)."""
+    """Pure: (tasks, depth that is safe) for digging straight down from `feet` (safe_depth); ([], 0) where nothing
+    is: the caller says why (a plan's read never raises)."""
 
     x, y, z = feet
     safe = safe_depth(region, feet, depth, protected, dug_to)
-    if safe == 0:
-        raise NotAvailable("unsafe to dig down here")
     tasks = []
     for i in range(1, safe + 1):
         cell = (x, y - i, z)
@@ -947,6 +946,8 @@ def dig_down(depth, policy, use_ladders):
     """Straight down under the feet (`dig_down_tasks`), run as one chain. Returns how deep it went."""
     here = feet()
     tasks, safe = dig_down_tasks(dig_down_region(here, depth), here, depth, policy.protected, use_ladders)
+    if safe == 0:
+        raise NotAvailable("unsafe to dig down here")
     # stop at the first failure: a mine that failed leaves stone where the next ladder goes
     results = api.run_chain(tasks, stop_on_failure=True, before_segment=policy.before_segment)
     if any(r["status"] != "succeeded" for r in results):
@@ -1138,6 +1139,7 @@ def dig_cells(region, cells, start):
 class Why(str):
     """A way's why not, with the cell it names (`cell`: the tread, the support, the fluid, the home, the
     unbreakable block; None when it names none: off the read, no way at all): what a failure is keyed by (E5)."""
+    cell: "tuple | None"
 
     def __new__(cls, text, cell=None):
         out = super().__new__(cls, text)

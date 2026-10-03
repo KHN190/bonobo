@@ -848,8 +848,10 @@ def pod_needs(snap):
     """The wall-in's needs on this snapshot: pod_plan's blocks round the feet over the read ground; POD_BLOCKS when
     the ground there is not read (unknown: priced as before)."""
     region = getattr(snap, "region", None)
-    feet = tuple(int(c) for c in snap.feet) if region is not None else None
-    if feet is None or not all(region.inside(c) for c in _pod_cells(feet)):
+    if region is None:
+        return [("building", POD_BLOCKS)]
+    feet = tuple(int(c) for c in snap.feet)
+    if not all(region.inside(c) for c in _pod_cells(feet)):
         return [("building", POD_BLOCKS)]
     _tasks, n, _carried = pod_plan({"feet": feet, "region": region, "inv": snap.inv, "protected": set()})
     return [("building", n)] if n else []

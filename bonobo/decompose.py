@@ -5,7 +5,7 @@ import time
 from . import beliefs, blueprints, goals, knowledge, skill
 from .api import McError
 from .cost import TICKS_PER_S
-from .data import DAY_TICKS, NIGHT_END, is_night, mid
+from .data import DAY_TICKS, NIGHT_END, POD_BLOCKS, is_night, mid
 from .planner import Step, Unplannable, plan_needs
 from .planner import look_first as planner_look_first
 from .knowledge import members
@@ -75,12 +75,15 @@ SOURCES = {
                   {"name": "dig in by hand", "steps": [("shelter", "dig_in", {})], "needs": [],
                    "when": ("soft_ground", "no ground near digs by hand: it needs a pickaxe"),
                    "extra_s": ("soft_walk_s", "wait_s")},   # the walk to that ground (survive.soft_spot), the night
-                  {"name": "wall in", "steps": [("shelter", "pod", {})], "needs": _pod_needs,
+                  {"name": "wall in", "steps": [("shelter", "pod", {})], "needs": [("building", POD_BLOCKS)],
                    "extra_s": ("wait_s",)},
                   # the hut's needs are read from its blueprint (a hand copy named the wrong stone)
                   {"name": "hut", "steps": [("shelter", "hut", {})],
                    "needs": sorted(blueprints.materials(blueprints.SHELTER).items()), "extra_s": ("wait_s",)}],
 }
+
+# a night way whose needs read the snapshot (the wall-in: its own plan's blocks over the read ground)
+NEEDS_OF = {"wall in": _pod_needs}
 
 NIGHT_ITSELF = ("wait_s",)        # spent in the night, not before it
 
@@ -125,9 +128,9 @@ def offered_sources(key, cost, facts=None):
 
 
 def source_needs(src, snap):
-    """A night way's needs: its list, or a function of the snapshot (the wall-in's blocks: survive.pod_needs)."""
-    needs = src["needs"]
-    return list(needs(snap) if callable(needs) else needs)
+    """A night way's needs: a function of the snapshot where it has one (NEEDS_OF), else its list."""
+    fn = NEEDS_OF.get(src["name"])
+    return list(fn(snap)) if fn is not None else list(src["needs"])
 
 def _action(kind, token, cost, **detail):
     step = Step(kind, token, 1, detail)
