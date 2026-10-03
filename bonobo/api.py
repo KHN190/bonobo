@@ -16,7 +16,7 @@ from . import arbiter, lifecycle, paths, tape
 from .data import EXCEPTIONS, TASK_WAIT_S, item_ids, living
 
 if TYPE_CHECKING:
-    from .shapes import Task, TaskResult
+    from .shapes import Task, TaskResult, TaskStatus
 
 # no default instance path: a wrong one read no token and every request came back 401
 INSTANCE = paths.instance_dir()
@@ -408,7 +408,7 @@ def get(path) -> dict:
     return r
 
 
-TASK_STATUSES = ("running", "succeeded", "failed", "cancelled")
+TASK_STATUSES: "tuple[TaskStatus, ...]" = ("running", "succeeded", "failed", "cancelled")     # the jar's Task.Status (Task.java), lowercased
 
 
 def task_result(task_id) -> "TaskResult":
