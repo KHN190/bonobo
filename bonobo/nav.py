@@ -312,8 +312,9 @@ WAY_TRIES = 3            # ways plan_way is asked for one stand (a staircase com
 MINE_PASSES = 10         # passes gather.mine makes at a vein, a way (_go_way) each before its gate's own
 
 def ways_for(act):
-    """Pure: the ways the run spends getting to a stand for `act` — a mined source: mine's passes, then the gate's;
-    any other: the gate's (reach_stand). What reach is given, so a plan refuses only what the run gives up on (P2)."""
+    """Pure: the ways the run spends getting to a stand for `act` — a mine: as many as mine's passes and its gate's
+    (a log chopped through the gate alone gets them too); any other: WAY_TRIES. reach_stand spends it and reach is
+    given it: one count per act, a plan refuses only what the run gives up on (P2)."""
     return MINE_PASSES + WAY_TRIES if act == "mine" else WAY_TRIES
 
 def use_holds(region, feet_at, cell, reach=REACH):
@@ -563,7 +564,7 @@ def reach_stand(task, policy, faces=None, at=None):
     the stand holds; plan_way's None → NavFailed with its why. The live twin of reach's loop."""
     kind = "stand" if task.get("type") == "goto" else act_of(task) or task["type"]
     target = tuple(at) if at is not None else _cell_of(task)
-    for _ in range(WAY_TRIES):
+    for _ in range(ways_for(kind)):
         here = feet()
         region = _read_box([here, target])
         if kind != "stand" and stands_for(kind, region, here, target, task.get("down", False)):
@@ -581,7 +582,7 @@ def reach_stand(task, policy, faces=None, at=None):
             api.run_chain(steps, stop_on_failure=True)
         finally:
             _IN_WAY[0] -= 1
-    raise api.NavFailed(f"no stand for {kind} {target} after {WAY_TRIES} ways", pos=target)
+    raise api.NavFailed(f"no stand for {kind} {target} after {ways_for(kind)} ways", pos=target)
 
 ARRIVE_RANGE = 1.5       # a walk arrives this near its target (go_to's own margin): what "came to us" means
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
