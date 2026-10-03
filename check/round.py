@@ -326,10 +326,14 @@ def plan_ctx(b, act, snap, mem, world):
            "way": None, "plan_hand_made": bool(held is not None and held.get("hand_made")), "bound": None}
     goal = out["task_goal"]
     from bonobo import goals
-    looking = held is not None and bool(held["steps"]) and all(st.kind == "look" for st in held["steps"])
-    if held is not None and goal and goal["goal"] in goals.ITEM_GOALS and not looking:   # a look first is no plan of it
-        out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost)
-        if not out["plan_hand_made"]:
+    look = held["steps"][0] if held is not None and len(held["steps"]) == 1 and held["steps"][0].kind == "look" \
+        else None
+    if held is not None and goal and goal["goal"] in goals.ITEM_GOALS:
+        if look is not None and "p" in look.detail:    # a look first: its price, and with 1 − p the make anyway
+            out["bound"] = look.est + (1 - look.detail["p"]) * plan_bound(snap.inv, [look.detail["need"]], cost)
+        else:
+            out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost)
+        if not out["plan_hand_made"] and look is None:
             out["exact_s"] = exact_s(snap.inv, held.get("want"), goals.needs(goal, snap.inv), cost,
                                      mem.pending_outputs(snap.dimension))
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
