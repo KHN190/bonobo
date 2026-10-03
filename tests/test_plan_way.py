@@ -6,6 +6,7 @@ from bonobo import nav
 from bonobo.beliefs import TICKS_PER_S
 from bonobo.data import STAIR_CELLS
 from bonobo.knowledge import break_overhead, break_ticks
+from bonobo.world import Inventory
 from tests.world import FakeRegion, bag, inventory
 
 FEET = (0, 64, 0)
@@ -374,7 +375,7 @@ class TheChopChainHasAStand(unittest.TestCase):
         for feet in ((self._X, self._FLOOR_Y, self._Z), (self._X + 1, self._FLOOR_Y, self._Z)):
             for want in (2, len(self._LOGS)):
                 with self.subTest(feet=feet, want=want):
-                    chain = wood.trunk_batch(self._LOGS[0], self._LOGS[1:], want)
+                    chain = wood.trunk_batch(self._LOGS[0], self._LOGS[1:], want, region, feet, Inventory(inventory()))
                     # must fail (accept3): y77 sent before y76 from inside the column, no stand reached
                     self.assertIsNone(nav.unstandable(nav.standable_order(chain, region, feet), region, feet))
 

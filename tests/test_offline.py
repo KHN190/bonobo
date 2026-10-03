@@ -351,8 +351,12 @@ class Terrain(unittest.TestCase):
             ("must fail: never fill through a wall",
              lambda: FL.fill_spot(FakeRegion(walled, (-74, 10, 304), (-68, 15, 311)), (-71, 12, 307)),
              lambda f: f is None or f[0][2] >= 309 or f[0][1] >= 14),
-            ("fill: the stand never below the surface, the source's own cell", lambda: FL.fill_spot(still, (2, 63, 0)),
-             lambda f: f is not None and f[1] == (0, 64, 0) and f[0][1] >= 64),
+            # from the low shore with an empty bag no way climbs to a dry stand (nav.reach, the gate's): none, never
+            # the shore itself (a level view entered through flowing water)
+            ("fill: the stand never below the surface", lambda: FL.fill_spot(still, (2, 63, 0)),
+             lambda f: f is None or (f[1] == (0, 64, 0) and f[0][1] >= 64)),
+            ("fill: from the dry ledge over the source, there, the source's own cell",
+             lambda: FL.fill_spot(still, (0, 65, 1)), ((0, 65, 1), (0, 64, 0))),
             ("the aim is the source's top face", lambda: FL.surface_aim((0, 64, 0)), (0.5, 64.95, 0.5)),
         ])
 

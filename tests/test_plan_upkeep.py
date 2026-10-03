@@ -2891,17 +2891,26 @@ class TrunkBatch(unittest.TestCase):
         def batch(*cells):
             # the closing pickup every batch has (nav.batch_sweep: its idle SWEEP_IDLE); must fail: the jar's 20
             return many(*cells) + [nav.batch_sweep(nav.mine_order(cells), ["log"])]
+        from bonobo.world import Inventory
+        from tests.world import FakeRegion
         base = (3, 64, 0)
         up = [(3, 65, 0), (3, 66, 0), (3, 67, 0)]
+        floor = {(x, 63, z): "stone" for x in range(-5, 10) for z in range(-5, 6)}
+
+        def trunk(overhead):
+            return FakeRegion((-5, 60, -5), (9, 75, 5), {**floor, **{c: "oak_log" for c in [base, *overhead]}})
+        # a log the door holds from beside the trunk (stands_for over the logs below dug) or reaches a way to (nav.reach,
+        # an empty bag: no pillar) is in; the first that fails and those above it wait (P2)
         rows = [("four wanted, three overhead: one batch of all of it, no walk in", up, 4, batch(base, *up)),
                 ("two wanted: the base and the log over it", up, 2, batch(base, up[0])),
                 ("one wanted: the base only", up, 1, batch(base)),
                 ("a stump (nothing overhead)", [], 5, batch(base)),
-                ("must fail: a log past reach (5 up and more): not in the batch", up + [(3, 69, 0), (3, 70, 0)], 9,
-                 batch(base, *up))]
+                ("must fail: a log past the door's reach (6 up, nothing to stand on): not in the batch",
+                 up + [(3, 70, 0), (3, 71, 0)], 9, batch(base, *up))]
         for name, overhead, want, batch in rows:
             with self.subTest(name):
-                self.assertEqual(wood.trunk_batch((3, 64, 0), overhead, want), batch)
+                self.assertEqual(wood.trunk_batch(base, overhead, want, trunk(overhead), (2, 64, 0),
+                                                  Inventory({"slots": [], "equipment": {}})), batch)
 
 
 class CraftInOneSitting(unittest.TestCase):

@@ -178,18 +178,22 @@ class Cost:
 
     def reach(self, cell, kind, at=None, spent=0):
         """nav.reach — the door's own predicate — for `kind` at `cell` from the step's place (`at`, step_state) with
-        the bag its plan leaves (step_bag), over the round's read ground, banned cells no-go; None off the read.
-        Snapshot only (K10), once a round per (cell, kind, place, way-block budget, bans) (D8, P4)."""
+        the bag its plan leaves (step_bag), over the round's read ground (a banned unread cell: no ground,
+        _Ground.void); None off the read. Snapshot only (K10), once a round per (cell, kind, place, way blocks held,
+        bans) (D8: the kept answer is the fresh one; P4)."""
         if self.region is None or not self.region.inside(cell):
             return None
         from . import nav
         gone = self.not_there(False)
         feet = tuple(int(c) for c in self.step_state(at)[0])
         bag = self.step_bag(spent)
-        key = ("reach", tuple(cell), kind, feet, nav.place_budget(bag.count("building")), gone)
+        key = ("reach", tuple(cell), kind, feet, bag.count("building"), nav.building_of(bag), gone)
         if key not in self.cache:
             ground = _Ground(feet, cell, self.region.name(cell), self.soil(), False, self.region, gone.cells)
-            self.cache[key] = nav.reach(ground, feet, tuple(cell), kind, bag, set(self.protected() or ()) | gone.cells)
+            # a banned source (a place a step is priced at) is not there, never in the way; any other banned cell is a
+            # way's failed cause: no way goes through it again (E5)
+            causes = gone.cells - self.places()
+            self.cache[key] = nav.reach(ground, feet, tuple(cell), kind, bag, set(self.protected() or ()) | causes)
         return self.cache[key]
 
     def refused(self, cell, kind, at=None, spent=0):
