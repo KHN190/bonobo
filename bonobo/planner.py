@@ -17,7 +17,7 @@ from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 DIVE_NODES = 600      # nodes the dive weighs DIVE_WIDTH ways a choice (~0.07 s measured); then the first that can be had
 MAX_NODES = 60       # A* expansions past the incumbent (~0.01 s measured): spent, the best complete plan found
                       # stands — the incumbent at least (D1: an answer, never a hang)
-MERGEABLE = {"mine", "gather", "hunt", "smelt"}
+MERGEABLE = {"mine", "gather", "hunt", "smelt", "withdraw"}     # withdraw: from one container (its key holds the place)
 STATIONS = frozenset(("minecraft:crafting_table", "minecraft:furnace"))     # what way() works at, never used up
 FOOD_IDS = frozenset(mid(f) for f in ALL_FOOD)          # what the eat reflex eats
 MAKES_FOOD = ("smelt", "craft", "take", "withdraw", "trade", "await")   # steps that put food in the bag
@@ -44,7 +44,7 @@ class Step:
     est: int = 0         # estimated ticks
 
     def key(self):
-        return self.kind, self.token
+        return (self.kind, self.token, tuple(self.detail.get("pos", ()))) if self.kind == "withdraw" else (self.kind, self.token)
 
     def __str__(self):
         return f"{self.kind} {self.count}× {bare(self.token)} (~{self.est // TICKS_PER_S}s)"
@@ -700,10 +700,13 @@ class Search:
         entries = []
         for st in steps:
             st = Step(st.kind, st.token, st.count, dict(st.detail))
-            for tok, c in st.detail.get("inputs", {}).items():
+            for tok, c in (st.detail.get("inputs") or self.recipe_inputs(st)).items():
                 if inv.available(tok) < c:
                     return None
                 inv.consume(tok, c, awaits=False)
+            station = self.station_of(st)
+            if station and inv.available(station) <= 0 and not self.near(station):
+                return None             # its station neither carried, made before it, nor standing near
             for dim in self.call(st):
                 if dim.startswith("tool:") and not inv.has_tool(dim.split(":")[1], int(dim.split(":")[2]), 0):
                     return None
@@ -719,6 +722,14 @@ class Search:
                 return None
         out, ticks = forward(entries, self.cost, self.start_tools)
         return ticks, (), out
+
+    def recipe_inputs(self, step):
+        """{token: count} a craft or smelt of `step` takes by its recipe (a held step may not name them)."""
+        for made, src in self.sources(step.token):
+            got = way(src, made, step.count) if src[0] == step.kind else None
+            if got is not None:
+                return {t: c for t, c in got[1]}
+        return {}
 
     def no_bound(self, root):
         """Why the bound says no plan exists: the needs nothing in the tables makes from this bag."""
@@ -1153,11 +1164,11 @@ class Search:
             if kind in held:
                 node.inv.wear(kind, 0, self.uses(step, kind))
         ticks = self.cost.work(step, held)
-        if step.kind == "withdraw":         # walked to from where the step before ends, as forward prices it (D6)
+        repeat = any(st.key() == step.key() for st, _h, _s in node.steps)
+        if step.kind == "withdraw" and not repeat:     # walked to from where the step before ends, as forward prices it
             at = next((p for p in (self.cost.site(st) for st, _h, _s in reversed(node.steps)) if p is not None), None)
             ticks = self.cost.estimate(step, held, at=at)
-        elif not (step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)) \
-                or not any(st.key() == step.key() for st, _h, _s in node.steps):
+        elif not (step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)) or not repeat:
             ticks += self.cost.dig_to(step, held) + self.cost.walk_lb(step)    # a repeat joins the first (forward): one trip
             if step.kind in MERGEABLE or step.kind == "craft" and step.token in MERGEABLE_CRAFTS:
                 node.inv.set_fact("trip " + step.token, True)
@@ -1254,6 +1265,8 @@ class Search:
         if self.h(root) == math.inf:
             raise Unplannable(self.no_bound(root))      # nothing in the tables makes it from here: no search at all
         replayed = self.replay(root, needs, incumbent) if incumbent else None
+        if replayed is not None and replayed[0] < self.h(root):
+            replayed = None                 # dearer at the least than it claims: a held plan that does not run from here
         best = replayed if replayed is not None else self.dive(root.child(), cap)   # the held plan, priced today: the bar
         first_reason = self.reasons[-1] if self.reasons else None
         heap: list[tuple[float, tuple, int]] = []
@@ -1283,8 +1296,8 @@ class Search:
             got = self.advance(node)
             if got is None:
                 ticks, tie, steps = self.finish(node)
-                push(ticks, tie, node, steps)
                 if best is None or (ticks, tie) < (best[0], best[1]):
+                    best = (ticks, tie, steps)    # a whole plan cheaper than the best: the best now, budget or not
                     nodes = 0                 # a better plan found: the budget counts the expansions since one
                 continue
             for c in got:
