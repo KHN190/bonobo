@@ -109,7 +109,8 @@ def est_s(word, setup, dimension="minecraft:overworld"):
     if kind == "plan":
         return _plan_s(args[0], world, dimension)
     if kind == "step":
-        return _step_s(*args, world, dimension)
+        step_kind, token, count, detail = args
+        return _step_s(step_kind, token, count, detail, world, dimension)
     if kind == "way":
         return _way_s(args[0], world)
     if kind == "eat":

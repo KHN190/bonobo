@@ -209,7 +209,8 @@ class Brain:
         self.picks = collections.Counter()      # what the arbiter chose, by kind (arbiter.note_pick)
         self.blacklist = world.Versioned()    # unreachable targets, shared by every round's Context and the cost model
         self.held = {}                # task id -> the round's plan it is in: {"steps", "sig", "event", "dim", "want", "ran"}
-        self.round = None             # the round's plan when no task is queued (upkeep's needs alone)
+        self.needs_plan = None        # the round's plan when no task is queued (upkeep's needs alone)
+        self.unplannable: dict[str, str] = {}     # target or need name -> why it could not be planned (readout)
         self.plan_switch = None       # (held_s, chosen_s, lost_s, switched) of the round's replan over a held plan
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
@@ -623,12 +624,12 @@ class Brain:
             if self.ready(name):
                 entries.append((name, goal, len(live) + len(entries)))
         if entries:
-            old = self.held.get(queued[0]["id"]) if queued else getattr(self, "round", None)
+            old = self.held.get(queued[0]["id"]) if queued else getattr(self, "needs_plan", None)
             held = self.round_for(entries, snap, cost, old)
             if held is None:
                 self.unplannable_round(entries, queued, snap, cost)
                 return []
-            self.round = held
+            self.needs_plan = held
             for task in queued:
                 self.held[task["id"]] = held
                 if task.get("state") != "running":
@@ -674,9 +675,10 @@ class Brain:
         held, why = replan(entries, snap, cost, self.mem.pending_outputs(snap.dimension),
                            held=old["steps"] if old is not None and old.get("want") == key else None)
         if held is None:
-            self.__dict__.setdefault("unplannable", {})["round"] = why
+            self.unplannable["round"] = why or "unplannable"
             return None
-        if same and old["steps"] and [str(s) for s in old["steps"]] != [str(s) for s in held["steps"]]:
+        if old is not None and same and old["steps"] \
+                and [str(s) for s in old["steps"]] != [str(s) for s in held["steps"]]:
             held_s = repriced_s(old["steps"], cost)
             chosen_s, lost_s = sum(s.est for s in held["steps"]) / TICKS_PER_S, thrown_s()
             switched = pays_switch(held_s, chosen_s, lost_s)
@@ -700,7 +702,7 @@ class Brain:
             if name in tasks_by:
                 write(tasks_by[name], self._collecting(lambda t=tasks_by[name], w=why: self.fail_task(t, w))[1])
             else:
-                self.__dict__.setdefault("unplannable", {})[name] = why
+                self.unplannable[name] = why
                 self.failed(name, NotAvailable(why))
 
     def round_act(self, steps, snap, ctx):
@@ -727,7 +729,7 @@ class Brain:
         try:
             steps = decompose.decompose(snap.inv, goal, cost, pending=self.mem.pending_outputs(snap.dimension))
         except Unplannable as e:
-            self.__dict__.setdefault("unplannable", {})[name] = str(e)     # why this need offers no step (readout)
+            self.unplannable[name] = str(e)     # why this need offers no step (readout)
             return None
         # by night: no surface step, and no step at all under the open sky (the shelter row runs the night's prep)
         closed = snap.night
@@ -770,7 +772,7 @@ class Brain:
         if held is None:
             held = self.round_for([(f"task {task['id']}", goal, 0)], snap, cost, self.held.get(task["id"]))
             if held is None:
-                self.fail_task(task, self.unplannable["round"])
+                self.fail_task(task, self.unplannable.get("round", "unplannable"))
                 return None
             self.held[task["id"]] = held
             if task.get("state") != "running":
@@ -1000,8 +1002,15 @@ def replan(entries, snap, cost, pending=None, held=None):
     (held, None), or (None, why) when they cannot be planned together. `held`: the steps held for the same targets,
     the search's first bound."""
     try:
-        targets = [planner.Target(name, decompose.round_needs(goal, snap.inv, cost), rank) for name, goal, rank in entries]
-        _first, steps, _secs = planner.plan_round(snap.inv, targets, cost, pending, held=held)
+        # an unopened home container the planner cannot price (memory holds no record of it): looked into first when
+        # its expected saving pays the look (decompose.look_first) — what it holds decides the rest
+        steps = next((look for name, goal, _rank in entries if name.startswith("task ") and goal["goal"] in goals.ITEM_GOALS
+                      for look in [decompose.look_first(snap.inv, goals.needs(goal, snap.inv), cost, pending)] if look),
+                     None)
+        if steps is None:
+            targets = [planner.Target(name, decompose.round_needs(goal, snap.inv, cost), rank)
+                       for name, goal, rank in entries]
+            _first, steps, _secs = planner.plan_round(snap.inv, targets, cost, pending, held=held)
     except Unplannable as e:
         return None, f"unplannable: {e}"
     return {"steps": steps, "sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension,

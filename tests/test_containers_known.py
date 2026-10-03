@@ -72,6 +72,26 @@ class LookOrTake(unittest.TestCase):
                 else:
                     self.assertEqual(kinds[0], first, [str(s) for s in got])
 
+    def test_the_round_looks_first(self):
+        """The round's one plan (brain.replan) looks into an unopened home chest before making what it may hold,
+        when the look pays (must fail: the round planned the make, the chest never looked into)."""
+        from bonobo import brain
+        chests = [(3, 64, 0), (6, 64, 0), (9, 64, 0)]
+        rows = [("unopened chests at home, iron wanted: the round looks first", (), "look"),
+                ("must fail: every chest opened, none held iron: no look", [
+                    ((3, 64, 0), {"minecraft:dirt": 5}), ((6, 64, 0), {}), ((9, 64, 0), {})], None)]
+        for name, records, first in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                m = self.home(tmp, chests, records)
+                snap = snapshot(state(), inventory())
+                held, why = brain.replan([("task t1", goals.have((IRON, 24)), 0)], snap, cost(snap, mem=m))
+                self.assertIsNone(why)
+                kinds = [s.kind for s in held["steps"]]
+                if first is None:
+                    self.assertNotIn("look", kinds)
+                else:
+                    self.assertEqual(kinds[0], first, [str(s) for s in held["steps"]])
+
     def test_change_rate(self):
         with tempfile.TemporaryDirectory() as tmp:
             m = self.home(tmp, [(3, 64, 0)], [((3, 64, 0), {IRON: 9})])

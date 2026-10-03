@@ -1005,6 +1005,7 @@ class Frontier(unittest.TestCase):
                     next(explore._search(ctx, [self.S], lambda: [], 48, 3))      # the resume
                 self.assertEqual(went[1], went[0])                                # the same next section
                 b = brainmod.Brain.__new__(brainmod.Brain)
+                b.unplannable = {}
                 b.retry, b.place, b.mem = retry.Retry(), ("here", False), m
                 b.reflexes = type("R", (), {"failed": lambda self, *a: None})()
                 with mock.patch.object(api, "post"), mock.patch.object(brainmod, "log"), \
@@ -1260,6 +1261,7 @@ class IdleWait(unittest.TestCase):
         for name, finished, queued, want in rows:
             posted = []
             b = brainmod.Brain.__new__(brainmod.Brain)
+            b.unplannable = {}
             b.just_finished = finished
             answers = iter(queued)
             with self.subTest(name), mock.patch.object(api, "run", side_effect=lambda t, **k: posted.append(t)):

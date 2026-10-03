@@ -349,6 +349,7 @@ class CanStart(unittest.TestCase):
                 step = planner.Step("craft", "minecraft:stick", 4, {"inputs": {"planks": 2}})
                 bag_ = inventory(("oak_planks", 2)) if inv is not None else inventory()
                 b = brainmod.Brain.__new__(brainmod.Brain)
+                b.unplannable = {}
                 b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
                 b.retry, b.place = retry.Retry(), ("here", False)
                 ctx = type("Ctx", (), {"policy": None, "mem": None})()
@@ -370,6 +371,7 @@ class CanStart(unittest.TestCase):
         for name, err, _goal, want in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 b = brainmod.Brain.__new__(brainmod.Brain)
+                b.unplannable = {}
                 b.retry, b.place, b.mem = retry.Retry(), ("here", False), Memory(tmp + "/notes.json")
                 b.reflexes = type("R", (), {"failed": lambda self, *a: None})()
 
@@ -718,6 +720,7 @@ class Held:
         from bonobo import bag as bagmod
         self.seen, self.after_inv, self.act, self.first = seen, inventory(), None, None
         b = self.b = brainmod.Brain.__new__(brainmod.Brain)
+        b.unplannable = {}
         b.policy_cache = nav.Policy()
         b.mem = Notes()
         b.retry, b.blacklist, b.place, b.held = retry.Retry(), {}, PLACE, {}
@@ -752,6 +755,7 @@ class Queue_:
     def __init__(self, tmp, seen=TREES):
         self.tmp, self.seen, self.after_inv = tmp, seen, inventory()
         b = self.b = brainmod.Brain.__new__(brainmod.Brain)
+        b.unplannable = {}
         b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
         b.mem = Memory(os.path.join(tmp, "notes.json"))
         b.retry, b.blacklist, b.place, b.held = retry.Retry(), {}, PLACE, {}
@@ -1242,6 +1246,7 @@ UPKEEP = [
 def run_upkeep(row, tmp):
     """The real upkeep table, one round, on a real unstarted Brain. Returns (row name, [queued needs])."""
     b = brainmod.Brain.__new__(brainmod.Brain)
+    b.unplannable = {}
     b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
     b.mem = Memory(os.path.join(tmp, "notes.json"))
     b.retry, b.blacklist = retry.Retry(), {}
@@ -1638,6 +1643,7 @@ class Ledger(unittest.TestCase):
 
 def new_brain(tmp):
     b = brainmod.Brain.__new__(brainmod.Brain)
+    b.unplannable = {}
     b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
     b.mem = Memory(os.path.join(tmp, "notes.json"))
     b.retry, b.blacklist, b.place = retry.Retry(), {}, HERE
@@ -2021,6 +2027,7 @@ class OneArbiter(unittest.TestCase):
         """Night, exposed, empty bag, a tree in the queue: the round waits for day, it does not walk to the tree."""
         from unittest import mock
         b = brainmod.Brain.__new__(brainmod.Brain)
+        b.unplannable = {}
         b.retry, b.place = retry.Retry(), PLACE
         b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
         b.reflexes = mock.Mock(proposals=lambda snap, ctx, reads=None: [])       # caught in the open, nothing due
@@ -2095,6 +2102,7 @@ class Overnight(unittest.TestCase):
         for name, carried in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 b = brainmod.Brain.__new__(brainmod.Brain)
+                b.unplannable = {}
                 b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
                 b.mem, b.retry, b.blacklist, b.place, b.held = Memory(os.path.join(tmp, "n.json")), retry.Retry(), \
                     {}, PLACE, {}
@@ -2120,6 +2128,7 @@ class Overnight(unittest.TestCase):
         from bonobo import decompose
         with tempfile.TemporaryDirectory() as tmp:
             b = brainmod.Brain.__new__(brainmod.Brain)
+            b.unplannable = {}
             b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
             b.mem, b.retry, b.blacklist, b.place, b.held = Memory(os.path.join(tmp, "n.json")), retry.Retry(), \
                 {}, PLACE, {}
@@ -2394,6 +2403,7 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
         for name, holder, mode, due, busy, want, asked_want in self.ROWS:
             asked = []
             b = brainmod.Brain.__new__(brainmod.Brain)
+            b.unplannable = {}
             b.retry, b.place = retry.Retry(), PLACE
 
             def proposals(snap, ctx, reads=None, _busy=busy):
@@ -2808,6 +2818,7 @@ class NeedsAndReflexesAreIndependent(unittest.TestCase):
     def run_order(self, row, needs_first):
         with tempfile.TemporaryDirectory() as tmp:
             b = brainmod.Brain.__new__(brainmod.Brain)
+            b.unplannable = {}
             b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
             b.mem, b.retry, b.blacklist, b.place, b.held = Memory(os.path.join(tmp, "n.json")), retry.Retry(), {}, \
                 PLACE, {}
@@ -2846,6 +2857,7 @@ class TheNightIsPricedOncePerBag(unittest.TestCase):
         for name, bags, want in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 b = brainmod.Brain.__new__(brainmod.Brain)
+                b.unplannable = {}
                 b.mem = Memory(os.path.join(tmp, "notes.json"))
                 table, asked = needs.Needs(b), []
                 snap0 = snapshot(state(), inventory(*bags[0]))

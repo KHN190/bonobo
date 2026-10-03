@@ -198,7 +198,7 @@ def _decide(facts, fail_then_again):
             # it, done or failed after) is itself the round's reason (brain.py just_finished: that round proposes nothing)
             why = [t.get("reason") or (f"task {t['id']} {t['state']} this round"
                                        if t["id"] in live_before and t["state"] not in tasklist.LIVE else None)
-                   for t in tasklist.load()] + list(getattr(b, "unplannable", {}).values())
+                   for t in tasklist.load()] + list(b.unplannable.values())
             d = d._replace(reason=next((w for w in why if w), None))
         step = getattr(act, "step", None)
         boxes = [tuple(map(tuple, bx)) for h in mem.homes(snap.dimension) for bx in h.get("boxes", ())]
