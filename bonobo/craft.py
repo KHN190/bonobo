@@ -8,6 +8,7 @@ from . import knowledge as K
 from . import api, nav, world
 from .api import McError, NotAvailable, log, swallowed
 from .skill import skill
+from .game import TICKS_PER_S
 from .data import STATION_R
 from .data import HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, GROUPS, LOG_TO_PLANKS, RECIPES, bare, mid
 from .knowledge import GROUP_RECIPES, members
@@ -53,6 +54,47 @@ def takes_back(block, has_pickaxe):
 
     return has_pickaxe or bare(block).endswith(HAND_MINEABLE_SUFFIX)
 
+def _break_ticks_held(block, inv):
+    """Pure: ticks to break `block` with the best of the hand and what the bag holds (knowledge.work_s's own
+    min-over-held) — never a chosen item (E1, test_one_bag: skillcore.arm alone picks what a task holds)."""
+    held = _k.held_tiers(inv)
+    items = ["hand"] + [_k.tool_item(k, t) for k, t in held.items()]
+    return min(_k.break_ticks(bare(block), i) for i in items)
+
+def station_kept(block, pos, next_use, inv, extra_s=0.0):
+    """Pure (G3): left standing pays when walking back from `next_use` (D6: the plan's own place for it) costs
+    fewer ticks than breaking `block`, carrying it, and placing it again there; `extra_s` counts in a furnace
+    still smelting (waited out or collected before it can break). False with no known next use: always carry."""
+    if next_use is None:
+        return False
+    rebuild = _break_ticks_held(block, inv) + _k.break_overhead() + round((nav.PLACE_S + extra_s) * TICKS_PER_S)
+    return _k.walk_ticks(math.dist(pos, next_use)) < rebuild
+
+def _next_use_at(cost, steps, last, needs):
+    """Pure: the planned place (D6: price_as_run's own at-chain) of the first step after `last` that `needs` it, else
+    None. Starts from the station's own place (`last`'s site, else the feet): no sited step in between means no
+    move at all, not an unknown place (station_kept must read "here" as 0 ticks back, not as "never keep")."""
+    at = cost.site(last)
+    if at is None:
+        at = cost.feet()
+    after = False
+    for s in steps:
+        if after:
+            site = cost.site(s)
+            at = site if site is not None else at
+            if needs(s):
+                return at
+        after = after or s is last
+    return None
+
+def next_table_use(cost, steps, last):
+    """Pure: the planned place of the next craft after `last` that needs the 3×3 grid, else None."""
+    return _next_use_at(cost, steps, last, lambda s: s.kind == "craft" and recipe_needs_table(s.token))
+
+def next_furnace_use(cost, steps, last):
+    """Pure: the planned place of the next step after `last` whose contract works at a furnace, else None."""
+    return _next_use_at(cost, steps, last, lambda s: _k.step_station(s) == "minecraft:furnace")
+
 def take_back_verdict(gained, standing):
     """Pure: a picked-up station was "taken" (bag gained it), "left" (still standing) or "lost" (gone, not in the bag)."""
 
@@ -71,8 +113,9 @@ def _standing(block, pos, tries=10):
     return False
 
 class Station:
-    def __init__(self, ctx, block):
+    def __init__(self, ctx, block, next_use=None):
         self.ctx, self.block, self.pos, self.placed = ctx, block, None, False
+        self.next_use = next_use     # the plan's own place (D6) for the next use of this station, or None
 
     def __enter__(self):
         close_screen()
@@ -121,10 +164,15 @@ class Station:
         raise McError(f"could not open {bare(self.block)}")
 
     def __exit__(self, *exc):
+        # read while the screen is still open: a furnace's own cooking (still_cooking) is counted into keeping it (G3)
+        wait_s = _furnace_wait_s() if self.placed and bare(self.block) == "minecraft:furnace" else 0.0
         api.post("/close")
-        if self.placed and not takes_back(self.block, bool(Inventory().tools("pickaxe"))):
+        can_take = self.placed and takes_back(self.block, bool(Inventory().tools("pickaxe")))
+        if self.placed and (not can_take
+                            or station_kept(self.block, self.pos, self.next_use, Inventory(), wait_s)):
             # left standing, remembered as a station: a furnace broken by hand takes ~17 s and drops nothing
-            log(f"   left the {bare(self.block)} standing: no pickaxe to take it back")
+            log(f"   left the {bare(self.block)} standing"
+                + ("" if can_take else ": no pickaxe to take it back"))
             return False
         if self.placed:
             before = Inventory().count(self.block)
@@ -330,8 +378,9 @@ def craft_commands(state, args):
             pos, placed = tuple(state["spot"]), True
             out.append({"type": "place", "item": "minecraft:crafting_table", "x": pos[0], "y": pos[1], "z": pos[2]})
         out += [{"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}] + crafts + [CLOSE]
-        # kept standing when the plan crafts at a table again soon (keep_table)
-        if placed and not state.get("keep_table") and takes_back("minecraft:crafting_table", bool(inv.tools("pickaxe"))):
+        # taken back unless leaving it standing for the next use (state["next_use"]) prices cheaper (G3, station_kept)
+        if placed and takes_back("minecraft:crafting_table", bool(inv.tools("pickaxe"))) \
+                and not station_kept("minecraft:crafting_table", pos, state.get("next_use"), inv):
             out.append(nav.mine_task(pos, collect=True))
     return out
 
@@ -349,9 +398,10 @@ def make_bag_room(ctx, need):
         api.post("/click", body)
     return clicks
 
-def _sitting(ctx, recipes, keep_table=False):
+def _sitting(ctx, recipes, next_use=None):
     """Craft `recipes` in one sitting: the table opened (or placed) once and closed (or taken back) once — left
-    standing when `keep_table` (the plan crafts at a table again soon)."""
+    standing when `next_use` (the plan's own place for the next table use, D6) prices cheaper than breaking it
+    and placing a new one there (station_kept)."""
 
     inv = Inventory()
     if inv.used_slots() >= BAG_SLOTS:
@@ -361,7 +411,7 @@ def _sitting(ctx, recipes, keep_table=False):
         inv = Inventory()
     steps, _, _ = craft_plan(recipes, inv)
     # world reads only when a table sitting is planned: a table near, else a spot for one
-    state = {"inv": inv, "table": None, "spot": None, "keep_table": keep_table}
+    state = {"inv": inv, "table": None, "spot": None, "next_use": next_use}
     if any(table for table, _part in sittings(steps)):
         near = find([TABLE], radius=int(STATION_R), limit=1)
         mem = getattr(ctx, "mem", None)
@@ -399,9 +449,10 @@ def craft(ctx, token, times):
 
 @skill(gives=["state:crafted"], remaining=_k.planned_items, needs={}, start=lambda c: _plan_start(c.args[1]), verify=_plan_made, budget=120, stall=60, key=lambda c: "craft",
        commands=lambda state, args: craft_commands(state, (args[0],)))
-def craft_chain(ctx, recipes, keep_table=False):
-    """Consecutive crafts of one plan in one sitting (`_sitting`). `recipes`: [(token, times)] in plan order."""
-    return _sitting(ctx, recipes, keep_table)
+def craft_chain(ctx, recipes, next_use=None):
+    """Consecutive crafts of one plan in one sitting (`_sitting`). `recipes`: [(token, times)] in plan order;
+    `next_use`: the plan's own place (D6) for the next craft that needs this table, or None."""
+    return _sitting(ctx, recipes, next_use)
 
 def move_into(ids, target_slot, amount):
     moved = 0
@@ -425,10 +476,17 @@ def _furnace_slots():
     return {s["slot"]: s.get("count", 0) for s in world.container()["slots"]
             if s["owner"] != "player" and s["id"] != "minecraft:air"}
 
+TICKS_PER_ITEM = 200        # a furnace smelts one item in 200 game ticks (10 s at 20 tps)
+SMELT_S_PER_ITEM = TICKS_PER_ITEM / TICKS_PER_S     # the one source: smelt's own wait and station_kept's extra_s
+
+def _furnace_wait_s():
+    """Seconds the open furnace still has left on its input (0 once it's empty): station_kept's `extra_s`."""
+    return SMELT_S_PER_ITEM * _furnace_slots().get(0, 0)
+
 @skill(gives=K.GIVES_SMELT, needs={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
        budget=900, stall=30, units=lambda c: min(64, c.args[3]), key=lambda c: "smelt",
-       provides={"smelt": lambda ctx, s: _smelt_args(s)}, prefer=-1, when=K.body_when(), station="minecraft:furnace")
-def smelt(ctx, output, input_token, count, fuel):
+       provides={"smelt": lambda ctx, s: _smelt_args(ctx, s)}, prefer=-1, when=K.body_when(), station="minecraft:furnace")
+def smelt(ctx, output, input_token, count, fuel, next_use=None):
     """One furnace session: load input + fuel, watch the output slot fill (10 s/item), take everything out."""
     count = min(64, count)
     inv = Inventory()
@@ -440,7 +498,7 @@ def smelt(ctx, output, input_token, count, fuel):
     if not fuels:
         raise NotAvailable(f"no {bare(fuel)} to burn")
     fuel_n = math.ceil(count / 8) if fuel == "coal" else math.ceil(count / 1.5)
-    with Station(ctx, "minecraft:furnace"):
+    with Station(ctx, "minecraft:furnace", next_use):
         try:
             move_into(inputs, 0, count)
             move_into(fuels, 1, fuel_n)
@@ -452,7 +510,7 @@ def smelt(ctx, output, input_token, count, fuel):
                 if made >= loaded:
                     break
                 yield made
-                api.waiting_for_clock(10 * (loaded - made))     # 10 s an item: only the clock is waited on
+                api.waiting_for_clock(SMELT_S_PER_ITEM * (loaded - made))     # only the clock is waited on
                 time.sleep(3)
         finally:
             api.post("/click", _bag.quick_move(2))
@@ -488,8 +546,8 @@ def furnace_takes(slots, input_ids, output):
 
 @skill(gives=["state:smelting"], remaining=_k.less_than_at_start(lambda c: c.args[2], lambda c: min(64, c.args[3])), needs={}, start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
        budget=180, stall=40,
-       provides={"smelt": lambda ctx, s: _smelt_args(s) if s.count >= ASYNC_SMELT_MIN else None}, station="minecraft:furnace")
-def start_smelt_job(ctx, output, input_token, count, fuel):
+       provides={"smelt": lambda ctx, s: _smelt_args(ctx, s) if s.count >= ASYNC_SMELT_MIN else None}, station="minecraft:furnace")
+def start_smelt_job(ctx, output, input_token, count, fuel, next_use=None):
     """Spread the batch over the free furnaces within FURNACE_REACH (placing one if none), fuel each, and walk away."""
 
     count = min(64, count)
@@ -522,11 +580,11 @@ def start_smelt_job(ctx, output, input_token, count, fuel):
             move_into(fuels, 1, f)
         finally:
             api.post("/close")    # leave the furnace standing: that's the point
-        ready_at = time.time() + 10 * k + 5
+        ready_at = time.time() + SMELT_S_PER_ITEM * k + 5
         tick = api.get("/state").get("gameTime")
         job = ctx.mem.add_job("furnace", pos, ctx.dimension, output, k, ready_at, pos == placed,
                               input=inputs[0] if inputs else None, input_count=k,
-                              fuel=fuels[0] if fuels else None, fuel_count=f)
+                              fuel=fuels[0] if fuels else None, fuel_count=f, next_use=next_use)
         if tick is not None:
             job["ready_tick"] = tick + TICKS_PER_ITEM * k + 20
             ctx.mem.save()
@@ -537,8 +595,8 @@ def start_smelt_job(ctx, output, input_token, count, fuel):
         f"(ready in ~{int(max(ready) - time.time())}s)")
     return {"ordered": output, "count": total, "ready_at": max(ready)}
 
-def _smelt_args(s):
-    return mid(s.token), s.detail["input"], s.count, s.detail["fuel"]
+def _smelt_args(ctx, s):
+    return mid(s.token), s.detail["input"], s.count, s.detail["fuel"], getattr(ctx, "next_use", None)
 
 def _smelter_for(ctx, s):
     """(machine, input, count, fuel, output) when an auto smelter within 64 blocks can take this batch, else None."""
@@ -551,15 +609,13 @@ def _smelter_for(ctx, s):
     machine = min(near, key=lambda m: math.dist(m["origin"], here))
     return machine, s.detail["input"], s.count, s.detail["fuel"], mid(s.token)
 
-TICKS_PER_ITEM = 200        # a furnace smelts one item in 200 game ticks (10 s at 20 tps)
-
 def after_take(job, got, still_cooking, now, tick=None):
     """Pure: a furnace job after taking `got` with `still_cooking` left — None when over, else the fields to update."""
 
     if not still_cooking:
         return None
     out = {"count": max(0, job["count"] - got), "input_count": still_cooking,
-           "ready_at": now + 10 * still_cooking + 5}
+           "ready_at": now + SMELT_S_PER_ITEM * still_cooking + 5}
     if tick is not None:
         out["ready_tick"] = tick + TICKS_PER_ITEM * still_cooking + 20
     return out
@@ -596,7 +652,7 @@ def collect_job(ctx, job):
         ctx.mem.update_job(job["id"], **left)
         log(f"took {got}× {bare(job['item'])}; {still_cooking} still cooking")
         return
-    if job.get("carried"):
+    if job.get("carried") and not station_kept("minecraft:furnace", pos, job.get("next_use"), Inventory()):
         mine_cell(ctx.policy, pos, wanted=["minecraft:furnace", job["item"]], require_drops=True, wait=40)
     ctx.mem.finish_job(job["id"])
     log(f"collected {got}× {bare(job['item'])} from the background furnace")

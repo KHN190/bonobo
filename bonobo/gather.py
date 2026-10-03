@@ -100,21 +100,22 @@ def deep_below(cell: Cell, feet_at: Cell) -> bool:
     """Pure: `cell` lies deeper than a level stand sees (LEVEL_SIGHT_DEPTH): reached by a way down, not a walk."""
     return cell[1] < feet_at[1] - LEVEL_SIGHT_DEPTH
 
-def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
+def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=(), use_ladders=False):
     """Pure: (tasks, why not) for a straight shaft from the feet down to a buried `target`'s level: dug only as deep as
-    nav.dig_down_tasks finds safe (lava, water, a cave stop it) and the blocks to pillar back out with — carried, and
-    what the shaft itself digs that places (stone → cobblestone, dirt: data.PLACEABLE_AS, the building group) — cover
-    (the last JUMP_BLOCKS jumped)."""
+    nav.dig_down_tasks finds safe (lava, water, a cave stop it) and the blocks to pillar back out with — nav.place_budget
+    of carried (the one exit budget dig_down's own caller shares), and what the shaft itself digs that places (stone →
+    cobblestone, dirt: data.PLACEABLE_AS, the building group) — cover (the last JUMP_BLOCKS jumped)."""
     depth = feet_at[1] - target[1]
-    tasks, safe = nav.dig_down_tasks(region, feet_at, depth, protected)
+    tasks, safe = nav.dig_down_tasks(region, feet_at, depth, protected, use_ladders=use_ladders)
     if safe < depth:
         return None, nav.Why(f"lava, water or a cave {safe + 1} down", (feet_at[0], feet_at[1] - safe - 1, feet_at[2]))
     x, y, z = feet_at
     dug = sum(1 for i in range(1, depth + 1) if region.solid((x, y - i, z))
               and mid(PLACEABLE_AS.get(bare(region.name((x, y - i, z))), bare(region.name((x, y - i, z)))))
               in GROUPS["building"])
-    if carried + dug < depth - JUMP_BLOCKS:
-        return None, f"{carried} blocks carried, {dug} dug on the way, {depth - JUMP_BLOCKS} to pillar back out"
+    budget = nav.place_budget(carried)
+    if budget + dug < depth - JUMP_BLOCKS:
+        return None, f"{budget} of {carried} carried spendable, {dug} dug on the way, {depth - JUMP_BLOCKS} to pillar back out"
     return tasks, None
 
 def pass_cells(vein, open_set, start: Cell, n) -> list[Cell]:
@@ -509,10 +510,19 @@ def strip_mine_step(ctx, length=16):
             raise api.NavFailed(f"can't climb back up to mining depth {depth}")
         return "climbed"
     if fy > depth + 4:
+        descend = min(12, fy - depth)
+        here = (fx, fy, fz)
+        region = nav.dig_down_region(here, descend)
+        use_ladders = Inventory().count("minecraft:ladder") >= 12
+        # the one exit budget shared with the ore shaft (shaft_plan): a gate only, nav.dig_down still runs it (S1)
+        shaft, why = shaft_plan(region, here, (fx, fy - descend, fz), Inventory().count("building"),
+                                ctx.policy.protected, use_ladders=use_ladders)
         try:
-            nav.dig_down(min(12, fy - depth), ctx.policy, use_ladders=Inventory().count("minecraft:ladder") >= 12)
+            if shaft is None:
+                raise NotAvailable(why or "unsafe to dig down here")
+            nav.dig_down(descend, ctx.policy, use_ladders=use_ladders)
         except NotAvailable:
-            # unsafe here (water/lava/cave below): find dry solid ground nearby
+            # unsafe here, or no exit budget: find dry solid ground nearby
             stone = [h for h in find(["stone", "deepslate", "dirt", "grass_block"], radius=24, limit=40)
                      if h["y"] <= fy and math.dist((h["x"], h["z"]), (fx, fz)) >= 6]
             if not stone:

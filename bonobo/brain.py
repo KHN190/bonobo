@@ -178,18 +178,27 @@ def craft_run(steps, first, inv=None):
         run.append(st)
     return run
 
-def keeps_table(steps, run):
-    """Pure: a craft later in the plan than `run` needs a table — the one placed now is left standing."""
-    return any(st.kind == "craft" and craft.recipe_needs_table(st.token) for st in steps[steps.index(run[-1]) + 1:])
-
-def craft_act(layer, name, ctx, steps, step, night, task=None, inv=None):
-    """The act for `step`: a craft runs on through the crafts after it at one sitting (craft_run), the table left
-    standing when the plan crafts at one again (keeps_table); anything else as it is."""
+def craft_act(layer, name, ctx, steps, step, night, cost, task=None, inv=None):
+    """The act for `step`: a craft runs on through the crafts after it at one sitting (craft_run); the table left
+    standing only where that prices cheaper (craft.station_kept) than breaking and placing it again at the plan's
+    own place (D6) for the next craft that needs it (craft.next_table_use) — the one decision point."""
     run = craft_run(steps, step, inv)
-    keep = step.kind == "craft" and keeps_table(steps, run)
-    if len(run) > 1 or keep:
+    next_use = craft.next_table_use(cost, steps, run[-1]) if step.kind == "craft" else None
+    if len(run) > 1 or next_use is not None:
         recipes = [(s.token, s.detail.get("times", s.count)) for s in run]
-        return Act(layer, name, lambda: craft.craft_chain(ctx, recipes, keep), task=task, step=step, steps=run)
+        return Act(layer, name, lambda: craft.craft_chain(ctx, recipes, next_use), task=task, step=step, steps=run)
+    if step.kind == "smelt":
+        # bound in this Act's own closure, set/cleared only around this call: several candidate Acts are built a
+        # round (round_act, need_act, _task_act) before one runs, so ctx.next_use is never shared across their builds
+        furnace_use = craft.next_furnace_use(cost, steps, step)
+
+        def smelt_run(ctx=ctx, step=step, night=night, next_use=furnace_use):
+            ctx.next_use = next_use
+            try:
+                return dispatch.execute(ctx, step, night)
+            finally:
+                ctx.next_use = None
+        return Act(layer, name, smelt_run, task=task, step=step)
     return Act(layer, name, lambda: dispatch.execute(ctx, step, night), task=task, step=step)
 
 class Act:
@@ -244,6 +253,7 @@ class Brain:
         self.round_snap = None        # the round's snapshot: what a failure's state and a cooling's are read from
         self.fail_target = {}         # failure key → the target it failed at (None: none), for its state (E5)
         self.idle_why = ""            # D1: why the round proposes nothing
+        self.step_whys = []            # D1: a queued task's own "no step can run" reason (_task_act may run before plan_proposals resets it)
         self.last_light = self.last_offhand = self.last_scan = self.last_track = self.last_hold_log = 0
         self.lit_place = None      # where the last first lighting was done (a place signature)
         fight_loop.wire(self.mem, lambda snap: self.policy(snap, snap.night), self.blacklist,
@@ -670,6 +680,7 @@ class Brain:
         closed = snap.night
         self.just_finished = False
         self.idle_why = ""
+        self.step_whys = []            # D1: a queued task's own "no step can run" reason, named (not the bare default)
         entries, queued = [], []
         for seq, task in enumerate(live):
             if goals.remainder(tasks.goal_of(task), snap, self.mem) == {}:
@@ -713,7 +724,7 @@ class Brain:
                     kind = "queue"
                     break
             if act is None and not queued:
-                act, kind = self.round_act(held["steps"], snap, ctx), "round"
+                act, kind = self.round_act(held["steps"], snap, ctx, cost), "round"
             if act is not None:
                 picked = arbiter.Intent("plan", act, kind=kind, key=act.name,
                                         surface=act_on_surface(act) or (closed and self.under_sky(snap)))
@@ -729,7 +740,8 @@ class Brain:
                 act = Act("plan", f"seek: {sought.kind} {bare(sought.token)}", lambda: dispatch.go_find(ctx, sought))
                 return [arbiter.Intent("plan", act, kind="seek", key=act.name)]
             # no side act fills the time (D1): every step of the plan is cooling or unplannable here
-            self.idle_why = "; ".join([idle_reason(entries, self.retry.cooling_now(time.time())), *barred])
+            self.idle_why = "; ".join([idle_reason(entries, self.retry.cooling_now(time.time())), *barred,
+                                       *self.step_whys])
             return []
         out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: survive.wait_for_day(ctx)),
                               self.wait_why(snap), kind="wait for day", key="wait for day")]
@@ -783,18 +795,26 @@ class Brain:
                 self.unplannable[name] = why
                 self.failed(name, NotAvailable(why))
 
-    def round_act(self, steps, snap, ctx):
+    def round_act(self, steps, snap, ctx, cost):
         """The act for the round plan's first runnable step, or None."""
         open_air = snap.night and self.under_sky(snap)
-        st = self.next_step(steps, snap, ctx, lambda s: met(s, snap) or (snap.night and arbiter.on_surface(s.kind))
-                            or open_air)
-        return None if st is None else craft_act("plan", f"round: {step_key(st)}", ctx, steps, st, snap.night,
+
+        def skip(s):
+            if met(s, snap):
+                return "already met"
+            if snap.night and arbiter.on_surface(s.kind):
+                return "a surface step, and it's night"
+            if open_air:
+                return "under the open sky by night: no surface work"
+            return None
+        st = self.next_step(steps, snap, ctx, skip)
+        return None if st is None else craft_act("plan", f"round: {step_key(st)}", ctx, steps, st, snap.night, cost,
                                                  inv=snap.inv)
 
-    def next_step(self, steps, snap, ctx, skip=lambda st: False):
-        """The plan's first step that can run now (and is not `skip`ped); a sourced step whose own key cools here —
-        its known sources failed — gives way to the search for its kinds (seek_for: a search is always a way while
-        the world is unexplored), never to "no step of the plan can run" (K3)."""
+    def next_step(self, steps, snap, ctx, skip=lambda st: None):
+        """The plan's first step that can run now (and is not `skip`ped — a reason str, or None/False); a sourced
+        step whose own key cools here — its known sources failed — gives way to the search for its kinds (seek_for:
+        a search is always a way while the world is unexplored), never to "no step of the plan can run" (K3)."""
         for st in steps:
             if skip(st):
                 continue
@@ -804,6 +824,29 @@ class Brain:
             if alt is not None and not skip(alt) and self.valid(alt, snap, ctx):
                 return alt
         return None
+
+    def step_reason(self, steps, snap, ctx, skip=lambda st: None):
+        """D1: why `next_step` found none — the first non-skipped step's own failing check, named (never the bare
+        default: next_step's order, read again). `skip` names its own reason (a str) for the step it skips, or
+        None/False for one it doesn't; every step skipped is still named by the first of them, in its own words —
+        never a guessed one (a bare `skipped by <predicate>` only when `skip` gave a plain bool, not a reason)."""
+        first_skipped = None
+        for st in steps:
+            why = skip(st)
+            if why:
+                if not isinstance(why, str):
+                    why = f"skipped by {getattr(skip, '__name__', 'its skip check')}"
+                first_skipped = first_skipped or (st, why)
+                continue
+            if not runnable(st, snap.inv):
+                return f"{step_key(st)}: short of what it needs"
+            if not self.ready(step_key(st)):
+                return f"{step_key(st)}: cooling, no seek alternative found it a way"
+            return f"{step_key(st)}: its own preconditions (station, fight line) refuse it"
+        if first_skipped is not None:
+            st, why = first_skipped
+            return f"{step_key(st)}: {why}"
+        return "no step of the plan can run from here"
 
     def wait_why(self, snap):
         """Why the night is waited out (D1)."""
@@ -836,10 +879,17 @@ class Brain:
         # by night: no surface step, and no step at all under the open sky (the shelter row runs the night's prep)
         closed = snap.night
         open_air = closed and self.under_sky(snap)
-        step = self.next_step(steps, snap, ctx, lambda st: (closed and arbiter.on_surface(st.kind)) or open_air)
+
+        def skip(st):
+            if closed and arbiter.on_surface(st.kind):
+                return "a surface step, and it's night"
+            if open_air:
+                return "under the open sky by night: no surface work"
+            return None
+        step = self.next_step(steps, snap, ctx, skip)
         if step is None:
             return None
-        act = craft_act("upkeep", name, ctx, steps, step, snap.night, inv=snap.inv)
+        act = craft_act("upkeep", name, ctx, steps, step, snap.night, cost, inv=snap.inv)
         act.plan = steps
         return act
 
@@ -875,10 +925,13 @@ class Brain:
                 return None
             self.fail_task(task, f"nothing left to plan, still short of {waiting}")
             return None
-        step = self.next_step(held["steps"], snap, ctx, lambda s: met(s, snap))
+        met_skip = lambda s: "already met" if met(s, snap) else None  # noqa: E731
+        step = self.next_step(held["steps"], snap, ctx, met_skip)
         if step is None:
             # same bag, same plan: re-solving every round ran nothing, so the step cools until the next event
-            self.fail_step(task, NotAvailable("no step of the plan can run from here"))
+            reason = self.step_reason(held["steps"], snap, ctx, met_skip)
+            self.step_whys.append(f"{tasks.describe_task(task)}: {reason}")
+            self.fail_step(task, NotAvailable(reason))
             return None
         self.committed = task["id"]
         # never consume our own work: what held plans pass through is kept from tidying and storing
@@ -886,7 +939,7 @@ class Brain:
             | bag.reserved_ids([], goals.needs(goal, snap.inv))
         bag.RESERVED.clear()
         bag.RESERVED.update(reserved)
-        act = craft_act("task", f"task {task['id']}", ctx, held["steps"], step, snap.night, task=task, inv=snap.inv)
+        act = craft_act("task", f"task {task['id']}", ctx, held["steps"], step, snap.night, cost, task=task, inv=snap.inv)
         act.site = cost.site(step)
         if finished is None:          # a run-once goal: its own step ends it once its contract takes the world
             own = [n[1] for n in decompose.round_needs(goal, snap.inv, cost) if n[0] == "do"]
