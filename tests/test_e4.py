@@ -105,13 +105,14 @@ class Fit(unittest.TestCase):
                       fit_prices.fitted_data("WALK_BLOCKS_PER_TICK = 0.12   # walk\n", changes))
         self.assertEqual(fit_prices.fitted_data("WALK_BLOCKS_PER_TICK = PLAYER_SPRINT / TICKS_PER_S   # walk\n", changes),
                          "WALK_BLOCKS_PER_TICK = 0.1   # walk\n")      # must fail: a derived prior is measured over
-        toml = 'seek_prior_s = 300.0       # [prior] seconds to find one\n'
-        self.assertEqual(fit_prices.fitted_play(toml, {"plan.seek_prior_s": 450.0}),
-                         'seek_prior_s = 450.0       # [measured] seconds to find one\n')
-        self.assertEqual(fit_prices.fitted_play(toml, {}), toml)                 # must fail: rewritten unasked
         drain = 'food_drain_s = 80.0                  # seconds of ordinary activity per point\n'
         self.assertEqual(fit_prices.fitted_play(drain, {"risk.food_drain_s": 40.0}),
                          'food_drain_s = 40.0                  # [measured] seconds of ordinary activity per point\n')
+        self.assertEqual(fit_prices.fitted_play(drain, {}), drain)               # must fail: rewritten unasked
+        dens = 'FIND_DENSITY = {"tree": 1.0, "water": 0.5}\n"knowledge.FIND_DENSITY": {"tree": "prior", "water": "prior"}\nPRIOR_ORIGIN = {}\n'
+        got = fit_prices.fitted_knowledge(dens, {"knowledge.FIND_DENSITY.tree": 0.5}, {"knowledge.FIND_DENSITY.tree": 1.0})
+        self.assertIn('"tree": 0.5, "water": 0.5', got)
+        self.assertIn('"tree": "measured", "water": "prior"', got)
         self.assertIn("ROUTE_FACTOR = 1.8 ",
                       fit_prices.fitted_data("ROUTE_FACTOR = 1.5            # route\n", {"data.ROUTE_FACTOR": 1.8}))
         self.assertEqual(fit_prices.fitted(80.0, 80.0, 2.0, 5, "prior", True), 40.0)   # draining faster: fewer s a point
@@ -124,7 +125,7 @@ class ByPart(unittest.TestCase):
         ln = line(est=sum(est_parts.values()), actual=actual_s)
         ln.update(est_parts=est_parts, actual_parts=actual_parts,
                   price={"work": "PRIOR_TICKS.gather_each:prior", "walk": "data.WALK_BLOCKS_PER_TICK:prior",
-                         "seek": "PRIOR_TICKS.unknown_walk:prior"})
+                         "seek": "knowledge.FIND_DENSITY.tree:prior"})
         return ln
 
     def test_rows(self):
@@ -134,7 +135,7 @@ class ByPart(unittest.TestCase):
                  {"PRIOR_TICKS.gather_each": 2.0, "data.WALK_BLOCKS_PER_TICK": 0.5}),
                 ("a thing nowhere known: the walk is the seek's",
                  self.measured({"work": 200, "seek": 400}, {"work": 10.0, "walk": 15.0, "seek": 5.0}, 30.0),
-                 {"PRIOR_TICKS.gather_each": 1.0, "PRIOR_TICKS.unknown_walk": 1.0}),
+                 {"PRIOR_TICKS.gather_each": 1.0, "knowledge.FIND_DENSITY.tree": 1.0}),
                 ("must fail: no phases: the whole step is the work's", line(actual=20.0),
                  {"PRIOR_TICKS.gather_each": 2.0})]
         for name, ln, want in rows:

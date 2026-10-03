@@ -418,6 +418,13 @@ def PW(step):
     return prior_work_ticks(step, {}, costmod.TICKS_PER_S)
 
 
+def FIND(kind, st=None):
+    """A search's ticks for `kind` from the test body (knowledge.expected_find_s over its feet and tools)."""
+    from bonobo.knowledge import expected_find_s, held_tiers
+    s = snapshot(st)
+    return round(expected_find_s(kind, {"y": s.feet[1], "held": held_tiers(s.inv)}) * costmod.TICKS_PER_S)
+
+
 IRON4 = Step("mine", "minecraft:raw_iron", 4, {"blocks": ["iron_ore"], "breaks": 4})
 UNDER = state(skyLight=0, y=20.0)
 # (situation, step, /state, what /find saw, ticks expected: prior work + the walk to it)
@@ -426,7 +433,7 @@ ESTIMATES = [
     ("smelt 3: each + setup", Step("smelt", "minecraft:iron_ingot", 3), None, {}, 3 * PT["smelt_each"] + PT["smelt_setup"]),
     ("mine 4 breaks, ore 10 away", IRON4, None, {"iron_ore": 10}, PW(IRON4) + WT(10)),
     ("must fail: a walk of 0 under-prices — mine, nothing in sight", IRON4, None, {},
-     PW(IRON4) + costmod.UNKNOWN_WALK_TICKS),
+     PW(IRON4) + FIND("iron_ore")),
     ("gather 2, a tree 8 away", Step("gather", "log", 2), None, {"oak_log": 8}, PW(Step("gather", "log", 2)) + WT(8)),
     ("gather underground: the climb out is part of it", Step("gather", "log", 2), UNDER, {"oak_log": 8},
      PW(Step("gather", "log", 2)) + WT(8) + PT["surface"] + PT["surface_per_block"] * (64 - 20)),
@@ -540,7 +547,7 @@ class CostModel(unittest.TestCase):
         spot is not somewhere to go; a log is found as a remembered "tree"."""
         from bonobo import nav, world
         key = lambda p: world.route_key(p, 2.0, 6000)  # noqa: E731
-        prior = float(costmod._PLAY["plan"]["seek_prior_s"])
+        prior = FIND("iron_ore") / costmod.TICKS_PER_S
         rows = [("a route the game priced this round", ("iron_ore", (10, 64, 0)), ["iron_ore"], {key((10, 64, 0)): (True, 7.3)},
                  {}, 7.3),
                 ("no route asked: the walk", ("iron_ore", (10, 64, 0)), ["iron_ore"], {}, {}, round(WT(10) / 20 + 2.0, 1)),
@@ -601,7 +608,7 @@ class CostModel(unittest.TestCase):
                                  want)
 
     def test_seek_seconds(self):
-        prior = float(costmod._PLAY["plan"]["seek_prior_s"])
+        prior = FIND("iron_ore") / costmod.TICKS_PER_S
         for name, known, want in self.SEEKS:
             with self.subTest(name):
                 m = memory()
@@ -609,24 +616,24 @@ class CostModel(unittest.TestCase):
                     m.note_seen("iron_ore", (int(known), 64, 0), OVER)       # `known` blocks from the feet
                 c = costmod.Cost(snapshot(), m)
                 self.assertAlmostEqual(c.seek_s(["iron_ore"]), round(want if want is not None else prior, 1), places=1)
-                self.assertEqual(c.find_p(["iron_ore"]), float(costmod._PLAY["plan"]["exists_prior"]))
 
-    def test_find_chance_by_kind(self):
-        # unseen kinds priced by how the game makes them (data.FIND_P), the rest by the prior
+    def test_find_seconds_by_kind(self):
+        """Unseen kinds priced by how the game places them (knowledge.expected_find_s), the soonest of a step's kinds."""
         from bonobo import data
-        prior = float(costmod._PLAY["plan"]["exists_prior"])
         c = costmod.Cost(snapshot(), memory())
-        sheep, bed = max(data.PASSIVE_WEIGHT, key=data.PASSIVE_WEIGHT.get), f"{data.COLORS[0]}_bed"
-        rows = [("the commonest animal: found every search", ["minecraft:" + sheep], 1.0),
-                ("a village-only block", [bed], data.VILLAGE_P),
-                ("a kind the table does not know: the prior", ["iron_ore"], prior)]
+        weight = data.PASSIVE_WEIGHT
+        common, rare = max(weight, key=weight.get), min(weight, key=weight.get)
+        bed = f"{data.COLORS[0]}_bed"
+        rows = [("the commonest animal", ["minecraft:" + common], FIND("minecraft:" + common)),
+                ("an ore: its band's tunnel", ["iron_ore"], FIND("iron_ore")),
+                ("the soonest of two kinds", ["minecraft:" + rare, "minecraft:" + common], FIND("minecraft:" + common))]
         for name, kinds, want in rows:
             with self.subTest(name):
-                self.assertAlmostEqual(c.find_p(kinds), want)
-        def seek(kinds):
-            return c.seek_s(kinds) / c.find_p(kinds)          # the search's seconds, by the chance it finds one
+                self.assertEqual(c.find_ticks(kinds), want)
         # must fail: a bed priced as a sheep (free run 23:46: seek white_bed ~600s beat wool from sheep)
-        self.assertGreater(seek([bed]), seek(["minecraft:" + sheep]))
+        self.assertGreater(c.seek_s([bed]), c.seek_s(["minecraft:" + common]))
+        # must fail: a rare animal priced as the commonest
+        self.assertGreater(c.seek_s(["minecraft:" + rare]), c.seek_s(["minecraft:" + common]))
 
 
 def stone_tools(worn=0):

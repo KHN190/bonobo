@@ -455,17 +455,28 @@ EXCEPTIONS: "dict[str, tuple[Cause, Source]]" = {
 
 ITEM_DESPAWN_S = 300      # a dropped item despawns after 5 minutes (6000 ticks)
 
-# The chance a search finds a kind never seen, by how the game makes it; kinds not here use play.toml's exists_prior.
+# How the game places what a search looks for (knowledge.expected_find_s turns each into seconds).
 # Minecraft Wiki, "Mob spawning": grassland passive weights sheep 12, pig 10, chicken 10, cow 8, rabbit 4.
 PASSIVE_WEIGHT = {"sheep": 12, "pig": 10, "chicken": 10, "cow": 8, "rabbit": 4}
+# Minecraft Wiki, "Mob spawning": chunk generation spawns one passive group in a chunk with this chance
+CREATURE_CHUNK_P = 0.1
+CHUNK_BLOCKS = 16
 # Minecraft Wiki, "Village": one village per 34×34-chunk region; a search covers SEARCH_LEGS looks of SEARCH_LOOK_R.
-VILLAGE_REGION_BLOCKS = 34 * 16
+VILLAGE_REGION_BLOCKS = 34 * CHUNK_BLOCKS
 SEARCH_LEGS, SEARCH_LOOK_R = 6, 48
-VILLAGE_P = min(1.0, SEARCH_LEGS * __import__("math").pi * SEARCH_LOOK_R ** 2 / VILLAGE_REGION_BLOCKS ** 2)
 VILLAGE_ONLY = ([f"{c}_bed" for c in COLORS] + [f"{c}_wool" for c in COLORS] + ["villager", "hay_block", "bell",
                 "smithing_table", "stonecutter", "cauldron", "bookshelf", "wheat", "carrots", "potatoes", "beetroots"])
-FIND_P = {**{k: w / max(PASSIVE_WEIGHT.values()) for k, w in PASSIVE_WEIGHT.items()},
-          **{k: VILLAGE_P for k in VILLAGE_ONLY}}
+# Minecraft Wiki, "Ore" (Java 1.18+ generation): per ore, its placements as (veins a chunk, vein size, lowest y,
+# highest y, "uniform" | "triangle" spread over that range); a vein's size is taken as its blocks
+ORE_VEINS = {
+    "coal_ore": [(30, 17, 136, 320, "uniform"), (20, 17, 0, 192, "triangle")],
+    "iron_ore": [(90, 9, 80, 384, "triangle"), (10, 9, -24, 56, "triangle"), (10, 4, -64, 72, "uniform")],
+    "copper_ore": [(16, 10, -16, 112, "triangle")],
+    "gold_ore": [(4, 9, -64, 32, "triangle")],
+    "redstone_ore": [(4, 8, -64, 15, "uniform"), (8, 8, -96, -32, "triangle")],
+    "diamond_ore": [(7, 4, -144, 16, "triangle")],
+    "lapis_ore": [(2, 7, -32, 32, "triangle"), (4, 7, -64, 64, "uniform")],
+}
 
 CRITICAL_HP = 4            # health at or below which danger overrides everything (hazard's "critical")
 CRITICAL_HP_END = 12       # in the End: a breath or head butt takes 10+

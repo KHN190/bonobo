@@ -1,13 +1,12 @@
-"""What a step costs, in ticks: the walk to where it happens plus how long the work takes. The one cost model the planner prices with (`estimate`, `work`, `dig_to`, `walk_lb`, `site`, `facts`); the seconds to find a kind at the bottom (`seek_s`, `find_p`, `where`). One walk-time estimate: `walk_ticks`. No survival model, no prices of health: distance and measured durations, nothing else. Durations are measured (`memory.duration`, the same keys the skill runner records under) once a key has `skill.MIN_SAMPLES` runs; until then the priors below stand. Distances come from memory (the resource map, sightings, stations) and from one cached `/find` per kind per round — the calls a recorded round carries, so a replay answers the same way."""
+"""What a step costs, in ticks: the walk to where it happens plus how long the work takes. The one cost model the planner prices with (`estimate`, `work`, `dig_to`, `walk_lb`, `site`, `facts`); the seconds to find a kind at the bottom (`seek_s`, `find_ticks`, `where`). One walk-time estimate: `walk_ticks`. No survival model, no prices of health: distance and measured durations, nothing else. Durations are measured (`memory.duration`, the same keys the skill runner records under) once a key has `skill.MIN_SAMPLES` runs; until then the priors below stand. Distances come from memory (the resource map, sightings, stations) and from one cached `/find` per kind per round — the calls a recorded round carries, so a replay answers the same way."""
 
 import math
 import time
 
 from . import api
 from .api import Interrupted, McError
-from .beliefs import CONFIG as _PLAY
-from .data import MEASURED_BAND, MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare, mid
-from .knowledge import SURFACE_Y, sources, step_station, work_s, food_count, soil_depth, dawn_s, MIN_FIND_P, body_facts, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
+from .data import MEASURED_BAND, MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, GROUPS, NAV_NODES, bare, mid
+from .knowledge import SURFACE_Y, sources, step_station, work_s, food_count, soil_depth, dawn_s, body_facts, expected_find_s, step_kinds, WALK_TICKS_PER_BLOCK, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
 from .world import Region, Versioned, job_ready, route_key, seen_hit
 from .skill import MIN_SAMPLES
@@ -15,10 +14,8 @@ from .planner import Unplannable, plan_needs, way
 
 from .game import TICKS_PER_S
 
-WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~5.3 ticks a block, sprinting with detours
 DOOR_ROUTE = None      # (taught, here, there, walk_s) → seconds through a door, or None: mechanisms.door_route_s,
 #                        a pure function wired by the brain (no import: the cost prices, the mechanisms module acts)
-UNKNOWN_WALK_TICKS = PRIOR_TICKS["unknown_walk"]
 TABLE = "minecraft:crafting_table"   # nothing known nearby: what a search usually costs
 # work per unit before anything is measured, in ticks, bare-handed: a held tool's declared speed is taken off (_sped_up)
 # step kind → (statistics key, units): the keys the skill runner records under
@@ -313,8 +310,8 @@ class Cost:
         if measured is not None:
             return measured
         if step.kind == "seek":
-            kinds = list(step.detail.get("kinds") or [step.token])
-            return round(self.seek_s(kinds) / max(MIN_FIND_P, self.find_p(kinds)) * TICKS_PER_S)
+            kinds = step_kinds(step)
+            return round(self.seek_s(kinds) * TICKS_PER_S)
         if step.kind == "wait":
             return round(dawn_s(self.snap.state) * TICKS_PER_S)
         if held is None:
@@ -401,16 +398,8 @@ class Cost:
         return self.cache[key]
 
     def _kinds_of(self, step):
-        k = step.kind
-        if k == "gather":
-            return list(GROUPS["log"])
-        if k in ("mine", "take"):
-            return list(step.detail.get("blocks") or ())
-        if k == "fill":
-            return ["water"]
-        if k in ("hunt", "trade"):
-            return list(step.detail.get("types") or ())
-        return []
+        """A site's kinds: a search has none, its place is what it finds."""
+        return [] if step.kind == "seek" else step_kinds(step)
 
     def walk_lb(self, step):
         """Ticks no walk to this step's site can beat (the digging to it aside: `dig_to`): from the nearest place a
@@ -456,14 +445,14 @@ class Cost:
             out["dig"] = self.dig_to(step, held) if k == "mine" and dig else 0
         elif k in self.SOURCED:
             d = self._source(step)
-            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else UNKNOWN_WALK_TICKS
+            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else self.find_ticks(step_kinds(step))
             if k != "mine":
                 out["surface"] = self._surface_trip()
             elif dig:
                 out["dig"] = self.dig_to(step, held)
         elif k == "fill":
             d = self._known(["water"])
-            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else PRIOR_TICKS["unknown_water"]
+            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else self.find_ticks(["water"])
         elif k in ("goto", "withdraw", "look"):
             through = self.door_s(tuple(step.detail["pos"]))
             out["walk"] = round(through * TICKS_PER_S) if through is not None else \
@@ -517,7 +506,7 @@ class Cost:
             return max(1.0, round(float(seconds), 1))
         known = self._known(kinds)
         if known is None:
-            return float(_PLAY["plan"]["seek_prior_s"])
+            return self.find_ticks(kinds) / TICKS_PER_S
         return max(1.0, round(walk_ticks(known) / TICKS_PER_S + 2.0, 1))
 
     def route_s(self, kinds):
@@ -533,10 +522,11 @@ class Cost:
         found, seconds = self.snap.routes.get(route_key(where, 2.0, NAV_NODES), (None, None))
         return seconds if found else None
 
-    def find_p(self, kinds):
-        """The chance a look for one of these finds it: by how the game makes it (data.FIND_P), else the prior."""
-        known = [FIND_P[bare(k)] for k in kinds if bare(k) in FIND_P]
-        return max(known) if known else float(_PLAY["plan"]["exists_prior"])
+    def find_ticks(self, kinds):
+        """Ticks to find one of `kinds` never seen (knowledge.expected_find_s): the soonest of them, from these feet
+        with the tools held."""
+        facts = {"y": self.snap.feet[1], "held": held_tiers(self.snap.inv)}
+        return round(min(expected_find_s(k, facts) for k in (kinds or ["other"])) * TICKS_PER_S)
 
 def portal_known(mem, dimension):
     """Pure over memory: a portal remembered in `dimension` (a built one or a site)."""

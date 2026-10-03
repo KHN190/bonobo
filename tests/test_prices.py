@@ -73,7 +73,7 @@ class TheWaitIsTheNightLeft(unittest.TestCase):
         for t in (13000, 18000, 22500):
             with self.subTest(timeOfDay=t):
                 snap = snapshot(state(timeOfDay=t))
-                # must fail: a wait for day priced as a search for something never seen (seek_prior_s / exists_prior)
+                # must fail: a wait for day priced as a search for something never seen (expected_find_s)
                 self.assertEqual(cost(snap).work(Step("wait", "day", 1, {})), round(dawn_s(snap.state) * TICKS_PER_S))
 
 
