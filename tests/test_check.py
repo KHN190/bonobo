@@ -226,6 +226,17 @@ class TheExactSearchIsCapped(unittest.TestCase):
                 secs, why = rnd.exact_s(snap.inv, None, needs, cost(snap, oak_log=30, stone=20), limit=limit)
                 self.assertEqual((secs is not None, why is not None), want, why)
 
+    def test_only_when_the_budget_was_spent(self):
+        """r5: the unbudgeted reference ran on every planned round (54 s on task=end); a search that ended within its
+        budget is the unbudgeted one, so P5's reference runs only when the round's budget was spent."""
+        from check import round as rnd
+        from check.facts import of
+        _d, _got, ctx = rnd.decide(of(queued="stick"), fail_then_again=False)      # a craft from what is carried
+        self.assertFalse(ctx["budget_spent"])
+        # must fail: the reference searched again on a round its budget never cut
+        self.assertIsNone(ctx.get("exact_s"))
+        self.assertIn("within its budget", ctx["exact_unknown"])
+
 
 class FinishedRound(unittest.TestCase):
     """D1 on the production round: the round that finishes the queue's last task proposes nothing on purpose (brain
@@ -304,7 +315,13 @@ class GammaRoundTrip(unittest.TestCase):
              'same', 'idle': 'none', 'job': 'growing', 'kit': 'sword_shield', 'lit': False, 'noted': 'none',
              'pack': 'dying', 'past': 'latched', 'plan_held': 'none', 'portal': 'sites', 'quarry': 'spider',
              'repeat': 'once', 'retried': 'none', 'stock': 'none', 'task': 'tool', 'tools': 'axe_shovel',
-             'trace': 'no_id', 'upkeep_held': 'none', 'weather': 'thunder'})]
+             'trace': 'no_id', 'upkeep_held': 'none', 'weather': 'thunder'}),
+             ("must fail: r5 every night way cooling, starving with no food: no way at all, so no dusk (asked True)",
+              {'dimension': 'minecraft:overworld', 'night': False, 'hp': 'ok', 'place': 'home', 'bed': 'none',
+               'pickaxe': 0, 'building': True, 'food': False, 'tree': False, 'ore': 'buried', 'threat': False,
+               'takeover': False, 'queued': 'none', 'cooled': True, 'hunger': 'starve', 'station': 'crafting_table',
+               'carried': 'raw_meat', 'chest': 'unopened', 'dusk': True, 'failure': 'nav', 'fluid': 'lava',
+               'food_source': 'crops', 'ground': 'hole'})]
 
     def test_found(self):
         from check import round as rnd

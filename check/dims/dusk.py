@@ -13,13 +13,18 @@ DUSK_T = DAY_END - 1                 # one tick of light left: no way fits
 DAWN_T = 0                           # the whole day ahead (625 s): the cheapest way's prep fits
 
 
+def _no_way(f):
+    """Starving with no food: the bar runs out before any night way's plan eats (planner.plan_round, fed_in_time)."""
+    return f["hunger"] == "starve" and not f["food"]
+
+
 def valid(value, f):
-    # every shelter cooling (the bed alone): no way's prep fits a day, so never not-dusk
-    return value or not DEPENDS[0](f) or not f["cooled"]
+    # every shelter cooling (the bed alone): no way's prep fits a day, so never not-dusk — unless no way exists at all
+    return not DEPENDS[0](f) or not f["cooled"] or value is not _no_way(f)
 
 
 def instead(f):
-    return True
+    return not _no_way(f)
 
 
 def domain():

@@ -257,7 +257,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
         ctx["body_read"], ctx["fact_ages"] = fact_ages(b, snap)
         if ctx.get("hazard_at") is not None:
             ctx["search_steps_after"] = SPENT["steps"] - ctx["hazard_at"]
-        planned = plan_ctx(b, act, snap, mem, world)          # read now: the checker's later readings move what is seen
+        planned = plan_ctx(b, act, snap, mem, world, ctx["budget_spent"])     # read now: later readings move what is seen
         if offered:
             option, worth = offered[-1]
             d = Decision(layer="tactic", kind="threat", token=option.kind, target=getattr(option, "target", None),
@@ -316,7 +316,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
     return d, got, ctx
 
 
-def plan_ctx(b, act, snap, mem, world):
+def plan_ctx(b, act, snap, mem, world, spent):
     """The plan's invariants' readings (check/inv/plan.py), taken while the stub is the transport: the task's held plan,
     the production cost model's price of a step on this state, the bag and memory, and the ways to a mine target."""
     from bonobo.perception import ground_read
@@ -342,7 +342,9 @@ def plan_ctx(b, act, snap, mem, world):
             out["bound"] = look.est + (1 - look.detail["p"]) * plan_bound(snap.inv, [look.detail["need"]], cost)
         else:
             out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost)
-        if not out["plan_hand_made"] and look is None:
+        if not out["plan_hand_made"] and look is None and not spent:
+            out["exact_unknown"] = "the round's search ended within its budget: its plan is the unbudgeted one"
+        elif not out["plan_hand_made"] and look is None:
             out["exact_s"], out["exact_unknown"] = exact_s(snap.inv, held.get("want"), goals.needs(goal, snap.inv), cost,
                                      mem.pending_outputs(snap.dimension))
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
