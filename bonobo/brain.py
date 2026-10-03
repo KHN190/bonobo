@@ -675,7 +675,7 @@ class Brain:
         held, why = replan(entries, snap, cost, self.mem.pending_outputs(snap.dimension),
                            held=old["steps"] if old is not None and old.get("want") == key else None)
         if held is None:
-            self.unplannable["round"] = why
+            self.unplannable["round"] = why or "unplannable"
             return None
         if old is not None and same and old["steps"] \
                 and [str(s) for s in old["steps"]] != [str(s) for s in held["steps"]]:
