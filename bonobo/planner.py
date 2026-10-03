@@ -627,8 +627,6 @@ class Search:
                     tool = max(tool, fixed(tool_item(kind, tier)))
         trips = {f[5:] for f, v in inv.facts.items() if v and f.startswith("trip ")}
 
-        def tripped(token):       # a step made already walks once: a repeat of it joins that trip
-            return held(token) or (1 if token in trips or mid(token) in trips else 0)
         station, walk = 0.0, 0.0
         for task in node.stack[floor:]:
             if task[0] != "need" or held(task[1]) >= task[2]:
@@ -636,7 +634,7 @@ class Search:
             for s in self.lb.tools_of(self.lb.stations, task[1]) or ():
                 if held(s) <= 0 and not self.near(s):
                     station = max(station, fixed(s))
-            walk = max(walk, self.walk_to(task[1], tripped, memo["held"] | trips))
+            walk = max(walk, self.walk_to(task[1], held, memo["held"], frozenset(trips)))
         return units + walk + max(tool, station)     # a tool or station made is work no unit's least counts
 
     def least(self, token, n, inv):
@@ -678,11 +676,13 @@ class Search:
             self.near_c[block] = bool(self.cost.station_near(block))
         return self.near_c[block]
 
-    def walk_to(self, token, held, heldset):
-        """reach_lb, once per token and what of its derivation is held (`heldset`: the ids and groups had)."""
-        key = (token, frozenset((self.lb.reach.get(token, set()) | {token, mid(token)}) & heldset))
+    def walk_to(self, token, held, heldset, trips=frozenset()):
+        """reach_lb, once per token and what of its derivation is held (`heldset`: the ids and groups had) or walked
+        to already (`trips`)."""
+        relevant = self.lb.reach.get(token, set()) | {token, mid(token)}
+        key = (token, frozenset(relevant & heldset), frozenset(relevant & trips))
         if key not in self.reach_c:
-            self.reach_c[key] = self.reach_lb(token, held, set())
+            self.reach_c[key] = self.reach_lb(token, held, set(), trips)
         return self.reach_c[key]
 
     def own_walk(self, token, i, step):
@@ -745,15 +745,17 @@ class Search:
                  and self.lb.least(tool_item(t[1], t[2]), 1, held, {}) == math.inf]
         return "no way to obtain " + ", ".join(dict.fromkeys(lost)) if lost else "no way found"
 
-    def reach_lb(self, token, held, seen):
-        """Ticks no plan for `token` can walk less than:"""
+    def reach_lb(self, token, held, seen, trips=frozenset()):
+        """Ticks no plan for `token` can walk less than (`trips`: tokens whose making walked already, its own walk
+        free; what it is made from still walked to):"""
         if token in seen or held(token) > 0 or self.stored(token):
             return 0.0
         seen = seen | {token}
         best = math.inf
+        walked = token in trips or mid(token) in trips
         for i, (step, _station, ins) in enumerate(self.lb.shapes.get(token, self.lb.shapes.get(mid(token), ()))):
-            own = self.own_walk(token, i, step)
-            best = min(best, max([own] + [self.reach_lb(t, held, seen) for t in ins]))
+            own = 0.0 if walked else self.own_walk(token, i, step)
+            best = min(best, max([own] + [self.reach_lb(t, held, seen, trips) for t in ins]))
             if best <= 0:
                 return 0.0
         return 0.0 if best == math.inf else best
