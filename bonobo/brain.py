@@ -526,6 +526,7 @@ class Brain:
         api.GATE = lambda tasks: nav.gate(tasks, policy)    # each mine/place/use from a stand the jar's check holds
         prices = self.price_table(snap)
         api.HOLD = lambda tasks: skillcore.hold(tasks, prices.get)     # the main hand set by Python (I2)
+        self.mem.worth = lambda kind: bag.note_value(kind, prices.get)   # memory's cap measure (MEMORY_CAP)
         ctx = self.context(snap.dimension)
         self._mark("policy")
         self.needs.observe(snap)

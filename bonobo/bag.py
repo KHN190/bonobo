@@ -101,15 +101,15 @@ def kept(slots):
             have += st.get("count", 1)
     return keep
 
-def value(item, count, price=None):
+def item_value(item, count, price=None):
     """Seconds `count` of `item` are worth: the planner's price of one (cost.Prices, `price(item)`) × the count; None
     when nothing prices it. The one value the bag keeps by and memory caps its notes by (note_value)."""
     one = price(item) if price else None
     return None if one is None else float(one) * count
 
 def reget_seconds(s, price=None):
-    """Seconds to get this stack again (value); an unpriced one at UNPRICED_S each: junk, it goes first."""
-    worth = value(s["id"], s.get("count", 1), price)
+    """Seconds to get this stack again (item_value); an unpriced one at UNPRICED_S each: junk, it goes first."""
+    worth = item_value(s["id"], s.get("count", 1), price)
     return UNPRICED_S * s.get("count", 1) if worth is None else worth
 
 TREE_LOGS = 4    # logs a felled tree gives (farming's sapling job counts a grown one the same)
@@ -135,9 +135,9 @@ def note_yields(kind):
     return out
 
 def note_value(kind, price=None):
-    """Seconds a remembered note of `kind` is worth: Σ value over what it yields (note_yields); None when it yields
+    """Seconds a remembered note of `kind` is worth: Σ item_value over what it yields (note_yields); None when it yields
     nothing priced (a structure, a station, a home: kept, never counted toward memory's cap)."""
-    worths = [value(item, n, price) for item, n in note_yields(kind).items()]
+    worths = [item_value(item, n, price) for item, n in note_yields(kind).items()]
     worths = [w for w in worths if w is not None]
     return sum(worths) if worths else None
 

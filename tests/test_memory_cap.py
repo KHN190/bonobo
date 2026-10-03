@@ -78,11 +78,12 @@ class NoteValue(unittest.TestCase):
                 self.assertEqual(got, want)
 
     def test_one_value_with_the_bag(self):
-        """The bag's reget price and a note's worth are the same value (bag.value)."""
+        """The bag's reget price and a note's worth are the same value (bag.item_value)."""
         from bonobo import bag
         price = {"minecraft:raw_iron": 30.0}.get
-        self.assertEqual(bag.reget_seconds({"id": "minecraft:raw_iron", "count": 3}, price), bag.value("minecraft:raw_iron", 3, price))
-        self.assertEqual(bag.note_value("iron_ore", price), bag.value("minecraft:raw_iron", 1, price))
+        self.assertEqual(bag.reget_seconds({"id": "minecraft:raw_iron", "count": 3}, price),
+                         bag.item_value("minecraft:raw_iron", 3, price))
+        self.assertEqual(bag.note_value("iron_ore", price), bag.item_value("minecraft:raw_iron", 1, price))
 
 
 if __name__ == "__main__":
