@@ -2,9 +2,9 @@
 
 from . import lifecycle
 from .world import cell_add, screen_slot
-from .knowledge import ALL_FOOD, RAW_MEAT, members
+from .knowledge import ALL_FOOD, HUNT, MINE, RAW_MEAT, members
 from .api import NotAvailable
-from .data import TOOL_KINDS, VALUABLES
+from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE, TOOL_KINDS, VALUABLES
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -101,10 +101,45 @@ def kept(slots):
             have += st.get("count", 1)
     return keep
 
+def value(item, count, price=None):
+    """Seconds `count` of `item` are worth: the planner's price of one (cost.Prices, `price(item)`) × the count; None
+    when nothing prices it. The one value the bag keeps by and memory caps its notes by (note_value)."""
+    one = price(item) if price else None
+    return None if one is None else float(one) * count
+
 def reget_seconds(s, price=None):
-    """Seconds to get this stack again: the planner's price of one (cost.Prices, `price(item)`) × its count."""
-    one = price(s["id"]) if price else None
-    return (UNPRICED_S if one is None else float(one)) * s.get("count", 1)
+    """Seconds to get this stack again (value); an unpriced one at UNPRICED_S each: junk, it goes first."""
+    worth = value(s["id"], s.get("count", 1), price)
+    return UNPRICED_S * s.get("count", 1) if worth is None else worth
+
+TREE_LOGS = 4    # logs a felled tree gives (farming's sapling job counts a grown one the same)
+
+def note_yields(kind):
+    """Pure: {item: count} one remembered note of `kind` yields, from the tables that already say it — a block by its
+    drop (knowledge.MINE, data.MINE_YIELD, data.TAKEABLE's gives), a mob by data.HUNT_YIELD (a sheep: mutton and wool),
+    a "tree" by its logs; {} for what yields nothing (a portal, a village, water)."""
+    kind = kind.rsplit(":", 1)[-1]
+    if kind == "tree":
+        return {"log": TREE_LOGS}
+    out = {}
+    for item, mobs in HUNT.items():
+        if f"minecraft:{kind}" in mobs:
+            out[item] = out.get(item, 0) + HUNT_YIELD.get(item, 1)
+    for item, (blocks, _tier) in MINE.items():
+        if kind in blocks:
+            out[item] = out.get(item, 0) + MINE_YIELD.get(item, 1)
+    for row in TAKEABLE.values():
+        if kind in row["blocks"]:
+            for item, n in row["gives"].items():
+                out[item] = out.get(item, 0) + n
+    return out
+
+def note_value(kind, price=None):
+    """Seconds a remembered note of `kind` is worth: Σ value over what it yields (note_yields); None when it yields
+    nothing priced (a structure, a station, a home: kept, never counted toward memory's cap)."""
+    worths = [value(item, n, price) for item, n in note_yields(kind).items()]
+    worths = [w for w in worths if w is not None]
+    return sum(worths) if worths else None
 
 def let_go(slots, need, price=None, chest_s=None, lava_near=False):
     """Pure: [(stack, "drop" | "deposit")] freeing `need` slots."""

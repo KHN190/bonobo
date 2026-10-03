@@ -198,6 +198,9 @@ def home_refusal(task, homes, mine, entity_at=None, allow_break=False, feet=None
     return None
 
 
+MEMORY_CAP = 150    # the user's rule: priced notes kept; past it the least worth goes, the oldest of equals first
+
+
 class Memory:
     def tick(self):
         """The game time a look or a note is stamped with and judged by: the round's clock, else — a skill run with
@@ -221,6 +224,9 @@ class Memory:
         d = self.data
         self.clock: int | None = None     # game ticks (/state gameTime), set each round; what every "seen" note is stamped with
         self.refuted: dict = {}           # (step kind, token, target) → (seconds, state): prices a run refuted (refute)
+        # kind → seconds a note of it is worth (bag.note_value over the round's prices), None for what nothing prices:
+        # the cap's measure (MEMORY_CAP), wired by the brain each round; None: no cap
+        self.worth = None
         for key, default in (("sites", []), ("stations", []), ("seen", []), ("deaths", []),
                              ("night", {"phase": "day", "slept": False, "missed": 0}), ("machines", []),
                              ("stats", {}), ("durations", {}), ("jobs", [])):
@@ -665,7 +671,20 @@ class Memory:
         if cls != seen_class(kind):
             row["cls"] = cls
         self.data["seen"].append(row)
+        self._cap()
         return row
+
+    def _cap(self):
+        """At most MEMORY_CAP priced notes (worth: bag.note_value): past it the least worth goes, ties the oldest;
+        a note nothing prices (a portal, a fortress, a village, a station, water) is kept and never counted."""
+        if self.worth is None:
+            return
+        priced = [(w, row.get("t") or 0, i) for i, row in enumerate(self.data["seen"])
+                  for w in (self.worth(row["kind"]),) if w is not None]
+        over = len(priced) - MEMORY_CAP
+        if over > 0:
+            gone = {i for _w, _t, i in sorted(priced)[:over]}
+            self.data["seen"] = [row for i, row in enumerate(self.data["seen"]) if i not in gone]
 
     def _fresh(self, row, within=None):
         """Within its class's TTL (and `within` ticks, when asked). A note or a clock we cannot date is kept."""
