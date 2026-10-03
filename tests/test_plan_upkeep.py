@@ -442,7 +442,8 @@ ESTIMATES = [
     ("goto 30 blocks", Step("goto", "pos", 1, {"pos": [30, 64, 0]}), None, {}, WT(30)),
     ("withdraw from a chest 5 away", Step("withdraw", "minecraft:oak_log", 4, {"pos": [5, 64, 0]}), None, {},
      PT["withdraw"] + WT(5)),
-    ("fill with no water known", Step("fill", "minecraft:water_bucket", 1), None, {}, PT["fill"] + 1200),
+    ("fill with no water known: the search by its density", Step("fill", "minecraft:water_bucket", 1), None, {},
+     PT["fill"] + FIND("water")),
     ("sleep", Step("sleep", "bed", 1), None, {}, PT["sleep"]),
 ]
 
@@ -2290,8 +2291,9 @@ class Overnight(unittest.TestCase):
                  pick + [("white_bed", 1)], {"soft_ground": False}, True, ("bed", [])),
                 ("17:49: a home bed 12 s away — the home's bed, not dig in",
                  pick, needs.night_facts(False, (), True, 12.0), True, ("home", ["shelter"])),
-                ("must fail: the home bed 900 s of open night walk away — a safe dig-in, not the exposed walk",
-                 pick, needs.night_facts(False, (), True, 900.0), True, ("dig in", ["shelter"])),
+                ("must fail: the home bed 900 s of open night walk away — not the walk: a bed made before dark (3 sheep, a
+                 # table) is ~111 s against the dig-in's 25 s and the night waited out in it",
+                 pick, needs.night_facts(False, (), True, 900.0), True, ("bed", ["hunt", "gather", "craft", "craft", "craft"])),
                 ("no bed carried, the home bed with no way to it (no home_bed fact): dig in",
                  pick, {"soft_ground": False}, True, ("dig in", ["shelter"])),
                 ("the shelter row (bed_too off) with a bed carried that was refused: a shelter to wait in",
@@ -2303,11 +2305,15 @@ class Overnight(unittest.TestCase):
                 self.assertEqual((got, [st.kind for st in steps]), want)
 
     def test_stone_ground_dirt_near_walls_in(self):
-        """On stone, an empty bag, dirt 4 away: nine dirt dug by hand, then walled in (SOURCES["building"])."""
+        """On stone, an empty bag, dirt 4 away, no tree seen: the cheaper of nine dirt dug by hand and walled in, or a
+        wooden pickaxe from a tree found by the prior density (knowledge.FIND_DENSITY) and dug in — priced, not pinned."""
         snap = snapshot(state(timeOfDay=NIGHT), inventory())
-        got, _secs, steps = needs.overnight(snap.inv, cost(snap, dirt=4), {"soft_ground": False}, bed_too=False)
-        self.assertEqual((got, [(st.kind, st.token) for st in steps]),
-                         ("wall in", [("mine", "minecraft:dirt"), ("shelter", "pod")]))
+        c = cost(snap, dirt=4)
+        got, secs, steps = needs.overnight(snap.inv, c, {"soft_ground": False}, bed_too=False)
+        pod = {o[0]: o[2] for o in needs.night_options(snap.inv, c, {"soft_ground": False}, False)}["wall in"]
+        dirt = c.estimate(Step("mine", "minecraft:dirt", 9, {"blocks": ["dirt", "grass_block"], "breaks": 9})) / 20
+        self.assertEqual(got, "dig in" if secs < dirt + pod else "wall in")
+        self.assertNotIn(got, (None, "hut"))     # must fail: no way, or the dearest one
 
     def test_soft_below_over_the_table(self):
         from bonobo.terrain import soft_below

@@ -110,6 +110,18 @@ class TheWorkAsTheJarRunsIt(unittest.TestCase):
         self.assertGreaterEqual(breaks.count("stone"), 4)
         self.assertLessEqual(breaks.count("stone"), 6)
 
+    def test_the_search_is_priced_with_the_tools_of_its_step(self):
+        from bonobo import brain, planner  # noqa: F401
+        from bonobo.bench.words import est
+        from bonobo.knowledge import SURFACE_Y
+        world = est.scene_world(["spreadplayers 13000 13000 0 4 false @p", "clear @p"])
+        # must fail: a spread player priced from the bench box's height, not the surface it lands on
+        self.assertEqual(world["feet"][1], SURFACE_Y)
+        c = est.scene_cost(world)
+        iron = [st for st in planner.plan_needs(c.snap.inv, [("tool", "pickaxe", 2)], c) if st.token == "minecraft:raw_iron"][0]
+        # must fail: the iron searched for with the empty bag's hand, though a stone pickaxe is made before it
+        self.assertLess(iron.parts["seek"], c.find_ticks(["iron_ore", "deepslate_iron_ore"]))
+
     def test_crafts_at_one_table_break_it_once(self):
         from bonobo import planner
         from tests.world import cost

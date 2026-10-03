@@ -445,7 +445,7 @@ class Cost:
             out["dig"] = self.dig_to(step, held) if k == "mine" and dig else 0
         elif k in self.SOURCED:
             d = self._source(step)
-            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else self.find_ticks(step_kinds(step))
+            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else self.find_ticks(step_kinds(step), held)
             if k != "mine":
                 out["surface"] = self._surface_trip()
             elif dig:
@@ -522,10 +522,10 @@ class Cost:
         found, seconds = self.snap.routes.get(route_key(where, 2.0, NAV_NODES), (None, None))
         return seconds if found else None
 
-    def find_ticks(self, kinds):
+    def find_ticks(self, kinds, held=None):
         """Ticks to find one of `kinds` never seen (knowledge.expected_find_s): the soonest of them, from these feet
-        with the tools held."""
-        facts = {"y": self.snap.feet[1], "held": held_tiers(self.snap.inv)}
+        with the tools `held` ({tool kind: tier}) when the search runs, the bag's when None."""
+        facts = {"y": self.snap.feet[1], "held": held_tiers(self.snap.inv) if held is None else held}
         return round(min(expected_find_s(k, facts) for k in (kinds or ["other"])) * TICKS_PER_S)
 
 def portal_known(mem, dimension):

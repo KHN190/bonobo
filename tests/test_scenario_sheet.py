@@ -24,7 +24,7 @@ from bonobo import brain, fight_loop  # noqa: E402,F401
 from bonobo.bench import table as sc  # noqa: E402,F401  (brain/fight_loop: every skill module)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.bench import runner  # noqa: E402
-from bonobo.bench import bench_bases, core, vocab  # noqa: E402
+from bonobo.bench import bench_acceptance, bench_bases, core, vocab  # noqa: E402
 from bonobo.bench.words import brain as words_brain, checks as words_checks  # noqa: E402
 from bonobo.bench.words import runs as words_runs, scene as words_scene  # noqa: E402
 
@@ -489,7 +489,7 @@ class ThePoints(unittest.TestCase):
                 self.assertEqual(sc.SCENARIOS[name]["point"], "C")
 
     # (what the acceptance row must be) — test point D: 30 minutes, a real world, from nothing, its own tier
-    ACCEPT = [("point", lambda r: r["point"] == "D"), ("budget ≤ 30 min", lambda r: r["budget"] <= 30 * 60),
+    ACCEPT = [("point", lambda r: r["point"] == "D"), ("budget within the acceptance limit", lambda r: r["budget"] <= bench_acceptance.ACCEPT_LIMIT_S),
               ("a real world", lambda r: bool(r.get("raw"))), ("from nothing", lambda r: "clear @p" in r["setup"]),
               ("its own tier", lambda r: r["tier"] == "acceptance")]
 
