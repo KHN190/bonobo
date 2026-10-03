@@ -1,15 +1,4 @@
-"""The one planner: needs like [('minecraft:bucket', 1), ('tool', 'pickaxe', 2)] in, the cheapest ordered steps out.
-
-Every way to get a thing is an action read from the registered skills' producing tables (knowledge.sources): each
-producer, each tool tier, each fuel, each food, each speed tool a step's work pays for. One search over them:
-  1. a lower bound per unit of every token (`unit_lb`: the cheapest derivation's work, a relaxation — positive costs,
-     so a fixpoint, cycles included); a token it cannot price has no way at all;
-  2. the requirement chain resolved in order (inputs before the step that uses them), the inventory simulated as it
-     goes; where a need has more than one way, the search branches (A*: f = the steps chosen + the bound of what is
-     left; the first plan found by the cheapest bound is the incumbent, nothing at or above it is expanded);
-  3. a complete plan is priced exactly by a forward pass (`forward`): run in an order that walks least between
-     the places its steps happen, each step's walk from where the one before left the body.
-Pure apart from what the cost model reads, so it is tested offline (NullCost)."""
+"""The one planner:"""
 
 import heapq
 import itertools
@@ -62,8 +51,7 @@ lifecycle.in_place(__name__, "_MEMBERS", cache=True)
 
 
 class VirtualInventory:
-    """Counts what we'd hold after the planned steps run. Copy-on-write: a clone shares its parent's tables until one
-    of them changes (most children change few), and the signature is kept until the next change."""
+    """Counts what we'd hold after the planned steps run."""
 
     _TABLES = ("counts", "produced", "pending", "awaited", "facts", "tools")
 
@@ -102,8 +90,7 @@ class VirtualInventory:
         return sum(counts.get(m, 0) for m in ids) + self.produced.get(token, 0)
 
     def consume(self, token, n, awaits=True):
-        """Use `n` of token: what the plan makes first, then the bag, then what a job is still making — that last
-        noted as awaited (`awaits`: a step uses it; a top-level need met by an output on its way awaits nothing)."""
+        """Use `n` of token:"""
         take = min(n, self.produced.get(token, 0))
         if take:
             produced = self._own("produced")
@@ -177,8 +164,7 @@ class VirtualInventory:
 
 
 def signature(tasks, seen=None):
-    """The tasks as a key: steps by what they are, not by which object (`seen`: {id(task): (task, its key)}, a
-    search's own — a task object is keyed once)."""
+    """The tasks as a key:"""
     def part(x):
         if isinstance(x, Step):
             return (x.kind, x.token, x.count, repr(sorted(x.detail.items())))
@@ -195,9 +181,7 @@ def signature(tasks, seen=None):
 
 
 def from_bag(inv, extra=None, pending=None, reserved=(), facts=None):
-    """A virtual inventory from the bag: `extra` counted as held beyond it (a planned source's output, a running job's
-    output), `pending` the part of it a job is still making (awaited when a step takes it), `reserved` (bag.RESERVED:
-    what the held plans will consume) left out."""
+    """A virtual inventory from the bag:"""
     counts = Counter()
     for item, n in (extra or {}).items():
         counts[item] += n
@@ -231,8 +215,7 @@ def use_rank(kind):
 # -- the ways one source makes `n` of a token: (step, the needs before it, what its run adds back)
 
 def way(src, token, n, ripe=0):
-    """(step, [(input token, amount)] in the order they are needed, station or None, [(token, amount)] added after)
-    for making `n` of token by `src`; None for a source the planner does not run."""
+    """(step, [(input token, amount)] in the order they are needed, station or None, [(token, amount)] added after)…"""
     kind = src[0]
     if kind == "craft":
         _, pattern, out = src
@@ -305,9 +288,7 @@ def contract_facts():
 
 
 def least_prices(ways):
-    """Pure: {token: the least ticks one unit's derivation takes} over `ways` ({token: [(ticks per unit, {input: per
-    unit}, _)]}) — the least fixed point, by a heap: a token whose price falls re-prices only the ways that use it
-    (label-correcting: an input's share may be below its own price, so no price is final when first popped)."""
+    """Pure:"""
     def node(t):
         return t if t in ways else mid(t) if mid(t) in ways else None
     users: dict = {}
@@ -336,20 +317,12 @@ def least_prices(ways):
 
 
 def covered_prices(ways, kinds):
-    """Pure: {token: the least ticks one unit takes made under cover alone (data.NIGHT_WORK ways: mine, craft, smelt,
-    their inputs the same)} — the route's work a night underground can be spent on; absent: none of it can."""
+    """Pure:"""
     return least_prices({a: [w for w, k in zip(ws, kinds[a]) if k in NIGHT_WORK] for a, ws in ways.items()})
 
 
 class Bound:
-    """What a token costs at the least, from the tables: never above what a plan pays, whatever the bag holds.
-    `scratch[token]` — ticks one unit's whole derivation takes from nothing (each way's own work with the best tools,
-    no walking, the tools it needs free): a fixpoint over the producers, cycles included;
-    `least(token, n, held)` — the same, crediting what is held at every level (an item held is free wherever it is
-    asked; credited to each branch, so never too high); where nothing of a token's derivation is held, `scratch`;
-    `tools[token]` — {tool kind: tier} every way to make it needs held at some point (the intersection over its
-    sources, through its inputs). A plan costs at least the sum of its needs' `least`, and at least any one tool it
-    must still make — never their sum."""
+    """What a token costs at the least, from the tables:"""
 
     def __init__(self, cost):
         from .knowledge import producers
@@ -433,8 +406,7 @@ class Bound:
         self.depth = self.longest_chain() + len(contract_facts()) + 2
 
     def longest_chain(self):
-        """The longest requirement chain the tables hold, a link per input, tool and station, a cycle cut where it
-        closes: how deep a plan can need to go, from the recipes and the contracts (no typed limit)."""
+        """The longest requirement chain the tables hold, a link per input, tool and station, a cycle cut where it c…"""
         memo: dict = {}
 
         def deep(token, path):
@@ -454,9 +426,7 @@ class Bound:
 
     @staticmethod
     def per_run(cost, step):
-        """Ticks one more run of `step` adds to its work (its own work for two runs less for one, the best tools):
-        what scales with the count — a step's fixed part (a craft's sitting, a furnace's setup) is paid once
-        however many needs share it, so never counted per unit."""
+        """Ticks one more run of `step` adds to its work (its own work for two runs less for one, the best tools):"""
         def runs(k):
             detail = dict(step.detail)
             for key in ("breaks", "kills", "times"):
@@ -507,8 +477,7 @@ lifecycle.in_place(__name__, "_BOUNDS", cache=True)
 
 
 def bound(cost):
-    """The tables' bound (`Bound`), kept across rounds while what it is built from holds: the registered producers and
-    hooks, and the durations measured (memory) — a change in either builds it again."""
+    """The tables' bound (`Bound`), kept across rounds while what it is built from holds:"""
     from . import knowledge
     mem = getattr(cost, "mem", None)
     stats = tuple(sorted((k, d.get("per"), d.get("n")) for k, d in mem.data.get("durations", {}).items())) \
@@ -609,8 +578,7 @@ class Search:
         return got
 
     def bound_of(self, node, floor=0):
-        """The least what is left (above `floor`) can cost: its needs' least (what is held credited) and the walk to
-        their nearest known source, plus the dearest tool or station still to be had (not itself asked, not stored)."""
+        """The least what is left (above `floor`) can cost:"""
         units, tool = 0.0, 0.0
         inv = node.inv
         kept = self.kept()
@@ -694,8 +662,7 @@ class Search:
         return self.reach_c[key]
 
     def own_walk(self, token, i, step):
-        """The walk a way's own work is priced with at the least (cost.walk_lb: the straight walk to the nearest known
-        source, the expected search where none is known — what the step's own price charges), once a search."""
+        """The walk a way's own work is priced with at the least (cost.walk_lb:"""
         key = (token, i)
         if key not in self.walks:
             sourced = step.kind in ("mine", "gather", "hunt", "take")
@@ -703,8 +670,7 @@ class Search:
         return self.walks[key]
 
     def replay(self, root, needs, steps):
-        """The held plan priced on today's world as the incumbent — (ticks, tie, steps) when it still runs from this
-        bag in its order (each step's inputs and tools had by then) and leaves every need held; else None."""
+        """The held plan priced on today's world as the incumbent — (ticks, tie, steps) when it still runs from this…"""
         if any(n[0] in ("fact", "do") for n in needs):
             return None
         inv = root.inv.clone()
@@ -740,9 +706,7 @@ class Search:
         return "no way to obtain " + ", ".join(dict.fromkeys(bare(t) for t in lost)) if lost else "no way found"
 
     def reach_lb(self, token, held, seen):
-        """Ticks no plan for `token` can walk less than: over its every way, the straight walk to the nearest known
-        source of what that way's work or its inputs take from the world (0 where none is known, where some is
-        held or stored, or where a way needs no walk) — the least over its ways."""
+        """Ticks no plan for `token` can walk less than:"""
         if token in seen or held(token) > 0 or self.stored(token):
             return 0.0
         seen = seen | {token}
@@ -806,8 +770,7 @@ class Search:
         return []
 
     def options(self, node, opts, horizon=None, asked=""):
-        """Children for each option ([(tie, [tasks in run order])]); one option runs in place (no branch).
-        `horizon`: the stack's length once the choice is settled (by default: once the option's own tasks ran)."""
+        """Children for each option ([(tie, [tasks in run order])]); one option runs in place (no branch)."""
         if not opts:
             return None
         if len(opts) == 1:
@@ -831,8 +794,7 @@ class Search:
                      if node.stack[i][0] == "emit" and node.stack[i][1] is step), len(node.stack))
 
     def await_first(self, node):
-        """What a step is about to take from a job still running (a sown crop, a furnace) is collected right before
-        that step — after every step planned so far, which need nothing of it (never idle while it is on its way)."""
+        """What a step is about to take from a job still running (a sown crop, a furnace) is collected right before…"""
         for item, n in sorted(node.inv.awaited.items()):
             if n > 0:
                 step = Step("await", item, n)
@@ -905,8 +867,7 @@ class Search:
 
     @staticmethod
     def from_carried(node, src, made, n):
-        """The most of `n` a craft or smelt makes from inputs the bag already holds (0 < k < n), else 0: when only
-        part is carried, that part is a step of its own (an input on its way never holds the carried part back)."""
+        """The most of `n` a craft or smelt makes from inputs the bag already holds (0 < k < n), else 0:"""
         if src[0] not in ("craft", "smelt") or n < 2:
             return 0
         whole = way(src, made, n)
@@ -919,8 +880,7 @@ class Search:
         return 0
 
     def withdrawals(self, node, token, n, depth):
-        """Taking it from a container that holds it (memory.stored, each weighed by the chance it still does): as
-        much as that one holds, the rest needed again."""
+        """Taking it from a container that holds it (memory.stored, each weighed by the chance it still does):"""
         out = []
         for j, (pos, item, have, p) in enumerate(getattr(self.cost, "stored", lambda t: [])(token)):
             taken = f"taken:{tuple(pos)}:{item}"          # what this plan already takes out of that container
@@ -1021,9 +981,7 @@ class Search:
         return max(1, sum(1 for b in breaks if tool_kind(b) == kind)) if breaks else 1
 
     def prep(self, node, step, depth):
-        """Before a step: its skill's needs for the call — tools first, kept not used up; items had and set aside
-        until the call, so nothing else this prep plans takes them — the facts it needs, then the tools its work pays
-        for (`speed`)."""
+        """Before a step:"""
         needs = self.call(step)
         own = step.detail.get("inputs") or {}       # held at its call too, though the step uses them up
         tasks, held = [], []
@@ -1063,8 +1021,7 @@ class Search:
         return self.options(node, [(tie, self.closing(key, tasks)) for tie, tasks in opts], asked=f"{fact} {value}")
 
     def speed(self, node, step, depth):
-        """The tools a step's work pays for: none, or one more of each kind it uses at any tier above the held one —
-        each an option, the plan's own price decides (a tool made only when the whole plan is cheaper with it)."""
+        """The tools a step's work pays for:"""
         if self.kinds is not None:
             return None
         breaks, kills = self.cost.work_of(step)
@@ -1112,9 +1069,7 @@ class Search:
         return ticks, node.tie, steps
 
     def settle(self, node, floor=0, cap=math.inf):
-        """`node` run down to `floor`, each choice on the way settled by what its options' own runs cost (each run
-        to its horizon the same way, cheapest bound first, one that cannot beat the best so far given up; the same
-        question from the same bag answered once): the node, or None when it died."""
+        """`node` run down to `floor`, each choice on the way settled by what its options' own runs cost (each run t…"""
         while len(node.stack) > floor:
             if cap < math.inf and node.g + self.h(node, floor) > cap:
                 return None                   # no cap yet: nothing to prune against, the bound not asked
@@ -1235,16 +1190,13 @@ class Search:
 
 
 def forward(entries, cost, tools=None):
-    """The plan as it will run: same-kind steps of one token merged into the earliest (intermediates made once for
-    everything), then ordered to walk least between the places its steps happen (an exact search over the order of
-    those, dependencies kept), each step priced from where the one before left the body."""
+    """The plan as it will run:"""
     steps, held = [], []
     index, where = {}, []        # key → its first step's place; each entry's place among the merged steps
     for i, (step, h, start) in enumerate(entries):
         k = step.key()
         mergeable = step.kind in MERGEABLE or (step.kind == "craft" and step.token in MERGEABLE_CRAFTS)
         # merged only where everything it needs already comes before the step it joins: none of the steps after that
-        # one makes what it takes (the planks a later craft made were the merged smelt's fuel)
         if k in index and mergeable and all(where[j] < index[k] for j in range(start, i)) \
                 and not any(_ids_made(steps[p]) & _ids_used(step) for p in range(index[k] + 1, len(steps))):
             where.append(index[k])
@@ -1270,9 +1222,7 @@ def forward(entries, cost, tools=None):
 
 
 def price_as_run(steps, tools, cost, held=None):
-    """Pure given the cost: each step's ticks as the steps run in this order — the tools had by then (`tools`: the
-    bag's (kind, tier, uses) and every tool a step before crafts; or `held`, the tiers per step), the walk from where
-    the step before left the body, hunger's share until a step makes food (D6: the estimate is the steps priced)."""
+    """Pure given the cost:"""
     out, at, have = [], None, list(tools or ())
     hungry = getattr(cost, "hunger_rate", lambda: 0.0)()      # F1l: hunger's seconds until a step makes food
     for i, step in enumerate(steps):
@@ -1315,9 +1265,7 @@ def _ids_used(step):
 
 
 def step_needs(steps):
-    """Pure: for each step, the earlier steps it needs run before it — one that makes what it takes (its inputs, its
-    container, a group read through its members), one that makes a tool or a station (every later step may work
-    with it); transitively."""
+    """Pure:"""
     makes = [_ids_made(s) for s in steps]
     uses = [_ids_used(s) for s in steps]
     kept = [s.kind == "craft" and (bare(s.token).endswith(("_pickaxe", "_axe", "_shovel", "_sword", "_hoe"))
@@ -1330,9 +1278,7 @@ def step_needs(steps):
 
 
 def walk_order(steps, cost):
-    """Indexes of `steps` in run order: as planned, except the steps whose place is known, which run in the order
-    that walks least between them (Held–Karp over those) — every step after every step it needs (step_needs), the
-    planned order kept among equals."""
+    """Indexes of `steps` in run order:"""
     if not hasattr(cost, "site") or getattr(cost, "snap", None) is None:
         return list(range(len(steps)))
     sites = {i: cost.site(s) for i, s in enumerate(steps)}
@@ -1387,10 +1333,7 @@ lifecycle.in_place(__name__, "SPENT")
 
 
 def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact=False, held=None):
-    """The plans the search priced for `needs` from this bag, cheapest first: [(name, seconds, steps)] — the one
-    chosen first, the alternatives it beat after (what a check of the choice reads). `pending`: counted as held
-    (planned sources' and jobs' outputs); `jobs`: of it, what running jobs make (awaited when used); `kinds`: the
-    step kinds allowed (a query: what crafting alone makes)."""
+    """The plans the search priced for `needs` from this bag, cheapest first:"""
     if not needs:
         return [(plan_name([]), 0.0, [])]
     root = Node(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()), [], [])
@@ -1421,15 +1364,13 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact
 
 
 def plan_needs(inv, needs, cost, pending=None, jobs=None, kinds=None, held=None, exact=False):
-    """The cheapest steps that make `needs` held from this bag (`plan_candidates`' first); `held`: the plan held from
-    an earlier round, priced today as the bar a new one must beat."""
+    """The cheapest steps that make `needs` held from this bag (`plan_candidates`' first); `held`:"""
     return plan_candidates(inv, needs, cost, pending, jobs, kinds, exact, held)[0][2]
 
 
 @dataclass
 class Target:
-    """One goal of a round's plan: its needs, its place in the queue (a tie-break at equal seconds only) and the
-    targets it must come after (a directive's --after, a contract's needs: hard)."""
+    """One goal of a round's plan:"""
     name: str
     needs: list
     rank: int = 0
@@ -1437,8 +1378,7 @@ class Target:
     options: tuple = ()     # one of: ((way, its needs, seconds it adds beyond its steps), …) — the cheapest whole plan's
 
 def levels(targets):
-    """Pure: the targets in groups none of which waits on a later one (their `after` names), each group by queue
-    rank; Unplannable when the waits close a loop."""
+    """Pure:"""
     left, out, done = list(targets), [], set()
     while left:
         ready = sorted((t for t in left if set(t.after) <= done), key=lambda t: t.rank)
@@ -1451,8 +1391,7 @@ def levels(targets):
 
 
 def food_left_s(cost):
-    """Seconds the body's bar lasts with nothing eaten (beliefs risk.food_drain_s a point), None when food is carried
-    (the eat reflex answers it) or no body is read."""
+    """Seconds the body's bar lasts with nothing eaten (beliefs risk.food_drain_s a point), None when food is carrie…"""
     from . import beliefs
     from .knowledge import food_count
     state = getattr(getattr(cost, "snap", None), "state", None) or {}
@@ -1508,8 +1447,7 @@ class _After:
 
 
 def _in_levels(inv, targets, cost, pending, jobs, held=None, exact=False):
-    """The targets' steps, level by level (`levels`), each level from the bag the ones before it leave; `held` (the
-    round before's plan) the bar of a single level."""
+    """The targets' steps, level by level (`levels`), each level from the bag the ones before it leave; `held` (the…"""
     steps, groups = [], levels(targets)
     for group in groups:
         steps += _cheapest_order(_After(inv, steps), group, cost, pending, jobs, held if len(groups) == 1 else None, exact)
@@ -1517,9 +1455,7 @@ def _in_levels(inv, targets, cost, pending, jobs, held=None, exact=False):
 
 
 def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False):
-    """One level's steps in the order of its targets whose whole plan takes fewest seconds (forward's price: the
-    walks, a tool made first speeding the rest) — every order weighed up to ORDER_MAX targets, queue rank only at
-    equal seconds (and the order beyond that)."""
+    """One level's steps in the order of its targets whose whole plan takes fewest seconds (forward's price:"""
     orders = itertools.permutations(group) if len(group) <= ORDER_MAX else [tuple(group)]
     best = None
     for order in orders:
@@ -1532,8 +1468,7 @@ def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False):
 
 
 def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False):
-    """The steps of the targets with every one-of target settled to its cheapest way (ways that cannot be had left
-    out; none left: Unplannable naming each way's why)."""
+    """The steps of the targets with every one-of target settled to its cheapest way (ways that cannot be had left o…"""
     choices = [t for t in targets if t.options]
     fixed = [t for t in targets if not t.options]
     best, why = None, []
@@ -1569,12 +1504,7 @@ def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False):
 
 
 def plan_round(inv, targets, cost, pending=None, jobs=None, held=None, chosen=None, exact=False):
-    """The round's one plan over every target (the queue's goals and upkeep's): (its first step, the steps, seconds).
-    Targets with no wait between them are planned together, cheapest first, queue rank breaking ties; one that waits
-    on others after them, from the bag they leave. A one-of target (`options`: the night's ways) takes the way whose
-    whole plan, its extra seconds added, is cheapest — the way taken written to `chosen` ({target: way}). Hard: the
-    bar never runs out along the plan's clock (S-class) — a plan that would starve is planned again with food first.
-    `pending`: the running jobs' outputs (memory.pending_outputs), awaited where a step takes them."""
+    """The round's one plan over every target (the queue's goals and upkeep's):"""
     jobs = dict(pending or {}) if jobs is None else jobs
     steps = _one_of(inv, targets, cost, pending, jobs, held, chosen, exact)
     left = food_left_s(cost)
@@ -1591,15 +1521,12 @@ def plan_round(inv, targets, cost, pending=None, jobs=None, held=None, chosen=No
 
 
 def p_unknown(k, n):
-    """Pure: the chance an unopened container holds the item, from what the opened ones held: k of n (the rule of
-    succession: 1/2 before any is opened)."""
+    """Pure:"""
     return (k + 1) / (n + 2)
 
 
 def look_first(inv, needs, cost, pending=None):
-    """[the look into an unopened home container] when its expected seconds beat making what is short — the look,
-    then with p_unknown the take from it, else the make anyway: look + p·take + (1 − p)·make < make — what it holds
-    decides the rest, planned again once seen; [] when no look pays (or nothing is unopened)."""
+    """[the look into an unopened home container] when its expected seconds beat making what is short — the look, th…"""
     from . import goals
     mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
     if mem is None or snap is None or not hasattr(mem, "home_containers"):
@@ -1637,8 +1564,7 @@ def look_first(inv, needs, cost, pending=None):
 
 
 def craftable_tier(inv, kind, reserved=()):
-    """The best tier of `kind` this bag crafts with crafting steps only (`reserved`, what the held plans will consume,
-    left out), or 0."""
+    """The best tier of `kind` this bag crafts with crafting steps only (`reserved`, what the held plans will consum…"""
     for tier in sorted((t for t in TOOL_MATERIAL_FOR_TIER if t > 0), reverse=True):
         try:
             plan_needs(inv, [("tool", kind, tier)], NullCost(reserved), kinds={"craft"})
