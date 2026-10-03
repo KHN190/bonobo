@@ -12,7 +12,7 @@ from .data import DOOR_NEAR, ENTITY_REACH, STAIR_CELLS, is_falling, GROUPS, FOOD
 from .game import EYE_HEIGHT, PLAYER_SPRINT
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
 from .knowledge import WAY_BLOCKS, dig_ticks, find_class
-from .bag import holds_up
+from .bag import holds_up, reserved_stacks
 from .beliefs import TICKS_PER_S
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
@@ -237,6 +237,15 @@ def building_of(inv):
 
 def building_item():
     return building_of(Inventory())
+
+def way_bag(inv):
+    """Pure: the bag a planned way builds from — less the stacks the held plans reserve (bag.reserved_stacks, the one
+    reader the tidy keeps them by): a bridge never spends the cobblestone the next pickaxe is crafted from. A
+    reflex's own block (building_item: a pillar out of a pit, S1) is not held to it."""
+    if inv is None or not hasattr(inv, "slots"):
+        return inv
+    kept = {id(s) for s in reserved_stacks(inv.slots)}
+    return Inventory({"slots": [s for s in inv.slots if id(s) not in kept], "equipment": dict(inv.equipment)})
 
 def ground_in_column(solid, x, z, y_hint, span=32):
     """Pure: standing height in column (x, z) within y_hint ± span, or None."""
@@ -943,7 +952,7 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_gue
         here, stopped = _long_trip(here, pos, policy, min_hp, purpose, _from, _began)
         if here is None:
             return stopped
-    budget = place_budget(Inventory().count("building"))
+    budget = place_budget(way_bag(Inventory()).count("building"))
     # taught doors (mechanisms): pressed open first when on the way, and never dug; the home's cells too
     doors = DOORS(here, pos, policy) if DOORS is not None else []
     # every other door on the way: a wooden one opened by hand when shut, an iron one a wall — none ever dug
@@ -986,10 +995,10 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_gue
         if there(api.get("/state"), pos, range_):
             return _arrived(_from, pos, _began, True)
         if walked_closer(was, feet(), pos):
-            budget = place_budget(Inventory().count("building"))
+            budget = place_budget(way_bag(Inventory()).count("building"))
             continue                     # that leg gained ground: the next one starts from here
         here = feet()
-        budget = place_budget(Inventory().count("building"))     # the last leg spent some
+        budget = place_budget(way_bag(Inventory()).count("building"))     # the last leg spent some
         if not y_guess or grounded or "no route" not in (r.get("message") or "") or \
                 math.hypot(pos[0] - here[0], pos[2] - here[2]) > 64:
             continue
@@ -1408,7 +1417,8 @@ def plan_way(region, feet, target, kind, inv, protected, walks=None) -> tuple[li
     least first (least_way_s) until none can beat the best. A way stopped short (its why: blocked, off the read) is
     taken only when no other is left; a staircase's segment is not stopped (the region is read again for the next).
     Steps name cells, never items (the door's ARM/HOLD do); a protected cell refuses the way (why "home at …")."""
-    places = [building_of(inv)] * place_budget(inv.count("building")) if building_of(inv) else []
+    ways = way_bag(inv)                # the reserved stacks never a tread (RESERVED)
+    places = [building_of(ways)] * place_budget(ways.count("building")) if building_of(ways) else []
     done = lambda here: stands_for(kind, region, here, target)     # noqa: E731
     if done(tuple(feet)):
         return [], None, 0.0                       # standing where it can be done: nothing to plan
