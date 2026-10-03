@@ -315,11 +315,13 @@ def verdict(table, name, code):
 def load_table(path=None):
     return paths.read_json(path or TABLE, {})
 
-def record(table, scenario, code, ok, seconds, note="", cls="skill", e4=None):
-    """Pure: append one result (last 10 kept per scenario and code version); `e4`: (holds, misses) of its steps."""
+def record(table, scenario, code, ok, seconds, note="", cls="skill", e4=None, ticks=None):
+    """Pure: append one result (last 10 kept per scenario and code version); `e4`: (holds, misses) of its steps;
+    `ticks`: its jar tasks' api.task_ticks."""
     runs = table.setdefault(scenario, {}).setdefault(code, [])
     runs.append({"ok": bool(ok), "s": round(seconds, 1), "note": note[:120], "cls": cls, "t": int(time.time()),
-                 **({"e4": e4[0], "e4_miss": e4[1][:5]} if e4 is not None else {})})
+                 **({"e4": e4[0], "e4_miss": e4[1][:5]} if e4 is not None else {}),
+                 **({"ticks": ticks} if ticks else {})})
     del runs[:-10]
     return table
 
@@ -936,6 +938,7 @@ def run_named(name, make_ctx):
     # work and checks stay the same, only the real-time wait for the furnace goes (smelting is 10 s an item)
     _api.CLOCK_HOOK = lambda s: _command(f"tick sprint {max(TICKS_PER_S, int(s * TICKS_PER_S))}", feedback)
     os.environ["MC_BENCH_ROW"], row_t0 = name, time.time()      # each step's price line names the row (E4)
+    row_mark = _api.ticks_mark()
     os.environ["MC_BENCH_TICK_RATE"] = str(rate or TICKS_PER_S)
     try:
         if rate:
@@ -982,7 +985,8 @@ def run_named(name, make_ctx):
         # a failure without a reason is recorded as such
         note = f"NO REASON: {note or type(exc).__name__}"
     if cls not in UNCOUNTED:
-        save_table(record(load_table(), name, code, ok, seconds, note, cls, e4=e4_row))
+        save_table(record(load_table(), name, code, ok, seconds, note, cls, e4=e4_row,
+                          ticks=_api.ticks_since(_api.STATE.ticks, row_mark)))
     if not ok:
         folder = _report(name, failure_record(name, code, cls, note, seconds, feedback, trace, console.lines))
         note = f"{note} [{cls}] → {folder}"

@@ -114,7 +114,7 @@ def run_priced(dimension, step, night, run):
     a reflex's shelter, a bench row's) goes through here, so each is priced and timed the same way."""
     t0, g0 = time.time(), _game_tick()
     PHASES.clear()
-    api.STATE.ticks.clear()
+    PHASES.update(ticks_after=api.ticks_mark())
     PHASES.update(seek=0.0, walked=nav.WALKED["s"], arrived=nav.WALKED["arrived"], moved=api.STATE.moved_m,
                   feet=api.STATE.feet_seen, bar=api.STATE.bar_seen)
 
@@ -124,7 +124,7 @@ def run_priced(dimension, step, night, run):
         return {"walk": max(0.0, nav.WALKED["s"] - PHASES.get("walked", 0.0) - PHASES.get("seek_walk", 0.0)),
                 "seek": PHASES.get("seek", 0.0), "arrived_s": None if arrived is None else arrived - t0,
                 "game_s": None if g1 is None else (g1 - g0) / TICKS_PER_S, **step_moved(PHASES, api.STATE),
-                "ticks": [v for _k, v in sorted(api.STATE.ticks.items())]}
+                "ticks": api.ticks_since(api.STATE.ticks, PHASES["ticks_after"])}
     try:
         out = run()
     except GameUnreachable:

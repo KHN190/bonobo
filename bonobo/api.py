@@ -52,12 +52,12 @@ class ApiState(lifecycle.State):
     # first posted since the round began (perf_counter seconds; None when not yet)
     clock: dict = field(default_factory=lambda: {"ended": None, "first_post": None, "ended_id": -1})
     ended_ids: set = field(default_factory=set)       # tasks whose end is already stamped
-    ticks: dict = field(default_factory=dict)         # task id → task_ticks, since the priced step began (E4's split)
+    ticks: dict = field(default_factory=dict)         # task id → task_ticks this life (ticks_since)
     # world reads allowed to fail, never invisibly: every quiet handler reports here (mc.py prints the tally)
     swallowed: dict = field(default_factory=dict)
     lock: Any = field(default_factory=threading.RLock, repr=False, compare=False)
 
-    LIFE = ("interrupt", "at_boundary", "last_posted")
+    LIFE = ("interrupt", "at_boundary", "last_posted", "ticks")
 
 
 STATE = lifecycle.owns(__name__, ApiState())
@@ -427,6 +427,16 @@ def task_ticks(r, segment):
     ticks go (`segment`: the POST it came in, STATE.posts)."""
     res = r.get("result") if isinstance(r.get("result"), dict) else {}
     return [r.get("type"), r.get("startTick"), res.get("brokeTick"), r.get("endTick"), segment]
+
+
+def ticks_mark():
+    """The last task id whose ticks are kept: what came after it is a step's or a bench row's own (ticks_since)."""
+    return max(STATE.ticks, default=-1)
+
+
+def ticks_since(ticks, mark):
+    """Pure: the task_ticks of the tasks after id `mark`, in the jar's order."""
+    return [v for k, v in sorted(ticks.items()) if k > mark]
 
 
 def task_result(task_id) -> "TaskResult":
