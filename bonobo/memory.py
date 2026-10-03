@@ -14,6 +14,8 @@ NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
 # the player's homes: their own file beside the notes, written only by `mc.py home` — a bot's save of its notes
 # (loaded before the home was added) never carries them, so it can never lose one
 HOMES_NAME = "homes.json"
+MECHANISMS_NAME = "mechanisms.json"      # the taught mechanisms (mechanisms.learn), beside the notes
+TAUGHT_WRITES = [0]                      # lessons written in this process: a Memory reads them again after one
 
 def _tick_now():
     return time.strftime("%Y-%m-%d %H:%M")
@@ -215,6 +217,7 @@ class Memory:
         path = NOTES_FILE if path is None else path          # read when made: a moved notes file is the one used
         self.path = path
         self.homes_path = os.path.join(os.path.dirname(path), HOMES_NAME)
+        self._taught: tuple | None = None
         self.data: dict[str, Any] = read_notes(path)
         d = self.data
         self.clock: int | None = None     # game ticks (/state gameTime), set each round; what every "seen" note is stamped with
@@ -288,6 +291,15 @@ class Memory:
             if seen_class(kind) in ("static", "slow"):
                 self._put(kind, pos, dim, verify=True)
         return bool(old) or had_veins
+
+    def taught(self, dimension):
+        """The mechanisms taught in `dimension` (press → the cells it opens), read from this save's lessons once and
+        again only after a lesson is written (TAUGHT_WRITES): an estimate prices doors from memory, never a file."""
+        got = getattr(self, "_taught", None)
+        if got is None or got[0] != TAUGHT_WRITES[0]:
+            got = self._taught = (TAUGHT_WRITES[0], paths.read_json(
+                os.path.join(os.path.dirname(self.path), MECHANISMS_NAME), []))
+        return [m for m in got[1] if m["dimension"] == dimension]
 
     def save(self):
         write_notes(self.path, self.data)

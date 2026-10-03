@@ -9,12 +9,11 @@ from .beliefs import CONFIG as _PLAY
 from .data import MEASURED_BAND, MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare, mid
 from .knowledge import SURFACE_Y, food_count, soil_depth, dawn_s, MIN_FIND_P, body_facts, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
-from .world import ROUTES, Region, Versioned, job_ready, route_key, seen_hit
+from .world import Region, Versioned, job_ready, route_key, seen_hit
 from .skill import MIN_SAMPLES
 from .planner import Unplannable, plan_needs
 
 from .game import TICKS_PER_S
-DOOR_ROUTE = None      # mechanisms.route_s, wired by the brain: seconds through a taught door, or None
 
 WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~12.5 ticks a block, walking with detours
 UNKNOWN_WALK_TICKS = PRIOR_TICKS["unknown_walk"]   # nothing known nearby: what a search usually costs
@@ -79,11 +78,11 @@ def planned_bag(inv, held):
 class _Gone:
     """Cells an estimate never goes to:"""
 
-    def __init__(self, protected, blacklist, now=None):
+    def __init__(self, protected, blacklist, routes, now=None):
         self.protected, self.blacklist = protected, blacklist
         now = time.time() if now is None else now
         self.cells = frozenset({tuple(p) for p in blacklist if banned(blacklist, p, now)}
-                               | {k[0] for k, (found, _s) in ROUTES.items() if found is False
+                               | {k[0] for k, (found, _s) in routes.items() if found is False
                                   and k[1:] == (2.0, NAV_NODES)})
 
     def __contains__(self, p):
@@ -91,9 +90,9 @@ class _Gone:
         return p in self.cells or (self.protected is not None and p in self.protected)
 
 
-def route_refused(where):
-    """The game's route to `where` was asked this round and not found (nav's route cache, read, never asked)."""
-    return ROUTES.get(route_key(where, 2.0, NAV_NODES), (None, None))[0] is False
+def route_refused(routes, where):
+    """Pure: the game's route to `where` was asked and not found (`routes`: the answers the snapshot was read with)."""
+    return routes.get(route_key(where, 2.0, NAV_NODES), (None, None))[0] is False
 
 class Cost:
     """The cost model a planner is given."""
@@ -124,10 +123,10 @@ class Cost:
     def not_there(self, sources=False):
         """Cells no estimate goes to (banned; with `sources`, protected), rebuilt on a write."""
         version = getattr(self.blacklist, "version", None)
-        stamp = None if version is None else (version, ROUTES.version)
         got = self.cache.get(("gone", sources))
-        if got is None or stamp is None or got[0] != stamp:
-            got = self.cache[("gone", sources)] = (stamp, _Gone(self.protected() if sources else None, self.blacklist))
+        if got is None or version is None or got[0] != version:
+            got = self.cache[("gone", sources)] = (version, _Gone(self.protected() if sources else None, self.blacklist,
+                                                                  self.snap.routes))
         return got[1]
 
     def _nearest(self, kinds, sources=False):
@@ -451,12 +450,14 @@ class Cost:
         return dig_to_ticks(self.work_of(step)[0], step, held, TICKS_PER_S)
 
     def door_s(self, where, at=None):
-        """Seconds to `where` from `at` (the feet when None) through a taught door on the way (mechanisms, wired as
-        DOOR_ROUTE), else None: the stored mechanisms, never a world read."""
-        if DOOR_ROUTE is None:
+        """Seconds to `where` from `at` (the feet when None) through a taught door on the way, else None: the
+        mechanisms memory holds (Memory.taught), never a file or the world."""
+        from .mechanisms import door_route_s
+        taught = self.mem.taught(self.snap.dimension)
+        if not taught:
             return None
-        return DOOR_ROUTE(tuple(self.snap.feet if at is None else at), tuple(where),
-                          lambda d: walk_ticks(d) / TICKS_PER_S, dimension=self.snap.dimension)
+        return door_route_s(taught, tuple(self.snap.feet if at is None else at), tuple(where),
+                            lambda d: walk_ticks(d) / TICKS_PER_S)
 
     def plan_s(self, steps):
         """Seconds a whole plan takes: Σ Step.est."""
@@ -474,7 +475,7 @@ class Cost:
     def reachable(self, kinds):
         """False only when the game's route to the nearest remembered one was asked and not found."""
         spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, self.snap.dimension)]
-        return not spots or not route_refused(min(spots, key=lambda p: math.dist(p, self.snap.feet)))
+        return not spots or not route_refused(self.snap.routes, min(spots, key=lambda p: math.dist(p, self.snap.feet)))
 
     def where(self, kinds):
         """The position of the nearest known one, or None: what "on the way" is judged by."""
@@ -493,8 +494,8 @@ class Cost:
         return max(1.0, round(walk_ticks(known) / TICKS_PER_S + 2.0, 1))
 
     def route_s(self, kinds):
-        """The game's own walk estimate when already asked this round (nav's route cache; read, never added to);
-        through a taught door on the way, the walk to its press, the press and the walk through."""
+        """The game's own walk estimate when it was asked before the snapshot was read (snap.routes); through a taught
+        door on the way, the walk to its press, the press and the walk through."""
 
         where = self.where(kinds)
         if where is None:
@@ -502,7 +503,7 @@ class Cost:
         through = self.door_s(where)
         if through is not None:
             return through
-        found, seconds = ROUTES.get(route_key(where, 2.0, NAV_NODES), (None, None))
+        found, seconds = self.snap.routes.get(route_key(where, 2.0, NAV_NODES), (None, None))
         return seconds if found else None
 
     def find_p(self, kinds):

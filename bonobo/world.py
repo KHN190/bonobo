@@ -113,7 +113,9 @@ def cell_add(p, d) -> Cell:
 
 
 def is_enclosed(region, inside) -> bool:
-    """Pure: no 2-high opening on any side and a solid roof."""
+    """Pure: no 2-high opening on any side and a solid roof; a ground not read is not known enclosed."""
+    if region is None:
+        return False
 
     return not openings(region, inside)
 
@@ -206,12 +208,13 @@ class Snapshot:
     mobs: list           # the living entities around
     region: "Region | None"     # the ground round the feet, read with the round (None: not read: nothing known of it)
     region_at: float            # when that ground was read (round_ground: kept while fresh)
+    routes: dict                # the game's route answers known when it was read (ROUTES: asked by walks before it)
     read_seq: int
     read_at: float
 
     @classmethod
     def from_readings(cls, state: Mapping[str, Any], inventory: "Mapping[str, Any] | Inventory", hits=None,
-                      mobs=None, region=None, region_at=None) -> "Snapshot":
+                      mobs=None, region=None, region_at=None, routes=None) -> "Snapshot":
         """A snapshot of recorded readings (/state, /inventory, the look's `hits` and `mobs`, the ground `region`): no
         world read."""
         snap = cls.__new__(cls)
@@ -220,6 +223,7 @@ class Snapshot:
         snap.read_seq, snap.read_at = api.STATE.state_reads, api.STATE.state_read_at      # the last /state read then
         snap.hits, snap.mobs, snap.region = dict(hits or {}), list(mobs or []), region
         snap.region_at = snap.read_at if region_at is None else region_at
+        snap.routes = dict(routes or {})
         return snap
 
     @classmethod
@@ -230,7 +234,7 @@ class Snapshot:
         feet = (state["blockX"], state["blockY"], state["blockZ"])
         hits, mobs = look_around(feet, state.get("dimension"), kinds)
         region, at = round_ground(feet, ground)
-        return cls.from_readings(state, Inventory(), hits, mobs, region, at)
+        return cls.from_readings(state, Inventory(), hits, mobs, region, at, routes=ROUTES)
 
     @property
     def feet(self) -> Cell:
@@ -347,7 +351,11 @@ def round_ground(feet, ground, now=None):
     kept = _GROUND.get("kept")
     if kept is not None and ground_fresh(kept, feet, body, now):
         return kept["region"], kept["at"]
-    region = Region(cell_add(feet, lo), cell_add(feet, hi))
+    try:
+        region = Region(cell_add(feet, lo), cell_add(feet, hi))
+    except api.McError as e:
+        api.swallowed("world.round_ground", e)      # unread: every reader answers "not known" (S1: the round goes on)
+        return None, now
     _GROUND["kept"] = {"region": region, "at": now, "writes": api.STATE.world_writes}
     return region, now
 

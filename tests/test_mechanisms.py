@@ -65,22 +65,24 @@ class Planning(unittest.TestCase):
 
     def test_a_chest_behind_a_door(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = taught(tmp)
-            route = lambda here, there, w, dimension=None: mech.door_route_s(      # noqa: E731
-                [m for m in mech.read_lessons(path) if m["dimension"] == dimension], here, there, w)
-            from tests.world import memory, snapshot, state
+            from bonobo.memory import Memory
+            from tests.world import snapshot, state
+            path = taught(tmp)                       # the lessons beside the notes: the save's own
+            mem = Memory(os.path.join(tmp, "notes.json"))
             c = costmod.Cost(snapshot(state(x=OUTSIDE[0] + 0.5, y=float(OUTSIDE[1]), z=OUTSIDE[2] + 0.5,
-                                            dimension=DIM)), memory())
+                                            dimension=DIM)), mem)
             step = Step("withdraw", "minecraft:chest", 1, {"pos": list(INSIDE)})
             through = mech.door_route_s(mech.read_lessons(path), OUTSIDE, INSIDE,
                                         lambda d: costmod.walk_ticks(d) / costmod.TICKS_PER_S)
-            with mock.patch.object(costmod, "DOOR_ROUTE", route):
-                got = c._walk(step)
+            got = c._walk(step)
             # must fail: priced as dug through or as the straight walk the shut door does not allow
             self.assertEqual(got, round(through * costmod.TICKS_PER_S))
             self.assertGreater(got, costmod.walk_ticks(math.dist(OUTSIDE, INSIDE)))
-            with mock.patch.object(costmod, "DOOR_ROUTE", route), mock.patch.object(c, "where", lambda k: INSIDE):
+            with mock.patch.object(c, "where", lambda k: INSIDE):
                 self.assertAlmostEqual(c.route_s(["chest"]), through)
+            # K10: memory read the lessons once; estimating again reads no file (must fail: a read per estimate)
+            with mock.patch.object(mech.paths, "read_json", side_effect=AssertionError("a file read while pricing")):
+                self.assertEqual(c._walk(step), got)
 
     def test_reachable_through_the_door(self):
         # must fail: the game's plan sees the shut door as solid and says no way
