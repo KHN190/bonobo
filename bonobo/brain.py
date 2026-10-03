@@ -133,7 +133,12 @@ def pays_switch(held_s, chosen_s, lost_s):
     return chosen_s + lost_s < held_s
 
 
-EnrouteChoice = collections.namedtuple("EnrouteChoice", "candidate A_s C_s P value chosen")   # C_s None: unplannable
+EnrouteChoice = collections.namedtuple("EnrouteChoice", "candidate A_s C_s P value chosen furnace_wait_s")   # C_s None: unplannable
+
+
+def furnace_wait_s(jobs):
+    """Seconds until the first background furnace job is ready (0 with none)."""
+    return max(0.0, min(j["ready_at"] for j in jobs) - time.time()) if jobs else 0.0
 
 
 def repriced_s(steps, cost, inv):
@@ -560,7 +565,7 @@ class Brain:
                 return                         # a fight row's round: its caller polls again, no idle wait posted
             jobs = self.mem.jobs(snap.dimension)
             if jobs:                           # only a furnace's clock is waited on: the bench may run it ahead
-                api.waiting_for_clock(max(0.0, min(j["ready_at"] for j in jobs) - time.time()))
+                api.waiting_for_clock(furnace_wait_s(jobs))
             self._running(lambda: self.idle_wait(lambda: any(t["state"] in tasks.LIVE for t in tasks.load())))
             return
         self.idle_since = None
@@ -1062,8 +1067,9 @@ class Brain:
             return held
         sites = [at for at in map(cost.site, held["steps"]) if at is not None]
         prices = self.price_table(snap)
-        got = cost.enroute(snap.feet, sites[0], self.enroute_wanted(snap, cost, entries, held["steps"]), prices.get) \
-            if sites else []
+        # a plan worked where the body stands (await, craft) still looks beside the feet
+        got = cost.enroute(snap.feet, sites[0] if sites else snap.feet,
+                           self.enroute_wanted(snap, cost, entries, held["steps"]), prices.get)
         # one candidate: the best not already a place the plan works (its yield is A's)
         _bound, step, where, item, n, p = next((r for r in got if tuple(r[2]) not in map(tuple, sites)),
                                                (None,) * 6)
@@ -1079,14 +1085,17 @@ class Brain:
                              self.mem.pending_outputs(snap.dimension))
             if c is None:
                 self.enroute_choice = EnrouteChoice(name, sum(st.est for st in held["steps"]) / TICKS_PER_S, None, p,
-                                                    None, False)
+                                                    None, False, None)
                 return dict(held, enroute=None)
             steps = c["steps"]
             a_s, c_s = (sum(st.est for st in s) / TICKS_PER_S for s in (held["steps"], steps))
         value = bag.item_value(item, n, self.hidden_prices(snap, step, where).get)
-        chosen = _k.side_saving(p, value or 0.0, 0.0, c_s - a_s) > 0
-        self.enroute_choice = EnrouteChoice(name, a_s, c_s, p, value, chosen)
-        api.detail(f"   {name}: A {a_s:.0f}s, C {c_s:.0f}s, P {p:.2f} × value {value or 0:.0f}s → {'C' if chosen else 'A'}")
+        # a running furnace is waited on anyway: C's extra seconds within that wait are free
+        wait_s = furnace_wait_s(self.mem.jobs(snap.dimension))
+        chosen = _k.side_saving(p, value or 0.0, 0.0, max(0.0, c_s - a_s - wait_s)) > 0
+        self.enroute_choice = EnrouteChoice(name, a_s, c_s, p, value, chosen, wait_s)
+        api.detail(f"   {name}: A {a_s:.0f}s, C {c_s:.0f}s, furnace wait {wait_s:.0f}s, P {p:.2f} × value "
+                   f"{value or 0:.0f}s → {'C' if chosen else 'A'}")
         return dict(held, steps=steps, enroute=name) if chosen else dict(held, enroute=None)
 
     def hidden_prices(self, snap, step, where):
