@@ -1,6 +1,7 @@
 """Staying alive: light, food, water and bridges, burrows and digging out, air, sleep, shelter."""
 from __future__ import annotations
 
+import dataclasses
 import math
 import time
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
@@ -42,7 +43,6 @@ def move_to_open_space(ctx):
     return spot
 
 def _night_policy(ctx):
-    import dataclasses
     return dataclasses.replace(ctx.policy, allow_surface=False)
 
 def require_pickaxe_ok():

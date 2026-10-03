@@ -1423,7 +1423,7 @@ def plan_way(region, feet, target, kind, inv, protected, walks=None, reserve=Tru
     taken only when no other is left; a staircase's segment is not stopped (the region is read again for the next).
     Steps name cells, never items (the door's ARM/HOLD do); a protected cell refuses the way (why "home at …")."""
     ways = way_bag(inv, reserve)       # the reserved stacks never a tread (RESERVED), but on a way out
-    places = [building_of(ways)] * place_budget(ways.count("building")) if building_of(ways) else []
+    places = [building_of(ways)] * place_budget(ways.count("building")) if ways is not None and building_of(ways) else []
     done = lambda here: stands_for(kind, region, here, target)     # noqa: E731
     if done(tuple(feet)):
         return [], None, 0.0                       # standing where it can be done: nothing to plan
