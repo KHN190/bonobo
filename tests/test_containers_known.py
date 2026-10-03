@@ -41,6 +41,30 @@ class Chance(unittest.TestCase):
                 self.assertEqual(len(merge_double(cells)), n)
 
 
+class TheLookPricesTheTake(unittest.TestCase):
+    """planner.look_first: look + p·take + (1 − p)·make against make — the take out of the chest is part of what the
+    look buys (no chest opened: p = 1/2)."""
+
+    def test_rows(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        from bonobo.planner import Step
+        mem = SimpleNamespace(home_containers=lambda dim: [(3, 64, 0)], container_record=lambda pos: None)
+        snap = SimpleNamespace(dimension="minecraft:overworld", feet=(0, 64, 0))
+        # (situation, look ticks, take ticks, make ticks) → looked first?
+        rows = [("a cheap take: the look pays", 100, 20, 300, True),
+                ("must fail: a dear take — p·make beats the look alone, not the look and the take", 100, 300, 300, False),
+                ("making is cheap: no look", 100, 20, 150, False)]
+        for name, look, take, make, want in rows:
+            with self.subTest(name):
+                c = SimpleNamespace(mem=mem, snap=snap, stored=lambda token: [],
+                                    estimate=lambda st, at=None, look=look, take=take: look if st.kind == "look" else take)
+                made = [Step("craft", IRON, 24, {}, make)]
+                with mock.patch.object(planner, "plan_needs", lambda *a, **k: made):
+                    got = planner.look_first(snapshot(state(), inventory()).inv, [(IRON, 24)], c)
+                self.assertEqual(bool(got), want)
+
+
 class LookOrTake(unittest.TestCase):
     def home(self, tmp, chests, records=()):
         m = Memory(os.path.join(tmp, "notes.json"))
