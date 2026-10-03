@@ -670,6 +670,7 @@ class Brain:
         closed = snap.night
         self.just_finished = False
         self.idle_why = ""
+        self.step_whys = []            # D1: a queued task's own "no step can run" reason, named (not the bare default)
         entries, queued = [], []
         for seq, task in enumerate(live):
             if goals.remainder(tasks.goal_of(task), snap, self.mem) == {}:
@@ -729,7 +730,8 @@ class Brain:
                 act = Act("plan", f"seek: {sought.kind} {bare(sought.token)}", lambda: dispatch.go_find(ctx, sought))
                 return [arbiter.Intent("plan", act, kind="seek", key=act.name)]
             # no side act fills the time (D1): every step of the plan is cooling or unplannable here
-            self.idle_why = "; ".join([idle_reason(entries, self.retry.cooling_now(time.time())), *barred])
+            self.idle_why = "; ".join([idle_reason(entries, self.retry.cooling_now(time.time())), *barred,
+                                       *self.step_whys])
             return []
         out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: survive.wait_for_day(ctx)),
                               self.wait_why(snap), kind="wait for day", key="wait for day")]
@@ -805,6 +807,19 @@ class Brain:
                 return alt
         return None
 
+    def step_reason(self, steps, snap, ctx, skip=lambda st: False):
+        """D1: why `next_step` found none — the first non-skipped step's own failing check, named (never the bare
+        default: next_step's order, read again)."""
+        for st in steps:
+            if skip(st):
+                continue
+            if not runnable(st, snap.inv):
+                return f"{step_key(st)}: short of what it needs"
+            if not self.ready(step_key(st)):
+                return f"{step_key(st)}: cooling, no seek alternative found it a way"
+            return f"{step_key(st)}: its own preconditions (station, fight line) refuse it"
+        return "no step of the plan can run from here"
+
     def wait_why(self, snap):
         """Why the night is waited out (D1)."""
         if not self.under_sky(snap):
@@ -878,7 +893,9 @@ class Brain:
         step = self.next_step(held["steps"], snap, ctx, lambda s: met(s, snap))
         if step is None:
             # same bag, same plan: re-solving every round ran nothing, so the step cools until the next event
-            self.fail_step(task, NotAvailable("no step of the plan can run from here"))
+            reason = self.step_reason(held["steps"], snap, ctx, lambda s: met(s, snap))
+            self.step_whys.append(f"{tasks.describe_task(task)}: {reason}")
+            self.fail_step(task, NotAvailable(reason))
             return None
         self.committed = task["id"]
         # never consume our own work: what held plans pass through is kept from tidying and storing

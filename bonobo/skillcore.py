@@ -6,7 +6,7 @@ import time
 from . import api, beliefs, knowledge as _know, lifecycle, tape
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
-from .data import BAN_MAX_S, REACH, bare, place_signature, state_signature
+from .data import BAN_FIRST_S, BAN_MAX_S, REACH, bare, place_signature, state_signature
 from .game import EYE_HEIGHT, SUFFOCATION
 from .world import BAG_SLOTS, Inventory, Region, Versioned, cell_add, inventory_now, box, screen_slot
 from typing import TYPE_CHECKING, NamedTuple, cast
@@ -114,7 +114,7 @@ class Context:
     def blocked(self, pos):
         return banned(self.blacklist, pos, state=ban_state(api.STATE.feet_seen, api.STATE.kinds_seen))
 
-    def ban(self, pos, seconds=BAN_MAX_S):
+    def ban(self, pos, seconds=BAN_FIRST_S):
         """Ban a cell after a failure (never an interruption); repeats escalate, capped at BAN_MAX_S because the world changes."""
         key = tuple(pos)
         count = self.ban_counts.get(key, 0) + 1

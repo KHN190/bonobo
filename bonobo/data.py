@@ -426,6 +426,7 @@ SOIL_DEPTH = 4
 LEVEL_SIGHT_DEPTH = 2
 STAIR_CELLS = 3          # cells one staircase step clears: feet, head and the head room the walk down passes
 BAN_MAX_S = 600          # the longest any cell stays banned, however often it failed
+BAN_FIRST_S = 60         # a cell's first ban (no explicit seconds): so repeats actually escalate toward BAN_MAX_S
 TASK_WAIT_S = 900
 NAV_NODES = 6000
 WALK_BLOCKS_PER_TICK = PLAYER_SPRINT / TICKS_PER_S   # mineflayer prior: a forward move costs one sprinted block
