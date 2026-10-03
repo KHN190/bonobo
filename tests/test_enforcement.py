@@ -17,6 +17,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api, nav  # noqa: E402
+from tests.world import round_ctx  # noqa: E402
+from tests.world import brain_fixture  # noqa: E402
 
 PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo")
 
@@ -160,7 +162,10 @@ class TheSafetyLayerStopsTheBody(unittest.TestCase):
               [("safety", "claude: look at this")], None),
              ("lava under a soft skill: the message only, the skill takes cover itself",
               dict(inLava=True, control=RUNNING), True, None, [], "lava"),
-             ("must fail: lava, nothing running: nothing to stop", dict(inLava=True), False, None, [], None),
+             # S1: no task, a plan being searched: the arbiter, the one writer, stops it too
+             ("must fail: lava, nothing running: the round's planning stopped by the arbiter", dict(inLava=True), False,
+              None, [("safety", "lava")], None),
+             ("all well, nothing running: nothing", dict(), False, None, [], None),
              ("all well under a running task: nothing", dict(control=RUNNING), False, None, [], None)]
 
     def test_perception_stops_only_through_the_arbiter(self):
@@ -279,9 +284,8 @@ class OneDecisionPoint(unittest.TestCase):
     def over(self, rows, planning):
         from unittest import mock
         from bonobo import api, brain, retry, tasks
-        from bonobo.world import Snapshot
-        snap = Snapshot.from_readings({"dimension": "minecraft:overworld", "timeOfDay": 2000},
-                                      {"slots": [], "equipment": {}})
+        from tests.world import inventory, snapshot, state
+        snap = snapshot(state(timeOfDay=2000), inventory())          # the round's read: its ground too
         for busy, want_asked, want_taker in rows:
             asked = []
 
@@ -290,22 +294,30 @@ class OneDecisionPoint(unittest.TestCase):
                     asked.append(name)
                     return result if name in busy else None
                 return ask
-            b = brain.Brain.__new__(brain.Brain)
+            b = brain_fixture()
+            b.unplannable = {}
+            b.abandoned = None
             b.retry, b.place, b.planning = retry.Retry(), None, planning
             ask_upkeep = layer("upkeep", [(0, "u", None)])
             b.needs = type("Needs", (), {"working": {}, "needs_now": [], "round": {},
                                          "propose": lambda self, *a, **k: None})()
             b.reflexes = type("Reflexes", (), {"afloat": False,
                                                "proposals": lambda self, *a, **k: ask_upkeep() or []})()
-            ask_queue = layer("queue", brain.Act("task", "t", None))
+            # a queue act names its step, as craft_act makes every one (brain.act_on_surface reads it)
+            from bonobo.planner import Step
+            ask_queue = layer("queue", brain.Act("task", "t", None, step=Step("craft", "minecraft:stick", 4, {})))
+            # the round's one plan (brain.round_for) stands in; the task's act is asked of it
+            b.round_for = lambda entries, snap, cost, old=None: {"steps": [], "sig": None, "event": False,
+                                                                 "dim": snap.dimension, "want": ()}
             b.task_act = lambda *a: (ask_queue(*a), {})
-            b.mem, b.blacklist, b.policy_cache = None, {}, None
+            b.mem, b.blacklist, b.policy_cache, b.held = None, {}, None, {}
             b.prepare = layer("prepare", brain.Act("idle", "p", None))
             with self.subTest(busy=sorted(busy)), mock.patch.object(api.STATE, "mode", "normal"), \
                     mock.patch.object(brain.hazard, "rescue_due", layer("hazard", "drowning")), \
-                    mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "pending"}]), \
+                    mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "running", "goal": "have",
+                                                                    "args": {"needs": [["log", 2]]}}]), \
                     mock.patch.object(tasks, "expire", return_value=False):
-                act = b.decide(snap, None)
+                act = b.decide(snap, round_ctx(b, snap))
                 self.assertEqual(asked, want_asked)
                 taker = None if act is None else {"L0": "hazard", "upkeep": "upkeep", "task": "queue",
                                                   "idle": "prepare"}[act.layer]

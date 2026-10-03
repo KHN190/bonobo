@@ -28,8 +28,11 @@ class BedRoom(unittest.TestCase):
         flat = ground()
         trees = ground({(x, y, z): "oak_log" for x in range(-4, 5) for z in range(-4, 5) for y in (64, 65)
                         if (x, z) != (0, 0)})
+        # bedrock all round but one room a step down beside the body: its foot is the body's floor (bag.holds_up)
+        floor_only = ground({(x, y, z): "bedrock" for x in range(-4, 5) for z in range(-4, 5) for y in range(63, 69)})
+        floor_only.blocks.update({c: "grass_block" for c in ((1, 63, 0), (2, 63, 0), (1, 64, 0), (2, 64, 0))})
         # (situation, region, protected) → (tasks?, a room found)
-        rows = [("flat ground: a room as it stands, nothing dug", flat, (), 0, True),
+        rows = [("must fail: the only room digs the body's floor", floor_only, (), None, False),("flat ground: a room as it stands, nothing dug", flat, (), 0, True),
                 ("logs 2 high all round: the cheapest room is on top of them, its 2 log cells dug", trees, (), 2, True),
                 ("must fail: every candidate in the home", flat,
                  {(x, y, z) for x in range(-4, 5) for z in range(-4, 5) for y in (63, 64, 65)}, None, False)]
@@ -82,16 +85,22 @@ class SleepGate(unittest.TestCase):
 
 class LightBox(unittest.TestCase):
     def test_cover(self):
-        # (dark spots) → torches: one torch lights 14 blocks around (15 − manhattan)
-        rows = [("none dark: none", [], 0), ("a 9×9 dark floor: one torch at its middle", 
+        # (dark spots) → torches: a torch lights a cell data.TORCH_LIGHT − manhattan (the game's torch light)
+        from bonobo.data import TORCH_LIGHT
+        rows = [("none dark: none", [], 0), ("a 9×9 dark floor: one torch at its middle",
                  [(x, 64, z) for x in range(-4, 5) for z in range(-4, 5)], 1),
                 ("two patches 40 apart: two", [(0, 64, 0), (40, 64, 0)], 2)]
         for name, dark, n in rows:
             with self.subTest(name):
                 torches = survive.torch_cover(dark)
                 self.assertEqual(len(torches), n)
-                self.assertTrue(all(any(15 - sum(abs(t[i] - c[i]) for i in range(3)) > 0 for t in torches)
+                self.assertTrue(all(any(TORCH_LIGHT - sum(abs(t[i] - c[i]) for i in range(3)) > 0 for t in torches)
                                     for c in dark))
+
+    def test_the_games_torch_light(self):
+        from bonobo.data import TORCH_LIGHT
+        # must fail: 15 (a lantern's level, not a torch's): a cell 14 away was counted lit
+        self.assertEqual((TORCH_LIGHT, TORCH_LIGHT - 14 > 0), (14, False))
 
     def test_pays(self):
         # (dark spots, floor spots, night left s, torch s) → pays

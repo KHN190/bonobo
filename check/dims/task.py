@@ -1,20 +1,21 @@
 """task: the queue's head when it is not a one-item `have` of the base `queued` fact — each goal template
 (goals.TEMPLATES) the brain decomposes (decompose._decompose), and the states a task is in (brain.plan_proposals,
-_task_act): expired, its plan stored, cooling after a failure. Read only while `queued` is none (one head)."""
+_task_act): expired, cooling after a failure. Read only while `queued` is none (one head)."""
 NAME = "task"
 TOOL_TIER = 2        # the tool task's tier: iron (one above the base `pickaxe` fact's stone)
 FAR = [40, 64, 0]    # a place to go: off the γ floor's cells, a walk away
 # value → (the goal, how it is queued): a template each (milestone: iron tools, which no bag here holds; end: the end
-# portal milestone, its THEN steps), a blueprint, and three task states over the tool goal
+# portal milestone, its THEN steps), a blueprint, and two task states over the tool goal
 VALUES = ("none", "milestone", "tool", "build", "portal", "goto", "road", "skill", "effect", "end", "expired",
-          "planned", "cooling", "solver", "food", "bed", "torches", "blocks", "blaze", "pearls", "second",
+          "cooling", "solver", "food", "bed", "torches", "blocks", "blaze", "pearls", "second",
           "effect_hunt", "effect_mine", "effect_take", "effect_craft", "effect_bare", "build_unknown",
-          "logs", "iron", "fill", "farm")
+          "logs", "iron", "fill", "farm", "effect_none")
 # effect goals of each kind decompose fills a detail for (decompose.effect_detail: hunt, mine, take, craft) and one
-# whose step lacks the detail its provider reads (missing_detail: refused, Unplannable)
+# whose step lacks the detail its provider reads (missing_detail: refused, Unplannable); one no skill carries out (the
+# planner refuses it: skill.when_of_step)
 EFFECTS = {"effect": "light", "effect_hunt": "hunt:minecraft:beef", "effect_mine": "mine:minecraft:coal",
            "effect_take": "take:minecraft:crafting_table", "effect_craft": "craft:minecraft:stick",
-           "effect_bare": "goto"}
+           "effect_bare": "goto", "effect_none": "check-none"}
 # one-item `have`s outside the base `queued` fact: a material a container may hold (logs, iron: from_containers, B1),
 # a bucket of water (a fill column), wheat (a farm column)
 HAVE = {"logs": ("minecraft:oak_log", 16), "iron": ("minecraft:iron_ingot", 3),
@@ -28,7 +29,7 @@ MILESTONES = {"food": "food", "bed": "bed", "torches": "torches", "blocks": "bui
 SECOND = "check-second"      # second: the tool task queued behind a finished one (plan_proposals walks past it)
 NO_SOLVER = "check-none"     # a task naming a solver nobody registered (decompose.solve_needs: then every solver)
 DEPENDS = (lambda f: f["queued"] == "none", {"queued": "none"})
-STATES = ("expired", "planned", "cooling")
+STATES = ("expired", "cooling")
 # the values whose goal is done when its one step has run (goals.RUN_ONCE: skill, effect; a road is two steps)
 RUN_ONCE = ("skill", "effect", "effect_hunt", "effect_mine", "effect_take", "effect_craft", "effect_bare")
 KEY = "task t1"      # the brain's key for the first task (brain.plan_proposals: f"task {id}")
@@ -40,7 +41,7 @@ def goal(value):
     return {"milestone": lambda: goals.make("milestone", name="iron tools"),
             "end": lambda: goals.make("milestone", name="end portal"),
             "tool": lambda: goals.have(tool),
-            "expired": lambda: goals.have(tool), "planned": lambda: goals.have(tool), "cooling": lambda: goals.have(tool),
+            "expired": lambda: goals.have(tool), "cooling": lambda: goals.have(tool),
             "solver": lambda: goals.have(tool), "second": lambda: goals.have(tool),
             **{v: (lambda n=n: goals.make("milestone", name=n)) for v, n in MILESTONES.items()},
             "build": lambda: goals.make("build", bp="shelter"),
@@ -71,7 +72,7 @@ def _of(t):
             return "solver"
         if t.get("source") == SECOND:
             return "second"
-        return "planned" if t.get("plan") else "tool"
+        return "tool"
     if g == "milestone":
         named = {n: v for v, n in MILESTONES.items()}
         return "end" if args.get("name") == "end portal" else named.get(args.get("name"), "milestone")
@@ -100,7 +101,7 @@ def prepare(brain, facts):
 def gamma(value, facts, g):
     if value == "none":
         return
-    from bonobo import decompose, goals, tasks
+    from bonobo import goals, tasks
     if value == "second":
         done = tasks.add(goals.make("goto", pos=FAR, range=2))
         tasks.update(done["id"], state="done")
@@ -108,10 +109,6 @@ def gamma(value, facts, g):
                   source=SECOND if value == "second" else "cerebrum")
     if value == "solver":
         tasks.update(t["id"], solver=NO_SOLVER)
-    if value == "planned":
-        # a plan stored with the task (an earlier round's): the brain resumes it (brain._task_act)
-        steps = [decompose.Step("craft", "minecraft:iron_pickaxe", 1, {})]
-        tasks.update(t["id"], plan=[decompose.to_dict(s) for s in steps])
 
 
 def step(facts, d, ctx):

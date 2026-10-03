@@ -7,8 +7,8 @@ from . import api, beliefs, knowledge as _know, lifecycle, tape
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import BAN_MAX_S, REACH, bare
-from .game import EYE_HEIGHT
-from .world import BAG_SLOTS, Inventory, Region, cell_add, inventory_now, box, screen_slot
+from .game import EYE_HEIGHT, SUFFOCATION
+from .world import BAG_SLOTS, Inventory, Region, Versioned, cell_add, inventory_now, box, screen_slot
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -85,7 +85,7 @@ class Context:
         # what a unit of each token costs another way this round (solve.reach_cost), injected so skills skip the planner
         self._prices = prices
         # position or (entity id, 0, 0) → expiry; the brain owns it so bans outlive a round
-        self.blacklist = blacklist if blacklist is not None else {}
+        self.blacklist = blacklist if blacklist is not None else Versioned()
         self.ban_counts = _BAN_COUNTS  # shared like the blacklist
 
     def prices(self):
@@ -184,10 +184,33 @@ def head_underwater(s=None):
     return Region(eye, eye).name(eye) == "water"
 
 def head_buried(s=None):
-    """The eyes are inside a solid block (falling sand/gravel, a placed block): suffocating."""
+    """The eyes are inside a solid block (falling sand/gravel, a placed block): suffocating — read now (a skill's
+    check); a round asks `head_buried_in` over its own ground."""
     s = s or api.get("/state")
-    eye = (s["blockX"], math.floor(s["y"] + EYE_HEIGHT), s["blockZ"])
-    return Region(eye, eye, props=True).buries(eye)
+    eye = eye_cell(s)
+    return head_buried_in(Region(eye, eye, props=True), s)
+
+
+def eye_cell(s):
+    return s["blockX"], math.floor(s["y"] + EYE_HEIGHT), s["blockZ"]
+
+
+RECENT_HIT_TICKS = 40          # a hit this many ticks old still says what hurts the body (suffocation hits each 10)
+
+
+def hurt_lately_by(s, sources, within=RECENT_HIT_TICKS):
+    """Pure: /state's last damage (the jar's lastDamage: source, gameTime) is one of `sources`, within `within` ticks."""
+    last = s.get("lastDamage") or {}
+    now, at = s.get("gameTime"), last.get("gameTime")
+    return last.get("source") in sources and now is not None and at is not None and now - at <= within
+
+
+def head_buried_in(region, s):
+    """Pure: the eyes are inside a solid block of `region` (the round's ground); with the ground not read, the body's
+    own evidence: suffocation damage taken lately (/state lastDamage, the game's damage source)."""
+    if region is None:
+        return hurt_lately_by(s, SUFFOCATION)
+    return region.buries(eye_cell(s))
 
 def hold_clicks(slots, selected, item, price=None):
     """Pure (I2): the /click bodies that put `item` in the main hand (the stack in hotbar slot `selected`): its stack

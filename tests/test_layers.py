@@ -29,24 +29,23 @@ MAY_IMPORT_TOP = {"brain", "review"}
 # table was introduced: one leaf module that genuinely belongs in every closure raises them all by one.
 # 重构后基线（refactor 1–5 之后的当前值），只降不升。
 CLOSURE = {
-    "actions": 16,
     "api": 9,
     "arbiter": 2,            # arbiter no longer imports api: api wires its message and /stop in (arbiter.WIRE)
     "bag": 12,
     "beliefs": 2,
     "blueprints": 1,
-    "brain": 58,            # + reflexes (the maintenance table split off needs); + mechanisms (taught doors)
+    "brain": 56,            # + reflexes (the maintenance table split off needs); + mechanisms (taught doors)
     "brewing": 22,
     "building": 20,
     "combat": 18,
     "combat_model": 4,
     "combat_tape": 10,
-    "cost": 16,
+    "cost": 22,
     "craft": 21,
     "data": 1,
-    "decompose": 24,
-    "dragon": 15,
+    "decompose": 25,
     "dispatch": 23,
+    "dragon": 15,
     "end": 18,
     "estimate": 6,           # + data (READ_EVERY_S: fight_cost charges the loop's poll per target)
     "events": 2,             # the concise event log: paths only
@@ -56,25 +55,27 @@ CLOSURE = {
     "fight_loop": 20,
     "fight_plan": 8,         # + data via estimate (READ_EVERY_S)
     "fluids": 19,
-    "fresh": 2,
     "formulas": 1,           # the game's formulas (armour, explosion): +1 in every closure reading beliefs or estimate
+    "fresh": 2,
     "game": 0,               # a constant leaf (constant_leaf): counted by no closure, its own included
     "gather": 21,
     "goals": 3,
     "hazard": 14,
     "intent": 10,
     "jobs": 22,
-    "lifecycle": 1,
     "kernel": 7,             # + data via estimate (READ_EVERY_S)
     "knowledge": 2,
+    "lifecycle": 1,
     "loot": 18,
     "mechanisms": 15,        # taught doors: the store, the press skill
     "memory": 4,
-    "nav": 14,               # + knowledge (data-only facts): plan_way prices its breaks (break_ticks, tool_for)
+    "nav": 15,               # + knowledge (data-only facts): plan_way prices its breaks (break_ticks, tool_for)
+    "needs": 36,
     "nether": 19,
     "paths": 1,
     "perception": 24,
     "planner": 11,
+    "reflexes": 35,
     "retry": 2,                     # → data.UNREACHABLE (03cfe4f): one fact edge, the one list api shares
     "review": 7,
     "roads": 1,
@@ -82,7 +83,6 @@ CLOSURE = {
     "skill": 14,
     "skillcore": 13,
     "skills": 28,
-    "solve": 2,              # + lifecycle (its memos registered for reset)
     "store": 23,
     "survive": 24,
     "tape": 2,
@@ -90,8 +90,6 @@ CLOSURE = {
     "terrain": 16,
     "threat": 8,             # + data via estimate (READ_EVERY_S)
     "ui": 22,
-    "needs": 38,
-    "reflexes": 37,
     "wood": 25,
     "world": 10,
 }
@@ -108,7 +106,7 @@ CLOSURE = {
 # read from wherever it is needed, rather than re-derived by each caller.
 
 # The bottom: pure facts and pure functions over them. Anything here that grows an import has stopped being a fact.
-FACTS = {"data", "shapes", "kernel", "solve", "combat_model", "retry", "roads", "blueprints",
+FACTS = {"data", "shapes", "kernel", "combat_model", "retry", "roads", "blueprints",
          "paths", "beliefs", "field", "estimate", "lifecycle", "formulas"}
 
 

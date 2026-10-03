@@ -17,7 +17,7 @@ import sys
 import types
 
 MODULES = ("brain", "needs", "decompose", "cost", "estimate", "planner", "threat", "kernel", "fight_loop", "arbiter",
-           "reflexes", "retry", "actions", "solve", "gather", "survive", "perception")
+           "reflexes", "retry", "gather", "survive", "perception")
 # the round's entry points: what check/round.py calls (the brain's round, the watcher's look and threat answer)
 ROOTS = ("brain.Brain.decide", "brain.Brain.policy", "brain.Brain.context", "brain.Brain.failed", "brain.Brain.ready",
          "brain.fight_line_holds", "needs.Needs.overnight", "perception.Watcher._look",

@@ -1,7 +1,10 @@
 """The PRODUCTION round on γ(facts): brain.decide with the transport stubbed (check/stub.py). It calls; it never
 re-decides. Decision = (layer, kind, token, target, writes, reason) plus the intents the arbiter ranked."""
+import contextlib
 import os
+import time
 import shutil
+import tempfile
 from collections import namedtuple
 from unittest import mock
 
@@ -16,19 +19,30 @@ def data_dirs():
     import (memory, tasks) — the same unless a bonobo module was imported before check/ set MC_DATA (a test run that
     loads another module first: the round's memory and queue then lived in the tests' dir and outlived the round)."""
     from bonobo import memory, tasks
-    return sorted({_DIR, os.path.dirname(memory.NOTES_FILE), os.path.dirname(tasks.FILE)})
+    dirs = sorted({_DIR, os.path.dirname(memory.NOTES_FILE), os.path.dirname(tasks.FILE)})
+    temp = os.path.realpath(tempfile.gettempdir())
+    away = [d for d in dirs if not os.path.realpath(d).startswith(temp + os.sep)]
+    if away:
+        # a player's own data (bonobo imported before check/): never emptied, the round refused
+        raise RuntimeError(f"the checker empties only temp dirs; production resolved {away} (import check first)")
+    return dirs
 
 
 def fresh_round():
     """The round's one restore point: every runtime data dir emptied, every life's state (lifecycle.reset_all) and the
     session's (paths.renew_session) back to their start."""
     from bonobo import lifecycle, paths
+    clear_inputs()
+    lifecycle.reset_all()
+    paths.renew_session()
+
+
+def clear_inputs():
+    """Every runtime data dir emptied (memory, tasks, tape: a round's inputs), the process's caches kept."""
     for d in data_dirs():
         for name in os.listdir(d) if os.path.isdir(d) else ():
             p = os.path.join(d, name)
             shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
-    lifecycle.reset_all()
-    paths.renew_session()
 
 
 def _decision(act, chosen, intents, world):
@@ -37,8 +51,37 @@ def _decision(act, chosen, intents, world):
     return Decision(layer=chosen.layer if chosen else None, kind=getattr(act, "layer", None),
                     token=getattr(step, "token", None) if step is not None else None,
                     target=tuple(step.detail["pos"]) if step is not None and step.detail.get("pos") is not None else None,
-                    writes=tuple(p for p, _b in world.posts), reason=None if act is not None else None,
+                    writes=tuple(p for p, _b in world.posts), reason=getattr(chosen, "reason", None) or None,
                     name=getattr(act, "name", None), alternatives=tuple(alts))
+
+
+def fact_ages(b, round_snap):
+    """P1: (the /state read the decision used, the round's own), {terrain read: (its age at that read, its TTL)}."""
+    from bonobo import perception, world
+    from bonobo.data import FACT_TTL_S
+    snap = getattr(b, "decided_on", None)
+    if snap is None:
+        return None, {}
+    look = world._SIGHT
+    ages = {"the look (world.nearest)": (snap.read_at - look["t"] if look.get("key") else 0.0, FACT_TTL_S["look"]),
+            "the ground (perception)": (snap.read_at - perception.STATE.grid_at if perception.STATE.grid_at else 0.0,
+                                        FACT_TTL_S["ground"]),
+            "the ground (the round's)": (snap.read_at - snap.region_at, FACT_TTL_S["ground"])}
+    return (snap.read_seq, round_snap.read_seq), ages
+
+
+def _hazard_at(ctx, world):
+    """Search.advance writing a hazard at its first call (S7): the interrupt, the body under water."""
+    from bonobo import api, planner
+    real = planner.Search.advance
+
+    def advance(self, node, floor=0):
+        if ctx.get("hazard_at") is None:
+            ctx["hazard_at"] = planner.SPENT["steps"]
+            api.request_interrupt("drowning")
+            world.state.update(inWater=True, air=0)
+        return real(self, node, floor)
+    return advance
 
 
 TARGET = (12, 64, 12)       # a failure about a target (a vein, a station): its `pos`
@@ -103,21 +146,46 @@ def decide(facts, fail_then_again=True):
         fresh_round()        # the round's life leaves nothing behind for the next caller in this process
 
 
-def _decide(facts, fail_then_again):
-    from bonobo import api, arbiter, brain, fight_loop, perception, tape
+def warm_name(facts, other):
+    """D8: the decision's name on `facts` with the declared caches warm from a round on `other`."""
+    from bonobo import lifecycle, paths
+    try:
+        _decide(other, False)
+        clear_inputs()
+        lifecycle.reset_all(caches=False)
+        paths.renew_session()
+        return _decide(facts, False, fresh=False)[0].name
+    finally:
+        fresh_round()
+
+
+def hazard_round(facts):
+    """S7: (the chosen layer, search steps after the hazard) for a hazard mid-plan; None: nothing planned."""
+    try:
+        d, _got, ctx = _decide(facts, False, hazard=True)
+        return None if ctx.get("hazard_at") is None else (d.layer, ctx["search_steps_after"])
+    finally:
+        fresh_round()
+
+
+def _decide(facts, fail_then_again, fresh=True, hazard=False):
+    from bonobo import api, arbiter, brain, fight_loop, perception, planner, tape
     from bonobo.api import NotAvailable
     from bonobo import dispatch
     from bonobo.data import home_box_of
     from bonobo.memory import Memory
+    from bonobo.knowledge import SOURCE_BLOCKS
+    from bonobo.survive import ROUND_GROUND
     from bonobo.world import Inventory, Snapshot
     from .facts import alpha
     from .gamma import gamma
-    fresh_round()
+    if fresh:
+        fresh_round()
     seen = {}
     real_arbitrate = arbiter.arbitrate
 
-    def watched(intents, now=None, facts=None):
-        chosen = real_arbitrate(intents, now=now, facts=facts)
+    def watched(intents, facts=None):
+        chosen = real_arbitrate(intents, facts=facts)
         seen["intents"], seen["chosen"] = list(intents), chosen
         return chosen
     from .facts import DIMS
@@ -155,7 +223,7 @@ def _decide(facts, fail_then_again):
         for dim in DIMS:
             if hasattr(dim, "prepare"):
                 dim.prepare(b, facts)
-        snap = Snapshot.from_readings(api.get("/state"), Inventory())
+        snap = Snapshot.read(SOURCE_BLOCKS, ROUND_GROUND)
         b.place = None
         b.policy_cache = b.policy(snap, snap.night)
         bctx = b.context(snap.dimension)
@@ -180,13 +248,32 @@ def _decide(facts, fail_then_again):
         ctx["pressed"] = any(pressed(fight_loop.threat_state(s, rows, ids=ids)) for s, rows, ids in bids)
         from bonobo import tasks as tasklist
         live_before = {t["id"] for t in tasklist.load() if t["state"] in tasklist.LIVE}     # D1: what this round finishes
-        act = b.decide(snap, bctx)
+        from bonobo.planner import SPENT
+        began, cut = SPENT["steps"], SPENT["budget"]
+        calls, transport = [], api.api
+
+        def counted(method, path, *rest, **kw):
+            calls.append((method, path.split("?")[0]))
+            return transport(method, path, *rest, **kw)
+        with contextlib.ExitStack() as stack:
+            if hazard:
+                stack.enter_context(mock.patch.object(planner.Search, "advance", _hazard_at(ctx, world)))
+            stack.enter_context(mock.patch.object(api, "api", counted))
+            act = b.decide(snap, bctx)
+        ctx["decide_calls"] = calls                              # K10: every jar call the decision made itself
+        ctx["search_steps"] = SPENT["steps"] - began            # the round's own thinking, the checker's readings apart
+        ctx["paths"] = list(planner.PATHS)      # each plan the round's searches took: its price as run, (g, h) on its way
+        ctx["budget_spent"] = SPENT["budget"] > cut              # a search stopped by its budget this round
+        ctx["body_read"], ctx["fact_ages"] = fact_ages(b, snap)
+        if ctx.get("hazard_at") is not None:
+            ctx["search_steps_after"] = SPENT["steps"] - ctx["hazard_at"]
+        planned = plan_ctx(b, act, snap, mem, world, ctx["budget_spent"])     # read now: later readings move what is seen
         if offered:
             option, worth = offered[-1]
             d = Decision(layer="tactic", kind="threat", token=option.kind, target=getattr(option, "target", None),
                          writes=tuple(p for p, _b in world.posts), reason=None, name=f"threat:{option.kind}",
                          alternatives=(("tactic", option.kind, worth),))
-            return d, got, {"step_kind": "threat", "switches": weighed, "holds": held_log}
+            return d, got, {"step_kind": "threat", "switches": weighed, "holds": held_log, "decide_calls": calls}
         d = _decision(act, seen.get("chosen"), seen.get("intents", ()), world)
         if act is None:
             # D1: why nothing was proposed, where production records it — on the task (brain.finish: tasks.marked),
@@ -194,7 +281,7 @@ def _decide(facts, fail_then_again):
             # it, done or failed after) is itself the round's reason (brain.py just_finished: that round proposes nothing)
             why = [t.get("reason") or (f"task {t['id']} {t['state']} this round"
                                        if t["id"] in live_before and t["state"] not in tasklist.LIVE else None)
-                   for t in tasklist.load()] + list(getattr(b, "unplannable", {}).values())
+                   for t in tasklist.load()] + list(b.unplannable.values())
             d = d._replace(reason=next((w for w in why if w), None))
         step = getattr(act, "step", None)
         boxes = [tuple(map(tuple, bx)) for h in mem.homes(snap.dimension) for bx in h.get("boxes", ())]
@@ -217,14 +304,12 @@ def _decide(facts, fail_then_again):
                 ctx["fight_line"] = why
         if snap.night:
             # asked only of an unsheltered body, as the shelter row asks it
-            from bonobo.decompose import cooled_ways, night_facts, night_left_s
             from bonobo.reflexes import ground
-            enclosed, soft, site = ground(None)
+            enclosed, _soft, _site = ground(None, snap)
             if not b.reflexes.sheltered(snap, enclosed):
-                way, _s, steps = b.needs.overnight(snap, night_facts(soft(), cooled_ways(b.ready), site(),
-                                                                     night_left_s=night_left_s(snap)), bed_too=False)
+                way, _s, steps = b.needs.overnight(snap, bed_too=False)     # the round's own table, not priced again
                 ctx["night_way"], ctx["night_steps"] = way, [st.key() for st in steps]
-        ctx.update(plan_ctx(b, act, snap, mem, world), switches=weighed, holds=held_log)
+        ctx.update(planned, switches=weighed, holds=held_log)
         chosen = seen.get("chosen")
         if fail_then_again and act is not None and chosen is not None:
             # D5: the step fails here; the arbiter's gate drops an intent whose key is cooling (arbiter.viable) —
@@ -241,7 +326,7 @@ def _decide(facts, fail_then_again):
     return d, got, ctx
 
 
-def plan_ctx(b, act, snap, mem, world):
+def plan_ctx(b, act, snap, mem, world, spent):
     """The plan's invariants' readings (check/inv/plan.py), taken while the stub is the transport: the task's held plan,
     the production cost model's price of a step on this state, the bag and memory, and the ways to a mine target."""
     from bonobo.cost import Cost
@@ -250,15 +335,108 @@ def plan_ctx(b, act, snap, mem, world):
     cost = Cost(snap, mem, b.blacklist, policy=b.policy_cache)
     for st in held["steps"] if held is not None else ():
         cost.estimate(st)          # warm the cache while the stub answers
+    from bonobo.game import TICKS_PER_S
+    from bonobo.planner import from_bag, price_as_run
+    tools = list(from_bag(snap.inv, reserved=cost.reserved).tools)
     out = {"plan": list(held["steps"]) if held is not None else None, "price": cost.estimate, "inv": snap.inv,
+           "price_run": None,
            "mem": mem, "dimension": snap.dimension, "feet": snap.feet,
            "task_goal": task.get("goal") and {"goal": task["goal"], "args": task.get("args", {})} if task else None,
-           "way": None, "plan_hand_made": bool(held is not None and held.get("hand_made"))}
+           "way": None, "plan_hand_made": bool(held is not None and held.get("hand_made")), "bound": None}
+    goal = out["task_goal"]
+    from bonobo import goals
+    look = held["steps"][0] if held is not None and len(held["steps"]) == 1 and held["steps"][0].kind == "look" \
+        else None
+    if held is not None and goal and goal["goal"] in goals.ITEM_GOALS:
+        pending = mem.pending_outputs(snap.dimension)       # what the planner credits: the jobs running for us
+        if look is not None and "p" in look.detail:    # a look first: its price, and with 1 − p the make anyway
+            out["bound"] = look.est + (1 - look.detail["p"]) * plan_bound(snap.inv, [look.detail["need"]], cost, pending)
+        else:
+            out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost, pending)
+        if not out["plan_hand_made"] and look is None:
+            names: list = []
+            out["exact_s"], out["exact_unknown"] = exact_s(snap.inv, held.get("want"), goals.needs(goal, snap.inv), cost,
+                                                           pending, names=names)
+            if spent and out["exact_s"] is not None:
+                # a budget-cut round is no violation: what the cut cost is the run's distribution (check.run)
+                out["p5_loss_s"] = sum(int(getattr(s, "est", 0) or 0) for s in held["steps"]) / TICKS_PER_S - out["exact_s"]
+                from bonobo.planner import plan_name
+                out["p5_case"] = (plan_name(held["steps"]), names[0] if names else None)
+    out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
+    # the plan and the chosen candidate priced as they run, now (D6): a later reading would see another world
+    priced = {tuple(map(id, steps)): price_as_run(list(steps), tools, cost)
+              for steps in [out["plan"] or []] + [c[2] for c in (out["candidates"] or [])[:1]]}
+    out["price_run"] = lambda steps: priced.get(tuple(map(id, steps))) or price_as_run(list(steps), tools, cost)
+    out["plan_switch"] = getattr(b, "plan_switch", None)
+    from bonobo.planner import food_left_s
+    out["food_left_s"] = food_left_s(cost)
+    # M1: each withdrawal, production's chance now, the world's block there
+    out["withdraws"] = [(tuple(st.detail["pos"]), st.token, st.detail.get("p"),
+                         next((q for p, _i, _n, q in cost.stored(st.token) if tuple(p) == tuple(st.detail["pos"])), None),
+                         world.blocks.get(tuple(st.detail["pos"]), "air"))
+                        for st in (held["steps"] if held is not None else ()) if st.kind == "withdraw"]
     step = getattr(act, "step", None)
     pos = step.detail.get("pos") if step is not None and step.kind == "mine" else None
     if pos is not None:
         out["way"] = ways(snap, world, tuple(pos))
     return out
+
+
+EXACT_STEPS = 5_000      # search steps the unpruned reference may take in one state; past them P5 is unknown
+
+
+def exact_s(inv, want, needs, cost, pending=None, limit=EXACT_STEPS, names=None):
+    """(seconds of the cheapest plan with no search budget for what the round planned, None; or None and why it is
+    unknown): the reference stops after `limit` search steps."""
+    import copy
+    import json
+    from bonobo import api, decompose
+    from bonobo.planner import Target, Unplannable, plan_candidates, plan_name, plan_round
+    steps, asked = [0], cost.stop or (lambda: False)
+
+    def stop():
+        steps[0] += 1
+        return steps[0] > limit or asked()
+    capped = copy.copy(cost)
+    capped.stop = stop
+    try:
+        if want:
+            targets = [Target(name, decompose.round_needs(json.loads(goal), inv, capped), rank)
+                       for rank, (name, goal, *_left) in enumerate(want)]
+            _first, steps, secs = plan_round(inv, targets, capped, pending, exact=True)
+            if names is not None:
+                names.append(plan_name(steps))      # the reference's ways, for the loss report
+            return secs, None
+        name, secs, _steps = plan_candidates(inv, needs, capped, exact=True)[0]
+        if names is not None:
+            names.append(name)
+        return secs, None
+    except Unplannable:
+        return None, None
+    except api.Interrupted:
+        if steps[0] <= limit:
+            raise
+        return None, f"the unbudgeted search passed {limit} steps: its best is unknown"
+
+
+def plan_bound(inv, needs, cost, pending=None, jobs=None):
+    """Ticks no plan for `needs` from this bag can cost less than: the planner's search's own bound at its root."""
+    from bonobo.planner import Node, Search, from_bag
+    root = Node(from_bag(inv, pending, jobs, cost.reserved, cost.facts()), [], [])
+    root.stack = [("tool", n[1], int(n[2]), 1, 0) if n[0] == "tool" else ("need", n[0], int(n[1]), 0, False)
+                  for n in reversed(list(needs)) if n[0] not in ("fact", "do")]
+    return Search(cost).h(root)
+
+
+def candidates(task, snap, mem, cost):
+    """planner.plan_candidates for the task's needs (the chosen first), or None."""
+    from bonobo import goals, tasks
+    from bonobo.planner import Unplannable, plan_candidates
+    try:
+        return plan_candidates(snap.inv, goals.needs(tasks.goal_of(task), snap.inv), cost,
+                               mem.pending_outputs(snap.dimension))
+    except Unplannable:
+        return None
 
 
 def ways(snap, world, target):

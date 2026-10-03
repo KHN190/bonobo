@@ -15,11 +15,11 @@ from typing import NoReturn
 from . import api, paths
 from .knowledge import left
 from .skill import skill
-from .data import DOOR_NEAR, home_box_of
+from .data import DOOR_NEAR, MECHANISMS_NAME, home_box_of
 from .game import EYE_HEIGHT
 from .world import Region, to_segment
 
-FILE = paths.data("mechanisms.json")
+FILE = paths.data(MECHANISMS_NAME)
 PRESS_S = 1.0             # the use itself, once in reach
 
 

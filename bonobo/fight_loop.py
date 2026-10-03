@@ -51,7 +51,7 @@ class FightState(lifecycle.State):
 STATE = lifecycle.owns(__name__, FightState())
 
 
-def held():
+def held() -> kernel.Held | None:
     """The threat layer's held decision (kernel.Held), or None."""
     return STATE.held
 
@@ -301,7 +301,7 @@ def active():
 
     return engaged() is not None or bool(arbiter.BODY.engaged)
 
-def threat_state(state, rows, work_s=None, ids=()):
+def threat_state(state, rows, work_s=None, ids=()) -> dict:
     """The threat model's state vector, read off a player state and the rows the watcher last saw."""
 
     st = {"here": (state["x"], state["y"], state["z"]), "hp": float(state.get("health", 20)),
@@ -339,7 +339,7 @@ def _note_look(t, st, field_model, price, horizon, keeper, option, worth, why):
         t=round(t, 2), y=round(float(st["here"][1]), 2),
         shape_now=[list(s) for s in getattr(ground, "shape_now", ())],
         options=[[o.kind, str(o.target), round(threat.saves(o, opts, price, horizon), 1)] for o in opts],
-        pick=None if option is None else option.kind, worth=worth, why=why,
+        pick=option.kind, worth=worth, why=why,
         held_because=getattr(keeper, "because", None), engaged=engaged() is not None)
 
 
@@ -356,10 +356,8 @@ def unanswered_now(now):
                                           refused=refused_now))
 
 
-def bid(state, rows, price, work_s=None, now=None, ids=()):
+def bid(state, rows, price, work_s=None, now=None, ids=()) -> tuple[threat.Option, float] | None:
     """(the answer, seconds it saves) the held decision stands behind now, or None when nothing pays."""
-    if not rows:
-        return None
     STATE.last_bid.update(state=state, price=price)
     if work_s is None:
         work_s = arbiter.work_left_s(arbiter.BODY.driving, now if now is not None else time.time())
@@ -372,19 +370,18 @@ def bid(state, rows, price, work_s=None, now=None, ids=()):
     horizon_now = threat.horizon_for(st)
     choice = keeper.decide(field_model, field_model.state(), now if now is not None else time.time(),
                          holds=lambda c, _s: still_worth(c, field_model, price, horizon_now))
-    option = choice.action.option if choice.action is not None else None
+    option = choice.action.option          # Field.default is always an answer: kernel.choose never leaves it None
     t = now if now is not None else time.time()
-    if option is None or option.kind == "ignore":
-        _note_look(t, st, field_model, price, horizon_now, keeper, option, None,
-                   "no action" if option is None else "ignore is the best")
+    if option.kind == "ignore":
+        _note_look(t, st, field_model, price, horizon_now, keeper, option, None, "ignore is the best")
         return None
     worth = threat.saves(option, [a.option for a in field_model.opts], price, horizon_now)
     forced = worth <= 0 and option is field_model.default.option
     if forced:
         worth = FORCED_WORTH_S       # the fallback under a closing follower: taken though nothing saves
     _note_look(t, st, field_model, price, horizon_now, keeper, option, round(worth, 1),
-               "fallback" if forced else ("bid" if worth > 0 else "saves nothing"))
-    return (option, round(worth, 1)) if worth > 0 else None
+               "fallback" if forced else "bid")
+    return option, round(worth, 1)        # chosen over the default: its score, the same saving, is > 0
 
 # the jar's word that the named mob is no target any more: dead ("defeated or gone" — the kill) or not found; the
 # next target is decided at once, not after one more post at the dead id (fight_zombie_3 23:45:58: 0.4 s idle)

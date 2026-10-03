@@ -50,6 +50,9 @@ MOB_WIDTH = {"minecraft:zombie": 0.6, "minecraft:husk": 0.6, "minecraft:zombie_v
              "minecraft:spider": 1.4, "minecraft:cave_spider": 0.7, "minecraft:phantom": 0.9, "minecraft:vindicator": 0.6,
              "minecraft:wither_skeleton": 0.7, "minecraft:piglin": 0.6, "minecraft:zombified_piglin": 0.6,
              "minecraft:enderman": 0.6}
+EAT_TICKS = 32                   # one food eaten (Minecraft Wiki, Food: 1.6 s)
 PLAYER_SPRINT = 5.612            # blocks/s sprinting (Minecraft Wiki, Sprinting)
 # RangedBowAttackGoal strafe(-0.5) × MoveControl.strafe 0.25 × movement_speed 0.25 × 43.17 b/s per unit; not measured (bench combat__shield_arrows)
 BOW_RETREAT = {"minecraft:skeleton": 0.5 * 0.25 * 0.25 * 43.17, "minecraft:stray": 0.5 * 0.25 * 0.25 * 43.17}
+WAYPOINT_R = 6                   # a road's ends within this many blocks are the same waypoint
+SUFFOCATION = ("inWall",)        # the damage source name of a head inside a block (DamageTypes.IN_WALL, /state lastDamage)

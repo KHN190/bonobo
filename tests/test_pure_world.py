@@ -14,6 +14,7 @@ from bonobo import skill as skillkit  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
 from bonobo.world import Region  # noqa: E402
 from tests.world import FakeRegion, flat  # noqa: E402
+from tests.world import brain_fixture  # noqa: E402
 
 
 def region(blocks, props=None, lo=(-8, -8, -8), hi=(8, 8, 8)):
@@ -486,14 +487,13 @@ class Nav(unittest.TestCase):
                              {"block": "minecraft:stone", "distance": 10.0, "x": 12, "y": 64, "z": 0}]}
         noted = [{"pos": [3, 64, 3]}]
         mem = mock.Mock(protected_cells=lambda dim: home, seen=lambda kind, dim: noted if kind == "stone" else [])
-        snap = mock.Mock(feet=(2, 64, 2), dimension="minecraft:overworld")
+        from tests.world import inventory, state
+        snap = world.Snapshot.from_readings(state(x=2.5, y=64.0, z=2.5), inventory(), {"stone": answer["blocks"]})
         step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"]})
         rows = [("must fail: the home's stone as the source: 10 off, not the wall 2 off nor the noted one", True, 10.0),
                 ("the same look for a station: the home's counts (the noted one, 1.4 off)", False, 1.4)]
         for name, sources, want in rows:
-            with self.subTest(name), mock.patch.object(api, "get", return_value=answer), \
-                    mock.patch.dict(world._SIGHT, {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}}):
-                self.per_block[:] = [True]
+            with self.subTest(name), mock.patch.object(api, "api", side_effect=AssertionError("a world read")):
                 c = Cost(snap, mem)
                 got = c._source(step) if sources else c.distance(["stone"], 32)
                 self.assertAlmostEqual(got, want, places=1)
@@ -705,20 +705,32 @@ class Planner(unittest.TestCase):
                 self.assertEqual(inv.available(token), want)
 
     def test_virtual_inventory_has_tool(self):
-        tools = [("pickaxe", 2, 50), ("sword", 1, 3)]
-        w = knowledge.TOOL_WORKING
-        rows = [  # (why, kind, tier, uses the work spends, expected): left ≥ uses + TOOL_WORKING (knowledge.working)
+        # the plan's tools carry the uses they spend before they stop working (knowledge.spare_uses)
+        tools = [["pickaxe", 2, 50], ["sword", 1, 0]]
+        rows = [  # (why, kind, tier, uses the work spends, expected)
             ("iron pickaxe for stone", "pickaxe", 1, 10, True),
-            ("exact tier, the uses leave it working (boundary)", "pickaxe", 2, 50 - w, True),
-            ("must fail: one use more and it stops working", "pickaxe", 2, 50 - w + 1, False),
+            ("exact tier, every spare use spent (boundary)", "pickaxe", 2, 50, True),
+            ("must fail: one use more than it spares", "pickaxe", 2, 51, False),
             ("must fail: tier too high", "pickaxe", 3, 10, False),
             ("worn sword: no use to spare", "sword", 1, 1, False),
-            ("no axe", "axe", 0, 0, False),
+            ("no axe", "axe", 0, 1, False),
         ]
         inv = planner.VirtualInventory({}, tools)
         for why, kind, tier, uses, want in rows:
             with self.subTest(why):
                 self.assertEqual(inv.has_tool(kind, tier, uses), want)
+
+    def test_the_bag_brings_its_spare_uses(self):
+        from tests.world import bag, inventory, slot
+        w = knowledge.TOOL_WORKING
+        # (why, uses left on an iron pickaxe) → the plan's (kind, tier, spare uses), none when it is not working
+        rows = [("fresh", 250, [["pickaxe", 2, 250 - w]]), ("at the margin: working, nothing to spare", w,
+                                                             [["pickaxe", 2, 0]]),
+                ("must fail: under the margin: not a tool the plan has", w - 1, [])]
+        for why, left, want in rows:
+            with self.subTest(why):
+                got = planner.from_bag(bag(inventory(slot("iron_pickaxe", 1, 250 - left)))).tools
+                self.assertEqual([list(t) for t in got], want)
 
 
 # ---------------------------------------------------------------- retry / skill
@@ -992,7 +1004,9 @@ class Frontier(unittest.TestCase):
                         next(explore._search(ctx, [self.S], lambda: [], 48, 3))
                     next(explore._search(ctx, [self.S], lambda: [], 48, 3))      # the resume
                 self.assertEqual(went[1], went[0])                                # the same next section
-                b = brainmod.Brain.__new__(brainmod.Brain)
+                b = brain_fixture()
+                b.unplannable = {}
+                b.abandoned = None
                 b.retry, b.place, b.mem = retry.Retry(), ("here", False), m
                 b.reflexes = type("R", (), {"failed": lambda self, *a: None})()
                 with mock.patch.object(api, "post"), mock.patch.object(brainmod, "log"), \
@@ -1247,7 +1261,9 @@ class IdleWait(unittest.TestCase):
                 ("must fail: queued at once still waits one slice, never the whole 5 s", False, [True], 1)]
         for name, finished, queued, want in rows:
             posted = []
-            b = brainmod.Brain.__new__(brainmod.Brain)
+            b = brain_fixture()
+            b.unplannable = {}
+            b.abandoned = None
             b.just_finished = finished
             answers = iter(queued)
             with self.subTest(name), mock.patch.object(api, "run", side_effect=lambda t, **k: posted.append(t)):
@@ -1356,3 +1372,33 @@ class HeadBuried(unittest.TestCase):
                 return {"palette": [block], "blocks": [entry]}
             with self.subTest(name), mock.patch.object(api, "get", get):
                 self.assertEqual(skillcore.head_buried(state), want)
+
+
+class RoundGroundKept(unittest.TestCase):
+    """world.round_ground: the round's ground read once and kept while fresh (world.ground_fresh: FACT_TTL_S["ground"],
+    the cells round the body inside it, no dig or place of ours since)."""
+
+    def test_rows(self):
+        from bonobo import api, lifecycle, survive, world
+        from bonobo.data import FACT_TTL_S
+        lifecycle.reset_all()
+        reads = []
+
+        def read(lo, hi):
+            reads.append((lo, hi))
+            return Region.of(lo, hi, {})
+        feet, t, ttl = (0, 64, 0), 1000.0, FACT_TTL_S["ground"]
+        far = (feet[0] + 2 * survive.ROUND_GROUND[0][1][0], feet[1], feet[2])      # out of the box read
+        writes = api.STATE.world_writes
+        # (situation, feet, time, writes since) → reads so far
+        rows = [("the first round reads it", feet, t, 0, 1),
+                ("must fail: a still body's next rounds read nothing", feet, t + ttl / 4, 0, 1),
+                ("a third still round", feet, t + ttl / 2, 0, 1),
+                ("must fail: a dig of ours since: read again", feet, t + ttl / 2, 1, 2),
+                ("the body left the box: read again", far, t + ttl / 2, 1, 3),
+                ("older than the ground's TTL: read again", far, t + 2 * ttl, 1, 4)]
+        with mock.patch.object(world, "Region", side_effect=read):
+            for name, at, now, dug, want in rows:
+                with self.subTest(name), mock.patch.object(api.STATE, "world_writes", writes + dug):
+                    world.round_ground(at, survive.ROUND_GROUND, now=now)
+                    self.assertEqual(len(reads), want)

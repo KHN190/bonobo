@@ -31,8 +31,7 @@ def fresh_enough(seen_at, now=None, within=1.0):
 class Intent:
     """What a layer would like the body to do; the arbiter decides."""
 
-    def __init__(self, layer, action, reason="", *, key, deadline_s=None, at=None, commit_s=None,
-                 cost_rate=0.0, cost_s=None, resumable=True, redo_s=0.0, kind=None, seq=0, surface=False):
+    def __init__(self, layer, action, reason="", *, key, at=None, commit_s=None, kind=None, seq=0, surface=False):
         if layer not in SCALES:
             raise ValueError(f"unknown layer {layer!r}: expected one of {sorted(SCALES)}")
         if not isinstance(key, str) or not key:
@@ -40,36 +39,25 @@ class Intent:
             raise ValueError(f"an intent needs a key (its retry name): {layer} {reason!r}")
         self.layer = layer
         self.action = action
-        # within PLAN: the proposal's kind (PLAN_ORDER) and its place among several of one kind
+        # within PLAN: the proposal's kind (what it is for: a readout) and its place among several
         self.kind, self.seq = kind, seq
         # What the round's facts know this proposal by (a need's or a task's retry name): `viable` reads it.
         self.key = key
         # walks the surface (on_surface): not offered while the surface is closed (night in the Overworld)
         self.surface = bool(surface)
         self.reason = reason
-        self.deadline_s = deadline_s
-        # how long the body may stay on this before the planner is asked again (deadline_s is when it is too old to start)
+        # how long the body may stay on this before the planner is asked again
         self.commit_s = commit_s
-        self.cost_rate = float(cost_rate)
-        self.cost_s = None if cost_s is None else float(cost_s)
-        # data for the log and tape only: whether stopping loses work is the layer's call, through `release`
-        self.resumable = bool(resumable)
-        self.redo_s = float(redo_s)
         self.at = time.time() if at is None else at
 
     @property
     def scale(self):
         return SCALES[self.layer]
 
-    def expired(self, now=None):
-        if self.deadline_s is None:
-            return False
-        return (now if now is not None else time.time()) - self.at > self.deadline_s
-
     def __repr__(self):
         return f"Intent({self.layer}, {self.reason!r})"
 
-# PLAN_ORDER ranks every planned proposal here only; RESUME_RULES: one declared rule per interrupt source (the offline sweep refuses a source without one)
+# RESUME_RULES: one declared rule per interrupt source (the offline sweep refuses a source without one)
 RESUME_RULES: dict[Rule, tuple[bool, str | None]] = {
     "same": (True, None),             # the same target, the next frontier; nothing cooled, nothing banned
     "recheck": (True, "recheck"),     # the bag changed under it: re-read the remaining amount first
@@ -99,9 +87,6 @@ RESUME_OF: dict[str, Rule] = {      # every key a shapes.Source (tests/test_type
 def resume_of(source: Source) -> tuple[bool, str | None]:
     """Pure: (resumes, what first) for work interrupted by `source` — KeyError for a source nobody declared."""
     return RESUME_RULES[RESUME_OF[source]]
-
-PLAN_ORDER = ("night prep", "broken tool", "water bucket", "bridge stock", "food stock",
-              "queue", "night stock", "wait for day", "idle")
 
 # offered only when nothing else is (`gate`)
 LAST_RESORT = ("wait for day", "idle")
@@ -140,10 +125,6 @@ def waits(picks):
     """Rounds spent on a waiting kind."""
     return sum(picks.get(k, 0) for k in WAIT_KINDS)
 
-def plan_rank(kind):
-    """Pure: a PLAN proposal's place in PLAN_ORDER (an unknown kind after all of them)."""
-    return PLAN_ORDER.index(kind) if kind in PLAN_ORDER else len(PLAN_ORDER)
-
 def first_live(groups, facts_of):
     """Pure: the proposals of the first group that still has one after the gate."""
 
@@ -155,13 +136,13 @@ def first_live(groups, facts_of):
             return live, facts
     return [], {}
 
-def arbitrate(intents, now=None, facts=None):
+def arbitrate(intents, facts=None):
     """Pure: the one intent that may drive the body, or None."""
 
-    live = gate_intents([i for i in intents if not i.expired(now)], facts)
+    live = gate_intents(list(intents), facts)
     if not live:
         return None
-    return min(live, key=lambda i: (i.scale, plan_rank(i.kind) if i.layer == "plan" else 0, i.seq, -i.at))
+    return min(live, key=lambda i: (i.scale, i.seq, -i.at, i.key))
 
 def work_left_s(intent, now):
     """Pure: seconds left of the committed work; None when uncommitted or overrun."""
@@ -329,14 +310,13 @@ class Motion:
         self._run(intent)  # outside the lock: a long action must not freeze the body
         return (intent.layer, intent.reason), None
 
-    def drive(self, layer, action, reason="", commit_s=None, resumable=True, redo_s=0.0):
+    def drive(self, layer, action, reason="", commit_s=None):
         """Run `action` now, on this thread, under a commitment (ordinary play's entry)."""
 
         if not self.allows(layer):
             self._log(f"   motion: {layer} '{reason}' stands down: the body is Claude's")
             return False
-        self._run(Intent(layer, action, reason, key=reason or layer, commit_s=commit_s, resumable=resumable,
-                         redo_s=redo_s))
+        self._run(Intent(layer, action, reason, key=reason or layer, commit_s=commit_s))
         return True
 
 BODY = Motion()      # the one player this process drives

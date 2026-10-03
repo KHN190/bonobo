@@ -8,7 +8,7 @@ from . import world
 from . import knowledge as _k
 from . import api, blueprints, nav, skillcore
 from .api import McError, NotAvailable, log
-from .data import GROUPS, bare
+from .data import GROUPS, WORK_REACH, bare
 from .game import EYE_HEIGHT
 from .skill import skill
 from .skillcore import body_state, gained
@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .shapes import Task
 
-REACH = nav.WORK_REACH        # the reach holds uses: the jar's range less its margin
+REACH = WORK_REACH        # the reach holds uses: the jar's range less its margin
 
 def _eye(cell):
     return cell[0] + 0.5, cell[1] + EYE_HEIGHT, cell[2] + 0.5
@@ -52,7 +52,7 @@ def clear_line(region, eye, target_cell, target_point, margin=0.2):
                 return False
     return True
 
-def lava_within(region, p, r):
+def lava_within(region, p, r) -> bool:
     """Lava in the box of half-size r around p (feet, head and the floor layers)."""
     for dx in range(-r, r + 1):
         for dy in range(-1, 2 + 1):
@@ -118,7 +118,7 @@ def _use(item, aim, on_block):
     return res
 
 @skill(gives=K.GIVES_FILL, needs={"minecraft:bucket": 1}, done=lambda c: Inventory().count("minecraft:water_bucket") > 0,
-       budget=300, stall=120, provides={"fill": lambda ctx, s: ()})
+       budget=300, stall=120, provides={"fill": lambda ctx, s: ()}, when=K.night_when(surface=True))
 def fill_water_bucket(ctx):
     """Fill an empty bucket at the nearest reachable still water."""
     here = world.feet()

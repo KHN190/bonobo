@@ -284,17 +284,24 @@ class SafeDepth(unittest.TestCase):
 
 
 class PickSeed(unittest.TestCase):
-    """gather.pick_seed: the vein whose way is cheapest, not the nearest (§12 A4)."""
+    """gather.pick_seed: the vein whose way is cheapest, not the nearest (§12 A4); an unpriced one by the least its
+    way can take (nav.least_way_s: the straight walk), never ranked after the priced (V1)."""
 
     def test_rows(self):
         from bonobo import gather
         near, far = (1, 50, 0), (6, 60, 0)
-        # (situation, [(cell, way seconds, distance)]) → the chosen
-        rows = [("must fail: a buried near vein (40 s of digging) over an open one 6 off (5 s walk)",
-                 [(near, 40.0, 3.0), (far, 5.0, 6.0)], far),
-                ("the near one is also the cheapest", [(near, 2.0, 3.0), (far, 5.0, 6.0)], near),
-                ("an unpriced one (too far to read) after every priced one", [(near, None, 3.0), (far, 50.0, 6.0)], far),
-                ("none priced: the nearest", [(far, None, 6.0), (near, None, 3.0)], near),
+        start = (0, 50, 0)
+        lb = {c: nav.least_way_s(c, start) for c in (near, far)}
+        # (situation, [(cell, way seconds, the least its way takes)]) → the chosen
+        rows = [("must fail: a buried near vein (40 s of digging) over an open one (5 s walk)",
+                 [(near, 40.0, lb[near]), (far, 5.0, lb[far])], far),
+                ("the near one is also the cheapest", [(near, 2.0, lb[near]), (far, 5.0, lb[far])], near),
+                ("an unpriced one whose least beats every priced way", [(near, None, lb[near]), (far, 50.0, lb[far])],
+                 near),
+                ("must fail: an unpriced one whose least is dearer than a priced way", [(far, None, lb[far]),
+                                                                                       (near, lb[far] / 2, lb[near])],
+                 near),
+                ("none priced: the least first", [(far, None, lb[far]), (near, None, lb[near])], near),
                 ("none", [], None)]
         for name, priced, want in rows:
             with self.subTest(name):
@@ -322,4 +329,33 @@ class AWayPassesItsOwnGate(unittest.TestCase):
         self.assertTrue(any(t["type"] == "goto" for t in steps or ()), why)
         # must fail: judged over the undug region (the old gate), its first goto into rock fails
         self.assertIsNone(nav.unstandable(steps, region, feet))
+
+
+class NeverDigsItsFloor(unittest.TestCase):
+    """bag.holds_up in a dug way: no step breaks the body's floor or own column (a staircase down: the column)."""
+
+    def test_rows(self):
+        from bonobo.bag import holds_up
+        from bonobo.world import Inventory
+        # (situation, cells, down) → refused with "support at"
+        rows = [("must fail: the floor under the body", [(0, 63, 0)], False, True),
+                ("must fail: deeper in the own column, digging down", [(0, 60, 0)], True, True),
+                ("must fail: a diagonal floor cell, level way", [(1, 63, 0)], False, True),
+                ("a staircase's next step down", [(1, 63, 0)], True, False),
+                ("beside the body", [(1, 65, 0)], False, False)]
+        for name, cells, down, refused in rows:
+            with self.subTest(name):
+                tasks, why = nav.open_tasks(ground(top=66), cells, [], FEET, (), [], FEET, down)
+                self.assertEqual(tasks is None and "support at" in (why or ""), refused, why)
+        inv = Inventory({"slots": [dict(PICK, slot=0)], "equipment": {}})
+        for target in (TARGET, (6, 63, 0)):
+            with self.subTest(target=target):
+                steps, why, _s = nav.plan_way(ground(), FEET, target, "mine", inv, set())
+                self.assertTrue(steps, why)
+                at = FEET
+                for t in steps:
+                    if t["type"] == "goto":
+                        at = (t["x"], t["y"], t["z"])
+                    elif t["type"] == "mine":
+                        self.assertFalse(holds_up(at, (t["x"], t["y"], t["z"]), down=True), (at, t))
 

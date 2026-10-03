@@ -12,6 +12,7 @@ from .data import DOOR_NEAR, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of,
 from .game import EYE_HEIGHT, PLAYER_SPRINT
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
 from .knowledge import dig_ticks
+from .bag import holds_up
 from .beliefs import TICKS_PER_S
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
@@ -617,6 +618,24 @@ def landing(region, here, spot, max_drop=None, least=2):
 
 def go_to(pos, policy, range_=ARRIVE_RANGE, attempts=3, min_hp: float | None = MIN_WALK_HP, avoid_hazards=True, purpose="work",
           y_guess=False):
+    """`_go_to`, its seconds added to WALKED (the outermost walk only: a leg inside a trip is the trip's)."""
+    WALKED["depth"] += 1
+    t0 = time.time()
+    try:
+        return _go_to(pos, policy, range_, attempts, min_hp, avoid_hazards, purpose, y_guess)
+    finally:
+        WALKED["depth"] -= 1
+        if not WALKED["depth"]:
+            WALKED["s"] += time.time() - t0
+            WALKED["arrived"] = WALKED["arrived"] or time.time()
+
+
+WALKED = {"s": 0.0, "arrived": None, "depth": 0}     # the walking a step did (dispatch's price line reads and resets it)
+lifecycle.in_place(__name__, "WALKED")
+
+
+def _go_to(pos, policy, range_=ARRIVE_RANGE, attempts=3, min_hp: float | None = MIN_WALK_HP, avoid_hazards=True, purpose="work",
+          y_guess=False):
     """Walk; when the walker can't get there, build/dig a route toward the target. `y_guess`: the target's y is not
     known (a waypoint) — only then is a "no route" retried on the column's ground."""
 
@@ -1067,10 +1086,12 @@ def dig_cells(region, cells, start):
         want.update(falling_above(region, c))
     return [c for c in mine_order(want, start) if region.solid(c)]
 
-def _path_blocked(region, cells, protected, placed=()):
+def _path_blocked(region, cells, protected, placed=(), at=None, down=False):
     """Pure: why these cells may not be opened — a fluid in or beside one (but a floor the step places: a bridge
-    fills it), a protected or unbreakable one — or None."""
+    fills it), a protected or unbreakable one, the body's support at `at` — or None."""
     for c in cells:
+        if at is not None and holds_up(at, c, down):
+            return f"support at {c}"
         if region.hazard(c) or any(region.hazard(cell_add(c, n)) and cell_add(c, n) not in placed for n in NEIGHBOURS6):
             return f"fluid at {c}"
         if c in protected:
@@ -1079,13 +1100,13 @@ def _path_blocked(region, cells, protected, placed=()):
             return f"unbreakable at {c}"
     return None
 
-def open_tasks(region, cells, floors, start, protected, places):
+def open_tasks(region, cells, floors, start, protected, places, at=None, down=False):
     """Pure: (tasks, why) that leave `cells` open with a floor under each of `floors`: the cells opened top down with
     what falls on them (dig_cells), a missing floor placed from `places` (popped); None and why when a fluid, the home,
-    an unbreakable block or a floor with nothing to place stands in the way."""
+    an unbreakable block, a support of the body standing `at` or a floor with nothing to place stands in the way."""
     opened = dig_cells(region, cells, start)
     missing = [f for f in floors if not region.solid(f)]       # a gap or a fluid: bridged by a placed block
-    why = _path_blocked(region, set(cells) | set(opened), protected, placed=set(missing))
+    why = _path_blocked(region, set(cells) | set(opened), protected, placed=set(missing), at=at, down=down)
     if why:
         return None, why
     tasks = [mine_task(c) for c in opened]
@@ -1097,9 +1118,9 @@ def open_tasks(region, cells, floors, start, protected, places):
         tasks.append({"type": "place", "item": places.pop(), "x": f[0], "y": f[1], "z": f[2]})
     return tasks, None
 
-def _step_tasks(region, step_cells, tread, stand, start, protected, places):
-    """Pure: (tasks, why) for one step of a dug way: its cells opened (open_tasks), then the walk onto `stand`."""
-    tasks, why = open_tasks(region, step_cells, [tread], start, protected, places)
+def _step_tasks(region, step_cells, tread, stand, start, protected, places, at=None, down=False):
+    """Pure: (tasks, why) for one dug step from `at`: its cells opened (open_tasks), then the walk onto `stand`."""
+    tasks, why = open_tasks(region, step_cells, [tread], start, protected, places, at, down)
     if tasks is None:
         return None, why
     return tasks + [{"type": "goto", "x": stand[0], "y": stand[1], "z": stand[2], "range": 0.5}], None
@@ -1124,7 +1145,7 @@ def stair_steps(region, feet, target, protected=(), places=(), max_steps=STAIR_S
         tread = cell_add(stand, (0, -1, 0))
         if not all(region.inside(c) for c in cells + [tread]):
             return tasks, None, end
-        step, why = _step_tasks(region, cells, tread, stand, feet, protected, left)
+        step, why = _step_tasks(region, cells, tread, stand, feet, protected, left, end, dy < 0)
         if step is None:
             return tasks, why, end
         tasks, end = tasks + step, stand
@@ -1147,7 +1168,7 @@ def tunnel_steps(region, feet, target, protected=(), places=(), done=None):
             # off the read, or back where it was (over the target: no level stand holds it)
             return tasks, f"no stand reaches {tuple(target)} within the read"
         been.add(stand)
-        step, why = _step_tasks(region, cells, tread, stand, feet, protected, left)
+        step, why = _step_tasks(region, cells, tread, stand, feet, protected, left, here)
         if step is None:
             return tasks, why
         tasks += step
@@ -1172,7 +1193,7 @@ def way_s(region, feet, steps, inv):
     places = sum(t["type"] == "place" for t in steps)
     return dig_ticks(mined, inv) / TICKS_PER_S + places * PLACE_S + walk / PLAYER_SPEED
 
-def plan_way(region, feet, target, kind, inv, protected, walks=None):
+def plan_way(region, feet, target, kind, inv, protected, walks=None) -> tuple[list | None, str | None, float | None]:
     """Pure given `walks`: (steps | None, why, seconds) — the cheapest way to where `kind` (mine|place|use|stand) of
     `target` can be done, by seconds: the dug ways of named steps — a level way (dug through, its missing treads
     placed: a bridge over a gap or a fluid) and, off the feet's level, a staircase down (or up: the climb out) to the
@@ -1208,7 +1229,9 @@ def plan_way(region, feet, target, kind, inv, protected, walks=None):
 
 def in_pit(region, feet):
     """Pure: the body stands in a hole it cannot jump out of — on every side the cell at head height is solid (a 1-deep
-    dip has air there: a jump clears it). False when the sides are not read."""
+    dip has air there: a jump clears it). False when the sides are not read (or nothing was)."""
+    if region is None:
+        return False
     x, y, z = feet
     sides = [(x + dx, y + 1, z + dz) for dx, dz in DIRS4]
     return all(region.inside(c) for c in sides) and all(region.solid(c) for c in sides)

@@ -5,6 +5,10 @@ from .world import cell_add, screen_slot
 from .knowledge import ALL_FOOD, RAW_MEAT, members
 from .api import NotAvailable
 from .data import TOOL_KINDS, VALUABLES
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .shapes import Cell
 
 PICKUP_FILTER_AT = 28
 
@@ -179,6 +183,12 @@ def under(feet, cell):
 
     return cell[0] == feet[0] and cell[2] == feet[2] and cell[1] < feet[1]
 
+def holds_up(feet, cell, down=False):
+    """Pure: breaking `cell` could drop the body at `feet` (its floor or own column; `down`: own column only)."""
+
+    feet, cell = tuple(feet), tuple(cell)
+    return under(feet, cell) or (not down and cell in supports(feet))
+
 FACES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0))
 
 def floored(region, cell, drop):
@@ -247,25 +257,37 @@ def opener(region, cell, feet, drop, forced=False):
     # `forced`: the jar refused every stand it tried (NO_STAND) though a face looked standable — a side face then
     # (the one above would put the body on the cell's own column, which the jar's mine never stands on)
     eye = (feet[0], feet[1] + 1, feet[2])
-    floor = supports(feet)
     options = [f for f in (cell_add(cell, d) for d in FACES)
-               if region.inside(f) and region.solid(f) and f not in floor and not under(feet, f)
+               if region.inside(f) and region.solid(f) and not holds_up(feet, f)
                and not (forced and f[1] != cell[1])
                and not getattr(region, "unbreakable", lambda p: False)(f)]
     return min(options, key=lambda f: (sum((a - b) ** 2 for a, b in zip(f, eye)), f), default=None)
 
-def mineable(cells, feet, region=None, drop=None):
+def mineable(cells, feet, region=None, drop=None) -> "list[Cell]":
     """Pure: the cells breakable from `feet`, in order — never the floor, our own column below, or a face only over a deep drop."""
 
     feet = tuple(feet)
-    floor = supports(feet)
-    ok = [tuple(c) for c in cells if tuple(c) not in floor and not under(feet, tuple(c))
-          and (region is None or stand_spot(region, tuple(c), drop))]
+    ok: "list[Cell]" = [(c[0], c[1], c[2]) for c in cells if not holds_up(feet, c)
+                        and (region is None or stand_spot(region, tuple(c), drop))]
     if region is None:
         return ok
-    # open-faced first, buried only when nothing open is left (else a batch undermined its own floor)
-    open_ = [c for c in ok if not buried(region, c)]
-    return open_ or ok
+    return exposed_order(region, ok)
+
+def exposed_order(region, cells: "list[Cell]") -> "list[Cell]":
+    """Pure: `cells` in an order each can be broken in — a cell goes once one of its faces is open, read or opened by
+    a cell broken before it in the batch; one no break in the batch opens (buried) goes last, its way planned by the
+    door's stand gate (nav.gate): a feasibility, not a preference."""
+    out, gone, todo = [], set(), list(cells)
+    while todo:
+        ready = [c for c in todo if any(not (region.inside(f) and region.solid(f)) or f in gone
+                                        for f in (cell_add(c, d) for d in FACES))]
+        if not ready:
+            return out + todo
+        for c in ready:
+            out.append(c)
+            gone.add(c)
+            todo.remove(c)
+    return out
 
 def refused(cells, refused_before):
     """Pure: of the cells a mine_many broke none of, (asked again after making a way, dropped)."""
@@ -274,7 +296,7 @@ def refused(cells, refused_before):
     drop = cells & set(refused_before)
     return cells - drop, drop
 
-def bag_signature(inv):
+def bag_signature(inv) -> tuple:
     """What the bag holds, exactly: a change the plan did not make is an event."""
     return tuple(sorted((s["id"], s.get("count", 1)) for s in inv.slots))
 

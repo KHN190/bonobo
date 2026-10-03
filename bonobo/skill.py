@@ -14,8 +14,9 @@ from . import api, arbiter, lifecycle, paths, skillcore, tape, knowledge
 from .api import McError, TaskStuck
 from .knowledge import have_remainder, needs_rows
 from .bag import has_room
+from .world import Versioned
 
-REGISTRY: "dict[str, Contract]" = {}
+REGISTRY: "Versioned[str, Contract]" = Versioned()
 Needs = dict[str, int]         # {dimension: minimum}: "tool:pickaxe:2", "item:minecraft:bucket", ... (knowledge.needs_rows)
 Bag = dict[str, int]           # {item or group token: count}: a wanted bag, what is left of it
 VERIFY_SETTLE_S = 3.0      # how long a finished skill's effect may take to show up in the world
@@ -87,6 +88,9 @@ def world_signature():
     return ((s["blockX"], s["blockY"], s["blockZ"]),
             tuple(sorted((x["id"], x.get("count", 1), x.get("damage", 0)) for x in inv.slots)))
 
+# E5: what follows work given up
+ABANDON_WAYS = ("cover", "replan")
+
 @dataclasses.dataclass(frozen=True)
 class Spec:
     """What the `skill` decorator declares: the planner's prices and the runner's checks."""
@@ -98,6 +102,7 @@ class Spec:
     verify: Callable[[Call], bool] | None = None
     budget: float = 300
     stall: float = 45
+    abandon: str | None = None      # E5: overrides brain.abandon_after
     units: Callable[[Call], int] | None = None
     key: Callable[[Call], str] | None = None
     soft: bool = False
@@ -107,6 +112,12 @@ class Spec:
     fills_bag: bool | Callable[[Call], list[str]] = False
     remaining: Callable[[Any, Call], "Bag | None"] | None = None      # (state, call) → what is left, {} when met
     fights: Callable[[Call], Any] | None = None     # an optional fight's mob kinds (S5: its pre holds the fight line)
+    # the planner's facts: when → (step, facts) → [(fact, value)] it needs first, or why it cannot run from here;
+    # sets → {token or "*": {fact: value ("token": the step's token)}} what a run leaves (gives' states set True)
+    when: Callable[[Any, dict], "list | str"] | None = None
+    sets: dict | None = None
+    uses: "Needs | Callable[[tuple], Needs] | None" = None      # of its needs, what a run uses up (a fn of its args)
+    station: str | None = None      # a block it works at, carried or standing
 
 class Contract:
     # set by the `skill` decorator once built
@@ -121,12 +132,19 @@ class Contract:
         self.commands = spec.commands
         self.provides = dict(spec.provides or {})
         self.prefer = spec.prefer
+        self.when = spec.when
+        self.sets = dict(spec.sets or {})
+        self.uses = spec.uses
+        self.station = spec.station
         # soft: perception's interrupt is left for the body to read instead of ending the skill (a fight takes cover and retries)
         self.soft = spec.soft
         self.name, self.fn, self.pre, self.start, self.done = name, fn, tuple(spec.pre), spec.start, spec.done
         self.fights = spec.fights        # judged where the skill is offered (brain.fight_line_holds), never here
         self.verify = spec.verify if spec.verify is not None else spec.done
         self.budget, self.stall = spec.budget, spec.stall
+        if spec.abandon is not None and spec.abandon not in ABANDON_WAYS:
+            raise TypeError(f"skill {name}: abandon {spec.abandon!r} is not one of {ABANDON_WAYS}")
+        self.abandon = spec.abandon
         # units(c): how many units a call does; key(c): the statistics key
         self.units = spec.units or (lambda c: 1)
         self.key = spec.key or (lambda c: name)
@@ -140,8 +158,9 @@ STATS = None
 LAST_S = {}     # skill name → seconds its last verified run took, preconditions and planning excluded
 MIN_SAMPLES = 3
 
-def can_run(fn, *args, **kwargs):
-    """(ok, why not) of the runner's own checks, asked before the work is offered, not learned by failing."""
+def can_run(fn, *args, held_bag=None, **kwargs):
+    """(ok, why not) of the runner's own checks, asked before the work is offered, not learned by failing; its needs
+    against `held_bag` (a round's bag), else the bag read now."""
     contract = getattr(fn, "contract", None)
     if contract is None:
         return True, None
@@ -151,7 +170,7 @@ def can_run(fn, *args, **kwargs):
             check(c)
         except McError as e:
             return False, str(e) or type(e).__name__
-    missing = unmet(contract, args, skillcore.Inventory)
+    missing = unmet(contract, args, skillcore.Inventory if held_bag is None else (lambda: held_bag))
     if missing:
         return False, f"{contract.name}: {skillcore.NeedMissing(missing)}"
     return True, None
@@ -166,8 +185,13 @@ def step_keys(step):
     return [f"{step.kind}:{step.token}", f"item:{step.token}", step.kind]
 
 def providers(effect):
-    """Contracts that provide `effect`, preferred first."""
-    return sorted((c for c in REGISTRY.values() if effect in c.provides), key=lambda c: -c.prefer)
+    """Contracts that provide `effect`, preferred first (kept per registry version)."""
+    return list(_providers_at(effect, REGISTRY.version))
+
+
+@functools.lru_cache(maxsize=4096)
+def _providers_at(effect, _version):
+    return tuple(sorted((c for c in REGISTRY.values() if effect in c.provides), key=lambda c: -c.prefer))
 
 def provider(ctx, step):
     """(runner, args) of the skill that carries out `step` here, or None when no registered skill can."""
@@ -177,10 +201,6 @@ def provider(ctx, step):
             if args is not None:
                 return contract.runner, tuple(args)
     return None
-
-def handles(step):
-    """Does any registered skill provide what this step asks for? (No world read: decompose asks it.)"""
-    return step.kind == "skill" and step.token in REGISTRY or any(providers(e) for e in step_keys(step))
 
 def needs_of(contract: Contract, args: tuple) -> Needs:
     """The hard prerequisites of this call: the static `needs`, or the function of the call's args."""
@@ -224,8 +244,114 @@ def _lenient(step):
     import types
     return types.SimpleNamespace(kind=step.kind, token=step.token, count=step.count, detail=_Blank(step.detail))
 
+def _provider(step):
+    """The contract that carries out `step` (preferred first), or None."""
+    if step.kind == "skill" and step.token in REGISTRY:
+        return REGISTRY[step.token]
+    return next((c for e in step_keys(step) for c in providers(e)), None)
+
+
+def when_of_step(step, facts):
+    """Pure: the facts `step` needs first ([(fact, value)]) over the contracts that may carry it out (as its needs
+    are merged, `step_call`), or why none of them can run from `facts` — or that none is registered."""
+    if step.kind == "skill" and step.token in REGISTRY:
+        found = [REGISTRY[step.token]]
+    else:
+        found = next((providers(e) for e in step_keys(step) if providers(e)), [])
+    if not found:
+        return f"no skill carries out {step.kind} {step.token}"
+    asks, reasons = [], []
+    for c in found:
+        got = [] if c.when is None else c.when(step, facts)
+        if isinstance(got, str):
+            reasons.append(got)
+        else:
+            asks += [a for a in got if a not in asks]
+    return reasons[0] if reasons and len(reasons) == len(found) else asks
+
+
+def provider_of(step):
+    """The contract that carries out `step` (preferred first), or None."""
+    return _provider(step)
+
+
+def step_contract(step):
+    """(contract, the call's args) that carries out `step` — args as its `provides` builds them without a world —
+    or None."""
+    c = _provider(step)
+    if c is None:
+        return None
+    if step.kind == "skill":
+        return c, (None,) + tuple(step.detail.get("args") or ())
+    effect = next((e for e in step_keys(step) if e in c.provides), None)
+    got = c.provides[effect](None, _lenient(step)) if effect is not None else ()
+    return c, (None,) + tuple(got or ())
+
+
+def step_uses(step):
+    """Pure: {item: n} of a step's needs its run uses up (its contract's `uses`, read with the args its `provides`
+    builds, as `step_call` reads needs)."""
+    c = _provider(step)
+    if c is None or c.uses is None:
+        return {}
+    of = c.uses
+    if isinstance(of, dict):
+        return dict(of)
+    found = step_contract(step)
+    try:
+        uses = dict(of(found[1])) if found is not None else {}
+    except (IndexError, KeyError, TypeError):
+        uses = {}                         # args it cannot read: the runner refuses them, nothing to plan around
+    return uses
+
+
+def sets_of_step(step):
+    """Pure: {fact: value} a run of `step` leaves — its contract's states given and its `sets` for this token."""
+    c = _provider(step)
+    if c is None:
+        return {}
+    out = {g: True for g in c.gives if isinstance(g, str)}
+    for key in ("*", step.token):
+        for fact, value in c.sets.get(key, {}).items():
+            out[fact] = step.token if value == "token" else value
+    return out
+
+
+def station_of_step(step):
+    """Pure: the station block (or group) the contract carrying out `step` works at, carried or standing; None."""
+    c = _provider(step)
+    return None if c is None else c.station
+
+
+def steps_for_fact(fact, value):
+    """Pure: [(kind, token)] of the steps whose run sets `fact` to `value`: a contract giving it as a state, or one whose
+    `sets` says so — each named by the contract's own effect keys."""
+    out = []
+    for c in sorted(REGISTRY.values(), key=lambda c: -c.prefer):
+        tokens = []
+        if value is True and fact in c.gives:
+            tokens.append(None)
+        for key, facts in c.sets.items():
+            if fact in facts and (facts[fact] == value or facts[fact] == "token" and isinstance(value, str)):
+                tokens.append((value if facts[fact] == "token" else None) if key == "*" else key)
+        for token in tokens:
+            for effect in c.provides:
+                kind, _, own = effect.partition(":")
+                if own and (token is None or own == token):
+                    out.append((kind, own))
+                elif not own and token is not None:
+                    out.append((kind, token))
+    return list(dict.fromkeys(out))
+
+
 def _wire_planner():
+    knowledge.TABLES_VERSION[0] += 1
     knowledge.STEP_CALL = call_of_step
+    knowledge.STEP_WHEN = when_of_step
+    knowledge.STEP_SETS = sets_of_step
+    knowledge.STEP_USES = step_uses
+    knowledge.FACT_STEPS = steps_for_fact
+    knowledge.STEP_STATION = station_of_step
 
 def declared(name, needs, gives=(), remaining=None):
     """Refuse at import a skill that does not state `needs` and `gives` ({} when none), or leaves a world state without `remaining`."""
@@ -308,10 +434,14 @@ def skill(name=None, **options):
         contract.needs = {} if callable(spec.needs) else dict(spec.needs or {})
         contract.gives = gives_of(spec.gives)
         contract.remaining = spec.remaining
-        from .knowledge import PRODUCERS
+        from .knowledge import CONTRACT_FACTS, PRODUCERS, TABLES_VERSION
         for g in contract.gives:
             if not isinstance(g, str) and g not in PRODUCERS:
                 PRODUCERS.append(g)
+                TABLES_VERSION[0] += 1
+        CONTRACT_FACTS.update(g for g in contract.gives if isinstance(g, str) and g.startswith("state:"))
+        for v in contract.sets.values():
+            CONTRACT_FACTS.update(v if isinstance(v, dict) else ())
         # a gatherer: True, or c → the item ids it gathers
         contract.fills_bag = spec.fills_bag
         REGISTRY[contract.name] = contract
@@ -534,9 +664,10 @@ def _drive_checks(contract, c, marker, t0, dim0, last, since):
     if metric != last:
         last, since = metric, now
     elif now - since >= contract.stall:
-        raise TaskStuck(f"{contract.name}: no progress toward its goal for {int(now - since)}s")
+        raise TaskStuck(f"{contract.name}: no progress toward its goal for {int(now - since)}s",
+                        then=contract.abandon or "replan")
     if now - t0 > contract.budget:
-        raise TaskStuck(f"{contract.name}: over its {contract.budget}s budget")
+        raise TaskStuck(f"{contract.name}: over its {contract.budget}s budget", then=contract.abandon or "replan")
     return last, since
 
 _wire_planner()

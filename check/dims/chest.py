@@ -1,6 +1,6 @@
 """chest: what the containers here are known to hold — none known, one recorded holding the run's early
 materials, one holding iron (taken rather than smelted) (memory.stored: decompose.from_containers), or a home chest never opened (memory.home_containers
-without a record: decompose._best_look)."""
+without a record: planner.look_first)."""
 NAME = "chest"
 VALUES = ("none", "stocked", "iron", "unopened")
 

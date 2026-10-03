@@ -39,9 +39,27 @@ def pick_trunks(logs):
             trunks.append([t])
     return trunks
 
+def trunk_base(trunk):
+    """Pure: the lowest log of a trunk, as a cell."""
+    b = min(trunk, key=lambda t: t["y"])
+    return b["x"], b["y"], b["z"]
+
+def cheapest_trunk(trunks, start, walk_s):
+    """Pure given `walk_s`: (the cheapest-walk trunk, the refused ones), asked in nav.least_way_s order."""
+    best, refused = None, []
+    for tr in sorted(trunks, key=lambda tr: nav.least_way_s(trunk_base(tr), start)):
+        if best is not None and best[1] <= nav.least_way_s(trunk_base(tr), start):
+            break
+        s = walk_s(trunk_base(tr))
+        if s is None:
+            refused.append(tr)
+        elif best is None or s < best[1]:
+            best = (tr, s)
+    return (best[0] if best else None), refused
+
 @skill(gives=K.GIVES_GATHER, needs={}, start=lambda c: Inventory().count("log"), done=lambda c: Inventory().count("log") >= c.base + c.args[1],
        budget=600, stall=90, units=lambda c: c.args[1], key=lambda c: "chop",
-       provides={"item:log": lambda ctx, s: (s.count,)}, fills_bag=lambda c: GROUPS["log"])
+       provides={"item:log": lambda ctx, s: (s.count,)}, fills_bag=lambda c: GROUPS["log"], when=K.body_when(footing=False, surface=True))
 def chop(ctx, n):
     """Fell whole trunks nearest first until `n` more logs are held."""
     target = Inventory().count("log") + n
@@ -58,14 +76,16 @@ def chop(ctx, n):
                 ctx.mem.forget_seen("tree", feet(), ctx.dimension, radius=48)
                 raise NotAvailable(f"no trees found nearby, even after exploring ({e})")
             continue
-        # the nearest trunk the pathfinder can reach on this ground, not the nearest seen (one was walked to over a platform edge)
-        trunk = None
-        for seed in pick_trunks(logs)[:4]:
-            base = min(seed, key=lambda t: t["y"])
-            pos = (base["x"], base["y"], base["z"])
-            if math.dist(feet(), pos) <= 2.5 or nav.reachable(pos, ctx.policy, 2.0, feet=feet())[0]:
-                trunk = seed
-                break
+        # by walk price, not the nearest seen
+        here = feet()
+
+        def walk_s(pos):
+            if math.dist(here, pos) <= 2.5:
+                return 0.0
+            found, seconds = nav.reachable(pos, ctx.policy, 2.0, feet=here)
+            return (seconds if seconds is not None else nav.least_way_s(pos, here)) if found else None
+        trunk, refused = cheapest_trunk(pick_trunks(logs), here, walk_s)
+        for seed in refused:
             for t in seed:
                 ctx.ban((t["x"], t["y"], t["z"]))
         if trunk is None:

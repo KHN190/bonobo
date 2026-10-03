@@ -24,16 +24,13 @@ ALLOW = {
     ("bonobo.fight_loop", "ANSWER"): "wiring: the brain wires the fight once (fight_loop.wire)",
     ("bonobo.bench.core", "BRAIN"): "wiring: `mc.py scenario` hands the bench the brain",
     ("bonobo.nav", "_features"): "the running jar's features: per process, not per life",
-    ("bonobo.actions", "_CRAFT_SPEC"): "a cache derived from the recipe tables",
-    ("bonobo.actions", "_SMELT_SPEC"): "a cache derived from the recipe tables",
     ("bonobo.intent", "_last_sent"): "publish dedupe: a resend is harmless (output bookkeeping)",
     ("bonobo.tape", "_calls"): "the tape recorder's session: spans a recording, not a life",
     ("bonobo.api", "LAST_DETAIL"): "the process's liveness (the watchdog's freeze clock): per process, not per life",
     # containers mutated in place
     ("bonobo.lifecycle", "_RESETS"): "the registry itself",
+    ("bonobo.lifecycle", "CACHES"): "import-time: which registered resets are caches (D8)",
     ("bonobo.paths", "_SESSION"): "the session registry itself (paths.session; renewed by paths.renew_session)",
-    ("bonobo.decompose", "SOLVERS"): "import-time registry",
-    ("bonobo.decompose", "ORDER"): "import-time registry",
     ("bonobo.fight_loop", "BATCH"): "import-time registry (skills lend their batches)",
     ("bonobo.fight_loop", "REGION"): "import-time registry (skills lend their regions)",
     ("bonobo.goals", "DESIRED"): "import-time registry",
@@ -69,9 +66,12 @@ def runtime_globals(sources):
     return found
 
 
-CTORS = {"dict", "list", "set", "defaultdict", "deque", "Counter", "OrderedDict"}
+CTORS = {"dict", "list", "set", "defaultdict", "deque", "Counter", "OrderedDict", "Versioned"}
 MUTATORS = {"append", "add", "update", "pop", "clear", "setdefault", "extend", "remove", "discard", "insert",
             "popleft", "appendleft", "popitem"}
+
+
+EMPTY = {"dict": {}, "list": [], "set": set(), "Versioned": {}}     # a constructor called empty: the literal it equals
 
 
 def _is_container(v):
@@ -168,7 +168,10 @@ def initial_values(src):
                     try:
                         out[name.id] = ast.literal_eval(value)
                     except ValueError:
-                        pass
+                        ctor = getattr(value.func, "id", getattr(value.func, "attr", None)) \
+                            if isinstance(value, ast.Call) and not value.args and not value.keywords else None
+                        if ctor in EMPTY:
+                            out[name.id] = EMPTY[ctor]
     return out
 
 

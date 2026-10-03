@@ -6,7 +6,7 @@ import tempfile
 import time
 import unittest
 
-from bonobo import decompose, goals
+from bonobo import cost as cost_mod, decompose, goals, planner
 from bonobo.memory import Memory, merge_double
 from tests.world import cost, inventory, snapshot, state
 
@@ -24,13 +24,13 @@ class Chance(unittest.TestCase):
                  1 - math.exp(-1))]
         for name, record, age, rate, want in rows:
             with self.subTest(name):
-                self.assertAlmostEqual(decompose.container_p(record, {IRON}, age, rate), want)
+                self.assertAlmostEqual(cost_mod.container_p(record, {IRON}, age, rate), want)
 
     def test_unknown(self):
         # (opened k holding / n opened) → P (the rule of succession)
         for k, n, want in [(0, 0, 0.5), (0, 8, 0.1), (3, 4, 4 / 6)]:
             with self.subTest(k=k, n=n):
-                self.assertAlmostEqual(decompose.p_unknown(k, n), want)
+                self.assertAlmostEqual(planner.p_unknown(k, n), want)
 
     def test_double_chest_once(self):
         rows = [("a double chest: one container", [(0, 64, 0), (1, 64, 0)], 1),
@@ -39,6 +39,32 @@ class Chance(unittest.TestCase):
         for name, cells, n in rows:
             with self.subTest(name):
                 self.assertEqual(len(merge_double(cells)), n)
+
+
+class TheLookPricesTheTake(unittest.TestCase):
+    """planner.look_first: look + p·take + (1 − p)·make against make — the take out of the chest is part of what the
+    look buys (no chest opened: p = 1/2)."""
+
+    def test_rows(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        from bonobo.planner import Step
+        mem = SimpleNamespace(home_containers=lambda dim: [(3, 64, 0)], container_record=lambda pos: None)
+        snap = SimpleNamespace(dimension="minecraft:overworld", feet=(0, 64, 0))
+        # (situation, look ticks, take ticks, make ticks) → looked first?
+        rows = [("a cheap take: the look pays", 100, 20, 300, True),
+                ("must fail: a dear take — p·make beats the look alone, not the look and the take", 100, 300, 300, False),
+                ("making is cheap: no look", 100, 20, 150, False)]
+        for name, look, take, make, want in rows:
+            with self.subTest(name):
+                null = planner.NullCost()           # offline: no hunger clock, no site
+                c = SimpleNamespace(mem=mem, snap=snap, stored=lambda token: [], hunger_rate=null.hunger_rate,
+                                    site=null.site,
+                                    estimate=lambda st, held=None, at=None, look=look, take=take: look if st.kind == "look" else take)
+                made = [Step("craft", IRON, 24, {}, make)]
+                with mock.patch.object(planner, "plan_needs", lambda *a, **k: made):
+                    got = planner.look_first(snapshot(state(), inventory()).inv, [(IRON, 24)], c)
+                self.assertEqual(bool(got), want)
 
 
 class LookOrTake(unittest.TestCase):
@@ -71,6 +97,26 @@ class LookOrTake(unittest.TestCase):
                     self.assertNotIn("withdraw", kinds)
                 else:
                     self.assertEqual(kinds[0], first, [str(s) for s in got])
+
+    def test_the_round_looks_first(self):
+        """The round's one plan (brain.replan) looks into an unopened home chest before making what it may hold,
+        when the look pays (must fail: the round planned the make, the chest never looked into)."""
+        from bonobo import brain
+        chests = [(3, 64, 0), (6, 64, 0), (9, 64, 0)]
+        rows = [("unopened chests at home, iron wanted: the round looks first", (), "look"),
+                ("must fail: every chest opened, none held iron: no look", [
+                    ((3, 64, 0), {"minecraft:dirt": 5}), ((6, 64, 0), {}), ((9, 64, 0), {})], None)]
+        for name, records, first in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                m = self.home(tmp, chests, records)
+                snap = snapshot(state(), inventory())
+                held, why = brain.replan([("task t1", goals.have((IRON, 24)), 0)], snap, cost(snap, mem=m))
+                self.assertIsNone(why)
+                kinds = [s.kind for s in held["steps"]]
+                if first is None:
+                    self.assertNotIn("look", kinds)
+                else:
+                    self.assertEqual(kinds[0], first, [str(s) for s in held["steps"]])
 
     def test_change_rate(self):
         with tempfile.TemporaryDirectory() as tmp:

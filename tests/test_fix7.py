@@ -1,4 +1,4 @@
-"""Remembered ore is not searched again (search_night_resume 042014: an exposed /find counted as a scan); a refused
+"""Remembered ore stays a candidate beside what the look sees (design-f1 V1); a refused
 travel leg is a walk that got no further, never an error past the walk (ban_then_other_source 041621: the task
 cooled, the caged cell never banned, the free ore never tried)."""
 import os
@@ -16,12 +16,13 @@ class Stop(Exception):
     pass
 
 
-class NotedNotScanned(unittest.TestCase):
+class NotedIsACandidate(unittest.TestCase):
     def test_rows(self):
-        # (noted?) → /find calls before the vein is judged
-        for name, noted, finds in [("noted: no look", True, 0), ("nothing noted: looked for", False, 1)]:
+        # (noted?) → (/find calls, the noted cell among the candidates)
+        for name, noted, finds, among in [("noted: a candidate beside what the look sees", True, 2, True),
+                                          ("nothing noted: the look alone", False, 2, False)]:
             with self.subTest(name):
-                calls = []
+                calls, asked = [], []
                 ctx = type("C", (), {"mem": type("M", (), {"seen": lambda s, b, d: []})(), "dimension": "o",
                                      "blocked": lambda s, p: False,
                                      "policy": type("P", (), {"protected": set()})()})()
@@ -29,9 +30,10 @@ class NotedNotScanned(unittest.TestCase):
 
                 def find(*a, **k):
                     calls.append(k.get("exposed", False))
-                    return [dict(hit, noted=False)]
+                    return []               # the look sees none: the noted vein is the only candidate
 
-                def stop(*a, **k):
+                def stop(blocks, fresh, *a, **k):
+                    asked.extend((h["x"], h["y"], h["z"], h.get("noted")) for h in fresh)
                     raise Stop()
                 with mock.patch.object(gather, "noted_hits", lambda *a: [hit] if noted else []), \
                         mock.patch.object(gather, "find", find), mock.patch.object(gather, "seek_hits", stop), \
@@ -42,8 +44,9 @@ class NotedNotScanned(unittest.TestCase):
                     with self.assertRaises(Stop):
                         for _ in gen:
                             pass
-                # must fail: a noted ore still scanned
                 self.assertEqual(len(calls), finds)
+                # must fail: the noted vein dropped because the look did not see it
+                self.assertEqual((*ORE, True) in asked, among)
 
 
 class RefusedLeg(unittest.TestCase):

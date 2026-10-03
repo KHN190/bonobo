@@ -157,7 +157,7 @@ def low_cover_at(region, here, radius=6, mob_width=TALL_WIDTH):
     return None if best is None else best[1]
 
 
-def stand_level(solid, x, z, y, span=4):
+def stand_level(solid, x, z, y, span=4) -> int | None:
     """Pure: the y a body stands at in column (x, z) nearest `y` (floor under, feet and head clear), or None (a wall).
     Nearest, not highest: the top of a ceiling overhead is no ground a walker reaches (escape__walker_open_blocks)."""
     for yy in sorted(range(y - span, y + span + 1), key=lambda v: (abs(v - y), v)):
@@ -166,7 +166,7 @@ def stand_level(solid, x, z, y, span=4):
     return None
 
 
-def shape_at(region, here):
+def shape_at(region, here) -> tuple:
     """Pure: the shapes we stand in now, as reshape_options names them — ("under", n) on a column n above the ground
     round it, ("down", n) in a hole walled n high, ("roof", 9) under a cover no tall mob's open cell reaches."""
     x, y, z = (int(math.floor(v)) for v in here)

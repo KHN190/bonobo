@@ -1,12 +1,12 @@
-"""The maintenance reflexes: a fixed trigger in, a fixed action out — no planning, a second's work. One ordered table, the arbiter's MAINTAIN layer: faster than any plan, slower than a fight. eat on a hungry stomach with food carried · out of the water · home from the Nether when it turns bad · dug out in the morning · into a bed at night · the night's shelter from what is carried · a finished furnace or machine emptied · a full bag emptied · a way made where a walk was blocked · unstuck What must be PLANNED to be had — a bed, food stock, a tool, a bucket, blocks, the night's ore — is not here: those are PLAN proposals (upkeep's needs, `decompose`). A trigger reads only its view (`view`: readings made once per round, lazily); the action is the upkeep executor's."""
+"""The maintenance reflexes: a fixed trigger in, a fixed action out — no planning, a second's work. One ordered table, the arbiter's MAINTAIN layer: faster than any plan, slower than a fight. eat on a hungry stomach with food carried · out of the water · home from the Nether when it turns bad · dug out in the morning · into a bed at night · the night's shelter from what is carried · a finished furnace or machine emptied · a full bag emptied · a way made where a walk was blocked · unstuck What must be PLANNED to be had — a bed, a tool, a bucket, blocks, the night's ore — is not here: those are PLAN proposals (upkeep's needs, `decompose`). A trigger reads only its view (`view`: readings made once per round, lazily); the action is the upkeep executor's."""
 
 import math
 import time
-from typing import Any
+from typing import Any, Callable
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, building, craft, nav, nether, skillcore, store, survive, tape, world, jobs
-from .api import McError, NotAvailable, log, swallowed
+from . import api, building, craft, nav, nether, skillcore, store, survive, world, jobs
+from .api import McError, NotAvailable, log
 from .data import STATION_R, BASE_MARKERS, FULL_BAR, MAX_HP, WALK_BLOCKS_PER_S
 from .game import OPEN_SKY
 from .estimate import eat_due
@@ -15,7 +15,8 @@ from .skill import skill
 from .skillcore import gained
 from .world import BAG_SLOTS, Inventory, Region, nearest
 from .bag import FREE_SLOTS_TARGET, bag_signature, empty_how
-from .decompose import cooled_ways, night_facts, night_left_s, way_key
+from .decompose import way_key
+from .planner import Step
 
 
 def in_sight(snap, kinds, radius):
@@ -140,14 +141,15 @@ def nether_retreat(snap):
         return "bag full"
     return None
 
-def ground(reads=None):
-    """The two ground readings needs and reflexes ask, each read once when first asked: enclosed, and hand-diggable ground."""
+def ground(reads, snap) -> tuple[Callable, Callable, Callable]:
+    """The ground readings needs and reflexes ask, over the round's ground (snap.region): enclosed, hand-diggable
+    ground, a dig-in site — no read of their own (K10)."""
 
-    both = _once(None, "night_ground", survive.night_ground)          # one region read answers the two below
+    both = _once(None, "night_ground", lambda: survive.night_ground(snap.region, snap.feet))
     soft = _once(reads, "soft_ground", lambda: both()[0])
     # given readings without the dig-in site say nothing against it (a test's round reads no world)
     site = (lambda: reads.get("dig_in_site", True)) if reads is not None else (lambda: both()[1])
-    return _once(reads, "enclosed", survive.enclosed), soft, site
+    return _once(reads, "enclosed", lambda: survive.is_enclosed(snap.region, snap.feet)), soft, site
 
 def _once(reads, key, read):
     """A zero-argument reader: `reads[key]` when given, else `read()` on first use, kept for the round."""
@@ -163,8 +165,17 @@ def _once(reads, key, read):
 
 # a shelter step's token → the skill that makes it
 STEP_RUN: Any = None     # dispatch.execute, set by Brain
+PRICED_RUN: Any = None   # dispatch.run_priced, set by Brain: a shelter run here is priced like any step
+REFLEX_STEP = {"eat": ("eat", "food"), "sleep": ("sleep", "bed"), "empty the bag": ("room", "deposit")}     # priced rows
 SHELTER_RUN = {"dig_in": lambda ctx: survive.dig_in(ctx), "pod": lambda ctx: survive.pod(ctx),
                "hut": lambda ctx: building.build_shelter(ctx), "home": lambda ctx: survive.sleep_at_home(ctx)}
+
+def home_walk_s(b, snap):
+    """Seconds of open walk to the home's bed, or None: none, or a "no way there" verdict on it (brain.failed)."""
+    bed = b.mem.home_part("beds", snap.dimension, snap.feet, anywhere=True)
+    if bed is None or skillcore.banned(b.blacklist, bed):
+        return None
+    return math.dist(bed, snap.feet) / WALK_BLOCKS_PER_S
 
 class Maintain:
     """The reflex table's executor, remembering where the body has been (stuck) and where the last path failed (blocked)."""
@@ -196,35 +207,27 @@ class Maintain:
 
         b, s, inv = self.brain, snap.state, snap.inv
         blocked = self.blocked_here(b.place)
-        enclosed, soft_ground, dig_site = ground(reads)
+        enclosed, _soft_ground, _dig_site = ground(reads, snap)
 
         def night_way():
-            bed = b.mem.home_part("beds", snap.dimension, snap.feet, anywhere=True)
-            # bed_reach: a home bed with no "no way there" verdict on it (the reach verdict, brain.failed)
-            reach = bed is not None and not skillcore.banned(b.blacklist, bed)
-            home_s = math.dist(bed, snap.feet) / WALK_BLOCKS_PER_S if reach and bed is not None else None
-
-            def priced(cooled):
-                return b.needs.overnight(snap, night_facts(soft_ground(), cooled, dig_site(), home_s, night_left_s(snap)),
-                                         bed_too=False)
-            cooled = cooled_ways(b.ready)
-            got = priced(cooled)
-            if got[0] is None and cooled:      # S1 over D5: a cooled way beats the open night
-                log(f"   the night: every way cooled here ({', '.join(sorted(cooled))}): the cheapest taken again")
-                got = priced(())
+            facts = b.needs.night_facts(snap, reads)
+            got = b.needs.overnight(snap, facts, bed_too=False)
+            if got[0] is None and facts.get("cooled"):      # S1 over D5: a cooled way beats the open night
+                log(f"   the night: every way cooled here ({', '.join(facts['cooled'])}): the cheapest taken again")
+                got = b.needs.overnight(snap, {k: v for k, v in facts.items() if k != "cooled"}, bed_too=False)
             return got
         view = View({
             "died_recently": lambda: worth_recovering(b, snap),
-            "meal": lambda: meal(s.get("food", 20), inv, lambda: can_cook(inv, any(
-                "furnace" in st["block"] for st in b.mem.stations(snap.dimension, near=snap.feet, within=STATION_R)))),
+            "meal": lambda: meal(s.get("food", 20), inv, lambda: can_cook(inv, bool(
+                b.mem.known_stations("minecraft:furnace", snap.dimension, near=snap.feet, within=STATION_R)))),
             "nether_bad": lambda: nether_retreat(snap) is not None,
             "enclosed": enclosed,
             "bed_works": lambda: survive.can_sleep(s) is None,
             "bed_near": _once(reads, "bed_near", lambda: home_bed_near(b.mem, snap)
                               or in_sight(snap, BASE_MARKERS["bed"], survive.HOME_BED_R)),
             "night_way": night_way,
-            "shelter_ready": lambda: snap.night and not _once(reads, "bed_tonight",
-                                                                        lambda: b.needs.bed_tonight(snap))()
+            "shelter_ready": lambda: snap.night and not _once(reads, "bed_tonight", lambda: (
+                b.needs.night_facts(snap, reads), b.needs.bed_tonight(snap))[1])()
             and not view["sheltered"] and view["night_way"][0] is not None,
             "sheltered": lambda: self.sheltered(snap, enclosed),
             "job_ready": lambda: self.ready_job(snap) is not None,
@@ -232,7 +235,8 @@ class Maintain:
             "stuck": lambda: self.stuck_in_place(snap, enclosed),
             # a hole open to the sky, deeper than a jump (travel's shaft, a dug pit): read only under open sky
             "in_pit": lambda: s.get("skyLight", 0) >= OPEN_SKY and not _k.swimming(s)
-            and _once(reads, "in_pit", lambda: self.in_pit(snap.feet))(),
+            and _once(reads, "in_pit", lambda: nav.in_pit(snap.region, snap.feet) if snap.region is not None
+                      else self.stuck_in_place(snap))(),      # ground not read: the body's own record (held in place)
         }, snap=snap, ctx=ctx, food=s.get("food", 20), hp=s.get("health", MAX_HP), night=snap.night,
             bed_carried=inv.count("bed") > 0, used_slots=inv.used_slots(), blocked=blocked is not None,
             blocked_at=blocked, building=inv.count("building"), feet=snap.feet)
@@ -247,7 +251,11 @@ class Maintain:
 
         def run(name):
             self.last_run = (name, progress_of(name, view))
-            return rows[name](self, view)
+            if name not in REFLEX_STEP or PRICED_RUN is None:
+                return rows[name](self, view)
+            step = Step(*REFLEX_STEP[name], 1)
+            step.est = int(b.needs.cost(snap).estimate(step))
+            return PRICED_RUN(snap.dimension, step, snap.night, lambda: rows[name](self, view))
         return [(seq, name, (lambda name=name: run(name))) for seq, name in fired if b.ready(name)]
 
     # -- path blocked
@@ -275,7 +283,8 @@ class Maintain:
         try:
             if len(steps) > 1:
                 return STEP_RUN(ctx, steps[0], True)
-            return SHELTER_RUN[steps[-1].token](ctx)
+            run = lambda: SHELTER_RUN[steps[-1].token](ctx)     # noqa: E731
+            return PRICED_RUN(snap.dimension, steps[-1], True, run) if PRICED_RUN is not None else run()
         except McError as e:
             if api.interrupted(e):
                 raise
@@ -286,12 +295,7 @@ class Maintain:
 
     def sheltered(self, snap, enclosed=None):
         """knowledge.sheltered over this round: under rock, walled in, or inside a site's interior."""
-        def walled():
-            try:
-                return (enclosed or survive.enclosed)()
-            except (tape.ReplayMiss, McError) as e:
-                swallowed("reflexes.walled", e)
-                return False
+        walled = enclosed or (lambda: survive.is_enclosed(snap.region, snap.feet))
         return _k.sheltered(snap.get("skyLight", 15), walled, lambda: self.in_site(snap.feet, snap.dimension))
 
     def nearest_interior(self, feet, dimension):
@@ -341,15 +345,6 @@ class Maintain:
         return min(math.dist(s["pos"], snap.feet) for s in sites) / WALK_BLOCKS_PER_S
 
     # -- stuck
-    def in_pit(self, feet):
-        """nav.in_pit over the cells round the feet (one small read)."""
-        x, y, z = feet
-        try:
-            return nav.in_pit(Region((x - 1, y, z - 1), (x + 1, y + 2, z + 1)), feet)
-        except McError as e:
-            swallowed("reflexes.in_pit", e)
-            return False
-
     def leave_pit(self, snap, ctx):
         """One level up out of a pit (nav.pit_exit_tasks): a pillar with a carried block, else a step dug in the side."""
         x, y, z = snap.feet
@@ -371,13 +366,8 @@ class Maintain:
         return all(math.dist(h[1], ref[1]) < 2 and h[2] == ref[2] for h in self.history if h[0] >= ref[0])
 
     def situation(self, snap):
-        """Where we are stuck (stuck_situation), from one small read round the feet; "open" when unread."""
-        x, y, z = snap.feet
-        try:
-            region = Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1))
-        except McError as e:
-            swallowed("reflexes.situation", e)
-            return "open"
+        """Where we are stuck (stuck_situation), over the round's ground."""
+        region = snap.region
         return stuck_situation(survive.is_enclosed(region, snap.feet), nav.in_pit(region, snap.feet),
                                on_column(region, snap.feet), _k.under_rock(snap.state.get("skyLight", 15)))
 
@@ -443,7 +433,9 @@ def unstuck_order(situation):
 
 
 def on_column(region, feet):
-    """Pure: standing on a one-wide column — every cell round the one under the feet is air."""
+    """Pure: standing on a one-wide column — every cell round the one under the feet is air (not known: no)."""
+    if region is None:
+        return False
     x, y, z = feet
     ring = [(x + dx, y - 1, z + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1) if dx or dz]
     return all(region.inside(c) for c in ring) and not any(region.solid(c) for c in ring)

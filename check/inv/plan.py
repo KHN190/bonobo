@@ -1,8 +1,10 @@
-"""The plan's invariants over the current planner's own output (no F1 candidates): the steps the round holds for its
+"""The plan's invariants over the planner's own output: the candidates it priced, the steps the round holds for its
 task (brain.held), each step's price (cost.Cost.estimate, the production model), the ways to a mine target
 (nav.plan_way against the game's walks), and the threat layer's switches (kernel.switches, recorded as the round
 asked them). check/round.py puts them in ctx:
   plan       [Step] the task's held plan this round (None: the act is not the queue's)
+  candidates [(name, seconds, steps)] planner.plan_candidates for the task's needs, the chosen first
+  plan_switch (held_s, chosen_s, lost_s, switched) the round's replan over a held plan (brain.plan_switch), or None
   price      Step -> ticks: the production cost model on this state (Cost.estimate)
   inv, mem, dimension, feet    the round's bag and memory
   task_goal  the task's goal (a tool it asks for is wanted, not a detour)
@@ -10,6 +12,11 @@ asked them). check/round.py puts them in ctx:
   switches   [(fresh, staying, lost, noise, switched)] every switch the kernel weighed this round
   holds      [(held name, chosen name, because)] every kernel.Held decision this round
   plan_hand_made  the held plan is check/dims/plan_held's hand-made one (P2 does not judge it)
+  search_steps  the search steps brain.decide took this round (P4: at most ROUND_STEPS)
+  exact_s    the unbudgeted search's cheapest seconds for the task's needs (P5: the chosen plan no slower)
+  bound      check.round.plan_bound of the task's needs from this bag (P3: at most the plan's price)
+  food_left_s  planner.food_left_s: seconds the bar lasts with nothing eaten (None: food carried or no body read)
+  withdraws  [(pos, item, the step's chance, production's chance now (Cost.stored), the world's block there)]
 An invariant whose ctx is missing is Unchecked, said why."""
 import math
 
@@ -17,6 +24,7 @@ from ..oracle import Unchecked
 
 TOL_TICKS = 1            # prices are whole ticks: one either way
 TOL_S = 0.05             # seconds compared after rounding
+P_TOL = 1e-3             # a chance read twice in one round
 MATERIAL = ("gather", "mine", "hunt")     # steps that make a material in the world (a container's alternative)
 MAKES = MATERIAL + ("craft", "smelt", "take", "withdraw", "await", "fill", "trade", "farm")   # steps whose token is gained
 
@@ -26,14 +34,48 @@ def _plan(ctx):
     return None if plan is None else list(plan)
 
 
+def _tier(steps):
+    """The highest tool tier a plan's steps call for (-1: none)."""
+    from bonobo.knowledge import step_call
+    return max((int(n.split(":")[2]) for st in steps for n in step_call(st) if n.startswith("tool:")), default=-1)
+
+
+def _cheapest(ctx):
+    """Why the chosen candidate is not the fewest seconds (a tie: the lowest tier), or None."""
+    found = ctx.get("candidates")
+    if not found:
+        return None
+    name, seconds, steps = found[0]
+    for other, s, st in found[1:]:
+        if s + TOL_S < seconds or (abs(s - seconds) <= TOL_S and _tier(st) < _tier(steps)):
+            return _g3(ctx, f"chose {name} ({seconds:.2f} s, tier {_tier(steps)}) over {other} ({s:.2f} s, tier {_tier(st)})",
+                       seconds - s)
+    return None
+
+
+def _g3(ctx, why, lost_s):
+    """A G3 refinement's verdict: where the search's budget was spent, what the cut cost is the run's distribution
+    (p5_loss_s), as P5's; else the violation."""
+    if not ctx.get("budget_spent"):
+        return why
+    ctx.setdefault("p5_loss_s", lost_s)
+    return Unchecked(f"budget spent (P4 before G3): {why}")
+
+
 def D6(b, d, a, ctx):
-    """The estimate is the planned steps: each step's est is what the cost model prices that step at now, and no
-    step that works is free (an unpriced step is hidden work)."""
-    plan, price = _plan(ctx), ctx.get("price")
+    """The estimate is the planned steps: the chosen candidate's seconds are its steps' prices summed, each step's
+    est is what the cost model prices it at as the plan runs (price_run: the tools had by then, the walk from the step
+    before, hunger's share), and no step that works is free (an unpriced step is hidden work)."""
+    plan, price = _plan(ctx), ctx.get("price_run")
+    if ctx.get("candidates") and price is not None:
+        from bonobo.beliefs import TICKS_PER_S
+        name, seconds, steps = ctx["candidates"][0]
+        summed = sum(price(steps)) / TICKS_PER_S
+        if abs(seconds - summed) > TOL_S + TOL_TICKS * len(steps) / TICKS_PER_S:
+            return f"chose {name} at {seconds:.2f} s, its steps priced {summed:.2f} s"
     if plan is None or price is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
-    for st in plan:
-        now = price(st)
+    for st, now in zip(plan, price(plan)):
         if st.kind not in ("wait",) and now > 0 and int(getattr(st, "est", 0) or 0) <= 0:
             return f"{st} carries no price (est 0) though the model prices it {now} ticks: hidden work"
         if abs(int(getattr(st, "est", 0) or 0) - int(now)) > TOL_TICKS:
@@ -51,7 +93,10 @@ def _tool_wanted(goal, kind, inv):
 
 def R1(b, d, a, ctx):
     """Tool material: a tool carried that works is used — a plan does not craft a tool of a kind the bag already
-    holds working at that tier or better, unless the goal asks for it."""
+    holds working at that tier or better, unless the goal asks for it; the chosen candidate is the cheapest."""
+    why = _cheapest(ctx)
+    if why:
+        return why
     plan, inv = _plan(ctx), ctx.get("inv")
     if plan is None or inv is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
@@ -85,6 +130,9 @@ def _breaks(plan, kind):
 def R2(b, d, a, ctx):
     """Materials by seconds: a material the plan makes (gather, mine, hunt) while a container here holds it is made
     only when making it is not slower than taking it (the walk to the container and the take, priced by the model)."""
+    why = _cheapest(ctx)
+    if why:
+        return why
     plan, price, mem = _plan(ctx), ctx.get("price"), ctx.get("mem")
     if plan is None or price is None or mem is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
@@ -106,13 +154,18 @@ def R2(b, d, a, ctx):
         take = Step("withdraw", item, min(have, max(1, int(st.count))), {"pos": list(pos)})
         take_t, make_t = price(take), int(getattr(st, "est", 0) or price(st))
         if take_t + TOL_TICKS < make_t:
-            return (f"{st} ({make_t} ticks) while {pos} holds {have} {item} (taking: {take_t} ticks)")
+            from bonobo.game import TICKS_PER_S
+            return _g3(ctx, f"{st} ({make_t} ticks) while {pos} holds {have} {item} (taking: {take_t} ticks)",
+                       (make_t - take_t) / TICKS_PER_S)
     return None
 
 
 def R4(b, d, a, ctx):
     """The way to a target by seconds: the way taken is no slower than the cheapest of the dug ways and the game's
     walks."""
+    why = _cheapest(ctx)
+    if why:
+        return why
     way = ctx.get("way")
     if way is None:
         return Unchecked("no mine target this round")
@@ -126,10 +179,17 @@ def R4(b, d, a, ctx):
 def D4(b, d, a, ctx):
     """A switch pays (same layer: the threat layer's kernel.Held): a held answer is given up for a new one only when
     the new one's gain over what is left of the held one beats the work thrown away and the estimates' noise — or
-    its assumption broke. Every Held decision that changed answers is matched to a switch the kernel weighed."""
+    its assumption broke. Every Held decision that changed answers is matched to a switch the kernel weighed; a plan
+    switch only when chosen_s + lost_s < held_s."""
+    ps = ctx.get("plan_switch")
+    if ps is not None:
+        held_s, chosen_s, lost_s, switched = ps
+        if switched != (chosen_s + lost_s < held_s):
+            return f"plan switch {'taken' if switched else 'refused'} against its own numbers: chosen {chosen_s:.1f} s " \
+                   f"+ thrown away {lost_s:.1f} s, held {held_s:.1f} s"
     sw, holds = ctx.get("switches") or [], ctx.get("holds") or []
     if not sw and not holds:
-        return Unchecked("no held answer weighed against a new one this round")
+        return None if ps is not None else Unchecked("no held answer weighed against a new one this round")
     for fresh, staying, lost, noise, switched in sw:
         if switched != (fresh - staying > lost + noise):
             return f"switch {'taken' if switched else 'refused'} against its own numbers: gain {fresh - staying:.1f} s, " \
@@ -143,20 +203,21 @@ def D4(b, d, a, ctx):
 
 
 def _station(st):
-    """The station a step works at, or None."""
+    """The station a step works at (its way's, else its contract's: knowledge.step_station), or None."""
+    from bonobo.knowledge import step_station
+    if st.kind not in ("smelt", "craft"):
+        return step_station(st)
     if st.kind == "smelt":
         return "minecraft:furnace"
-    if st.kind == "craft":
-        from bonobo.knowledge import source
-        src = source(st.token)
-        if src and src[0] == "craft" and len(src[1]) == 9:
-            return "minecraft:crafting_table"
-    return None
+    from bonobo.knowledge import sources
+    from bonobo.planner import way
+    shapes = [got for made, src in sources(st.token) if src[0] == "craft" and (got := way(src, made, 1)) is not None]
+    named = set(st.detail.get("inputs") or ())
+    return next((g[2] for g in shapes if {t for t, _c in g[1]} == named), shapes[0][2] if shapes else None)
 
 
 def P2(b, d, a, ctx):
-    """The plan runs in its order: each step's inputs, tools and station are there when it starts — in the bag, made
-    by an earlier step, or (a station) remembered in this dimension."""
+    """The plan runs in its order:"""
     plan, inv = _plan(ctx), ctx.get("inv")
     if plan is None or inv is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
@@ -185,15 +246,88 @@ def P2(b, d, a, ctx):
                 if not tool_ok(inv, kind, int(tier)) and tools.get(kind, -1) < int(tier):
                     return f"step {i + 1} {st} needs a tier-{tier} {kind}, none held or made before it"
         station = _station(st)
-        if station and have(station) <= 0 and (mem is None or not any(
-                s.get("block") in (station, bare(station)) for s in mem.stations(dim))):
+        if station and have(station) <= 0 and (mem is None or not mem.known_stations(station, dim)):
             return f"step {i + 1} {st} works at a {bare(station)}, none held, made before it or remembered"
         if st.kind in MAKES:
             made[st.token] += int(st.count)
+        elif st.kind == "barter":                 # a barter's token names the trader; what it gives is the table's
+            from bonobo.data import PIGLIN_BARTER
+            for item in PIGLIN_BARTER:
+                made[item] += int(st.count)
         material, _, kind = bare(st.token).rpartition("_")
         if st.kind == "craft" and material in TIER_OF_MATERIAL:
             tools[kind] = max(tools.get(kind, -1), TIER_OF_MATERIAL[material])
     return None
 
 
-CHECKS = {"D4": D4, "D6": D6, "P2": P2, "R1": R1, "R2": R2, "R4": R4}
+def P3(b, d, a, ctx):
+    """The search's bound never overprices: at no node on the way to each plan the round's searches took is g + h
+    above that plan's price as run (planner.PATHS: a g priced high midway, an h above what is left), nor at the root."""
+    for paid_ticks, path in ctx.get("paths") or ():
+        worst = max((g + h for g, h in path), default=0.0)
+        if worst > paid_ticks + TOL_TICKS:
+            return f"g + h {worst:.0f} ticks on the way to a plan priced {paid_ticks:.0f} as run ({len(path)} nodes)"
+    plan, bound = _plan(ctx), ctx.get("bound")
+    if plan is None or bound is None or ctx.get("plan_hand_made"):
+        return Unchecked("no planner plan with its bound this round")
+    paid = sum(int(getattr(st, "est", 0) or 0) for st in plan)
+    if len(plan) == 1 and plan[0].kind == "look" and "expected" in plan[0].detail:
+        paid = plan[0].detail["expected"]          # a look first: its expected price (look, p·take, (1 − p)·make)
+    if bound > paid + TOL_TICKS:
+        return f"the bound {bound:.0f} ticks is above the plan's own price {paid} ({len(plan)} steps)"
+    return None
+
+
+from bonobo.planner import ROUND_STEPS  # noqa: E402  (the cap the planner keeps to)
+
+
+def P4(b, d, a, ctx):
+    """A round thinks within ROUND_STEPS search steps:"""
+    took = ctx.get("search_steps")
+    if took is None:
+        return Unchecked("no counted decision this round")
+    return None if took <= ROUND_STEPS else f"the round took {took} search steps (budget {ROUND_STEPS})"
+
+
+def P5(b, d, a, ctx):
+    """G3/R1:"""
+    plan, best = _plan(ctx), ctx.get("exact_s")
+    if ctx.get("exact_unknown"):
+        return Unchecked(ctx["exact_unknown"])
+    if plan is None or best is None or ctx.get("plan_hand_made"):
+        return Unchecked("no planner plan with its unbudgeted best this round")
+    from bonobo.game import TICKS_PER_S
+    chosen = sum(int(getattr(st, "est", 0) or 0) for st in plan) / TICKS_PER_S
+    if chosen > best + TOL_S:
+        if ctx.get("budget_spent"):
+            return Unchecked(f"budget spent (P4 before P5): {chosen:.1f} s chosen, {best:.1f} s unbudgeted")
+        return f"G3: the plan chosen takes {chosen:.1f} s, the unbudgeted search found {best:.1f} s"
+    return None
+
+
+def S8(b, d, a, ctx):
+    """The held plan feeds the body before the bar runs out (planner.fed_in_time)."""
+    plan, left = _plan(ctx), ctx.get("food_left_s")
+    if plan is None:
+        return Unchecked("no held plan this round (the act is not the queue's)")
+    from bonobo.planner import fed_in_time
+    if not fed_in_time(plan, left):
+        return f"the plan starves: the bar runs out in {left:.0f} s before any step of it makes food"
+    return None
+
+
+def M1(b, d, a, ctx):
+    """A withdrawal carries production's discounted chance now, and none goes where the world shows no container."""
+    rows = ctx.get("withdraws")
+    if not rows:
+        return Unchecked("no withdrawal in the held plan this round")
+    from bonobo.data import HOME_CHESTS, bare
+    for pos, item, p, now, block in rows:
+        if not bare(block).endswith(HOME_CHESTS):
+            return f"withdraws {item} at {pos}, where the world now shows {block}: memory over the reread"
+        if p is None or now is None or abs(p - now) > P_TOL:
+            return f"withdraws {item} at {pos} at chance {p}, production gives it {now} now: memory not discounted"
+    return None
+
+
+CHECKS = {"M1": M1, "S8": S8, "D4": D4, "D6": D6, "P2": P2, "P3": P3, "P4": P4, "P5": P5, "R1": R1, "R2": R2, "R4": R4}

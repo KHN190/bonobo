@@ -93,10 +93,9 @@ def shovel_break_even():
     """Pure: the dirt count at which a wooden shovel pays (its make price over its saving per block): the planner's
     own rule (knowledge.work_s) with its own make estimate (the probe plan)."""
     from ...knowledge import work_s
-    from ...planner import NullCost, Planner, TICKS_PER_S
-    probe = Planner({f"minecraft:{i}": n for i, n in SHOVEL_KIT}, [], NullCost())
-    probe.probing = True
-    make_s = sum(s.est for s in probe.plan([("tool", "shovel", 0)])) / TICKS_PER_S
+    from ...planner import NullCost, TICKS_PER_S, plan_needs
+    make_s = sum(s.est for s in plan_needs(_bag(SHOVEL_KIT), [("tool", "shovel", 0)], NullCost(),
+                                           kinds={"craft"})) / TICKS_PER_S
     saving = work_s(["dirt"], [], {}, TICKS_PER_S) - work_s(["dirt"], [], {"shovel": 0}, TICKS_PER_S)
     return math.ceil(make_s / saving), make_s
 

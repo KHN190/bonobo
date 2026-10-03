@@ -1,4 +1,4 @@
-"""Pure-function tables for skills / solve / tape / threat / world: one table per function, every row a subTest.
+"""Pure-function tables for skills / tape / threat / world: one table per function, every row a subTest.
 
 Each table holds a normal row, a boundary row and a must-fail row (its reason in the row's name). Inputs are readings
 (tests/world.py) or hand-built rows through the modules' own constructors; nothing here talks to the game.
@@ -9,9 +9,10 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, beliefs, craft, estimate, fluids as fluids_mod, gather, knowledge, solve, survive, tape, threat  # noqa: E402
+from bonobo import api, beliefs, craft, estimate, fluids as fluids_mod, gather, knowledge, survive, tape, threat  # noqa: E402
 from bonobo.api import McError, NotAvailable  # noqa: E402
 from bonobo.bag import pickup_whitelist  # noqa: E402
+from bonobo.data import DAY_TICKS, NIGHT_END, is_night  # noqa: E402
 from bonobo.world import connected  # noqa: E402
 from tests.world import FakeRegion, bag, inventory, state  # noqa: E402
 
@@ -47,6 +48,23 @@ class PickTrunks(unittest.TestCase):
             with self.subTest(name):
                 got = wood.pick_trunks([self.L(*c) for c in logs])
                 self.assertEqual([[(t["x"], t["y"], t["z"]) for t in tr] for tr in got], want)
+
+
+class CheapestTrunk(unittest.TestCase):
+    """wood.cheapest_trunk: by the walk's price in nav.least_way_s order, no nearest-N cut."""
+
+    def test_rows(self):
+        from bonobo import wood
+        trunks = [[{"x": d, "y": 64, "z": 0}] for d in (3, 5, 7, 9, 11, 30)]
+        # (situation, walk seconds by trunk x (absent: no way)) → (trunk x chosen, trunk xs refused)
+        rows = [("must fail: the five nearest have no way: the sixth", {30: 20.0}, (30, [3, 5, 7, 9, 11])),
+                ("a nearer trunk round a long way: the farther one", {3: 40.0, 5: 1.0}, (5, [])),
+                ("must fail: none has a way", {}, (None, [3, 5, 7, 9, 11, 30])),
+                ("the nearest walked to straight: none farther asked", {3: 0.5, 5: 0.1}, (3, []))]
+        for name, walks, (chosen, refused) in rows:
+            with self.subTest(name):
+                got, out = wood.cheapest_trunk(trunks, (0, 64, 0), lambda c: walks.get(c[0]))
+                self.assertEqual((got[0]["x"] if got else None, [t[0]["x"] for t in out]), (chosen, refused))
 
 
 class BitesToFull(unittest.TestCase):
@@ -670,8 +688,13 @@ class DarkHere(unittest.TestCase):
         ("open sky by day", (state(blockLight=0, skyLight=15, timeOfDay=6000),), False),
         ("open sky by night", (state(blockLight=0, skyLight=15, timeOfDay=13000),), True),
         ("boundary: skyLight 7 is not open sky", (state(blockLight=0, skyLight=7, timeOfDay=6000),), True),
-        ("boundary: time 12500 is night", (state(blockLight=0, skyLight=15, timeOfDay=12500),), True),
-        ("boundary: time 0 is not inside (0, 12500)", (state(blockLight=0, skyLight=15, timeOfDay=0),), True),
+        ("boundary: time 12500 is night", (state(blockLight=0, skyLight=15, timeOfDay=12500),), is_night(12500)),
+        # tick 0 is sunrise's end, the day's start (Minecraft Wiki, Daylight cycle): no night spawning under open sky
+        ("boundary: time 0 is day", (state(blockLight=0, skyLight=15, timeOfDay=0),), is_night(0)),
+        ("dawn after NIGHT_END is day", (state(blockLight=0, skyLight=15, timeOfDay=NIGHT_END + 100),),
+         is_night(NIGHT_END + 100)),
+        ("must fail: day 3 noon (absolute clock) under open sky is not dark",
+         (state(blockLight=0, skyLight=15, timeOfDay=2 * DAY_TICKS + 6000),), False),
         ("must fail: block light 1 is lit", (state(blockLight=1, skyLight=0, timeOfDay=6000),), False),
         ("must fail: no blockLight reading", ({"skyLight": 0, "timeOfDay": 6000},), False),
     ]
@@ -691,40 +714,6 @@ class PendingReady(unittest.TestCase):
 
     def test_table(self):
         run_table(self, craft.pending_ready, self.TABLE)
-
-
-# ---------------------------------------------------------------- solve
-
-def names(via):
-    return {d: a.name for d, a in via.items()}
-
-
-CHOP = solve.Action("pt_chop", {"log": 1}, 5)
-CRAFT = solve.Action("pt_craft", {"log": -1, "planks": 4}, 2)
-BUY = solve.Action("pt_buy", {"log": 2}, 4)
-MINE = solve.Action("pt_mine", {"iron": 1}, 10, requires={"pickaxe": 1})
-
-
-class ReachTree(unittest.TestCase):
-    TABLE = [
-        ("one column", ([CHOP], {}), ({"log": 5.0}, {"log": "pt_chop"})),
-        ("a chain: planks priced through logs", ([CHOP, CRAFT], {}),
-         ({"log": 5.0, "planks": 1.75}, {"log": "pt_chop", "planks": "pt_craft"})),
-        ("held logs cost nothing", ([CHOP, CRAFT], {"log": 3}), ({"log": 0.0, "planks": 0.5}, {"planks": "pt_craft"})),
-        ("the cheaper per unit wins", ([CHOP, BUY], {}), ({"log": 2.0}, {"log": "pt_buy"})),
-        ("boundary: a held zero is not held", ([CHOP], {"log": 0}), ({"log": 5.0}, {"log": "pt_chop"})),
-        ("boundary: unpriced dimensions are dropped", ([CHOP], {"food": 5}), ({"log": 5.0}, {"log": "pt_chop"})),
-        ("requirement held: reachable", ([MINE], {"pickaxe": 1}),
-         ({"pickaxe": 0.0, "iron": 10.0}, {"iron": "pt_mine"})),
-        ("must fail: requirement missing, nothing priced", ([MINE], {}), ({}, {})),
-    ]
-
-    def test_table(self):
-        for why, (cols, st), (cost, via) in self.TABLE:
-            with self.subTest(why), mock.patch.dict(solve._PRICES, clear=True):
-                got_cost, got_via = solve.reach_tree(cols, st)
-                self.assertEqual(got_cost, cost)
-                self.assertEqual(names(got_via), via)
 
 
 # ---------------------------------------------------------------- tape

@@ -10,6 +10,8 @@ from .facts import DOMAINS  # noqa: F401
 
 
 WORKERS = 6         # the machine is shared with other agents' test runs: at most this many processes
+SLOW_S = 10.0       # a state judged slower than this is named in the report
+CASES = 10          # the budget-cut rounds that lost most, named in the report
 
 
 def _shard(keys):
@@ -19,8 +21,18 @@ def _shard(keys):
     from bonobo import api
     with contextlib.redirect_stdout(io.StringIO()), Gate() as gate:
         api.detail = lambda *a: None
-        out = [explore.judge(explore.of(**dict(zip(explore.DOMAINS, k)))) for k in keys]
+        out = [explore.judged(explore.of(**dict(zip(explore.DOMAINS, k)))) for k in keys]
     return out, gate.hits()
+
+
+def _spread(xs):
+    """One line: how many, how many lost anything, the loss at its median, p75, p90 and worst."""
+    if not xs:
+        return "- none"
+    xs = sorted(xs)
+    at = lambda q: xs[min(len(xs) - 1, int(q * len(xs)))]      # noqa: E731
+    return (f"- {len(xs)} rounds; lost {sum(x > 0 for x in xs)}; median {at(0.5):.1f} s, p75 {at(0.75):.1f} s, "
+            f"p90 {at(0.9):.1f} s, worst {xs[-1]:.1f} s")
 
 
 def main(argv):
@@ -36,15 +48,21 @@ def main(argv):
     todo += sorted({explore.key(f) for f in fuzz.corpus()} - set(todo))
     todo = todo[:limit] if limit else todo
     shards = [todo[i::workers] for i in range(workers)]
-    rows, graph, roundtrip, first = defaultdict(list), {}, [], {}
+    rows, graph, roundtrip, first, slow, lost, cases = defaultdict(list), {}, [], {}, [], [], []
     gate = Gate()
     # spawn: each worker imports check afresh, so its memory, tasks and tape live in a data dir of its own
     with multiprocessing.get_context("spawn").Pool(workers) as pool:
         for results, hits in pool.imap_unordered(_shard, shards):
             gate.merge(hits)
-            for k, after, d, progress, found, mismatch, got in results:
-                first.setdefault("step", (explore.of(**dict(zip(explore.DOMAINS, k))), d))
-                graph[k] = (after, d, progress)
+            for k, after, d, progress, found, mismatch, got, loss, secs in results:
+                if loss is not None:
+                    lost.append(loss[0])
+                    cases.append((loss[0], dict(zip(explore.DOMAINS, k)), loss[1], loss[2]))
+                if secs > SLOW_S:
+                    slow.append((secs, dict(zip(explore.DOMAINS, k))))
+                if after is not None:          # a crashed state has no successor
+                    first.setdefault("step", (explore.of(**dict(zip(explore.DOMAINS, k))), d))
+                    graph[k] = (after, d, progress)
                 if mismatch:
                     roundtrip.append((dict(zip(explore.DOMAINS, k)), got))
                 for inv, msg in found:
@@ -53,8 +71,7 @@ def main(argv):
     loops = explore.cycles(graph)
     hit, total, unhit = gate.report()
     secs = time.time() - t0
-    b, d = first["step"]
-    unchecked = oracle.unchecked(b, d)
+    unchecked = oracle.unchecked(*first["step"]) if "step" in first else {}
     lines = [f"# check run: {len(seen)} abstract states, {secs:.0f} s, coverage {hit}/{total} branch arms "
              f"({100 * hit / max(1, total):.1f} %)", "",
              "## violations by invariant", "| invariant | count |", "|---|---|"]
@@ -69,6 +86,12 @@ def main(argv):
         lines.append(f"| D7 | {k} | {name} | a {n}-step cycle whose decisions leave nothing in the world |")
     lines += ["", "## unchecked (no offline fact; named)", "| inv | why |", "|---|---|"]
     lines += [f"| {k} | {why} |" for k, why in unchecked.items()]
+    lines += ["", f"## states judged slower than {SLOW_S:.0f} s: {len(slow)}"]
+    lines += [f"- {s:.1f} s: {f}" for s, f in sorted(slow, key=lambda p: -p[0])]
+    lines += ["", "## P5 on budget-cut rounds (no violation): seconds the chosen plan loses to the unpruned reference"]
+    lines += [_spread(lost), "", f"### the {CASES} largest losses (seconds lost, the plan chosen, the reference's, facts)"]
+    lines += [f"- {s:.1f} s: chose {chosen} | reference {ref} | {f}" for s, f, chosen, ref in
+              sorted(cases, key=lambda c: -c[0])[:CASES] if s > 0]
     lines += ["", f"## γ round-trip mismatches: {len(roundtrip)}"]
     lines += [f"- asked {f} → alpha {g}" for f, g in roundtrip[:20]]
     lines += ["", "## excluded from the denominator (execution, by structure: check/coverage.py)", "| why | functions |",

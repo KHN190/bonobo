@@ -1,25 +1,159 @@
 """One plan step, carried out: the skill that provides it (`skill.provider`), and where to look when nothing is in range. No switch on kinds here — a new skill is one decorated function. Everything it needs comes on the Context."""
 
+import json
 import math
+import os
+import time
 
-from . import api, explore, gather, nav, retry, skillcore
+from . import api, explore, gather, lifecycle, nav, paths, retry, skillcore
 from . import world
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, log, swallowed
-from .data import GROUPS, bare, mid, seen_class
-from .knowledge import FIND_AT
+from .data import GROUPS, TICKS_PER_S, bare, mid, seen_class
+from .knowledge import FIND_AT, PRICE_SOURCE, PRIOR_TICKS
 
 SEEK_KINDS = ("mine", "gather", "hunt")      # steps whose "nothing in range" is answered by looking elsewhere
+
+PRICES = paths.data("prices.jsonl", env="MC_PRICES")
+PER_UNIT = {"smelt": "smelt_each", "mine": "mine_each", "gather": "gather_each", "hunt": "hunt_each"}
+# where each estimate part's price comes from (an item of knowledge.PRICE_SOURCE or a play.toml key)
+PART_SOURCE = {"walk": "data.WALK_BLOCKS_PER_TICK", "dig": "data.HARDNESS", "surface": "PRIOR_TICKS.surface",
+               "wait": "knowledge.NIGHT_S", "hunger": "risk.food_drain_s", "chance": "policy"}
+
+
+def price_source(item):
+    """Pure: an item's source tag (knowledge.PRICE_SOURCE; a play.toml key is a prior)."""
+    table, _, key = item.partition(".")
+    if table == "PRIOR_TICKS":
+        return PRICE_SOURCE["knowledge.PRIOR_TICKS"].get(key, "prior")
+    if item in PRICE_SOURCE:
+        return PRICE_SOURCE[item] if isinstance(PRICE_SOURCE[item], str) else "prior"
+    head, _, sub = item.rpartition(".")
+    got = PRICE_SOURCE.get(head)
+    return got.get(sub, "prior") if isinstance(got, dict) else "policy" if item == "policy" else "prior"
+
+
+def work_item(step):
+    """Pure: the price item a step's own work came from."""
+    if step.kind == "await":
+        return "knowledge.GROW_S.crop" if "wheat" in step.token else "knowledge.GROW_S.animal"
+    if step.kind == "seek":
+        return "plan.seek_prior_s"
+    return f"PRIOR_TICKS.{PER_UNIT.get(step.kind, step.kind if step.kind in PRIOR_TICKS else 'skill')}"
+
+
+def seek_item(step):
+    return "PRIOR_TICKS.unknown_water" if step.kind == "fill" else "plan.seek_prior_s" if step.kind == "seek" \
+        else "PRIOR_TICKS.unknown_walk"
+
+
+def price_line(step, night, dimension, actual_s, why=None, row=None, phases=None):
+    """Pure: one step as priced and as run (E4's sample): its estimate by part (Cost.estimate's), each part's source,
+    the seconds it took and, when measured, by phase (`phases`: walk, seek, arrived — the work is the rest; game_s:
+    the game's own seconds), what it was, the conditions."""
+    detail = {k: step.detail[k] for k in ("breaks", "kills", "p", "pos", "blocks", "types") if k in step.detail}
+    est = int(getattr(step, "est", 0) or 0)
+    parts = {k: v for k, v in (getattr(step, "parts", None) or {}).items() if v}
+    if parts and est > sum(parts.values()):
+        parts["hunger"] = est - sum(parts.values())       # planner.price_as_run's hunger share
+    items = {"work": work_item(step), "seek": seek_item(step), **PART_SOURCE}
+    price = {p: f"{items[p]}:{price_source(items[p])}" for p in ("work", *parts) if p in items}
+    out = {"t": round(time.time(), 1), "row": row, "kind": step.kind, "token": step.token, "count": step.count,
+           "est": est, "est_parts": parts, "actual_s": round(actual_s, 2), "ok": why is None, "why": why,
+           "price": price, "cond": {"night": bool(night), "dim": dimension, **detail}}
+    if phases:
+        walk, seek = round(phases.get("walk", 0.0), 2), round(phases.get("seek", 0.0), 2)
+        out["actual_parts"] = {"walk": walk, "seek": seek, "work": round(max(0.0, actual_s - walk - seek), 2)}
+        out.update({k: round(phases[k], 2) for k in ("arrived_s", "game_s", "path_m", "straight_m", "bar_drop")
+                    if phases.get(k) is not None})
+    return out
+
+
+def trace(step, night, dimension, t0, why=None, phases=None):
+    """The step's price line appended to prices.jsonl (MC_DATA); a bench row names itself (MC_BENCH_ROW)."""
+    line = price_line(step, night, dimension, time.time() - t0, why, os.environ.get("MC_BENCH_ROW"), phases)
+    line["cond"]["tick_rate"] = float(os.environ.get("MC_BENCH_TICK_RATE") or TICKS_PER_S)     # a bench row's fast clock
+    try:
+        with open(PRICES, "a") as fh:
+            fh.write(json.dumps(line, default=str) + "\n")
+    except OSError as e:
+        swallowed("dispatch.trace", e)
+
+
+PHASES: dict = {}       # the step running now: seconds spent seeking (go_find), what nav had walked when it began
+lifecycle.in_place(__name__, "PHASES")
+
+
+def _game_tick():
+    """The game's clock, read only on a bench row (MC_BENCH_ROW): the game seconds a step under a fast clock took."""
+    if not os.environ.get("MC_BENCH_ROW"):
+        return None
+    try:
+        return api.get("/state").get("gameTime")
+    except McError as e:
+        swallowed("dispatch._game_tick", e)
+        return None
+
+
+def step_moved(start, now):
+    """Pure: what the body did over a step from the /state reads (api.STATE at its start, `start`, and `now`): the
+    path walked (every move, a skill's own included), the straight line from where it began to where it is, the drop
+    of food plus saturation."""
+    out = {"path_m": now.moved_m - start.get("moved", now.moved_m)}
+    if start.get("feet") is not None and now.feet_seen is not None:
+        out["straight_m"] = math.dist(start["feet"], now.feet_seen)
+    if start.get("bar") is not None and now.bar_seen is not None:
+        out["bar_drop"] = sum(start["bar"]) - sum(now.bar_seen)
+    return out
+
+
+def run_priced(dimension, step, night, run):
+    """`run()` carried out as `step`, its price line written however it ends: every way a step is run (a task's step,
+    a reflex's shelter, a bench row's) goes through here, so each is priced and timed the same way."""
+    t0, g0 = time.time(), _game_tick()
+    PHASES.clear()
+    PHASES.update(seek=0.0, walked=nav.WALKED["s"], arrived=nav.WALKED["arrived"], moved=api.STATE.moved_m,
+                  feet=api.STATE.feet_seen, bar=api.STATE.bar_seen)
+
+    def phases():
+        g1 = _game_tick() if g0 is not None else None
+        arrived = nav.WALKED["arrived"] if nav.WALKED["arrived"] != PHASES.get("arrived") else None
+        return {"walk": max(0.0, nav.WALKED["s"] - PHASES.get("walked", 0.0) - PHASES.get("seek_walk", 0.0)),
+                "seek": PHASES.get("seek", 0.0), "arrived_s": None if arrived is None else arrived - t0,
+                "game_s": None if g1 is None else (g1 - g0) / TICKS_PER_S, **step_moved(PHASES, api.STATE)}
+    try:
+        out = run()
+    except GameUnreachable:
+        raise
+    except api.INTERRUPTIONS as e:
+        trace(step, night, dimension, t0, f"interrupted: {type(e).__name__}", phases())
+        raise
+    except (McError, skillcore.ToolMissing) as e:
+        trace(step, night, dimension, t0, f"failed: {type(e).__name__}", phases())
+        raise
+    trace(step, night, dimension, t0, None, phases())
+    return out
+
 
 def execute(ctx, step, night):
     log(f"   → {step} at {api.feet_seen()}")          # where the pick was made: the cooling place, proven
     key = f"{step.kind}:{step.token}"
-    try:
+
+    def run():
         out = run_step(ctx, step, night)
         if isinstance(out, NotAvailable):
-            if not go_find(ctx, step):
+            s0, w0 = time.time(), nav.WALKED["s"]
+            try:
+                found = go_find(ctx, step)
+            finally:
+                PHASES["seek"] = PHASES.get("seek", 0.0) + time.time() - s0
+                PHASES["seek_walk"] = PHASES.get("seek_walk", 0.0) + nav.WALKED["s"] - w0
+            if not found:
                 raise out
             out = run_step(ctx, step, night, seek=False)
+        return out
+    try:
+        out = run_priced(ctx.dimension, step, night, run)
     except GameUnreachable:
         raise
     except api.INTERRUPTIONS:
@@ -30,21 +164,22 @@ def execute(ctx, step, night):
     if not (isinstance(out, dict) and "ordered" in out):
         ctx.mem.record_outcome(key, True)   # a furnace loaded is not a step done: that is when it is held
 
-def runner_for(ctx, step):
+def runner_for(ctx, step) -> tuple | None:
     """(runner, args) of the skill that carries out `step` here, or None when no registered skill can."""
     if step.kind == "skill":
         contract = skillkit.REGISTRY.get(step.token)
         return None if contract is None else (contract.runner, tuple(step.detail.get("args", ())))
     return skillkit.provider(ctx, step)
 
-def can_start(ctx, step):
-    """Would the skill for `step` pass its own preconditions now? Asked before the step is offered."""
+def can_start(ctx, step, bag):
+    """Would the skill for `step` pass its own preconditions now, its needs held in `bag` (the round's)? Asked before
+    the step is offered."""
 
     found = runner_for(ctx, step)
     if found is None:
         return False
     runner, args = found
-    return skillkit.can_run(runner, ctx, *args)[0]
+    return skillkit.can_run(runner, ctx, *args, held_bag=bag)[0]
 
 def still_there(blocks, spot):
     """Is one of `blocks` at the noted `spot`?"""

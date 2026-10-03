@@ -77,7 +77,7 @@ STATE = {"x": 0.5, "y": 64.0, "z": 0.5, "blockX": 0, "blockY": 64, "blockZ": 0, 
          "mainHand": {"id": "minecraft:air", "count": 0}, "screen": "none", "lookingAt": {"kind": "none"},
          "control": {"active": False, "paused": False, "allowed": True, "task": None, "queued": 0}}
 AIR = {"id": "minecraft:air", "count": 0}
-TOOL_MAX = {"wooden": 59, "stone": 131, "iron": 250, "golden": 32, "diamond": 1561, "netherite": 2031}
+from bonobo.data import TOOL_USES as TOOL_MAX  # noqa: E402  (the game's durabilities: one table)
 
 
 def state(**changes):
@@ -124,43 +124,71 @@ def bag(data):
     return Inventory(data)
 
 
-def snapshot(st=None, inv=None):
-    """The real `world.Snapshot`, from readings (`Snapshot.from_readings`): no world read."""
-    from bonobo.world import Snapshot
-    return Snapshot.from_readings(st if st is not None else state(), inv if inv is not None else inventory())
+def snapshot(st=None, inv=None, region=None, routes=None, **seen):
+    """The real `world.Snapshot`, from readings: `seen` {name: distance} is the round's look (blocks in sight along +x,
+    living entities there too), `region` its ground (default: flat stone under the feet over the box the round reads,
+    survive.ROUND_GROUND), no world read."""
+    from bonobo.data import bare, mid
+    from bonobo.survive import ROUND_GROUND
+    from bonobo.world import Snapshot, cell_add
+    st = st if st is not None else state()
+    fx, fy, fz = st["blockX"], st["blockY"], st["blockZ"]
+    if region is None:
+        lo, hi = (cell_add((fx, fy, fz), d) for d in ROUND_GROUND[0])
+        region = flat(lo, hi, floor_y=fy - 1)
+    hits, mobs = {}, []
+    for i, (name, d) in enumerate(seen.items()):
+        cell = (fx + int(round(float(d))), fy, fz)
+        hits.setdefault(bare(name), []).append({"x": cell[0], "y": cell[1], "z": cell[2], "block": mid(name),
+                                                "distance": float(d)})
+        mobs.append({"type": mid(name), "id": i + 1, "x": cell[0], "y": cell[1], "z": cell[2], "distance": float(d)})
+    from bonobo.world import ROUTES
+    # the route answers known when it is read (as Snapshot.read copies world.ROUTES): `routes`, else the table now
+    return Snapshot.from_readings(st, inv if inv is not None else inventory(), hits, mobs, region,
+                                  routes=ROUTES if routes is None else routes)
 
 
-def finds(**seen):
-    """What /find and /entities saw, {name: distance}, keyed both ways the cost model may ask (bare and namespaced)."""
-    out = {}
-    for k, v in seen.items():
-        name = k.replace("minecraft:", "")
-        out[name] = out[f"minecraft:{name}"] = float(v)
-    return out
+def memory():
+    """The real `memory.Memory`, empty, in a dir of its own."""
+    import os
+    import tempfile
+    from bonobo.memory import Memory
+    return Memory(os.path.join(tempfile.mkdtemp(prefix="mem-"), "notes.json"))
+
+
+def brain_fixture(**fields):
+    """The one test Brain: built without its start-up (no world read), every field a round reads set — memory in a
+    dir of its own, a movement policy, no bans, no held plans, its needs and reflexes; `fields` set over them."""
+    from bonobo import brain, nav, needs, reflexes, retry
+    b = brain.Brain.__new__(brain.Brain)
+    b.unplannable, b.abandoned, b.held, b.blacklist = {}, None, {}, {}
+    b.policy_cache, b.mem, b.retry, b.place = nav.Policy(), memory(), retry.Retry(), None
+    b.last_failure, b.committed, b.last_hold_log, b.task_writes, b.just_finished = None, None, 0, None, False
+    b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
+    for k, v in fields.items():
+        setattr(b, k, v)
+    return b
+
+
+def round_ctx(b, snap):
+    """The skills' context a round decides with (brain.Brain.context over the round's snapshot): its can_run reads the
+    snapshot's bag, never the world (K10)."""
+    return b.context(snap.dimension)
+
+
+def handles(step):
+    """The test oracle: a registered skill carries out `step` (a named skill, or a provider of one of its effects)."""
+    from bonobo import skill
+    return step.kind == "skill" and step.token in skill.REGISTRY or any(skill.providers(e) for e in skill.step_keys(step))
 
 
 def cost(snap=None, mem=None, **seen):
-    """The real `cost.Cost` over readings (`finds=`): what is in sight at what distance, no query made."""
+    """The real `cost.Cost` over a real snapshot (with `seen` in its look) and memory: no query made."""
     from bonobo.cost import Cost
-    return Cost(snap if snap is not None else snapshot(), mem=mem, finds=finds(**seen))
-
-
-def places(seconds):
-    """A cost model with no snapshot where every kind is `seconds` of walking away (None: nowhere known) — for the
-    column solver's tables, which ask only how far things are."""
-    from bonobo.cost import TICKS_PER_S, WALK_TICKS_PER_BLOCK, Cost
-    blocks = None if seconds is None else max(0.0, (float(seconds) - 2.0) * TICKS_PER_S / WALK_TICKS_PER_BLOCK)
-    return Cost(None, known=lambda kinds: blocks)
-
-
-def places_by(fn):
-    """Like `places`, with the seconds decided per kind: fn(kinds) -> seconds or None."""
-    from bonobo.cost import TICKS_PER_S, WALK_TICKS_PER_BLOCK, Cost
-
-    def known(kinds):
-        s = fn(kinds)
-        return None if s is None else max(0.0, (float(s) - 2.0) * TICKS_PER_S / WALK_TICKS_PER_BLOCK)
-    return Cost(None, known=known)
+    snap = snap if snap is not None else snapshot()
+    if seen:
+        snap = snapshot(snap.state, snap.inv, **seen)
+    return Cost(snap, mem if mem is not None else memory())
 
 
 # The planner's sweep, as readings. Three dimensions of a situation a plan is made in: what is AROUND us (what the
@@ -506,11 +534,7 @@ def along_day(dimension, **fixed):
 # asking for the body says its answer is worth. A bundle would hide the very thing these are for — "has been
 # running for a while" must be separable from "costs a lot to abandon".
 
-INTENT = {                                   # {resumable, redo_s}: what abandoning this work would throw away
-    "walk": {"resumable": True, "redo_s": 0.0},
-    "dig": {"resumable": True, "redo_s": 0.0},
-    "window": {"resumable": False, "redo_s": 3.0},        # open-loop: stopping means starting again
-}
+INTENT = ("walk", "dig", "window")          # the kinds of running work
 ELAPSED = {"just_started": 0.0, "a_while": 20.0, "long": 300.0}
 WORTH = {"none": 0.0, "small": 5.0, "large": 500.0}
 LAYERS = {"reflex": "reflex", "safety": "safety", "tactic": "tactic", "plan": "plan"}
@@ -560,8 +584,7 @@ def faster_than(layer, step=-1):
 def intent(kind="walk", layer="plan", elapsed="just_started", at=0.0, **kw):
     """One running intent, built from the dimensions rather than from a pile of keywords."""
     from bonobo import arbiter
-    return arbiter.Intent(LAYERS[layer], lambda: None, kind, at=at, cost_rate=1.0, cost_s=600.0,
-                          **dict({"key": kind}, **dict(INTENT[kind], **kw)))
+    return arbiter.Intent(LAYERS[layer], lambda: None, kind, at=at, **dict({"key": kind}, **kw))
 
 
 # ---------------------------------------------------------------- one table of dimensions, one product

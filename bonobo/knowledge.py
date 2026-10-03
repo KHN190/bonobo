@@ -1,9 +1,11 @@
 """Where things come from: the requirement graph the planner resolves (recipes, smelting, mining, hunting)."""
+import functools
 import math
 
-from .game import COVERED_SKY, DAYLIT_SKY, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
-from .data import ANIMAL_HP, BASE_MARKERS, DAY_END, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, DEEPSLATE_ORE_HARDNESS, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
+from .game import COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
+from .data import ANIMAL_HP, BASE_MARKERS, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, DEEPSLATE_ORE_HARDNESS, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
 from .data import TAKEABLE
+from .data import COLORS, WOODS, ATTACKS_PER_S, HAND_ATTACKS_PER_S, HAND_DAMAGE, NETHER, OVERWORLD, PIGLIN_BARTER, is_night
 
 # group recipes: the output follows the input variant; the craft skill picks one owned member with enough
 GROUP_RECIPES = {
@@ -13,15 +15,32 @@ GROUP_RECIPES = {
     "bed": (["wool", "wool", "wool", "planks", "planks", "planks", None, None, None], 1),
 }
 
-# seconds a speed tool saves per unit of work; it is made only when that beats making it
 # fn(step) → the needs of what carries out a planned step; wired by skill.py so knowledge stays below the skills
+TABLES_VERSION = [0]    # bumped at each registration or wiring: what the planner's bound is built from changed
 STEP_CALL = None
+STEP_WHEN = None       # fn(step, facts) → [(fact, value)] it needs first, or why it cannot run (skill.when_of_step)
+STEP_SETS = None       # fn(step) → {fact: value} its run leaves (skill.sets_of_step)
+STEP_USES = None       # fn(step) → {item: n} of its needs its run uses up (skill.step_uses)
+FIGHT_LINE = None      # fn(contract, args, state, inv) → (ok, why): S5's one judge (brain.fight_line_holds)
+LINE_KIT = None        # fn(contract, args, state, inv) → [needs rows] that each clear it (brain.line_kit)
+FACT_STEPS = None      # fn(fact, value) → [(kind, token)] of the steps that set it (skill.steps_for_fact)
+STEP_STATION = None    # fn(step) → its contract's station or None (skill.station_of_step)
 
-def step_call(step):
+def step_call(step) -> dict:
     """The needs of what carries out `step`, skill modules loaded first; {} when none is wired in."""
 
     producers()
     return STEP_CALL(step) if STEP_CALL is not None else {}
+
+def step_station(step) -> str | None:
+    """The station `step`'s contract works at, carried or standing (None when none, or none is wired in)."""
+    producers()
+    return STEP_STATION(step) if STEP_STATION is not None else None
+
+def fact_steps(fact, value):
+    """[(kind, token)] of the steps that set `fact` to `value` ([] when none is wired in)."""
+    producers()
+    return FACT_STEPS(fact, value) if FACT_STEPS is not None else []
 
 # item → (blocks to break, minimum pickaxe tier or None)
 MINE = {
@@ -64,9 +83,7 @@ def takeable_blocks():
 # Stations are required by a step but not consumed.
 STATIONS = {"minecraft:crafting_table", "minecraft:furnace"}
 
-# Cooked food the planner may choose from (cheapest reachable animal wins).
-COOKABLE_FOOD = ["minecraft:cooked_porkchop", "minecraft:cooked_beef", "minecraft:cooked_mutton",
-                 "minecraft:cooked_chicken", "minecraft:cooked_rabbit"]
+# Every food, by item id (the planner prices each way to any of them).
 ALL_FOOD = [mid(f) for f in FOOD]
 # Raw meat: food that wants cooking — eaten raw only when starving, counted as the next meal while cooked is short.
 RAW_MEAT = [mid(f) for f in RAW]
@@ -76,13 +93,9 @@ KIT_FOOD = 6
 # runners take 8–10 beds: one or two blasts per perch, and a wasted bed must not end the fight
 DRAGON_BEDS = 8
 
-def food_count(inv):
+def food_count(inv) -> int:
     """The one definition of 'food carried': cooked/ready food only (raw meat must be cooked first)."""
     return sum(inv.count(f) for f in ALL_FOOD)
-
-def food_points(inv):
-    """Hunger points the ready food carried restores, from the one table (data.NUTRITION)."""
-    return sum(inv.count(mid(f)) * NUTRITION[f] for f in FOOD)
 
 def nether_kit_missing(inv):
     """Pure: what a Nether trip still lacks (empty = ready): cooked food, blocks, a gold helmet, bag room."""
@@ -122,16 +135,14 @@ SOURCE_BLOCKS = sorted({b for blocks, _tier in MINE.values() for b in blocks} | 
                        | {"dirt", "grass_block", "water", "lava"} | {bare(s) for s in STATIONS}
                        | set(BASE_MARKERS["bed"]) | set(BASE_MARKERS["chest"]))
 
-def members(token):
+def members(token) -> list:
     if token == "food":
         return ALL_FOOD
     return GROUPS.get(token, [mid(token)])
 
 # -- where a token comes from: the skills' `gives` in the registry, one place; rank settles a token two skills make
-RANK = {"gather": 0, "craft_group": 10, "hunt": 20, "smelt": 30, "trade": 35, "craft": 40, "mine": 50, "fill": 60,
+RANK = {"gather": 0, "craft_group": 10, "hunt": 20, "smelt": 30, "trade": 35, "craft": 40, "barter": 45, "mine": 50, "fill": 60,
         "farm": 70, "take": 90}
-# Tokens that are another token's source by definition: "stone"/"building" are what cobblestone is used as.
-ALIASES = {"stone": "minecraft:cobblestone", "building": "minecraft:cobblestone", "coal": "minecraft:coal"}
 
 class Produces:
     """What one skill produces: `get(token)` → the source tuple (`source`'s shape) or None, `keys()` → every token."""
@@ -172,7 +183,50 @@ GIVES_FARM = _one("farm", "minecraft:wheat", ("minecraft:wheat_seeds", PLOT_CELL
 GIVES_TRADE = _one("trade", "minecraft:emerald", ["minecraft:villager"], ("trade", ["minecraft:villager"]))
 GIVES_TAKE = _table("take", TAKEABLE, lambda t, row: ("take", row["blocks"]))
 
+def barter_yield(item):
+    """Pure: the expected count of `item` one bartered gold ingot brings (data.PIGLIN_BARTER: its share of the
+    pool's weight × its mean count)."""
+    weight, total, lo, hi = PIGLIN_BARTER[item]
+    return weight / total * (lo + hi) / 2
+
+GIVES_BARTER = _table("barter", PIGLIN_BARTER, lambda t, row: ("barter", ["minecraft:piglin"], barter_yield(t)))
+
+# where a mob lives, by the game's spawning rules: the facts a hunt of it needs first (the planner's `when`)
+LIVES_IN = {"minecraft:blaze": [("dimension", NETHER), ("state:fortress_found", True)],
+            "minecraft:piglin": [("dimension", NETHER)]}
+
+def lives_in(types):
+    """Pure: [(fact, value)] a hunt of `types` needs first — where the first of them lives (LIVES_IN)."""
+    return list(LIVES_IN.get(types[0], [])) if types else []
+
+# -- the body as facts: what work where it stands asks of it, and what the snapshot says it has
+DROWNING_TICKS = 100     # ~5 s of air: below this a breath comes before any work
+FALL_TAKES_HANDS = 2.0   # blocks: a fall longer than this takes the hands (the fall is under way)
+
+def body_facts(state):
+    """Pure: footing, hands_free, night, covered from the body; no readings: standing, by day, in the open."""
+    state = state or {}
+    swimming = bool(state.get("inWater")) and not state.get("onGround", False)
+    falling = float(state.get("fallDistance", 0) or 0) > FALL_TAKES_HANDS
+    held = bool((state.get("control") or {}).get("paused"))
+    drowning = float(state.get("air", AIR_FULL) or 0) <= DROWNING_TICKS
+    night = "timeOfDay" in state and is_night(int(state["timeOfDay"]), state.get("dimension", OVERWORLD))
+    return {"footing": not swimming and bool(state.get("onGround", True)),
+            "hands_free": not (falling or held or drowning),
+            "night": night, "covered": "skyLight" in state and under_rock(state["skyLight"])}
+
+def body_when(footing=True, surface=False):
+    """A contract's `when` for hand work (`footing`: standing too), the night's added (night_when)."""
+    need, at_night = [("hands_free", True)] + ([("footing", True)] if footing else []), night_when(surface)
+    return lambda step, facts: list(need) + at_night(step, facts)
+
+def night_when(surface=False):
+    """At night: `surface` work waits for day (S4), other work needs cover; by day nothing."""
+    need = [("night", False)] if surface else [("covered", True)]
+    return lambda step, facts: list(need) if facts.get("night") else []
+
 PRODUCERS = []  # the registered skills' producing tables, filled by the `skill` decorator
+CONTRACT_FACTS = set()  # every fact a registered contract makes true (its `state:` gives, its `sets`), filled likewise
 # loaded by name before the tables are read (a string, not an import: knowledge stays below the skills)
 SKILL_MODULES = ("brewing", "building", "combat", "dragon", "end", "explore", "farming", "fluids", "loot", "needs", "nether",
                  "reflexes", "skills", "ui", "wood")
@@ -180,25 +234,29 @@ SKILL_MODULES = ("brewing", "building", "combat", "dragon", "end", "explore", "f
 def producers():
     """Every producing table the registered skills declare, in rank order (every skill module loaded first: one
     already imported registers only its own — gather alone left no craft producer, so no tool could be planned)."""
-    import importlib
-    for m in SKILL_MODULES:
-        importlib.import_module(f"{__package__}.{m}")
+    import sys
+    if any(f"{__package__}.{m}" not in sys.modules for m in SKILL_MODULES):
+        import importlib
+        for m in SKILL_MODULES:
+            importlib.import_module(f"{__package__}.{m}")
     return sorted(PRODUCERS, key=lambda g: g.rank)
 
 def produced(kind):
     """[(token, table row)] of every registered producer of this kind — what the solver builds its columns from."""
     return [row for g in producers() if g.kind == kind for row in g.rows()]
 
-def source(token):
-    """How a token is produced (a source tuple by kind), the first by rank of the registered skills that give it, or None."""
+def sources(token) -> list:
+    """Every way a token is produced: [(the token made, its source tuple)], the registered skills' in rank order — a
+    group's own and each member's (any of them is the group)."""
 
-    token = ALIASES.get(token, token)
-    item = mid(token)
-    for g in producers():
-        src = g.get(token) or (g.get(item) if item != token else None)
-        if src is not None:
-            return src
-    return None
+    out = []
+    for made in [token] + [m for m in GROUPS.get(token, ()) if m != token]:
+        item = mid(made)
+        for g in producers():
+            src = g.get(made) or (g.get(item) if item != made else None)
+            if src is not None and (made if made in GROUPS or made == "food" else item, src) not in out:
+                out.append((made if made in GROUPS or made == "food" else item, src))
+    return out
 
 # -- tool wear, one reading each
 TOOL_USABLE = 2       # the jar's rule (InvUtil.java:109, Pathfinder:188/220: remaining > 1): a tool with 1 use left is never held
@@ -215,13 +273,13 @@ def working(left, uses=0):
     return left >= uses + TOOL_WORKING
 
 
-def spare_uses(left):
+def spare_uses(left) -> int:
     """Pure: the uses a tool spends before it stops working — the solver's uses row (working(left, n) ⇔ n ≤ this)."""
     return max(0, left - TOOL_WORKING)
 
 
 # -- the remainder math goals and skills' `remaining` share ({} when met), here so skills need no planner
-def tool_ok(inv, kind, tier, min_left=TOOL_WORKING):
+def tool_ok(inv, kind, tier, min_left=TOOL_WORKING) -> bool:
     if not hasattr(inv, "tools"):
         return False
     return any(t >= tier and d >= min_left for t, d, _ in inv.tools(kind))
@@ -234,7 +292,8 @@ SHOVEL_BLOCKS = ("dirt", "sand", "gravel", "grass_block", "clay", "snow", "snow_
 HAND_BLOCKS = ("leaves", "wool", "torch", "_bed", "air", "water", "lava", "short_grass", "tall_grass", "fern", "wheat",
                "carpet", "flower", "sapling", "vine")
 
-def tool_kind(block):
+@functools.cache
+def tool_kind(block) -> str | None:
     """Pure: the tool kind that breaks `block` fastest — "axe", "shovel", "pickaxe", or None (the hand does)."""
     name = bare(block or "")
     if not name or name in DROP_KINDS or any(name.endswith(h) or name == h.strip("_") for h in HAND_BLOCKS):
@@ -310,6 +369,7 @@ def drop_need(block):
         return None
     return ("pickaxe",), next((tier for blocks, tier in MINE.values() if name in blocks), 0)
 
+@functools.cache
 def break_ticks(block, item):
     """Pure: whole ticks `item` (or "hand") takes to break `block` (Minecraft Wiki, Breaking: speed / hardness /
     30 when right for the drop, else 100, per tick; 0 when that reaches a whole block in one)."""
@@ -364,7 +424,7 @@ def own_work(step):
         return [], [min(hp)] * units if hp else []
     return [], []
 
-def held_tiers(inv, min_left=TOOL_WORKING):
+def held_tiers(inv, min_left=TOOL_WORKING) -> dict:
     """Pure: {tool kind: the best tier the bag holds with wear left}."""
     out = {}
     for kind in TOOL_KINDS:
@@ -423,7 +483,7 @@ def blocks_remainder(want, name_at):
 # -- what is left of a world-effect skill: `remaining` readers over body_state's shape; a reading not taken is not "done"
 AIR_FULL = 300          # the air meter's top, in ticks
 
-def swimming(state):
+def swimming(state) -> bool:
     """The one "in the water" test: in water and not standing, or standing with the head under (breath below full)."""
 
     return bool(state.get("inWater")) and (not state.get("onGround", False)
@@ -464,9 +524,9 @@ def breathing(st, c):
     return left(int(s.get("air", AIR_FULL)) >= AIR_FULL, "state:air", AIR_FULL - int(s.get("air", 0)))
 
 def daytime(st, c):
-    """The day wanted: {} while the clock's time of day (absolute ticks, taken mod a day) is before dusk."""
+    """The day wanted: {} while it is not night (data.is_night: the one day cycle, absolute ticks taken mod a day)."""
     t = body(st).get("timeOfDay")
-    return left(t is not None and int(t) % DAY_TICKS < DAY_END, "state:day")
+    return left(t is not None and not is_night(int(t)), "state:day")
 
 def fed(st, c):
     food = int(body(st).get("food", 0))
@@ -699,7 +759,7 @@ def head_clear(st, c):
 
 
 
-def under_rock(sky_light):
+def under_rock(sky_light) -> bool:
     """Pure: rock over the feet (sky light at most COVERED_SKY) — underground: no surface work at night, a surface
     trip starts with the climb. The one reading of it."""
     return sky_light <= COVERED_SKY
@@ -708,7 +768,7 @@ def under_rock(sky_light):
 def dark_here(s):
     """Pure over /state: standing where mobs spawn — block light 0, and not under open sky by day."""
     return "blockLight" in s and s["blockLight"] <= SPAWN_BLOCK_LIGHT and \
-        not (s["skyLight"] > DAYLIT_SKY and 0 < s["timeOfDay"] < DAY_END)
+        not (s["skyLight"] > DAYLIT_SKY and not is_night(int(s["timeOfDay"])))
 
 
 def sheltered(sky_light, enclosed, in_site=lambda: False):
@@ -722,14 +782,34 @@ def sheltered(sky_light, enclosed, in_site=lambda: False):
 # -- a step's prior work in ticks: the one table (cost.Cost before anything is measured, and planner.NullCost)
 PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 60,
                "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
-               "withdraw": 100, "look": 40, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
+               "withdraw": 40, "look": 40, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
                "farm": 1200, "trade": 600,         # farm: without the growth (GROW_S)
-               "reach": 200, "breed": 400,
+               "reach": 200, "breed": 400, "eat": EAT_TICKS,
                "shelter:dig_in": 500, "shelter:pod": 800, "shelter:hut": 2400,
-               "room:tidy": 300, "room:deposit": 1200}
+               "room:tidy": 300, "room:deposit": 1200,
+               "surface": 200, "surface_per_block": 30,     # out from under rock: a base and per block below SURFACE_Y
+               "unknown_walk": 6000, "unknown_water": 1200}  # nothing known nearby: a search's walk; water's
+SURFACE_Y = 64
 GROW_S = {"crop": 900, "animal": 1200}     # seconds (jobs.DURATION)
 NIGHT_S = 420.0               # a night, when the clock is not read
 MIN_FIND_P = 0.02
+# where each price comes from (static R14): game (the game's own data), measured (fitted from runs), prior (a guess,
+# E4's to do), policy (a choice, not a measurable price)
+PRICE_SOURCE = {
+    "knowledge.PRIOR_TICKS": {
+        "craft": "prior", "smelt_each": "game", "smelt_setup": "prior", "mine_each": "prior", "gather_each": "prior",
+        "hunt_each": "prior", "fill": "prior", "goto": "policy", "build": "prior", "sleep": "prior", "skill": "prior",
+        "take": "prior", "withdraw": "prior", "look": "prior", "cast": "prior", "farm": "prior", "trade": "prior",
+        "reach": "prior", "breed": "prior", "eat": "game", "shelter:dig_in": "prior", "shelter:pod": "prior",
+        "shelter:hut": "prior", "room:tidy": "prior", "room:deposit": "prior", "surface": "prior",
+        "surface_per_block": "prior", "unknown_walk": "prior", "unknown_water": "prior"},
+    "knowledge.SURFACE_Y": "game", "data.MEASURED_BAND": "policy", "knowledge.GROW_S": {"crop": "prior", "animal": "game"}, "knowledge.NIGHT_S": "game",
+    "knowledge.MIN_FIND_P": "policy", "knowledge.FIND_AT": "game",
+    "data.WALK_BLOCKS_PER_TICK": "prior", "data.ROUTE_FACTOR": "prior", "data.HARDNESS": "game",
+    "data.TOOL_SPEED": "game", "data.BREAK_DIVISOR": "game", "data.PASSIVE_WEIGHT": "game", "data.SEARCH_LEGS": "prior",
+    "data.SEARCH_LOOK_R": "prior", "game.EAT_TICKS": "game", "game.PLAYER_SPRINT": "game",
+}
+PRIOR_ORIGIN = {}     # a fitted price item → its first value (tools.fit_prices bounds every fit by it)
 
 
 def dawn_s(state):
@@ -738,6 +818,23 @@ def dawn_s(state):
         return NIGHT_S
     t = int(state["timeOfDay"]) % DAY_TICKS
     return max(1.0, ((NIGHT_END - t) % DAY_TICKS) / TICKS_PER_S)
+
+
+def dig_to_ticks(breaks, step, held, tps):
+    """Pure: ticks the breaks of `breaks` beyond the step's own (`own_work`) take — the digging to its work — with the
+    best of the hand and `held` ({tool kind: tier}) for each."""
+    own, _kills = own_work(step)
+    reach = list(breaks)[len(own):]
+    return round(work_s(reach, [], held, tps) * tps) if reach else 0
+
+
+def prior_work_ticks(step, held, tps):
+    """Pure: the prior (`prior_ticks`, the hand's) less what `held` ({tool kind: tier}) saves on the step's own work,
+    never below the game's own time for that work with those tools (`tps`: the game's ticks a second)."""
+    breaks, kills = own_work(step)
+    with_tools = work_s(breaks, kills, held, tps)
+    saved = work_s(breaks, kills, {}, tps) - with_tools
+    return max(round(with_tools * tps), prior_ticks(step) - round(saved * tps))
 
 
 def prior_ticks(step):
@@ -753,6 +850,8 @@ def prior_ticks(step):
         return PRIOR_TICKS["hunt_each"] * step.detail.get("kills", step.count)
     if k == "fill":
         return PRIOR_TICKS["fill"] * step.count
+    if k == "eat":
+        return PRIOR_TICKS["eat"] * max(1, int(step.count))      # count: bites
     if k == "take" and step.token in TAKEABLE:
         return round(float(TAKEABLE[step.token]["break_s"]) * TICKS_PER_S) * max(1, int(step.count))
     if k == "farm":

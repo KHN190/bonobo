@@ -1,12 +1,13 @@
-"""Needs: what must be PLANNED to be had — a bed or the night's parts before dark, food stock before it runs out, a tool that broke under a held plan, a water bucket before a fall, blocks where the path is blocked, the night's ore underground. Each is PROPOSED (`need` → `needs_now`), never queued: brain.need_act turns it into the next step of its plan and arbiter.PLAN_ORDER ranks it with the queue. The fixed maintenance reflexes (eat, land, the night's shelter, the bag…) are reflexes.py. Also the tool-repair skill and the one choice of how to get through a night (`overnight`). Pure `repair_pair`, `dusk_s`, `due_now`, `overnight` are offline-tested."""
+"""Needs: what must be PLANNED to be had — a bed or the night's parts before dark, a tool that broke under a held plan, a water bucket before a fall, blocks where the path is blocked, the night's ore underground. Each is PROPOSED (`need` → `needs_now`), never queued: the brain plans it with the queue in the round's one plan (planner.plan_round, by seconds). The fixed maintenance reflexes (eat, land, the night's shelter, the bag…) are reflexes.py. Also the tool-repair skill and the one choice of how to get through a night (`overnight`). Pure `repair_pair`, `dusk_s`, `due_now`, `overnight` are offline-tested."""
 
+import copy
 import json
 import math
 import time
 from typing import TYPE_CHECKING
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, decompose, goals, survive, beliefs
+from . import api, decompose, goals, survive, world
 from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
 from . import bag
@@ -15,9 +16,9 @@ from .cost import Cost
 from .decompose import cooled_ways, night_facts, night_left_s, way_key  # noqa: F401
 if TYPE_CHECKING:
     from .shapes import BagState, CraftTask
-from .data import DAY_END, NIGHT_WORK, TOOL_KINDS, memo_ttl, mid, FOOD, NUTRITION, DAY_TICKS, TICKS_PER_S, REPAIR_BONUS_PARTS
-from .knowledge import food_count, food_points, FIND_AT
-from .planner import NullCost, Planner, Unplannable
+from .data import NIGHT_WORK, TOOL_KINDS, memo_ttl, TICKS_PER_S, REPAIR_BONUS_PARTS
+from .knowledge import FIND_AT
+from .planner import Target, Unplannable, craftable_tier, plan_round
 from .skill import skill
 from .skillcore import lost
 from .world import Inventory
@@ -38,11 +39,10 @@ FALL_RISK = {("portal", None), ("seek", "fortress"), ("seek", "stronghold"), ("s
              ("activate", "end_portal"), ("hunt", "minecraft:blaze_rod")}
 DEEP_Y = 40                # a mine step whose ore is richest below this is reached by digging down
 
-def dusk_s(snap):
-    """Seconds until dusk (data.DAY_END, the one dusk: LEAD is the only margin): (DAY_END − timeOfDay) / TICKS_PER_S, 0 once
-    it is dark."""
-    t = int(snap.time) % DAY_TICKS
-    return max(0.0, (DAY_END - t) / TICKS_PER_S) if t < DAY_END else 0.0
+def dusk_s(snap) -> float:
+    """Seconds until the next dusk (world.ticks_until_dusk: data.DAY_END, the one dusk; LEAD is the only margin), 0 while
+    it is dark; from dawn (NIGHT_END) a whole day ahead."""
+    return world.ticks_until_dusk(int(snap.time)) / TICKS_PER_S
 
 def cover(ctx, state):
     """The cheapest shelter that can run here now — every skill providing a "shelter:" way, priced by the one cost
@@ -52,8 +52,9 @@ def cover(ctx, state):
     from . import skill as skillkit
     # priced as the brain prices (brain.py's Cost: memory, the targets banned here, the movement policy): a banned
     # entity or block is no shelter's way (W3)
-    cost = Cost(Snapshot.from_readings(state, Inventory()), getattr(ctx, "mem", None), getattr(ctx, "blacklist", None),
-                policy=getattr(ctx, "policy", None))
+    snap = Snapshot.read(_k.SOURCE_BLOCKS, survive.ROUND_GROUND)       # a rescue's own read: it runs, not decides
+    cost = Cost(snap, ctx.mem, getattr(ctx, "blacklist", None), policy=getattr(ctx, "policy", None),
+                stop=api.stop_asked)
     ways = []
     for c in skillkit.REGISTRY.values():
         for effect in c.provides:
@@ -67,39 +68,40 @@ def cover(ctx, state):
     _s, runner, args = min(ways, key=lambda w: w[0])
     runner(ctx, *args)
 
-def overnight(inv, cost, facts=None, bed_too=True):
-    """How to get through a night, by price: (choice, seconds, steps); (None, inf, []) when there is none. The bed
-    ways (a carried bed — the sleep row's: a room, light, the gate, taken back — or the home's bed a walk reaches,
-    its open walk priced with the night's risk) against making a bed or a shelter waited in (the night ahead and a
-    sheltered night's risk: night_facts): the cheapest. A shelter is never paired with a sleep."""
+def night_options(inv, cost, facts=None, bed_too=True):
+    """[(way, needs, extra seconds, of them before dark, own steps)]: the night's ways; own steps priced, not planned."""
+    out = [("bed", [] if inv.count("bed") > 0 else [("bed", 1)], 0.0, 0.0, [])] if bed_too else []
+    for key in ("overnight bed", "overnight"):
+        sources, why = decompose.offered_sources(key, cost, facts)
+        if not sources:
+            log(f"upkeep: no {key} way ({'; '.join(why)})")
+        for src, needs, own in sources:
+            own_s = sum(st.est for st in own) / TICKS_PER_S
+            keys = src.get("extra_s", ())
+            out.append((src["name"], list(needs), own_s + decompose.extra_s(keys, facts),
+                        own_s + decompose.day_extra_s(keys, facts), own))
+    return out
 
-    bed = []
+def overnight(inv, cost, facts=None, bed_too=True) -> tuple[str | None, float, list]:
+    """(way, seconds before dark, steps) of the cheapest way through the night (one-of target); (None, inf, []): none."""
 
-    def carried():
-        if not (bed_too and inv.count("bed") > 0):
-            raise Unplannable("no bed carried")
-        return []
-
-    def bed_plan():
-        if not bed_too:
-            raise Unplannable("a bed is the sleep row's")
-        bed[:] = decompose.decompose(inv, goals.have(("bed", 1)), cost)
-        return bed
-
-    best = None
-    for key, default in (("overnight bed", carried), ("overnight", bed_plan)):
-        try:
-            steps, way, seconds = decompose.cheapest(key, 1, default, inv, cost, facts=facts, priced=True)
-        except Unplannable as e:
-            log(f"upkeep: no {key} way ({e})")
-            continue
-        if steps is None:
-            steps, way = (bed, "bed") if key == "overnight" else ([], "bed")
-        if best is None or seconds < best[0]:
-            best = (seconds, way, steps)
-    if best is None:
+    options = night_options(inv, cost, facts, bed_too)
+    if not options:
         return None, math.inf, []
-    return best[1], cost.plan_s(best[2]), best[2]
+    chosen, dusk = {}, copy.copy(cost)
+    dusk.facts = lambda: {**cost.facts(), "night": False}      # prepared before dark
+    try:
+        night = Target("night", [], 0, options=tuple(o[:3] for o in options))
+        _first, steps, seconds = plan_round(inv, [night], dusk, chosen=chosen)
+    except Unplannable as e:
+        log(f"upkeep: no way through the night ({e})")
+        return None, math.inf, []
+    _way, _needs, _extra, day_s, own = next(o for o in options if o[0] == chosen["night"])
+    return chosen["night"], seconds + day_s, steps + own
+
+def preps_night(plan):
+    """Pure: a held round plan (brain.round_for) whose targets include the night's prep need."""
+    return any(str(name).startswith("night prep") for name, *_rest in plan.get("want") or ())
 
 def due_now(left_s, plan_s, known, at_threshold):
     """Pure: is it time to start getting something?"""
@@ -110,18 +112,6 @@ def tool_kinds(steps):
     """Pure: the tool kinds these plan steps need (a mine step with a tier needs a pickaxe)."""
     return {"pickaxe"} if any(st.kind == "mine" and st.detail.get("tier") is not None for st in steps) else set()
 
-def food_on_its_way(pending):
-    """Pure: (meals, hunger points) of the ready food a background job or machine is making ({item id: count})."""
-    ready = {mid(f): NUTRITION[f] for f in FOOD}
-    meals = sum(n for item, n in pending.items() if item in ready)
-    return meals, sum(n * ready[item] for item, n in pending.items() if item in ready)
-
-def food_lasts_s(snap, pending=None):
-    """Seconds of work the stomach, the bag's meals and those cooking cover."""
-
-    drain = float(beliefs.value("risk.food_drain_s"))
-    return (float(snap.get("food", 20)) + food_points(snap.inv) + food_on_its_way(pending or {})[1]) * drain
-
 def working_tiers(inv):
     """{tool kind: best tier with a working one} for TOOL_KINDS. Pure over the bag."""
     out = {}
@@ -130,11 +120,6 @@ def working_tiers(inv):
         if tiers:
             out[kind] = max(tiers)
     return out
-
-def craftable_tier(inv, kind, reserved=()):
-    """The best tier of `kind` this bag crafts outright, or 0."""
-
-    return Planner.from_inventory(inv, NullCost(), reserved=reserved).craftable_tier(kind)
 
 def falls(step, known_y=None):
     """Pure: does this plan step put the body where a fall can happen (FALL_RISK, or ore dug down to)? The ore's
@@ -182,6 +167,7 @@ class Needs:
         self.wear = {}                # tool kind -> least durability left last round
         self.broken = set()           # tool kinds that broke and are not replaced yet
         self.needs_now = []           # [(kind, goal, why)] this round proposes getting (need)
+        self._facts = None            # (snapshot, its night facts): read once a round
 
     def observe(self, snap):
         tiers, now_wear = working_tiers(snap.inv), durability_left(snap.inv)
@@ -192,18 +178,17 @@ class Needs:
     def propose(self, snap, ctx, reads=None):
         """This round's needs into `needs_now` (PLAN proposals), computed from the snapshot alone."""
 
-        b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
-        enclosed, soft_ground, dig_site = ground(reads)
+        b, inv, over = self.brain, snap.inv, snap.dimension == "minecraft:overworld"
+        enclosed, _soft_ground, _dig_site = ground(reads, snap)
         blocked = b.reflexes.blocked_here(b.place)
+        self.night_facts(snap, reads)
         # a bed from what is carried skips the night: before any shelter and the night's work
         bed_tonight = _once(reads, "bed_tonight", lambda: self.bed_tonight(snap))
         self.needs_now = []
         if bed_tonight():
             self.need("night prep", goals.have(("bed", 1)), "a bed skips the night")
         # the night's way from here: the shelter reflex runs it when its parts are carried, else its parts are this round's need
-        night_way = _once(None, "night_way", lambda: self.overnight(
-            snap, night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), night_left_s=night_left_s(snap)),
-            bed_too=False))
+        night_way = _once(None, "night_way", lambda: self.overnight(snap, bed_too=False))
         shelter_due = _once(None, "shelter_due", lambda: over and snap.night and not bed_tonight()
                             and not b.reflexes.sheltered(snap, enclosed))
         if shelter_due():
@@ -221,20 +206,66 @@ class Needs:
         if blocked is not None and inv.count("building") < BRIDGE_MIN:
             self.need("bridge stock", goals.have(("building", bridge_stock(snap.feet, blocked["pos"]))),
                       "path blocked with nothing to bridge with")
-        food_goal = goals.have(("food", 8))
-        # food cooking counts toward stock and stomach (else a hunt ran with beef in the furnace)
-        pending = b.mem.pending_outputs(snap.dimension)
-        meals, points = food_on_its_way(pending)
-        if food_count(inv) + meals < 8:
-            secs, known = self.plan(food_goal, snap)
-            if due_now(food_lasts_s(snap, pending), secs, known, s.get("food", 20) + points < EAT_BELOW):
-                self.need("food stock", food_goal, "food runs out before more could be had")
         if over and not snap.night and inv.count("bed") == 0:
-            way, seconds, steps = self.overnight(snap)
-            if way is not None and due_now(dusk_s(snap), seconds, self.known(steps, snap), dusk_s(snap) <= 0) \
-                    and not b.reflexes.sheltered(snap, enclosed):
-                self.prepare_night(way, steps)
+            due = self.dusk_due(snap)
+            if due is not None and not b.reflexes.sheltered(snap, enclosed):
+                self.prepare_night(*due)
         return self.needs_now
+
+    def dusk_due(self, snap):
+        """(way, steps) of the night's way when its preparation is due by dusk, else None."""
+        left, prep = dusk_s(snap), self.night_prep_s(snap)
+        if prep is None:
+            return None
+        way, _seconds, steps = self.overnight(snap)
+        if way is not None and due_now(left, prep, self.known(steps, snap), left <= 0):
+            return way, steps
+        return None
+
+    def night_prep_s(self, snap):
+        """Light seconds the night's way needs before dark (dusk's reading), at the margin; None: no way."""
+        free = self.night_free_s(snap)
+        way, seconds, steps = self.overnight(snap)
+        got = [s for s in (free, self.marginal_s(seconds, steps) if way is not None else None) if s is not None]
+        return min(got) if got else None
+
+    def route_covered_s(self, snap):
+        """Seconds of work under cover the unmet milestones still ask (the planner bound's covered part)."""
+        from .planner import bound
+        lb, inv, ticks = bound(self.cost(snap)), snap.inv, 0.0
+        for name in goals.MILESTONES:
+            for key, n in _k.have_remainder(inv, goals.needs(goals.make("milestone", name=name), inv)).items():
+                tool = key.startswith("tool:")
+                token = _k.tool_item(key.split(":")[1], n) if tool else key
+                ticks += lb.covered.get(token, lb.covered.get(_k.mid(token), 0.0)) * (1 if tool else n)
+        return ticks / TICKS_PER_S
+
+    def plan_steps(self):
+        """The steps the round's plans hold (the queue's and upkeep's): what is made anyway — a plan that is the night's
+        prep itself left out (its own steps would price the prep at nothing, and it would drop and come back)."""
+        b = self.brain
+        held = list(getattr(b, "held", {}).values()) + [getattr(b, "needs_plan", None)]
+        return list({id(st): st for h in held if h and not preps_night(h) for st in h["steps"]}.values())
+
+    def marginal_s(self, seconds, steps):
+        """Pure given the plans: `seconds` of a way's `steps` less the share of each the round's plans make anyway."""
+        made = {}
+        for st in self.plan_steps():
+            made[st.key()] = made.get(st.key(), 0) + int(st.count)
+        less = 0.0
+        for st in steps:
+            have = min(int(st.count), made.get(st.key(), 0))
+            made[st.key()] = made.get(st.key(), 0) - have
+            less += (getattr(st, "est", 0) or 0) / TICKS_PER_S * (have / max(1, int(st.count)))
+        return max(0.0, seconds - less)
+
+    def night_free_s(self, snap):
+        """Light seconds of the cheapest night way needing nothing got first (the night itself out); None: none."""
+        facts = self._facts[1] if self._facts is not None and self._facts[0] is snap else None
+        cost = self.cost(snap)
+        free = [secs + decompose.day_extra_s(extra, facts) for key in ("overnight bed", "overnight")
+                for _n, secs, _st, extra in decompose.free_ways(key, cost, facts)]
+        return min(free) if free else None
 
     def bed_tonight(self, snap):
         """Night in the Overworld, no bed carried, and a bed whose plan needs no sun is the cheapest way through."""
@@ -255,10 +286,11 @@ class Needs:
             self.need("night prep", goals.have(*src["needs"]), f"dark before {way} could be had")
 
     def cost(self, snap):
-        return Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache, reserved=bag.RESERVED)
+        return Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache, reserved=bag.RESERVED,
+                    stop=api.stop_asked)
 
     def need(self, kind, goal, why):
-        """Propose getting `goal` (kind: its place in arbiter.PLAN_ORDER)."""
+        """Propose getting `goal` (`kind` names it)."""
 
         if all(g != goal for _k, g, _w in self.needs_now):
             self.needs_now.append((kind, goal, why))
@@ -276,12 +308,28 @@ class Needs:
                         price, time.time())
 
     def overnight(self, snap, facts=None, bed_too=True):
-        """`overnight` from this bag, memoised briefly: priced every round it was the decide's hotspot (0.7 of 1.1 s)."""
+        """`overnight`, kept PLAN_S_TTL per (facts, bag); facts default to the round's."""
 
-        key = ("overnight", json.dumps(facts, sort_keys=True, default=str), bed_too, bag_signature(snap.inv),
+        if facts is None and self._facts is not None and self._facts[0] is snap:
+            facts = self._facts[1]
+        key = ("night", json.dumps(facts, sort_keys=True, default=str), bed_too, bag_signature(snap.inv),
                snap.dimension)
         return memo_ttl(self.plan_s_cache, key, PLAN_S_TTL,
                         lambda: overnight(snap.inv, self.cost(snap), facts, bed_too=bed_too), time.time())
+
+    def night_facts(self, snap, reads=None):
+        """The round's night facts (decompose.night_facts), read once a snapshot."""
+        if self._facts is not None and self._facts[0] is snap:
+            return self._facts[1]
+        from .reflexes import home_walk_s
+        b = self.brain
+        _enclosed, soft_ground, dig_site = ground(reads, snap)
+        left = night_left_s(snap)
+        left = None if left is None else math.ceil(left / PLAN_S_TTL) * PLAN_S_TTL
+        facts = night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), home_walk_s(b, snap), left,
+                            covered_work_s=self.route_covered_s(snap))
+        self._facts = (snap, facts)
+        return facts
 
     def plan_s(self, goal, snap):
         return self.plan(goal, snap)[0]

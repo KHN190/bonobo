@@ -376,7 +376,7 @@ def _sitting(ctx, recipes, keep_table=False):
     return [(t, times) for t, times in recipes]
 
 @skill(gives=[K.GIVES_CRAFT_GROUP, K.GIVES_CRAFT], needs={}, start=lambda c: _plan_start([(c.args[1], c.args[2])]), verify=_plan_made, budget=90, stall=60,
-       key=lambda c: "craft", provides={"craft": lambda ctx, s: (s.token, s.detail["times"])},
+       key=lambda c: "craft", provides={"craft": lambda ctx, s: (s.token, s.detail["times"])}, when=K.body_when(),
        commands=lambda state, args: craft_commands(state, ([(args[0], args[1])],)))
 def craft(ctx, token, times):
     """Craft `times` batches of a recipe (2×2 in the inventory, 3×3 at a found or carried crafting table)."""
@@ -412,7 +412,7 @@ def _furnace_slots():
 
 @skill(gives=K.GIVES_SMELT, needs={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
        budget=900, stall=30, units=lambda c: min(64, c.args[3]), key=lambda c: "smelt",
-       provides={"smelt": lambda ctx, s: _smelt_args(s)}, prefer=-1)
+       provides={"smelt": lambda ctx, s: _smelt_args(s)}, prefer=-1, when=K.body_when(), station="minecraft:furnace")
 def smelt(ctx, output, input_token, count, fuel):
     """One furnace session: load input + fuel, watch the output slot fill (10 s/item), take everything out."""
     count = min(64, count)
@@ -473,7 +473,7 @@ def furnace_takes(slots, input_ids, output):
 
 @skill(gives=["state:smelting"], remaining=_k.less_than_at_start(lambda c: c.args[2], lambda c: min(64, c.args[3])), needs={}, start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
        budget=180, stall=40,
-       provides={"smelt": lambda ctx, s: _smelt_args(s) if s.count >= ASYNC_SMELT_MIN else None})
+       provides={"smelt": lambda ctx, s: _smelt_args(s) if s.count >= ASYNC_SMELT_MIN else None}, station="minecraft:furnace")
 def start_smelt_job(ctx, output, input_token, count, fuel):
     """Spread the batch over the free furnaces within FURNACE_REACH (placing one if none), fuel each, and walk away."""
 
@@ -658,7 +658,7 @@ def load_smelter(ctx, machine, input_token, count, fuel, output):
     log(f"loaded {count}× {bare(input_token)} into {machine['name']} (ready in ~{ready}s)")
     return {"ordered": output, "count": count}      # an order: done when the output is held
 
-def pending_ready(machine):
+def pending_ready(machine) -> bool:
     return any(p["ready_at"] <= time.time() for p in machine.get("pending", []))
 
 @skill(gives=["state:machine_emptied"], remaining=_k.machine_emptied(lambda c: c.args[1]["name"]), needs={}, start=lambda c: sum(p["count"] for p in c.args[1].get("pending", [])),

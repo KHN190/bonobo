@@ -1,6 +1,7 @@
 """check/inv/plan.py oracles over hand-made ctx."""
 import unittest
 
+from bonobo import memory
 from bonobo.planner import Step
 from check import oracle
 from check.facts import of
@@ -29,16 +30,25 @@ class Bag:
         return [(t, d, f"minecraft:{TOOL_MATERIAL_FOR_TIER[t]}_{k}") for k, t, d in self.rows if k == kind]
 
     def count(self, item):
-        return self.items.get(item, 0)
+        from bonobo.data import GROUPS, mid
+        ids = GROUPS.get(item, [mid(item)])               # a group counts its members, as world.Inventory.count
+        return sum(n for i, n in self.items.items() if mid(i) in ids or i == item)
 
 
 class Mem:
-    def __init__(self, stored=(), stations=()):
-        self.rows = list(stored)
-        self.station_rows = list(stations)
+    """memory.Memory's readers over rows: stored (pos, item, n), stations by block, a home's beds by cell."""
 
-    def stations(self, dimension=None):
-        return [{"block": b} for b in self.station_rows]
+    def __init__(self, stored=(), stations=(), home_beds=()):
+        self.rows = list(stored)
+        self.data = {"stations": [{"block": b, "pos": [i, 64, 0], "dimension": "minecraft:overworld"}
+                                  for i, b in enumerate(stations)]}
+        self.home_rows = [{"parts": {"beds": [list(c) for c in home_beds]}}] if home_beds else []
+
+    def homes(self, dimension):
+        return self.home_rows
+
+    stations = memory.Memory.stations
+    known_stations = memory.Memory.known_stations
 
     def stored(self, token, dimension):
         return [r for r in self.rows if r[1].endswith(token.removeprefix("minecraft:"))]
@@ -51,6 +61,11 @@ def price(s):
     return PRICE.get(s.kind, 20)
 
 
+def run(steps):
+    """The plan priced as it runs, each step by the table above (no tools, walks or hunger in these rows)."""
+    return [price(s) for s in steps]
+
+
 def fires(got):
     return got is not None and not isinstance(got, oracle.Unchecked)
 
@@ -61,14 +76,16 @@ BEEF_IN_ORDER = [step("smelt", "minecraft:cooked_beef", 35, 2, inputs={"minecraf
                  step("smelt", "minecraft:cooked_beef", 75, 6, inputs={"minecraft:beef": 6, "coal": 1})]
 BEEF_MERGED = [step("smelt", "minecraft:cooked_beef", 95, 8, inputs={"minecraft:beef": 8, "coal": 2}),
                step("hunt", "minecraft:beef", 45, 6, types=["minecraft:cow"])]
+STONE_PICK = step("mine", "minecraft:cobblestone", 60, blocks=["stone"], tier=1, breaks=1)
+IRON_PICK = step("mine", "minecraft:raw_iron", 60, blocks=["iron_ore"], tier=2, breaks=1)
 
 
 class Plan(unittest.TestCase):
     # (invariant, ctx, fires?)
     ROWS = [
-        ("D6", {"plan": [step("craft", "minecraft:stick", 60)], "price": price}, False),
-        ("D6", {"plan": [step("craft", "minecraft:stick", 0)], "price": price}, True),     # must fail: free work
-        ("D6", {"plan": [step("craft", "minecraft:stick", 30)], "price": price}, True),    # must fail: priced apart
+        ("D6", {"plan": [step("craft", "minecraft:stick", 60)], "price_run": run}, False),
+        ("D6", {"plan": [step("craft", "minecraft:stick", 0)], "price_run": run}, True),     # must fail: free work
+        ("D6", {"plan": [step("craft", "minecraft:stick", 30)], "price_run": run}, True),    # must fail: priced apart
         ("R1", {"plan": [step("craft", "minecraft:stone_pickaxe", 60)], "inv": Bag(), "task_goal": None}, False),
         # must fail: a stone pickaxe crafted while an iron one works
         ("R1", {"plan": [step("craft", "minecraft:stone_pickaxe", 60)], "inv": Bag([("pickaxe", 2, 200)]),
@@ -99,6 +116,25 @@ class Plan(unittest.TestCase):
                          step("gather", "minecraft:oak_log", 80, 4)], "price": price,
                 "mem": Mem([((3, 64, 3), "minecraft:oak_log", 8)]), "dimension": "minecraft:overworld",
                 "feet": (0, 64, 0)}, True),
+        # the candidates the search priced, the chosen first: the fewest seconds, a tie the lowest tier
+        ("R1", {"candidates": [("stone", 3.0, [STONE_PICK]), ("iron", 5.0, [IRON_PICK])]}, False),
+        ("R2", {"candidates": [("iron", 5.0, [IRON_PICK]), ("stone", 3.0, [STONE_PICK])]}, True),   # must fail: dearer
+        # the search's budget spent: the cut is the run's loss distribution (as P5), not a violation
+        ("R2", {"candidates": [("iron", 5.0, [IRON_PICK]), ("stone", 3.0, [STONE_PICK])], "budget_spent": True}, False),
+        ("R4", {"candidates": [("iron", 3.0, [IRON_PICK]), ("stone", 3.0, [STONE_PICK])]}, True),   # must fail: tie, higher tier
+        ("R1", {"candidates": [("stone", 3.0, [STONE_PICK]), ("iron", 3.0, [IRON_PICK])]}, False),
+        ("D6", {"candidates": [("stick", 3.0, [step("craft", "minecraft:stick", 60)])], "price_run": run}, False),
+        # must fail: the chosen plan's seconds are not its steps' prices
+        ("D6", {"candidates": [("stick", 1.0, [step("craft", "minecraft:stick", 60)])], "price_run": run}, True),
+        # M1: (pos, item, the step's chance, production's chance now, the world's block)
+        ("M1", {"withdraws": [((3, 64, 3), "minecraft:oak_log", 0.8, 0.8, "chest")]}, False),
+        ("M1", {"withdraws": [((3, 64, 3), "minecraft:oak_log", 1.0, 0.8, "chest")]}, True),   # must fail: undiscounted
+        ("M1", {"withdraws": [((3, 64, 3), "minecraft:oak_log", 0.8, 0.8, "air")]}, True),     # must fail: reread lost
+        # S8: the bar against the plan's clock (est ticks)
+        ("S8", {"plan": [step("mine", "minecraft:cobblestone", 400)], "food_left_s": 10.0}, True),   # must fail: starves
+        ("S8", {"plan": [step("smelt", "minecraft:cooked_beef", 100), step("mine", "minecraft:cobblestone", 400)],
+                "food_left_s": 10.0}, False),
+        ("S8", {"plan": [step("mine", "minecraft:cobblestone", 400)], "food_left_s": None}, False),   # food carried
         ("R4", {"way": (3.0, 5.0, 3.0)}, False),
         ("R4", {"way": (6.0, 5.0, 3.0)}, True),          # must fail: a dug way taken over a cheaper walk
         ("R4", {"way": (None, 5.0, None)}, True),        # must fail: a way exists, none taken
@@ -106,6 +142,25 @@ class Plan(unittest.TestCase):
         ("D4", {"switches": [(4.0, 2.0, 3.0, 1.0, True)], "holds": [("a", "b", "better")]}, True),   # must fail
         ("D4", {"switches": [], "holds": [("a", "b", "better")]}, True),     # must fail: changed without weighing
         ("D4", {"switches": [], "holds": [("a", "b", "assumption")]}, False),
+        ("P4", {"search_steps": 200}, False),
+        ("P4", {"search_steps": plan.ROUND_STEPS}, False),                 # boundary: the budget itself
+        ("P4", {"search_steps": plan.ROUND_STEPS + 1}, True),             # must fail: one step over the cap
+        ("P4", {"search_steps": 34000}, True),                             # must fail: a round searching on (GammaRoundTrip)
+        ("P5", {"plan": BEEF_IN_ORDER, "exact_s": 7.75}, False),            # the plan's own 155 ticks
+        ("P5", {"plan": BEEF_IN_ORDER, "exact_s": 5.0}, True),             # must fail: the budget cut a faster plan
+        ("P5", {"plan": BEEF_IN_ORDER, "exact_s": 5.0, "plan_hand_made": True}, False),
+        ("P5", {"plan": BEEF_IN_ORDER, "exact_s": None, "exact_unknown": "past the cap"}, False),   # the reference capped: unknown
+        ("P3", {"plan": BEEF_IN_ORDER, "bound": 150}, False),
+        ("P3", {"plan": BEEF_IN_ORDER, "bound": 155}, False),            # boundary: the plan's own price
+        ("P3", {"plan": BEEF_IN_ORDER, "bound": 400}, True),             # must fail: the bound above what is paid
+        ("P3", {"plan": BEEF_IN_ORDER, "bound": 400, "plan_hand_made": True}, False),   # a hand-made plan: not judged
+        ("P3", {"plan": [step("look", "container", 220, pos=[0, 64, 0], p=0.5, expected=300)], "bound": 300}, False),
+        ("P3", {"plan": [step("look", "container", 220, pos=[0, 64, 0], p=0.5, expected=300)], "bound": 400}, True),   # must fail: above the look's expected price
+        # a held plan against the round's chosen one: (held_s, chosen_s, lost_s, switched)
+        ("D4", {"plan_switch": (30.0, 10.0, 5.0, True)}, False),
+        ("D4", {"plan_switch": (30.0, 28.0, 5.0, True)}, True),     # must fail: the switch throws away more than it saves
+        ("D4", {"plan_switch": (30.0, 28.0, 5.0, False)}, False),
+        ("D4", {"plan_switch": (30.0, 10.0, 5.0, False)}, True),    # must fail: kept a plan dearer by more than the switch
         ("P2", {"plan": BEEF_IN_ORDER, "inv": Bag(items=TWO_BEEF), "mem": Mem(stations=["furnace"]),
                 "dimension": "minecraft:overworld"}, False),
         # must fail: the two smelts merged before the hunt that feeds them (night_first__low 055858)
@@ -118,6 +173,19 @@ class Plan(unittest.TestCase):
         ("P2", {"plan": [step("seek", "stone", 600), step("craft", "minecraft:furnace", 60, inputs={"stone": 8})],
                 "inv": Bag(items={"stone": 7}), "mem": Mem(stations=["crafting_table"]),
                 "dimension": "minecraft:overworld"}, True),
+        # must fail: a sleep with no bed carried, made or standing (its contract's station)
+        ("P2", {"plan": [step("sleep", "bed", 400)], "inv": Bag(), "mem": Mem(), "dimension": "minecraft:overworld"}, True),
+        ("P2", {"plan": [step("sleep", "bed", 400)], "inv": Bag(items={"minecraft:white_bed": 1}), "mem": Mem(),
+                "dimension": "minecraft:overworld"}, False),
+        ("P2", {"plan": [step("sleep", "bed", 400)], "inv": Bag(), "mem": Mem(stations=["white_bed"]),
+                "dimension": "minecraft:overworld"}, False),
+        # only the home's bed: a known station all the same (must fail before memory.known_stations)
+        ("P2", {"plan": [step("sleep", "bed", 400)], "inv": Bag(), "mem": Mem(home_beds=[(5, 64, 5)]),
+                "dimension": "minecraft:overworld"}, False),
+        # a barter's token names the trader: the pearls it gives feed the eyes (the table's yield credited)
+        ("P2", {"plan": [step("barter", "piglin", 50, 12, types=["minecraft:piglin"]),
+                         step("craft", "minecraft:ender_eye", 3, 12, inputs={"minecraft:ender_pearl": 12})],
+                "inv": Bag(), "mem": Mem(), "dimension": "minecraft:overworld"}, False),
         # must fail: a smelt with no furnace held, made or remembered
         ("P2", {"plan": BEEF_IN_ORDER[:1], "inv": Bag(items=TWO_BEEF), "mem": Mem(),
                 "dimension": "minecraft:overworld"}, True),
@@ -132,6 +200,19 @@ class Plan(unittest.TestCase):
         for inv in plan.CHECKS:
             with self.subTest(inv=inv):
                 self.assertIsInstance(plan.CHECKS[inv](F, D, F, {}), oracle.Unchecked)
+
+
+class StationsDeclared(unittest.TestCase):
+    """A contract that works at a block, carried or standing, says so (`station`): the planner and P2 read it."""
+
+    def test_every_station_user_declares_it(self):
+        import inspect
+        from bonobo import knowledge
+        from bonobo.skill import REGISTRY
+        knowledge.producers()
+        users = [c.name for c in REGISTRY.values() if "Station(ctx" in inspect.getsource(c.fn) and c.station is None]
+        self.assertEqual(users, [], "these work at a station they do not declare")
+        self.assertEqual(REGISTRY["sleep"].station, "bed")          # must fail: a sleep planned with no bed
 
 
 class RoundPrices(unittest.TestCase):

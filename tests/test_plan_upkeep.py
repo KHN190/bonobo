@@ -26,19 +26,19 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, arbiter, craft, decompose, goals, nav, needs, planner, reflexes, retry, skillcore, survive, tasks  # noqa: E402
+from bonobo import api, arbiter, craft, decompose, goals, lifecycle, nav, needs, planner, reflexes, retry, skillcore, survive, tasks  # noqa: E402
 from bonobo.data import DAY_END, TOOL_USES  # noqa: E402
 from bonobo.knowledge import TOOL_WORKING  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402  (imports every skill module: `handles` needs the registry)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.data import bare  # noqa: E402
 from bonobo.knowledge import under_rock  # noqa: E402
-from bonobo.knowledge import food_count  # noqa: E402
+from bonobo.knowledge import members  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import Unplannable  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
-from tests.world import (PLANNER_DIMS, bag, cost, full_bag, inventory, places, slot, snapshot, state,  # noqa: E402
-                         worlds)
+from tests.world import (PLANNER_DIMS, bag, brain_fixture, cost, full_bag, handles, inventory, memory, round_ctx,  # noqa: E402
+                         slot, snapshot, state, worlds)
 
 OVER, NETHER = "minecraft:overworld", "minecraft:the_nether"
 
@@ -70,14 +70,14 @@ BED = goals.have(("bed", 1))
 ANY = "any"
 PLANS = [
     (PICK1, {"stock": ["none", "full_bag"]},
-     [("gather", "log"), ("craft", "minecraft:wooden_pickaxe"), ("mine", "stone"), ("craft", "minecraft:stone_pickaxe")],
+     [("gather", "log"), ("craft", "minecraft:wooden_pickaxe"), ("mine", "minecraft:cobblestone"), ("craft", "minecraft:stone_pickaxe")],
      []),
-    (PICK1, {"stock": "wood_tools"}, [("mine", "stone"), ("craft", "minecraft:stone_pickaxe")],
+    (PICK1, {"stock": "wood_tools"}, [("mine", "minecraft:cobblestone"), ("craft", "minecraft:stone_pickaxe")],
      [("gather", "log"), ("craft", "minecraft:crafting_table"), ("craft", "minecraft:wooden_pickaxe")]),
     (PICK1, {"stock": "worn_pickaxe"}, [("craft", "minecraft:stone_pickaxe")], []),    # 1 durability left
     (PICK1, {"stock": ["stone_tools", "kit"]}, [], ANY),                                # goal met: nothing (must fail: goal met, no step at all)
     (IRON3, {"stock": "stone_tools"}, [("mine", "minecraft:raw_iron"), ("smelt", "minecraft:iron_ingot")],
-     [("craft", "minecraft:stone_pickaxe"), ("gather", "log")]),
+     [("craft", "minecraft:stone_pickaxe")]),            # the fuel (coal or planks from logs) by price
     (IRON3, {"stock": "none"}, [("craft", "minecraft:stone_pickaxe"), ("mine", "minecraft:raw_iron"),
                                 ("smelt", "minecraft:iron_ingot")], []),
     (IRON3, {"stock": "iron"}, [], ANY),
@@ -90,7 +90,7 @@ PLANS = [
     (goals.make("milestone", name="nether kit"), {"stock": "kit"}, [], ANY),
     (goals.make("milestone", name="stone tools"), {"stock": "none"},
      [("craft", "minecraft:stone_pickaxe"), ("craft", "minecraft:stone_sword"), ("craft", "minecraft:stone_axe")], []),
-    (goals.make("build", bp="shelter"), {"stock": "none"}, [("mine", "stone"), ("build", "shelter")], []),
+    (goals.make("build", bp="shelter"), {"stock": "none"}, [("mine", "minecraft:cobblestone"), ("build", "shelter")], []),
     (goals.make("goto", pos=[100, 64, 0]), {}, [("goto", "pos")], []),
     (goals.make("road", a=[0, 64, 0], b=[200, 64, 0]), {}, [("goto", "pos")], []),
     (goals.make("sleep"), {}, [("sleep", "bed")], []),
@@ -103,27 +103,18 @@ UNPLANNABLE = [
     ("must fail: bedrock", goals.have(("minecraft:bedrock", 1))),
     ("one plannable need and one not", goals.have(("log", 2), ("minecraft:spawner", 1))),
 ]
-# (situation, goal, solver asked, skills taken out of the registry) → Unplannable from decompose
+# (situation, goal, skills taken out of the registry) → Unplannable from decompose
 UNPLANNABLE_BY = [
-    ("a step no registered skill provides", goals.have(("log", 4)), None, ("chop",)),
-    ("must fail: a solver nobody registered", goals.have(("log", 4)), "zzz", ()),
-    ("the column solver without a memory", goals.have(("minecraft:stick", 4)), "solve", ()),
-    ("smelting with no smelting skill", goals.have(("minecraft:iron_ingot", 3)), None,
-     ("smelt", "load_smelter", "start_smelt_job")),
-    ("meat with no hunter", goals.have(("minecraft:beef", 2)), None, ("hunt",)),
+    ("must fail: a step no registered skill provides", goals.have(("log", 4)), ("chop",)),
+    ("smelting with no smelting skill", goals.have(("minecraft:iron_ingot", 3)), ("smelt", "load_smelter", "start_smelt_job")),
+    ("meat with no hunter", goals.have(("minecraft:beef", 2)), ("hunt",)),
 ]
-# (situation, goal, the task's own solver) → the brain's replan still plans: the first solver could not, the rest can
-FALLBACK = [
-    ("a milestone asks solve first; without a memory it cannot, the planner can",
-     goals.make("milestone", name="stone tools"), None, ("craft", "minecraft:stone_pickaxe")),
-    ("an unknown solver named on the task", goals.have(("log", 4)), "zzz", ("gather", "log")),
-    # the meat that costs least by the plan's own prices (planner.cheapest_food, M3/B2), not the list's first
-    ("the food milestone: solve cannot without a memory, the planner hunts", goals.make("milestone", name="food"),
-     None, ("hunt", "minecraft:beef")),
-    ("a task naming solve for sticks, no memory: the planner crafts", goals.have(("minecraft:stick", 4)), "solve",
-     ("craft", "minecraft:stick")),
-    ("must fail: bedrock, whatever the solver: unplannable, and says why", goals.have(("minecraft:bedrock", 1)), "zzz",
-     None),
+# (situation, goal) → the brain's replan: the step it plans, or None: unplannable, and says why
+REPLAN = [
+    ("a milestone: the one planner", goals.make("milestone", name="stone tools"), ("craft", "minecraft:stone_pickaxe")),
+    ("logs", goals.have(("log", 4)), ("gather", "log")),
+    ("sticks", goals.have(("minecraft:stick", 4)), ("craft", "minecraft:stick")),
+    ("must fail: bedrock: unplannable, and says why", goals.have(("minecraft:bedrock", 1)), None),
 ]
 
 
@@ -147,7 +138,7 @@ class Plans(unittest.TestCase):
                     for kind, token in omits:
                         self.assertNotIn(pair(kind, token), pairs(steps), f"{kind} {token} planned: {list(map(str, steps))}")
                     for s in steps:
-                        self.assertTrue(skillkit.handles(s), f"{s}: no skill provides it")
+                        self.assertTrue(handles(s), f"{s}: no skill carries it out")
                         self.assertGreaterEqual(s.est, 0)
 
     def test_goal_to_steps_ordered(self):
@@ -160,7 +151,8 @@ class Plans(unittest.TestCase):
                 made, orphans = set(), []
                 for s in steps:
                     orphans += [(str(s), tok) for tok in s.detail.get("inputs", {})
-                                if bare(tok) not in made and snap.inv.count(tok) == 0]
+                                if not made & {bare(m) for m in members(tok)} | {bare(tok)}
+                                and snap.inv.count(tok) == 0]
                     made.add(bare(s.token))
                 self.assertEqual(orphans, [], "inputs neither held nor made before the step that consumes them")
 
@@ -168,17 +160,16 @@ class Plans(unittest.TestCase):
         for name, goal in UNPLANNABLE:
             with self.subTest(name), self.assertRaises((Unplannable, ValueError)):
                 plan(goal, snapshot())
-        for name, goal, solver, removed in UNPLANNABLE_BY:
+        for name, goal, removed in UNPLANNABLE_BY:
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY), self.assertRaises(Unplannable):
                 for n in removed:
                     skillkit.REGISTRY.pop(n)
-                decompose.decompose(snapshot().inv, goal, cost(snapshot(), oak_log=5), solver=solver)
+                decompose.decompose(snapshot().inv, goal, cost(snapshot(), oak_log=5))
 
-    def test_replan_falls_back(self):
-        for name, goal, own, step in FALLBACK:
+    def test_replan(self):
+        for name, goal, step in REPLAN:
             with self.subTest(name):
-                task = {"id": "t1", "goal": goal["goal"], "args": goal["args"], **({"solver": own} if own else {})}
-                held, why = brainmod.replan(task, goal, snapshot(), cost(snapshot(), oak_log=5, stone=2))
+                held, why = brainmod.replan([("task t1", goal, 0)], snapshot(), cost(snapshot(), oak_log=5, stone=2))
                 if step is None:
                     self.assertEqual((held, why.startswith("unplannable")), (None, True))
                     continue
@@ -192,73 +183,6 @@ class Plans(unittest.TestCase):
         for d in PLANNER_DIMS:
             expected *= len(DIMS[d])
         self.assertEqual(n, expected)
-
-
-def _fixed(steps):
-    return lambda inv, needs, cost, pending=None: list(steps)
-
-
-def _refuses(inv, needs, cost, pending=None):
-    raise Unplannable("this solver cannot")
-
-
-MARK = planner.Step("craft", "minecraft:stick", 4)
-# (situation, registered solvers in order, solver asked for, needs) → the steps, or the exception
-SOLVERS = [
-    ("must fail: no needs: nothing to solve", [("a", _refuses)], None, [], []),
-    ("the first that plans wins", [("a", _fixed([MARK])), ("b", _refuses)], None, [("minecraft:stick", 4)], [MARK]),
-    ("one that cannot hands on to the next", [("a", _refuses), ("b", _fixed([MARK]))], None,
-     [("minecraft:stick", 4)], [MARK]),
-    ("a named solver is the only one asked", [("a", _fixed([MARK])), ("b", _refuses)], "b",
-     [("minecraft:stick", 4)], Unplannable),
-    ("an unknown name", [("a", _fixed([MARK]))], "zzz", [("minecraft:stick", 4)], Unplannable),
-    ("none can", [("a", _refuses), ("b", _refuses)], None, [("minecraft:stick", 4)], Unplannable),
-]
-
-
-class Solvers(unittest.TestCase):
-    def test_registry_order_and_fallback(self):
-        for name, solvers, asked, needs, want in SOLVERS:
-            with self.subTest(name), mock.patch.dict(decompose.SOLVERS, dict(solvers), clear=True), \
-                    mock.patch.object(decompose, "ORDER", [n for n, _ in solvers]):
-                if isinstance(want, type):
-                    with self.assertRaises(want):
-                        decompose.solve_needs(inventory_bag(), needs, None, asked)
-                else:
-                    self.assertEqual(decompose.solve_needs(inventory_bag(), needs, None, asked), want)
-
-    # (goal, the task's own solver or None) → the solver asked first by the brain's replan
-    FIRST = [(goals.make("milestone", name="stone tools"), None, "solve"),
-             (goals.have(("log", 4)), None, "planner"),
-             (goals.make("milestone", name="food"), "planner", "planner"),
-             (goals.have(("log", 4)), "solve", "solve")]  # must fail: the task's own solver beats the default one
-
-    def test_which_solver_goes_first(self):
-        for goal, own, want in self.FIRST:
-            asked = []
-
-            def rec(name):
-                return lambda inv, needs, cost, pending=None: asked.append(name) or []
-            task = {"id": "t1", "goal": goal["goal"], "args": goal["args"], **({"solver": own} if own else {})}
-            self.assertEqual(decompose.ORDER[0], "planner", "the planner is the default for everything else")
-            with self.subTest(goal=goals.describe(goal), own=own), \
-                    mock.patch.dict(decompose.SOLVERS, {"planner": rec("planner"), "solve": rec("solve")}, clear=True):
-                held, why = brainmod.replan(task, goal, snapshot(), cost())
-                self.assertEqual(asked[:1], [want])
-                self.assertIsNone(why)
-
-    def test_the_column_solver(self):
-        """solve needs a snapshot and a memory; given both, it plans with steps some skill provides."""
-        with tempfile.TemporaryDirectory() as tmp:
-            m = Memory(os.path.join(tmp, "notes.json"))
-            snap = snapshot(inv=inventory(("oak_log", 4)))
-            with self.assertRaises(Unplannable):
-                decompose.decompose(snap.inv, PICK1, cost(snap, oak_log=6), solver="solve")
-            steps = decompose.decompose(snap.inv, goals.have(("minecraft:stick", 4)), cost(snap, mem=m, oak_log=6),
-                                        solver="solve")
-            self.assertTrue(steps)
-            for st in steps:
-                self.assertTrue(skillkit.handles(st), st)
 
 
 def inventory_bag():
@@ -298,88 +222,34 @@ class Cheaper(unittest.TestCase):
                 self.assertEqual(secs, sorted(secs))
 
 
-# ------------------------------------------------------------------------------------------- daylight in the solver
-from bonobo import actions  # noqa: E402
-from bonobo.solve import Unsolvable, solve  # noqa: E402
-
-DUSK_T, NIGHT_T, LATE_T = 11800, 18000, 23200
-# (situation, /state changes, bag, target) → a check on the solver's action order (names)
-DAYLIGHT = [
-    ("day, logs: straight to the tree, no waiting", {"timeOfDay": 2000}, [], {"log": 2},
-     lambda t, n: (t.assertIn("gather:log", n), t.assertFalse({"wait:day", "sleep"} & set(n)))),
-    ("must fail: dusk is still day: the tree now", {"timeOfDay": DUSK_T}, [], {"log": 2},
-     lambda t, n: t.assertFalse({"wait:day", "sleep"} & set(n))),
-    ("night in the open, logs: shelter, then morning, then the tree", {"timeOfDay": NIGHT_T},
-     [("stone_pickaxe", 1)], {"log": 2},
-     lambda t, n: (t.assertTrue(any(x.startswith("shelter:") for x in n)),
-                   t.assertLess(min(n.index(x) for x in n if x in ("wait:day", "sleep")), n.index("gather:log")),
-                   t.assertLess(min(n.index(x) for x in n if x.startswith("shelter:")),
-                                min(n.index(x) for x in n if x in ("wait:day", "sleep"))))),
-    ("night underground with a bed: sleep, then the tree", {"timeOfDay": NIGHT_T, "skyLight": 0, "y": 30.0},
-     [("white_bed", 1)], {"log": 2},
-     lambda t, n: t.assertLess(n.index("sleep"), n.index("gather:log"))),
-    ("night underground, no bed: wait for day, then the tree", {"timeOfDay": NIGHT_T, "skyLight": 0, "y": 30.0},
-     [], {"log": 2},
-     lambda t, n: (t.assertNotIn("sleep", n), t.assertLess(n.index("wait:day"), n.index("gather:log")))),
-    ("night underground, stone: no waiting — mining needs no sun", {"timeOfDay": NIGHT_T, "skyLight": 0, "y": 30.0},
-     [("wooden_pickaxe", 1)], {"minecraft:cobblestone": 3},
-     lambda t, n: (t.assertTrue(any(x.startswith("mine:") for x in n)), t.assertFalse({"wait:day", "sleep"} & set(n)))),
-    ("an hour before dawn underground: waiting is priced by what is left", {"timeOfDay": LATE_T, "skyLight": 0,
-                                                                           "y": 30.0}, [], {"log": 2},
-     lambda t, n: t.assertIn("wait:day", n)),
-]
-
-
-class Daylight(unittest.TestCase):
-    def test_surface_work_waits_for_the_sun(self):
-        for name, changes, inv, target, check in DAYLIGHT:
-            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
-                m = Memory(os.path.join(tmp, "notes.json"))
-                snap = snapshot(state(**changes), inventory(*inv))
-                vec = actions.state_of(snap, m)
-                found = solve(actions.table(places(30.0), vec), vec, target)
-                check(self, [a.name for a, _n in found.steps()])
-
-    def test_the_clock_in_the_state(self):
-        """day while the sun is up; at night, how long until it is (what wait:day is priced by)."""
-        for tod, day, dawn in ((2000, True, None), (DUSK_T, True, None), (NIGHT_T, False, (23400 - NIGHT_T) / 20),
-                               (LATE_T, False, (23400 - LATE_T) / 20)):
-            with self.subTest(timeOfDay=tod), tempfile.TemporaryDirectory() as tmp:
-                vec = actions.state_of(snapshot(state(timeOfDay=tod)), Memory(os.path.join(tmp, "n.json")))
-                self.assertEqual(bool(vec.get(actions.DAY_DIM)), day)
-                self.assertEqual(vec.get("clock:dawn_s"), dawn)
-
-
 # ------------------------------------------------------------------------------------------ where a thing lives
 NETHER_T = "minecraft:the_nether"
-ROD = planner.Step("hunt", "minecraft:blaze_rod", 7, {"types": ["minecraft:blaze"], "kills": 14})
-LOG_STEP = planner.Step("gather", "log", 4)
-# (situation, dimension we are in, fortress remembered?, the steps planned) → the steps with the way there put first
-CAST = ("cast", "nether_portal")      # no portal known in the Overworld: one is cast before the portal step
+PLACE_STEPS = ("cast", "build", "portal", "seek", "hunt")
+# (situation, dimension we are in, fortress remembered?, a portal remembered?) → the place steps before the rods
 LIVES = [
-    ("rods from the Overworld, no fortress known: cast, portal, find it, collect", OVER, False, [ROD],
-     [CAST, ("portal", NETHER_T), ("seek", "fortress"), ("hunt", "minecraft:blaze_rod")]),
-    ("rods in the Nether, no fortress known: find it, collect", NETHER_T, False, [ROD],
+    ("rods from the Overworld, nothing known: a portal built, through it, find the fortress, collect", OVER, False,
+     False, [("build", "nether_portal"), ("portal", NETHER_T), ("seek", "fortress"), ("hunt", "minecraft:blaze_rod")]),
+    ("rods in the Nether, no fortress known: find it, collect", NETHER_T, False, False,
      [("seek", "fortress"), ("hunt", "minecraft:blaze_rod")]),
-    ("rods in the Nether, a fortress remembered: collect", NETHER_T, True, [ROD], [("hunt", "minecraft:blaze_rod")]),
-    ("rods from the Overworld, a fortress remembered: cast, portal, collect", OVER, True, [ROD],
-     [CAST, ("portal", NETHER_T), ("hunt", "minecraft:blaze_rod")]),
-    ("must fail: logs live anywhere: nothing put first", OVER, False, [LOG_STEP], [("gather", "log")]),
-    ("two rod steps: the way there once", OVER, False, [ROD, ROD],
-     [CAST, ("portal", NETHER_T), ("seek", "fortress"), ("hunt", "minecraft:blaze_rod"), ("hunt", "minecraft:blaze_rod")]),
+    ("must fail: rods in the Nether, a fortress remembered: collect, nothing put first", NETHER_T, True, False,
+     [("hunt", "minecraft:blaze_rod")]),
+    ("rods from the Overworld, a portal and a fortress remembered: through it, collect", OVER, True, True,
+     [("portal", NETHER_T), ("hunt", "minecraft:blaze_rod")]),
 ]
 
 
 class WhereItLives(unittest.TestCase):
     def test_the_way_there_first(self):
-        for name, dim, fortress, steps, want in LIVES:
+        for name, dim, fortress, portal, want in LIVES:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 m = Memory(os.path.join(tmp, "notes.json"))
                 if fortress:
                     m.add_site("fortress", (200, 70, 40), NETHER_T, name="fortress")
-                snap = snapshot(state(dimension=dim))
-                got = decompose.where_it_lives(list(steps), cost(snap, mem=m))
-                self.assertEqual([(st.kind, st.token) for st in got], want)
+                if portal:
+                    m.add_site("portal", (5, 64, 0), dim, name="portal")
+                snap = snapshot(state(dimension=dim), inventory(("iron_sword", 1)))
+                got = decompose.decompose(snap.inv, goals.have(("minecraft:blaze_rod", 7)), cost(snap, mem=m))
+                self.assertEqual([(st.kind, st.token) for st in got if st.kind in PLACE_STEPS], want)
 
     # (situation, rods held, skills removed) → the plan for "have 7 blaze rods" from the Overworld, or why not
     GOALS = [("none held: portal, fortress, collect", 0, (), [("portal", NETHER_T), ("seek", "fortress"),
@@ -423,11 +293,12 @@ class EffectGoals(unittest.TestCase):
         for effect in effects:
             goal = goals.make("effect", effect=effect, count=2, **({"detail": detail[effect]} if effect in detail else {}))
             with self.subTest(effect):
-                steps = decompose.decompose(snapshot().inv, goal, cost())
+                lava = snapshot(inv=inventory(("lava_bucket", 1)))      # what a cast in place pours (its `when`)
+                steps = decompose.decompose(lava.inv, goal, cost(lava))
                 self.assertEqual(steps[-1].count, 2)
                 self.assertIn(effect, skillkit.step_keys(steps[-1]))
                 self.assertEqual([s for s in steps[:-1] if effect in skillkit.step_keys(s) and s.count == 2], [])
-                self.assertTrue(all(skillkit.handles(s) for s in steps))
+                self.assertTrue(all(handles(s) for s in steps))
                 self.assertTrue(skillkit.providers(effect))
                 self.assertIsNone(goals.done(goal, snapshot(), None), "done when its plan ran")
                 self.assertEqual(goals.describe(goal), f"effect {effect} ×2")
@@ -477,12 +348,14 @@ class CanStart(unittest.TestCase):
                     lambda ctx, *a: None)
                 step = planner.Step("craft", "minecraft:stick", 4, {"inputs": {"planks": 2}})
                 bag_ = inventory(("oak_planks", 2)) if inv is not None else inventory()
-                b = brainmod.Brain.__new__(brainmod.Brain)
+                b = brain_fixture()
+                b.unplannable = {}
+                b.abandoned = None
                 b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
                 b.retry, b.place = retry.Retry(), ("here", False)
                 ctx = type("Ctx", (), {"policy": None, "mem": None})()
                 self.assertEqual(b.valid(step, snapshot(inv=bag_), ctx), want)
-                self.assertEqual(dispatch.can_start(ctx, step), all(_passes(p) for p in pre))
+                self.assertEqual(dispatch.can_start(ctx, step, bag_), all(_passes(p) for p in pre))
 
     def test_a_failed_step_cools_for_every_goal(self):
         """A plan step that failed cools under its own key (brain.step_key), so the next goal that plans the same
@@ -498,7 +371,9 @@ class CanStart(unittest.TestCase):
                 ("it succeeded: offered", None, "idle: have sword tier 1", True)]
         for name, err, _goal, want in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
-                b = brainmod.Brain.__new__(brainmod.Brain)
+                b = brain_fixture()
+                b.unplannable = {}
+                b.abandoned = None
                 b.retry, b.place, b.mem = retry.Retry(), ("here", False), Memory(tmp + "/notes.json")
                 b.reflexes = type("R", (), {"failed": lambda self, *a: None})()
 
@@ -527,7 +402,7 @@ class CanStart(unittest.TestCase):
                 for sname, (effect, args, pre) in fakes.items():
                     skillkit.skill(needs={}, gives={}, remaining=NOTHING_LEFT, name=sname, pre=pre, provides={effect: lambda ctx, s, _a=args: _a})(
                         lambda ctx, *a: None)
-                self.assertIs(dispatch.can_start(None, step), want)
+                self.assertIs(dispatch.can_start(None, step, inventory()), want)
 
 
 # -------------------------------------------------------------------------------------------------- the cost model
@@ -535,15 +410,23 @@ from bonobo import cost as costmod  # noqa: E402
 from bonobo.planner import Step  # noqa: E402
 
 PT, WT = costmod.PRIOR_TICKS, costmod.walk_ticks
+
+
+def PW(step):
+    """A step's prior work by the empty bag's hand: the table's, never below the game's own time for it."""
+    from bonobo.knowledge import prior_work_ticks
+    return prior_work_ticks(step, {}, costmod.TICKS_PER_S)
+
+
+IRON4 = Step("mine", "minecraft:raw_iron", 4, {"blocks": ["iron_ore"], "breaks": 4})
 UNDER = state(skyLight=0, y=20.0)
 # (situation, step, /state, what /find saw, ticks expected: prior work + the walk to it)
 ESTIMATES = [
     ("craft: work only", Step("craft", "minecraft:stick", 4), None, {}, PT["craft"]),
     ("smelt 3: each + setup", Step("smelt", "minecraft:iron_ingot", 3), None, {}, 3 * PT["smelt_each"] + PT["smelt_setup"]),
-    ("mine 4 breaks, ore 10 away", Step("mine", "minecraft:raw_iron", 4, {"blocks": ["iron_ore"], "breaks": 4}), None,
-     {"iron_ore": 10}, 4 * PT["mine_each"] + WT(10)),
-    ("must fail: a walk of 0 under-prices — mine, nothing in sight", Step("mine", "minecraft:raw_iron", 4, {"blocks": ["iron_ore"], "breaks": 4}), None, {},
-     4 * PT["mine_each"] + costmod.UNKNOWN_WALK_TICKS),
+    ("mine 4 breaks, ore 10 away", IRON4, None, {"iron_ore": 10}, PW(IRON4) + WT(10)),
+    ("must fail: a walk of 0 under-prices — mine, nothing in sight", IRON4, None, {},
+     PW(IRON4) + costmod.UNKNOWN_WALK_TICKS),
     ("gather 2, a tree 8 away", Step("gather", "log", 2), None, {"oak_log": 8}, 2 * PT["gather_each"] + WT(8)),
     ("gather underground: the climb out is part of it", Step("gather", "log", 2), UNDER, {"oak_log": 8},
      2 * PT["gather_each"] + WT(8) + 200 + 30 * (64 - 20)),
@@ -575,10 +458,9 @@ class AwaitWhatIsOnItsWay(unittest.TestCase):
         for name, carried, pending, want in self.ROWS:
             with self.subTest(name):
                 if pending is None:           # the planned-source row: counted as held, not a job's output
-                    from bonobo.planner import Planner
                     snap = snapshot(inv=inventory(("crafting_table", 1)))
-                    steps = Planner.from_inventory(snap.inv, cost(snap), {"minecraft:cobblestone": 8}).plan(
-                        [("minecraft:furnace", 1)])          # the 8 cobblestone a planned mine brings, used by a craft
+                    steps = planner.plan_needs(snap.inv, [("minecraft:furnace", 1)], cost(snap),
+                                               pending={"minecraft:cobblestone": 8})   # what a planned mine brings
                     self.assertEqual([s.kind for s in steps], ["craft"])
                     continue
                 snap = snapshot(inv=inventory(*carried))
@@ -587,33 +469,35 @@ class AwaitWhatIsOnItsWay(unittest.TestCase):
 
     def test_a_furnace_job_awaited_before_its_consumer(self):
         """A furnace's ingots on their way: the plan's other steps first, the await right before the craft."""
-        from bonobo.planner import Planner
         snap = snapshot(inv=inventory(("crafting_table", 1), ("stick", 2)))
-        steps = Planner.from_inventory(snap.inv, cost(snap), {"minecraft:iron_ingot": 3},
-                                       {"minecraft:iron_ingot": 3}).plan([("minecraft:iron_pickaxe", 1)])
+        steps = planner.plan_needs(snap.inv, [("minecraft:iron_pickaxe", 1)], cost(snap),
+                                   pending={"minecraft:iron_ingot": 3}, jobs={"minecraft:iron_ingot": 3})
         kinds = [(s.kind, s.token) for s in steps]
         self.assertEqual(kinds[-2:], [("await", "minecraft:iron_ingot"), ("craft", "minecraft:iron_pickaxe")])
 
 
 class CostModel(unittest.TestCase):
-    # (situation, carried, chest blocks away, tree blocks away, the step planned first): 4 logs, 4 in a remembered chest
+    # (situation, carried, chest blocks away, tree blocks away): 4 logs, 4 in a remembered chest — the step planned
+    # first is the cheaper of the take and the chop as the model prices them (G3), whichever it is
     CHEST_OR_TREE = [
-        ("bare hands, chest by the body", (), 1, 2.5, "withdraw"),
-        ("a diamond axe held: 4 logs chopped in 8 ticks each (break_ticks), cheaper than the chest by the body",
-         (("diamond_axe", 1),), 1, 2.5, "gather"),
-        ("a wooden axe held", (("wooden_axe", 1),), 1, 2.5, "withdraw"),
-        ("must fail: the chest 40 away, the tree by the body", (("diamond_axe", 1),), 40, 2.5, "gather"),
+        ("bare hands, chest by the body", (), 1, 2.5),
+        ("a diamond axe held: 4 logs chopped in 8 ticks each (break_ticks)", (("diamond_axe", 1),), 1, 2.5),
+        ("a wooden axe held", (("wooden_axe", 1),), 1, 2.5),
+        ("must fail: the chest 40 away, the tree by the body", (("diamond_axe", 1),), 40, 2.5),
     ]
 
     def test_chest_or_tree(self):
-        for name, carried, chest, tree, want in self.CHEST_OR_TREE:
+        for name, carried, chest, tree in self.CHEST_OR_TREE:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 m = Memory(os.path.join(tmp, "notes.json"))
                 snap = snapshot(state(), inventory(*carried))
                 x, y, z = snap.feet
                 m.note_container((x + chest, y, z), snap.dimension, [{"id": "minecraft:oak_log", "count": 4}])
-                steps = decompose.decompose(snap.inv, goals.have(("log", 4)), cost(snap, mem=m, oak_log=tree))
-                self.assertEqual(steps[0].kind, want)
+                c = cost(snap, mem=m, oak_log=tree)
+                take = c.estimate(Step("withdraw", "minecraft:oak_log", 4, {"pos": [x + chest, y, z]}))
+                chop = c.estimate(Step("gather", "log", 4, {}))
+                steps = decompose.decompose(snap.inv, goals.have(("log", 4)), c)
+                self.assertEqual(steps[0].kind, "withdraw" if take < chop else "gather", (take, chop))
 
     def test_estimates(self):
         for name, step, st, seen, want in ESTIMATES:
@@ -660,8 +544,8 @@ class CostModel(unittest.TestCase):
         rows = [("a route the game priced this round", ("iron_ore", (10, 64, 0)), ["iron_ore"], {key((10, 64, 0)): (True, 7.3)},
                  {}, 7.3),
                 ("no route asked: the walk", ("iron_ore", (10, 64, 0)), ["iron_ore"], {}, {}, round(WT(10) / 20 + 2.0, 1)),
-                ("a route the game found none for: the walk", ("iron_ore", (10, 64, 0)), ["iron_ore"],
-                 {key((10, 64, 0)): (False, None)}, {}, round(WT(10) / 20 + 2.0, 1)),
+                ("must fail: a route the game found none for: not there (cost._Gone), the prior",
+                 ("iron_ore", (10, 64, 0)), ["iron_ore"], {key((10, 64, 0)): (False, None)}, {}, prior),
                 ("must fail: the only spot is banned", ("iron_ore", (10, 64, 0)), ["iron_ore"], {}, {(10, 64, 0): time.time() + 600},
                  prior),
                 ("logs are found where a tree was noted", ("tree", (20, 64, 0)), ["oak_log"], {}, {},
@@ -720,15 +604,18 @@ class CostModel(unittest.TestCase):
         prior = float(costmod._PLAY["plan"]["seek_prior_s"])
         for name, known, want in self.SEEKS:
             with self.subTest(name):
-                c = costmod.Cost(None, known=lambda kinds, d=known: d)
+                m = memory()
+                if known is not None:
+                    m.note_seen("iron_ore", (int(known), 64, 0), OVER)       # `known` blocks from the feet
+                c = costmod.Cost(snapshot(), m)
                 self.assertAlmostEqual(c.seek_s(["iron_ore"]), round(want if want is not None else prior, 1), places=1)
                 self.assertEqual(c.find_p(["iron_ore"]), float(costmod._PLAY["plan"]["exists_prior"]))
 
     def test_find_chance_by_kind(self):
         # unseen kinds priced by how the game makes them (data.FIND_P), the rest by the prior
-        from bonobo import actions, data
+        from bonobo import data
         prior = float(costmod._PLAY["plan"]["exists_prior"])
-        c = costmod.Cost(None, known=lambda kinds: None)
+        c = costmod.Cost(snapshot(), memory())
         sheep, bed = max(data.PASSIVE_WEIGHT, key=data.PASSIVE_WEIGHT.get), f"{data.COLORS[0]}_bed"
         rows = [("the commonest animal: found every search", ["minecraft:" + sheep], 1.0),
                 ("a village-only block", [bed], data.VILLAGE_P),
@@ -736,9 +623,10 @@ class CostModel(unittest.TestCase):
         for name, kinds, want in rows:
             with self.subTest(name):
                 self.assertAlmostEqual(c.find_p(kinds), want)
-        cols = {a.name: a.cost_s for a in actions._seek(c)}
+        def seek(kinds):
+            return c.seek_s(kinds) / c.find_p(kinds)          # the search's seconds, by the chance it finds one
         # must fail: a bed priced as a sheep (free run 23:46: seek white_bed ~600s beat wool from sheep)
-        self.assertGreater(cols[f"seek:{bed}"], cols["seek:minecraft:" + sheep])
+        self.assertGreater(seek([bed]), seek(["minecraft:" + sheep]))
 
 
 def stone_tools(worn=0):
@@ -777,10 +665,10 @@ class Repairs(unittest.TestCase):
         seen = {"oak_log": 8, "stone": 2, "iron_ore": 12, "coal_ore": 9}
         for name, goal, inv_before, inv_after, pending, check in REPAIRS:
             with self.subTest(name):
-                task = {"id": "t1", "goal": goal["goal"], "args": goal.get("args", {})}
+                entries = [("task t1", goal, 0)]
                 snap_b, snap_a = snapshot(inv=inv_before), snapshot(inv=inv_after)
-                held_b, why_b = brainmod.replan(task, goal, snap_b, cost(snap_b, **seen))
-                held_a, why_a = brainmod.replan(task, goal, snap_a, cost(snap_a, **seen), pending=pending)
+                held_b, why_b = brainmod.replan(entries, snap_b, cost(snap_b, **seen))
+                held_a, why_a = brainmod.replan(entries, snap_a, cost(snap_a, **seen), pending=pending)
                 self.assertIsNone(why_b)
                 self.assertIsNone(why_a)
                 self.assertEqual(held_a["sig"], needs.bag_signature(snap_a.inv), "the held plan is stamped with its bag")
@@ -790,34 +678,29 @@ class Repairs(unittest.TestCase):
     def test_nothing_can_plan_it(self):
         for name, goal in UNPLANNABLE:
             with self.subTest(name):
-                task = {"id": "t1", "goal": goal["goal"], "args": goal.get("args", {})}
                 try:
-                    held, why = brainmod.replan(task, goal, snapshot(), cost())
+                    held, why = brainmod.replan([("task t1", goal, 0)], snapshot(), cost())
                 except ValueError:
                     continue
                 self.assertEqual((held, why.split(":")[0]), (None, "unplannable"))
 
-    def test_a_saved_plan_survives_a_restart(self):
-        """tasks.json keeps step dicts; what comes back is the same plan (repair then runs from the bag)."""
-        for goal, where, _c, _o in PLANS:
-            w = next(iter(worlds(**where))) if where else next(iter(worlds()))
-            steps = decompose.decompose(w.snapshot().inv, goal, w.cost())
-            with self.subTest(goals.describe(goal)):
-                back = [decompose.from_dict(json.loads(json.dumps(decompose.to_dict(s)))) for s in steps]
-                self.assertEqual([(s.kind, s.token, s.count, s.detail, s.est) for s in back],
-                                 [(s.kind, s.token, s.count, json.loads(json.dumps(s.detail)), s.est) for s in steps])
-
-    def test_run_once_goals_are_done_by_their_plan_not_the_world(self):
-        snap = snapshot()
-        # (goal) → done? None: its plan decides; the must-not: an item goal is read off the bag
-        rows = [(goals.make("road", a=[0, 64, 0], b=[9, 64, 0]), None),
-                (goals.make("skill", name="chop", args=[1]), None),
-                (goals.make("effect", effect="mine:minecraft:stone", detail={"pos": [0, 64, 0]}), None),
-                (goals.have(("log", 1)), False)]  # must fail: an item goal is read off the bag
-        for goal, want in rows:
-            with self.subTest(goal["goal"]):
+    def test_done_is_read_off_the_world(self):
+        here, there = snapshot(), snapshot(state(x=40.5, z=0.5))
+        walked = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
+        walked.data.setdefault("roads", {})[OVER] = [{"a": [0, 64, 0], "b": [40, 64, 0], "s": 9.0, "used": 0}]
+        road = goals.make("road", a=[0, 64, 0], b=[40, 64, 0])
+        # (situation, goal, snapshot, memory) → done? None: the goal's own step, accepted by its contract, ends it
+        rows = [("a road walked, the body at its end", road, there, walked, True),
+                ("must fail: a road walked, the body back at its start", road, here, walked, False),
+                ("must fail: at the road's end, the road never walked", road, there, None, False),
+                ("a skill", goals.make("skill", name="chop", args=[1]), here, None, None),
+                ("an effect", goals.make("effect", effect="mine:minecraft:stone", detail={"pos": [0, 64, 0]}), here,
+                 None, None),
+                ("must fail: an item goal not held", goals.have(("log", 1)), here, None, False)]
+        for name, goal, snap, mem, want in rows:
+            with self.subTest(name):
                 self.assertEqual(goal["goal"] in goals.RUN_ONCE, want is None)
-                self.assertIs(goals.done(goal, snap, None), want)
+                self.assertIs(goals.done(goal, snap, mem), want)
 
 
 # ----------------------------------------------------------------------------------------------- held plans
@@ -842,32 +725,43 @@ class Held:
     bag after a step are the row's readings."""
 
     def __init__(self, goal, plan=None, seen=TREES):
-        from bonobo import bag as bagmod
+        lifecycle.reset_all(caches=False)          # a fresh life: no reservation of an earlier row
         self.seen, self.after_inv, self.act, self.first = seen, inventory(), None, None
-        b = self.b = brainmod.Brain.__new__(brainmod.Brain)
+        b = self.b = brain_fixture()
+        b.unplannable = {}
+        b.abandoned = None
         b.policy_cache = nav.Policy()
         b.mem = Notes()
         b.retry, b.blacklist, b.place, b.held = retry.Retry(), {}, PLACE, {}
         b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
         b.last_failure, b.committed, b.last_hold_log, b.task_writes = None, None, 0, None
         self.task = {"id": "t1", "goal": goal["goal"], "args": goal.get("args", {}), "state": "pending", "reason": "",
-                     "plan": plan}
-        self._reserved = bagmod.RESERVED          # task_act sets the module-wide reservation: put back after
-
-    def restore(self):
-        from bonobo import bag as bagmod
-        bagmod.RESERVED = self._reserved
+                     **({"plan": plan} if plan is not None else {})}
 
     def round(self, inv, st=None):
         snap = snapshot(st or state(), inv)
         if self.task["state"] not in tasks.LIVE:
             return None
-        act, update = self.b.task_act(self.task, snap, None, cost(snap, mem=self.b.mem, **self.seen))
+        c, tid = cost(snap, mem=self.b.mem, **self.seen), self.task["id"]
+        goal = tasks.goal_of(self.task)
+        # the round's plan for this task alone, as plan_proposals makes it before the queue's decision (task_act)
+        done = goals.remainder(goal, snap, self.b.mem) == {}
+        held = self.b.held.get(tid) if done else self.b.round_for([(f"task {tid}", goal, 0)], snap, c,
+                                                                  self.b.held.get(tid))
+        if held is None and not done:
+            self.task.update(self.b._collecting(
+                lambda: self.b.fail_task(self.task, self.b.unplannable.get("round", "unplannable")))[1])
+            return None
+        if not done:
+            self.b.held[tid] = held
+            if self.task.get("state") != "running":
+                self.task["state"] = "running"
+        act, update = self.b.task_act(self.task, snap, round_ctx(self.b, snap), c, held)
         self.task.update(update)
         return act
 
     def after(self, outcome):
-        self.task.update(self.b.after_step(self.act, outcome, lambda: bag(self.after_inv)))
+        self.task.update(self.b.after_step(self.act, outcome))
 
     def state(self):
         return self.task["state"], self.task["reason"]
@@ -878,7 +772,9 @@ class Queue_:
 
     def __init__(self, tmp, seen=TREES):
         self.tmp, self.seen, self.after_inv = tmp, seen, inventory()
-        b = self.b = brainmod.Brain.__new__(brainmod.Brain)
+        b = self.b = brain_fixture()
+        b.unplannable = {}
+        b.abandoned = None
         b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
         b.mem = Memory(os.path.join(tmp, "notes.json"))
         b.retry, b.blacklist, b.place, b.held = retry.Retry(), {}, PLACE, {}
@@ -891,44 +787,46 @@ class Queue_:
                         mock.patch.object(api, "api", side_effect=AssertionError("the queue read the world"))]
 
     def __enter__(self):
-        from bonobo import bag as bagmod
-        self._reserved = bagmod.RESERVED
+        lifecycle.reset_all(caches=False)
         for p in self.patches:
             p.start()
         return self
 
     def __exit__(self, *exc):
-        from bonobo import bag as bagmod
         for p in reversed(self.patches):
             p.stop()
-        bagmod.RESERVED = self._reserved      # task_act sets the module-wide reservation
 
-    def task(self, goal, plan=None):
-        t = tasks.add(goal)
-        if plan is not None:
-            tasks.update(t["id"], plan=plan)
+    def task(self, goal):
+        tasks.add(goal)
         return tasks.load()[0]
 
     def state(self, task_id="t1"):
         return next((t["state"], t["reason"]) for t in tasks.load() if t["id"] == task_id)
 
 
-# (situation, goal, [(op, args...)]). ops: ("round", inv) → the act, kept as q.act; ("ok", bag after) / ("interrupted",)
-# / ("failed", n failures of cause nav): the step's outcome; ("check", fn(test, q)).
+# (situation, goal, [(op, args...)]). ops: ("round", inv[, state]) → the act, kept as q.act; ("ok", bag after) /
+# ("interrupted",) / ("failed", n failures of cause nav): the step's outcome; ("walked", a, b): a road leg noted;
+# ("check", fn(test, q)).
+ROAD = goals.make("road", a=[0, 64, 0], b=[40, 64, 0])
 HELD = [
     ("a fresh task: plan, hold, first step", goals.have(("log", 4)), [
         ("round", inventory()),
         ("check", lambda t, q: (t.assertEqual((q.act.step.kind, q.act.step.token), ("gather", "log")),
                                 t.assertEqual(q.state(), ("running", "")),
-                                t.assertTrue(q.task["plan"], "the plan is saved with the task")))]),
+                                t.assertNotIn("plan", q.task, "K4: no plan stored with the task")))]),
     ("the goal is met already: done, no act", goals.have(("log", 4)), [
         ("round", inventory(("oak_log", 4))),
         ("check", lambda t, q: (t.assertIsNone(q.act), t.assertEqual(q.state(), ("done", ""))))]),
-    ("a step done: removed, the rest kept without replanning", PICK1, [
+    ("a step done: no step count kept, the next round plans from the world, the done step not redone", PICK1, [
         ("round", inventory()), ("ok", inventory(("oak_log", 3))),
-        ("check", lambda t, q: t.assertNotIn(q.first, q.b.held["t1"]["steps"])),
+        ("check", lambda t, q: t.assertIn(q.first, q.b.held["t1"]["steps"])),
         ("round", inventory(("oak_log", 3))),
         ("check", lambda t, q: t.assertNotEqual((q.act.step.kind, q.act.step.token), ("gather", "log")))]),
+    ("must fail: a step's work undone by the world is done again", goals.have(("log", 4)), [
+        ("round", inventory()), ("ok", inventory(("oak_log", 4))),
+        ("round", inventory(("oak_log", 1))),
+        ("check", lambda t, q: (t.assertEqual((q.act.step.kind, q.act.step.token), ("gather", "log")),
+                                t.assertEqual(q.act.step.count, 3)))]),
     ("interrupted: the next round repairs from the bag", goals.have(("log", 8)), [
         ("round", inventory()), ("interrupted",),
         ("check", lambda t, q: t.assertTrue(q.b.held["t1"]["event"])),
@@ -955,33 +853,43 @@ HELD = [
         ("round", inventory(("oak_door", 1), ("torch", 1), ("stone_pickaxe", 1))), ("interrupted",),
         ("round", inventory(("oak_door", 1), ("torch", 1), ("stone_pickaxe", 1), ("cobblestone", 10))),
         ("check", lambda t, q: (
-            t.assertEqual([st.count for st in q.b.held["t1"]["steps"] if (st.kind, st.token) == ("mine", "stone")], [4]),
+            t.assertEqual([st.count for st in q.b.held["t1"]["steps"] if (st.kind, st.token) == ("mine", "minecraft:cobblestone")], [4]),
             t.assertEqual(q.b.held["t1"]["steps"][-1].kind, "build"),
             t.assertNotIn(pair("craft", "door"), pairs(q.b.held["t1"]["steps"]))))]),
-    ("road: interrupted on the second leg → that leg only", goals.make("road", a=[0, 64, 0], b=[40, 64, 0]), [
-        ("round", inventory()), ("ok", inventory()), ("round", inventory()), ("interrupted",),
+    ("road: the body at its start: that leg met by the world, the second walked", ROAD, [
         ("round", inventory()),
-        ("check", lambda t, q: t.assertEqual([st.detail["pos"] for st in q.b.held["t1"]["steps"]], [[40, 64, 0]]))]),
+        ("check", lambda t, q: t.assertEqual(q.act.step.detail["pos"], [40, 64, 0]))]),
+    ("must fail: road: the body moved off its start: the first leg walked again", ROAD, [
+        ("round", inventory()), ("interrupted",), ("round", inventory(), state(x=20.5, z=0.5)),
+        ("check", lambda t, q: t.assertEqual(q.act.step.detail["pos"], [0, 64, 0]))]),
     ("failed on the third source: the task is failed with its cause", goals.have(("log", 4)), [
         ("round", inventory()), ("failed", 3),
         ("check", lambda t, q: (t.assertEqual(q.state()[0], "failed"), t.assertTrue(q.state()[1].startswith("nav"))))]),
     ("failed once: kept, repaired next round", goals.have(("log", 4)), [
         ("round", inventory()), ("failed", 1),
         ("check", lambda t, q: (t.assertEqual(q.state()[0], "running"), t.assertTrue(q.b.held["t1"]["event"])))]),
-    ("a saved plan after a restart is checked against the bag", goals.have(("log", 6)), [
-        ("saved", [{"kind": "gather", "token": "log", "count": 6, "detail": {}, "est": 100}]),
+    ("must fail: a plan left in an old task file is never read (no stored progress)", goals.have(("log", 6)), [
+        ("saved", [{"kind": "craft", "token": "minecraft:stick", "count": 4, "detail": {}, "est": 100}]),
         ("round", inventory(("oak_log", 4))),
-        ("check", lambda t, q: t.assertEqual(q.act.step.count, 2))]),
+        ("check", lambda t, q: t.assertEqual((q.act.step.kind, q.act.step.count), ("gather", 2)))]),
     ("must fail: unplannable: failed, and says why", goals.make("skill", name="fly_to_the_moon"), [
         ("round", inventory()),
         ("check", lambda t, q: (t.assertIsNone(q.act), t.assertEqual(q.state()[0], "failed"),
                                 t.assertIn("unplannable", q.state()[1])))]),
-    ("a road walks on from where it stopped", goals.make("road", a=[0, 64, 0], b=[40, 64, 0]), [
-        ("round", inventory()), ("ok", inventory()),
-        ("round", inventory()),
-        ("check", lambda t, q: t.assertEqual(q.act.step.detail["pos"], [40, 64, 0])),
-        ("ok", inventory()), ("round", inventory()),
+    ("a road walked, the body at its end: done from the world", ROAD, [
+        ("round", inventory()), ("ok", inventory()), ("walked", [0, 64, 0], [40, 64, 0]),
+        ("round", inventory(), state(x=40.5, z=0.5)),
         ("check", lambda t, q: (t.assertIsNone(q.act), t.assertEqual(q.state(), ("done", ""))))]),
+    ("must fail: at the road's end, never walked: not done", ROAD, [
+        ("round", inventory(), state(x=40.5, z=0.5)),
+        ("check", lambda t, q: (t.assertIsNotNone(q.act), t.assertEqual(q.state()[0], "running")))]),
+    ("a skill's own step accepted by its contract: done; a step before it: the task goes on",
+     goals.make("skill", name="chop", args=[2]), [
+        ("round", inventory()), ("ok", inventory(("oak_log", 2))),
+        ("check", lambda t, q: t.assertEqual(q.state()[0], "done" if q.first.kind == "skill" else "running"))]),
+    ("must fail: a skill's step interrupted: not done", goals.make("skill", name="chop", args=[2]), [
+        ("round", inventory()), ("interrupted",),
+        ("check", lambda t, q: t.assertEqual(q.state()[0], "running"))]),
     ("no trees anywhere: the plan runs dry, the task fails as unavailable", goals.have(("log", 4)), [
         ("seen", {}), ("round", inventory()),
         ("check", lambda t, q: t.assertEqual((q.act.step.kind, q.act.step.token), ("gather", "log"))),
@@ -991,7 +899,7 @@ HELD = [
     ("no stone anywhere: the stone pickaxe plan still starts from what can be had", PICK1, [
         ("seen", {"oak_log": 5}), ("round", inventory()),
         ("check", lambda t, q: (t.assertEqual(q.act.step.kind, "gather"),
-                                t.assertIn(pair("mine", "stone"), pairs(q.b.held["t1"]["steps"]))))]),
+                                t.assertIn(pair("mine", "minecraft:cobblestone"), pairs(q.b.held["t1"]["steps"]))))]),
     ("ingots cooking in a furnace: wait, don't fail", IRON3, [
         ("job", "minecraft:iron_ingot", 3), ("round", stone_tools()),
         ("check", lambda t, q: (t.assertIsNone(q.act), t.assertEqual(q.state()[0], "running")))]),
@@ -1002,30 +910,30 @@ class HeldPlans(unittest.TestCase):
     def test_event_sequences(self):
         for name, goal, ops in HELD:
             q = Held(goal, next((o[1] for o in ops if o[0] == "saved"), None))
-            try:
-                with self.subTest(name):
-                    for op_, *a in ops:
-                        if op_ == "round":
-                            q.act = q.round(a[0])
-                            q.first = q.act.step if q.act else None
-                        elif op_ == "ok":
-                            q.after_inv = a[0]
-                            q.after("ok")
-                        elif op_ == "interrupted":
-                            q.after("interrupted")
-                        elif op_ in ("failed", "failed_as"):
-                            err, times = (api.NavFailed("no path found"), a[0]) if op_ == "failed" else (a[0], a[1])
-                            for _ in range(times):
-                                q.b.last_failure = q.b.failed(q.act.name, err)
-                            q.after("failed")
-                        elif op_ == "seen":
-                            q.seen = a[0]
-                        elif op_ == "job":
-                            q.b.mem.add_job("smelt", (3, 64, 0), OVER, a[0], a[1], time.time() + 60, [])
-                        elif op_ == "check":
-                            a[0](self, q)
-            finally:
-                q.restore()
+            with self.subTest(name):
+                for op_, *a in ops:
+                    if op_ == "round":
+                        q.act = q.round(*a)
+                        q.first = q.act.step if q.act else None
+                    elif op_ == "ok":
+                        q.after_inv = a[0]
+                        q.after("ok")
+                    elif op_ == "interrupted":
+                        q.after("interrupted")
+                    elif op_ in ("failed", "failed_as"):
+                        err, times = (api.NavFailed("no path found"), a[0]) if op_ == "failed" else (a[0], a[1])
+                        for _ in range(times):
+                            q.b.last_failure = q.b.failed(q.act.name, err)
+                        q.after("failed")
+                    elif op_ == "seen":
+                        q.seen = a[0]
+                    elif op_ == "walked":
+                        q.b.mem.data.setdefault("roads", {}).setdefault(OVER, []).append(
+                            {"a": a[0], "b": a[1], "s": 9.0, "used": time.time()})
+                    elif op_ == "job":
+                        q.b.mem.add_job("smelt", (3, 64, 0), OVER, a[0], a[1], time.time() + 60, [])
+                    elif op_ == "check":
+                        a[0](self, q)
 
     def test_a_held_plan_is_solved_again_only_on_an_event(self):
         """plan_without_events: a held plan none of whose steps could run was solved again every round from the same
@@ -1037,15 +945,67 @@ class HeldPlans(unittest.TestCase):
                 ("a step runs, the bag changed: solved again", True, changed, 1)]
         for name, runs, bag_now, want in rows:
             q = Held(goals.have(("log", 8)))
-            try:
-                with self.subTest(name):
-                    q.round(before)                             # the first plan: not counted
-                    q.b.valid = lambda *a, **k: runs
-                    with mock.patch.object(brainmod, "replan", wraps=brainmod.replan) as solved:    # a spy: counts
-                        q.round(bag_now)
-                    self.assertEqual(solved.call_count, want)
-            finally:
-                q.restore()
+            with self.subTest(name):
+                q.round(before)                             # the first plan: not counted
+                q.b.valid = lambda *a, **k: runs
+                with mock.patch.object(brainmod, "replan", wraps=brainmod.replan) as solved:    # a spy: counts
+                    q.round(bag_now)
+                self.assertEqual(solved.call_count, want)
+
+    def test_a_new_plan_replaces_the_held_one_only_when_it_pays(self):
+        """D4: a re-solved plan is taken only when it pays the switch."""
+        from bonobo.beliefs import TICKS_PER_S
+        # (situation, the new plan's seconds, seconds thrown away) → the new plan taken
+        rows = [("much cheaper: taken", 1.0, 0.0, True),
+                ("must fail: cheaper by less than it throws away: the held kept", 1.0, 1e6, False),
+                ("must fail: dearer: the held kept", 1e6, 0.0, False)]
+        for name, new_s, lost, taken in rows:
+            q = Held(goals.have(("log", 8)))
+            with self.subTest(name):
+                q.round(inventory())
+                held = q.b.held["t1"]
+                held["event"] = True
+                other = planner.Step("take", "log", 8, {"blocks": ["oak_log"]})
+                other.est = int(new_s * TICKS_PER_S)
+                fresh = {"steps": [other], "sig": None, "event": False, "dim": held["dim"]}
+                with mock.patch.object(brainmod, "replan", return_value=(fresh, None)), \
+                        mock.patch.object(brainmod, "thrown_s", return_value=lost):
+                    q.round(inventory())
+                self.assertEqual(q.b.held["t1"] is fresh, taken)
+                held_s, chosen_s, lost_s, switched = q.b.plan_switch
+                self.assertEqual((switched, chosen_s + lost_s < held_s), (taken, taken))
+
+    def test_a_hazard_seen_while_planning_is_answered_this_round(self):
+        """S1: a stop mid-search ends it; the round answers the hazard, not the plan."""
+        from bonobo import hazard
+        cost_ = planner.NullCost()
+        cost_.stop = lambda: True
+        with self.assertRaises(api.Interrupted):           # must fail: the search runs on through the stop
+            planner.plan_needs(bag(inventory()), [("log", 4)], cost_)
+        self.assertTrue(planner.plan_needs(bag(inventory()), [("log", 4)], planner.NullCost()))   # no stop: never stops
+        q = Held(goals.have(("log", 4)))
+        b = q.b
+        reads = [snapshot(state(inWater=True), inventory())]       # the round read again once planning stops
+
+        def planning(snap, ctx):
+            api.request_interrupt("drowning")
+            raise api.Interrupted("a hazard while planning")
+        try:
+            with mock.patch.object(b, "plan_proposals", side_effect=planning), \
+                    mock.patch.object(b.reflexes, "proposals", return_value=[]), \
+                    mock.patch.object(b.needs, "propose"), mock.patch.object(b.needs, "needs_now", [], create=True), \
+                    mock.patch.object(brainmod.Snapshot, "read", lambda kinds, ground: reads.pop(0)), \
+                    mock.patch.object(api, "mode", return_value="normal"), \
+                    mock.patch.object(brainmod.arbiter.BODY, "holder", return_value=None), \
+                    mock.patch.object(hazard, "rescue_due",
+                                      side_effect=lambda s, **k: "drowning" if s.get("inWater") else None):
+                snap = snapshot(state(), inventory())
+                act = b.decide(snap, round_ctx(b, snap))
+            self.assertIsNotNone(act)                       # must fail: the plan's round, the hazard left a round
+            self.assertEqual(act.name, "rescue drowning")
+            self.assertIsNone(api.interrupt_pending())
+        finally:
+            api.clear_requests()
 
     # (bag, what idle prepares first, or None when everything is held)
     PREPARE = [(inventory(), ("tool", "pickaxe", 1)),
@@ -1059,7 +1019,8 @@ class HeldPlans(unittest.TestCase):
         (must fail: everything held, holding idle)."""
         for inv, want in self.PREPARE:
             with self.subTest(want=want), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
-                act = q.b.prepare(snapshot(inv=inv), None)
+                snap = snapshot(inv=inv)
+                act = q.b.prepare(snap, round_ctx(q.b, snap))
                 self.assertEqual(tasks.load(), [], "idle stocking queued a task")
                 if want == "milestone":
                     first = next(n for n in goals.MILESTONES
@@ -1081,7 +1042,8 @@ class HeldPlans(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
                 for g in queued:
                     q.task(g)
-                got = q.b.plan_proposals(snapshot(state(), inventory(*items)), None)
+                snap = snapshot(state(), inventory(*items))
+                got = q.b.plan_proposals(snap, round_ctx(q.b, snap))
                 self.assertEqual([i.kind for i in got], want)
 
     def test_a_failure_cools_where_it_happened(self):
@@ -1120,7 +1082,8 @@ class HeldPlans(unittest.TestCase):
                     for _ in range(3):
                         q.b.failed("task t1", api.NavFailed("no path found"))
                 before = [t["id"] for t in tasks.load()]
-                got = q.b.plan_proposals(snapshot(state(), inv), None)
+                snap = snapshot(state(), inv)
+                got = q.b.plan_proposals(snap, round_ctx(q.b, snap))
                 self.assertEqual([i.kind for i in got], want)
                 self.assertEqual([t["id"] for t in tasks.load()], before, "stocking changed the queue")
 
@@ -1196,8 +1159,8 @@ class Row:
 UPKEEP = [
     Row("fed, day, a bed and a pickaxe: nothing to do", None),
     Row("hungry with food carried", "eat", food=10),
-    Row("hungry, nothing edible, nothing seen: food to the front", None, queued=[[("food", 8)]], food=4,
-        inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={}),
+    Row("hungry, nothing edible, nothing seen: no stock need (the round's plan keeps the bar above empty)", None,
+        food=4, inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={}),
     Row("eating failed here a moment ago: the next row", None, food=10, cooling=("eat",)),
     Row("in the Nether with two meals left", "leave the Nether", dimension=NETHER, skyLight=0,
         inv=[("cooked_beef", 2), ("stone_pickaxe", 1)]),
@@ -1272,10 +1235,8 @@ UPKEEP = [
         inv=[("bread", 4), ("white_bed", 1), ("stone_pickaxe", 1)]),
     Row("hungry, cooked beef carried: eat", "eat", food=10, inv=[("cooked_beef", 2), ("white_bed", 1)]),
     Row("starving, only raw beef: eat it raw", "eat", food=4, inv=[("beef", 2), ("white_bed", 1)]),
-    Row("hungry, nothing edible, cows near: no eat row, food to the front", None, food=10,
-        queued=[[("food", 8)]], inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={"cow": 8}),
-    Row("starving slowly, cows far away: food to the front (LEAD)", None, queued=[[("food", 8)]], food=3,
-        inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={"cow": 45, "oak_log": 10, "stone": 2}),
+    Row("must fail: hungry, nothing edible, cows near: no eat row and no food count rule", None, food=10,
+        inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={"cow": 8}),
     Row("full stomach, no meals, cows near: no hurry", None, food=20, inv=[("white_bed", 1), ("stone_pickaxe", 1)]),
     Row("a furnace job is done nearby", "collect job", job=((6, 64, 0), -5)),
     Row("the furnace job is still cooking", None, job=((6, 64, 0), 60)),
@@ -1291,7 +1252,10 @@ UPKEEP = [
 
 def run_upkeep(row, tmp):
     """The real upkeep table, one round, on a real unstarted Brain. Returns (row name, [queued needs])."""
-    b = brainmod.Brain.__new__(brainmod.Brain)
+    lifecycle.reset_all(caches=False)
+    b = brain_fixture()
+    b.unplannable = {}
+    b.abandoned = None
     b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
     b.mem = Memory(os.path.join(tmp, "notes.json"))
     b.retry, b.blacklist = retry.Retry(), {}
@@ -1321,7 +1285,7 @@ def run_upkeep(row, tmp):
         rx.failed("nav", api.NavFailed("no path found", pos=row.blocked), row.place)
     c, plan_s = cost(snap, **row.seen), {}
     table.cost = lambda _snap: c                    # the row's readings stand in for /find and /entities
-    for goal in (goals.have(("food", 8)), goals.have(("bed", 1))):     # fixture: the two upkeep prices
+    for goal in (goals.have(("bed", 1)),):     # fixture: the upkeep price
         try:
             steps = decompose.decompose(snap.inv, goal, c)
             secs, known = c.plan_s(steps), all(c.known_source(st) for st in steps)
@@ -1329,17 +1293,18 @@ def run_upkeep(row, tmp):
             secs, known = float("inf"), False
         plan_s[goal["args"]["needs"][0][0]] = secs
         plan_s[goal["args"]["needs"][0][0] + ":known"] = known
-    plan_s["overnight"] = needs.overnight(snap.inv, c)
-    plan_s["overnight:known"] = all(c.known_source(st) for st in plan_s["overnight"][2])
     # the row's readings only: no world read, no task file
     reads = {"enclosed": row.enclosed, "bed_near": row.bed_seen, "soft_ground": False}
     picked = arbiter.arbitrate([arbiter.Intent("maintain", (name, run), seq=seq, key=name)
                                 for seq, name, run in rx.proposals(snap, None, dict(reads))])
     got = picked.action if picked else None
     table.propose(snap, None, reads=dict(reads))
+    plan_s["overnight"] = table.overnight(snap)        # under the round's night facts, as propose read them
+    plan_s["overnight:known"] = table.known(plan_s["overnight"][2], snap)
+    plan_s["night prep"] = table.night_prep_s(snap)
     if got:                                     # MAINTAIN outranks PLAN (arbiter.SCALES): no need acted this round
         table.needs_now = []
-    # What upkeep wants got is proposed, never queued (arbiter.PLAN_ORDER ranks it): read off the proposals.
+    # What upkeep wants got is proposed, never queued (planned with the queue in the round's one plan).
     queued = [tuple(tuple(n) for n in goal["args"]["needs"]) for _kind, goal, _why in table.needs_now]
     return (got[0] if got else None), queued, plan_s
 
@@ -1356,7 +1321,7 @@ class Upkeep(unittest.TestCase):
                     self.assertEqual(set(queued), row.queued)
 
     def test_lead_time_over_the_sweep(self):
-        """Bed and food go to the front exactly when the time left (dusk_s, food_lasts_s) is shorter than the plan
+        """The bed goes to the front exactly when the time left (dusk_s) is shorter than the plan
         that would get them (Σ est) × LEAD — swept over around × body × bag × clock, and for three values of LEAD so
         the table cannot be reading a constant of its own."""
         from tests.world import RESOURCES
@@ -1374,16 +1339,13 @@ class Upkeep(unittest.TestCase):
                 over = snap.dimension == OVER
                 way, secs, _ = plan_s["overnight"]
                 # A plan that knows where it goes leads by × LEAD; one that guesses waits for the real threshold.
-                bed_due = needs.dusk_s(snap) < secs * lead if plan_s["overnight:known"] else needs.dusk_s(snap) <= 0
+                prep = plan_s["night prep"]
+                bed_due = prep is not None and (needs.dusk_s(snap) < prep * lead if plan_s["overnight:known"]
+                                                else needs.dusk_s(snap) <= 0)
                 bed = over and not snap.night and snap.inv.count("bed") == 0 and way == "bed" and bed_due \
                     and not under_rock(snap.get("skyLight", 15))
-                food_due = needs.food_lasts_s(snap) < plan_s["food"] * lead if plan_s["food:known"] \
-                    else snap.get("food", 20) < reflexes.EAT_BELOW
-                food = food_count(snap.inv) < 8 and food_due
                 self.assertEqual(((("bed", 1),) in queued), bed, f"dusk in {needs.dusk_s(snap)} s, {way} plan "
                                                                   f"{secs:.0f} s × {lead}")
-                self.assertEqual(((("food", 8),) in queued), food, f"food lasts {needs.food_lasts_s(snap):.0f} s, "
-                                                                    f"plan {plan_s['food']:.0f} s × {lead}")
 
     def test_lead_moves_the_verdict(self):
         """The same dusk, the same bag: a longer lead inserts the bed, a shorter one does not."""
@@ -1394,18 +1356,19 @@ class Upkeep(unittest.TestCase):
                 self.assertEqual(set(queued) & {(("bed", 1),)}, want)
 
     def test_dusk_clock(self):
-        from bonobo.data import DAY_END
-        # derived from the one dusk (data.DAY_END): seconds = ticks to it / 20; must fail: at dusk and after, none
+        from bonobo.data import DAY_END, DAY_TICKS, NIGHT_END
+        dawn = NIGHT_END + 100
+        # derived from the one dusk (data.DAY_END): seconds = ticks to the next one / 20; must fail: at dusk and after,
+        # none; from dawn (NIGHT_END) the next day's dusk, never 0
         for tod, secs in ((0, DAY_END / 20), (6000, (DAY_END - 6000) / 20), (11500, (DAY_END - 11500) / 20),
-                          (DAY_END, 0.0), (18000, 0.0), (24000 + 6000, (DAY_END - 6000) / 20)):
+                          (DAY_END, 0.0), (18000, 0.0), (24000 + 6000, (DAY_END - 6000) / 20),
+                          (dawn, (DAY_TICKS - dawn + DAY_END) / 20)):
             with self.subTest(timeOfDay=tod):
                 self.assertEqual(needs.dusk_s(snapshot(state(timeOfDay=tod))), secs)
-
-    def test_food_clock_grows_with_food(self):
-        ladder = [needs.food_lasts_s(snapshot(state(food=f), inventory(("cooked_beef", m))))
-                  for f, m in ((2, 0), (10, 0), (20, 0), (20, 4))]
-        self.assertEqual(ladder, sorted(ladder))
-        self.assertEqual(len(set(ladder)), len(ladder))
+        prep = (DAY_END - 11500) / 20 / needs.LEAD + 1.0        # the night's prep, its lead past the light left at 11500
+        self.assertTrue(needs.due_now(needs.dusk_s(snapshot(state(timeOfDay=11500))), prep, True, False))
+        # must fail: dawn is no dusk (dusk_s 0 there queued the night's prep at daybreak)
+        self.assertFalse(needs.due_now(needs.dusk_s(snapshot(state(timeOfDay=dawn))), prep, True, False))
 
     def test_nether_retreat(self):
         rows = [({}, [("cooked_beef", 8)], None),  # must fail: not in the Nether, no retreat
@@ -1444,9 +1407,9 @@ CRAFTABLE = [
     ("iron but raw: smelting is not crafting", inventory(("raw_iron", 3), ("stick", 2), ("crafting_table", 1),
                                                          ("cobblestone", 3)), "pickaxe", 1),
     ("diamonds", inventory(("diamond", 3), ("stick", 2), ("crafting_table", 1)), "pickaxe", 3),
-    # tools.use_order: iron goes to the pickaxe first; two are no pickaxe, and no sword either (kept for it)
-    ("two iron, no iron pickaxe: kept for the pickaxe, the sword wood", inventory(("iron_ingot", 2), ("stick", 2),
-                                                                          ("crafting_table", 1)), "sword", 0),
+    # what crafting alone makes (G5: use_order is a tie between equal plans, never this query's filter)
+    ("two iron, no iron pickaxe: the bag makes an iron sword", inventory(("iron_ingot", 2), ("stick", 2),
+                                                                   ("crafting_table", 1)), "sword", 2),
     ("two iron, an iron pickaxe held: an iron sword", inventory(("iron_ingot", 2), ("stick", 2), ("crafting_table", 1),
                                                                ("iron_pickaxe", 1)), "sword", 2),
     ("must fail: two iron make a sword, not a pickaxe (pickaxe side)", inventory(("iron_ingot", 2), ("stick", 2),
@@ -1560,36 +1523,77 @@ WITHDRAW = [
      ("withdraw", "minecraft:oak_log"), ("gather", "log")),
     ("the chest is 90 away, trees 5 away: chop", (90, {"minecraft:oak_log": 4}), {"oak_log": 5},
      ("gather", "log"), ("withdraw", "minecraft:oak_log")),
-    ("the chest holds 2 of 4: take 2, chop the rest", (3, {"minecraft:oak_log": 2}), {"oak_log": 40},
-     ("withdraw", "minecraft:oak_log"), None),
     ("must fail: the chest holds something else", (3, {"minecraft:cobblestone": 64}), {"oak_log": 40}, ("gather", "log"),
      ("withdraw", "minecraft:oak_log")),
 ]
 
 
-# (situation, goal, what a chest 2 blocks away holds) → is anything withdrawn? Only the goal's own needs are taken
-# from containers (top level), and only when cheaper than making them.
+# (situation, how far the chest holding 2 of 4 logs is; the trees 40 away) → the way is the cheaper as run (G3):
+# 2 taken and 2 chopped, or all 4 chopped, each priced by the production model (planner.price_as_run)
+WITHDRAW_SOME = [("must fail: the chest on the way to the trees: 2 taken, 2 chopped", 3),
+                 ("must fail: the chest beyond the trees: the trip there costs more than chopping 2: all 4 chopped", 90)]
+
+
+# (situation, goal, what a chest holds, how far) → is anything withdrawn? Taking is a way like any other, at any depth
+# of the plan, priced against making it (V1: no rule for tools or intermediates).
 WITHDRAW_GOALS = [
-    ("sticks in the chest, a pickaxe asked: sticks are an intermediate, made not fetched", PICK1,
-     {"minecraft:stick": 8}, False),
-    ("sticks in the chest, sticks asked: fetched", goals.have(("minecraft:stick", 4)), {"minecraft:stick": 8}, True),
-    ("must fail: a pickaxe in the chest: tools are not withdrawn", PICK1, {"minecraft:stone_pickaxe": 1}, False),
-    ("logs in the chest, logs asked, trees far: fetched", goals.have(("log", 4)), {"minecraft:oak_log": 8}, True),
-    # M3/B1: an intermediate the chest holds is taken when taking costs less than mining it (decompose.take_stored)
+    # None: by seconds — the take merges into one trip and the planks are made anyway: whichever the model prices less
+    ("must fail: sticks in a chest 2 away, a pickaxe asked: fetched or made, whichever takes fewer seconds", PICK1,
+     {"minecraft:stick": 8}, 2, None),
+    ("sticks in the chest, sticks asked: fetched", goals.have(("minecraft:stick", 4)), {"minecraft:stick": 8}, 2, True),
+    ("a pickaxe in a chest 2 away: fetched, cheaper than making one", PICK1, {"minecraft:stone_pickaxe": 1}, 2, True),
+    ("logs in the chest, logs asked, trees far: fetched", goals.have(("log", 4)), {"minecraft:oak_log": 8}, 2, True),
+    ("must fail: sticks in a chest 400 away: made, not fetched", goals.have(("minecraft:stick", 4)),
+     {"minecraft:stick": 8}, 400, False),
+    # M3/B1: an intermediate the chest holds is taken when taking costs less than mining it
     ("cobblestone in the chest, a pickaxe asked: an intermediate, fetched", PICK1,
-     {"minecraft:cobblestone": 16}, True),
+     {"minecraft:cobblestone": 16}, 2, True),
 ]
 
 
 class Withdraw(unittest.TestCase):
-    def test_every_level(self):
-        for name, goal, items, want in WITHDRAW_GOALS:
+    def test_taken_where_cheaper(self):
+        for name, goal, items, far, want in WITHDRAW_GOALS:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 m = Memory(os.path.join(tmp, "notes.json"))
-                m.note_container((2, 64, 0), OVER, [{"id": i, "count": n} for i, n in items.items()])
+                m.note_container((far, 64, 0), OVER, [{"id": i, "count": n} for i, n in items.items()])
                 snap = snapshot()
                 steps = decompose.decompose(snap.inv, goal, cost(snap, mem=m, oak_log=30, stone=20))
+                if want is None:
+                    best = planner.plan_candidates(snap.inv, goals.needs(goal, snap.inv),
+                                                   cost(snap, mem=m, oak_log=30, stone=20), exact=True)[0][2]
+                    want = any(st.kind == "withdraw" for st in best)
+                    self.assertLessEqual(sum(st.est for st in steps), sum(st.est for st in best))
                 self.assertEqual(any(st.kind == "withdraw" for st in steps), want, list(map(str, steps)))
+
+    def test_a_repeat_is_one_trip(self):
+        """The search prices a gather it repeats as forward runs it, merged into the first: one walk to the trees."""
+        name, goal, items, far, _want = WITHDRAW_GOALS[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            m = Memory(os.path.join(tmp, "notes.json"))
+            m.note_container((far, 64, 0), OVER, [{"id": i, "count": n} for i, n in items.items()])
+            snap = snapshot()
+            found = planner.plan_candidates(snap.inv, goals.needs(goal, snap.inv),
+                                            cost(snap, mem=m, oak_log=30, stone=20), exact=True)
+        # must fail: a dearer plan taken while one the search priced was cheaper as run (the sticks fetched at 67.7 s
+        # over made at 52.5 s, each gather of a log charged its own walk)
+        self.assertEqual(found[0][1], min(s for _n, s, _st in found), [(n[:40], s) for n, s, _st in found])
+
+    def test_part_taken_where_cheaper(self):
+        for name, far in WITHDRAW_SOME:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                m = Memory(os.path.join(tmp, "notes.json"))
+                m.note_container((far, 64, 0), OVER, [{"id": "minecraft:oak_log", "count": 2}])
+                snap = snapshot()
+                steps = decompose.decompose(snap.inv, goals.have(("log", 4)), cost(snap, mem=m, oak_log=40))
+                chop = planner.plan_needs(snap.inv, [("log", 4)], cost(snap, mem=m, oak_log=40), kinds={"gather"})
+                gather = next(st for st in chop if st.kind == "gather")
+                mix = [planner.Step("withdraw", "minecraft:oak_log", 2, {"pos": [far, 64, 0]}),
+                       planner.Step("gather", gather.token, 2, dict(gather.detail))]
+                chop_s = sum(st.est for st in chop)
+                mix_s = sum(planner.price_as_run(mix, None, cost(snap, mem=m, oak_log=40)))
+                self.assertEqual(any(st.kind == "withdraw" for st in steps), mix_s < chop_s, list(map(str, steps)))
+                self.assertLessEqual(sum(st.est for st in steps), min(mix_s, chop_s), list(map(str, steps)))
 
     def test_chest_or_make(self):
         for name, (dist, items), seen, chosen, not_chosen in WITHDRAW:
@@ -1695,7 +1699,9 @@ class Ledger(unittest.TestCase):
 
 
 def new_brain(tmp):
-    b = brainmod.Brain.__new__(brainmod.Brain)
+    b = brain_fixture()
+    b.unplannable = {}
+    b.abandoned = None
     b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
     b.mem = Memory(os.path.join(tmp, "notes.json"))
     b.retry, b.blacklist, b.place = retry.Retry(), {}, HERE
@@ -1839,8 +1845,8 @@ QUEUE = [
      [("t2", "pending")], "t2"),
     ("a finished goal can be queued again", [op_add(G3), op(tasks.mark, "t1", "done"), op_add(G3)],
      [("t1", "done"), ("t2", "pending")], "t2"),
-    ("running keeps its plan; leaving LIVE drops it",
-     [op_add(G1), op(tasks.update, "t1", state="running", plan=[{"kind": "gather", "token": "log", "count": 4}])],
+    ("running is live (no plan kept with it: K4)",
+     [op_add(G1), op(tasks.update, "t1", state="running")],
      [("t1", "running")], "t1"),
 ]
 
@@ -1929,12 +1935,12 @@ class Queue(unittest.TestCase):
 
     @staticmethod
     def complete(steps, last):
-        """The chain is whole: not empty, every step carried out by some registered skill (skill.handles), and its
+        """The chain is whole: not empty, every step carried out by some registered skill (handles), and its
         last step the goal's own — its kind, its token (or a member of the group token: "food" ← cooked beef), and
         the detail the goal fixed."""
         from bonobo.knowledge import members
         kind, token, detail = last
-        if not steps or not all(skillkit.handles(s) for s in steps):
+        if not steps or not all(handles(s) for s in steps):
             return False
         end = steps[-1]
         tokens = {bare(token)} | {bare(m) for m in members(token)}
@@ -1982,7 +1988,7 @@ class Queue(unittest.TestCase):
         self.assertGreaterEqual(len(skillkit.REGISTRY), 4)
         for name in sorted(skillkit.REGISTRY):
             with self.subTest(name):
-                steps = plan(goals.make("skill", name=name, args=[2]), snapshot(), {})
+                steps = plan(goals.make("skill", name=name, args=[2]), snapshot(inv=inventory(("lava_bucket", 1))), {})
                 self.assertEqual([(s.kind, s.token, s.detail) for s in steps if s.kind == "skill"],
                                  [("skill", name, {"args": [2]})])
                 self.assertTrue(self.complete(steps, ("skill", name, {"args": [2]})))
@@ -1990,13 +1996,13 @@ class Queue(unittest.TestCase):
 
 # ------------------------------------------------------------------------------------------ the night's work
 class OneArbiter(unittest.TestCase):
-    """Every layer proposes, arbiter.arbitrate chooses: the faster layer, then arbiter.PLAN_ORDER, then the place in
-    line. The day's failures, as the proposals each situation makes (brain.decide / needs.proposals)."""
+    """Every layer proposes, arbiter.arbitrate chooses: the faster layer, then the place in line (within PLAN the
+    round's one plan chose: TheRoundsPick). The day's failures, as the proposals each situation makes."""
 
     @staticmethod
-    def intent(layer, kind=None, seq=0, deadline_s=None, at=None):
+    def intent(layer, kind=None, seq=0, at=None):
         from bonobo import arbiter
-        return arbiter.Intent(layer, kind or layer, kind=kind, seq=seq, deadline_s=deadline_s, at=at, key=kind or layer)
+        return arbiter.Intent(layer, kind or layer, kind=kind, seq=seq, at=at, key=kind or layer)
 
     def test_decisions_over_the_table(self):
         from bonobo import arbiter, reflexes
@@ -2017,20 +2023,7 @@ class OneArbiter(unittest.TestCase):
                 ("raw meat and a furnace, food queued: the queue's head (smelt), no hunt proposed", [P("queue")],
                  "queue"),
                 ("the queue's head before the second in line", [P("queue", 1), P("queue", 0)], "queue"),
-                ("a tool broke under a held plan, a task queued: the tool first (proposed, not queued)",
-                 [P("queue"), P("broken tool")], "broken tool"),
-                ("a fall in the plan and no bucket, a task queued: the bucket first", [P("queue"), P("water bucket")],
-                 "water bucket"),
-                ("dusk soon, a bed or shelter parts to get, a task queued: the night's parts first",
-                 [P("queue"), P("night prep")], "night prep"),
-                ("path blocked, no blocks, a task queued: bridge blocks first", [P("queue"), P("bridge stock")],
-                 "bridge stock"),
-                ("food running out before it could be had, a task queued: food first", [P("queue"), P("food stock")],
-                 "food stock"),
-                ("hungry and food running out: eat what is carried (reflex) before getting more (plan)",
-                 [P("food stock"), M("eat")], "eat"),
-                ("a broken tool vs the night's parts at dusk: the night first", [P("broken tool"), P("night prep")],
-                 "night prep"),
+                ("hungry: eat what is carried (reflex) before the round's plan", [P("round"), M("eat")], "eat"),
                 ("afloat with the night's parts due: land first", [P("night prep"), land], "rescue swimming"),
                 ("night underground, nothing queued, a pickaxe: dig for ore before waiting",
                  [P("wait for day"), P("night stock")], "night stock"),
@@ -2044,12 +2037,10 @@ class OneArbiter(unittest.TestCase):
                  [M("recover items"), M("sleep")], "sleep"),
                 ("died a minute ago, hungry: eat before the walk back to the drops", [M("eat"), M("recover items")],
                  "eat"),
-                ("an expired rescue is not run late: the plan", [self.intent("safety", "rescue", deadline_s=1.0, at=0.0),
-                                                                P("queue")], "queue"),
                 ("must fail: nothing proposed: nothing", [], None)]
         for name, intents, want in rows:
             with self.subTest(name):
-                got = arbiter.arbitrate(intents, now=100.0)
+                got = arbiter.arbitrate(intents)
                 self.assertEqual(got.action if got else None, want)
 
     def test_eating_first_keeps_the_drops(self):
@@ -2074,18 +2065,6 @@ class OneArbiter(unittest.TestCase):
         order = ["reflex", "safety", "tactic", "maintain", "plan"]
         self.assertEqual(sorted(arbiter.SCALES, key=arbiter.SCALES.get), order)
 
-    def test_the_order_is_one_table(self):
-        from bonobo import arbiter
-        rows = [("the night's parts before a broken tool", "night prep", "broken tool"),
-                ("a tool before food stock", "broken tool", "food stock"),
-                ("upkeep's needs before the queue", "food stock", "queue"),
-                ("the queue before the night's ore", "queue", "night stock"),
-                ("the queue before idle stocking", "queue", "idle"),
-                ("must fail: an unknown kind after all of them", "idle", "made up")]
-        for name, first, then in rows:
-            with self.subTest(name):
-                self.assertLess(arbiter.plan_rank(first), arbiter.plan_rank(then))
-
     # (situation, night, dimension) → surface work closed
     # the surface is closed exactly when it is night (data.is_night: the Overworld's only), sheltered or not
     CLOSED = [("day in the Overworld: open", 6000, "minecraft:overworld", False),
@@ -2103,19 +2082,25 @@ class OneArbiter(unittest.TestCase):
     def test_night_in_the_open_does_not_chop(self):
         """Night, exposed, empty bag, a tree in the queue: the round waits for day, it does not walk to the tree."""
         from unittest import mock
-        b = brainmod.Brain.__new__(brainmod.Brain)
+        b = brain_fixture()
+        b.unplannable = {}
+        b.abandoned = None
         b.retry, b.place = retry.Retry(), PLACE
         b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
         b.reflexes = mock.Mock(proposals=lambda snap, ctx, reads=None: [])       # caught in the open, nothing due
         chop = brainmod.Act("task", "task t1", None, step=planner.Step("gather", "log", 2))
-        b.task_act = lambda task, snap, ctx, cost: (chop, {})
-        b.mem, b.blacklist, b.policy_cache = None, {}, None
+        # the round's one plan is the chop (brain.round_for), the task's act its step
+        b.round_for = lambda entries, snap, cost, old=None: {"steps": [chop.step], "sig": None, "event": False,
+                                                             "dim": snap.dimension, "want": ()}
+        b.task_act = lambda task, snap, ctx, cost, held=None: (chop, {})
+        b.mem, b.blacklist, b.policy_cache, b.held = None, {}, None, {}
         b.prepare = lambda snap, ctx: brainmod.Act("idle", "prepare", None)
         snap = snapshot(state(timeOfDay=NIGHT), inventory())
+        task = {"id": "t1", "state": "running", **goals.have(("log", 2))}
         with mock.patch.object(api.STATE, "mode", "normal"), mock.patch.object(brainmod.hazard, "rescue_due", return_value=None), \
-                mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "pending"}]), \
+                mock.patch.object(tasks, "load", return_value=[task]), \
                 mock.patch.object(tasks, "expire", return_value=False):
-            act = b.decide(snap, None)
+            act = b.decide(snap, round_ctx(b, snap))
         self.assertEqual((act.layer, act.name), ("idle", "wait for day"))
 
     def test_night_stock_plans_under_cover(self):
@@ -2177,7 +2162,9 @@ class Overnight(unittest.TestCase):
                 ("a pickaxe: dig in at once", [("cooked_beef", 8), ("stone_pickaxe", 1)])]
         for name, carried in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
-                b = brainmod.Brain.__new__(brainmod.Brain)
+                b = brain_fixture()
+                b.unplannable = {}
+                b.abandoned = None
                 b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
                 b.mem, b.retry, b.blacklist, b.place, b.held = Memory(os.path.join(tmp, "n.json")), retry.Retry(), \
                     {}, PLACE, {}
@@ -2202,7 +2189,9 @@ class Overnight(unittest.TestCase):
         """Every night way cooled here: the shelter row still takes the cheapest (S1 over D5), never the open night."""
         from bonobo import decompose
         with tempfile.TemporaryDirectory() as tmp:
-            b = brainmod.Brain.__new__(brainmod.Brain)
+            b = brain_fixture()
+            b.unplannable = {}
+            b.abandoned = None
             b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
             b.mem, b.retry, b.blacklist, b.place, b.held = Memory(os.path.join(tmp, "n.json")), retry.Retry(), \
                 {}, PLACE, {}
@@ -2476,7 +2465,9 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
         from bonobo import arbiter
         for name, holder, mode, due, busy, want, asked_want in self.ROWS:
             asked = []
-            b = brainmod.Brain.__new__(brainmod.Brain)
+            b = brain_fixture()
+            b.unplannable = {}
+            b.abandoned = None
             b.retry, b.place = retry.Retry(), PLACE
 
             def proposals(snap, ctx, reads=None, _busy=busy):
@@ -2491,8 +2482,53 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
                     mock.patch.object(arbiter.BODY, "holder", return_value=holder), \
                     mock.patch.object(brainmod.hazard, "rescue_due", return_value=due), \
                     mock.patch.object(tasks, "load", return_value=[]), mock.patch.object(tasks, "expire", return_value=False):
-                act = b.decide(snap, None)
+                act = b.decide(snap, round_ctx(b, snap))
                 self.assertEqual((act.layer if act else None, asked), (want, asked_want))
+
+
+class GivenUpThenANextStep(unittest.TestCase):
+    """E5: work given up is followed by what its cause asks (brain.abandon_after) — into cover the next
+    round, once; "replan" leaves the round to plan again. Nothing hangs."""
+
+    def test_rows(self):
+        from unittest import mock
+        # (situation, what the skill declared, the next two rounds' first act names)
+        rows = [("given up, cover declared: into cover, then the round goes on", "cover",
+                 ["abandoned: cover", "prepare"]),
+                ("given up, replan declared: the round plans again", "replan", ["prepare", "prepare"]),
+                ("must fail: nothing given up: no cover", None, ["prepare", "prepare"])]
+        for name, then, want in rows:
+            b = brain_fixture()
+            b.unplannable, b.abandoned = {}, None
+            b.retry, b.place, b.held = retry.Retry(), PLACE, {}
+            b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
+            b.reflexes = mock.Mock(proposals=lambda snap, ctx, reads=None: [])
+            b.prepare = lambda snap, ctx: brainmod.Act("idle", "prepare", None)
+            b.abandoned = then          # brain.attempt sets it from the TaskStuck the runner raised (then=)
+            snap = snapshot(state(), inventory())
+            with self.subTest(name), mock.patch.object(api.STATE, "mode", "normal"), \
+                    mock.patch.object(brainmod.hazard, "rescue_due", return_value=None), \
+                    mock.patch.object(tasks, "load", return_value=[]), mock.patch.object(tasks, "expire", return_value=False):
+                got = [b.decide(snap, round_ctx(b, snap)).name for _ in range(2)]
+                self.assertEqual(got, want)
+
+    def test_what_follows_by_cause(self):
+        # E5/G3 (brain.abandon_after): a danger that stopped it → cover; not found or stuck → replan (no walk to
+        # cover); a skill's own `abandon` overriding the cause
+        rows = [("not found: replan", api.NotAvailable("no trees found nearby"), None, "replan"),
+                ("a jar task stuck: replan", api.TaskStuck("goto: no progress"), "stuck", "replan"),
+                ("must fail: lava stopped it: cover", api.Interrupted("lava"), "hazard:lava", "cover"),
+                ("a threat took the body: cover", api.Interrupted("threat"), "layer:tactic", "cover"),
+                ("a fight's soft skill stuck: its own cover", api.TaskStuck("slay: no progress", then="cover"),
+                 "stuck", "cover")]
+        for name, err, source, want in rows:
+            with self.subTest(name):
+                self.assertEqual(brainmod.abandon_after(err, source), want)
+
+    def test_a_skill_with_no_next_step_is_refused(self):
+        # must fail: an abandon outside skill.ABANDON_WAYS is refused where it is declared
+        with self.assertRaises(TypeError):
+            skillkit.skill(name="e5_no_next_step", needs={}, gives=[], budget=10, abandon="wander")(lambda ctx: None)
 
 
 class StationGone(unittest.TestCase):
@@ -2613,19 +2649,7 @@ class ToolsAreThePlansNeed(unittest.TestCase):
 
 
 class FoodFromTheBag(unittest.TestCase):
-    """Raw meat carried is food first: smelt it (seconds) before hunting (minutes)."""
-
-    def test_cooked_from_carried(self):
-        cooked = ["minecraft:cooked_porkchop", "minecraft:cooked_beef", "minecraft:cooked_mutton"]
-        rows = [("two raw beef, want 8: the beef, the rest elsewhere", {"minecraft:beef": 2}, 8,
-                 [("minecraft:cooked_beef", 2)]),
-                ("nine raw beef, want 8: 8 of it", {"minecraft:beef": 9}, 8, [("minecraft:cooked_beef", 8)]),
-                ("beef and mutton: the larger pile first", {"minecraft:beef": 2, "minecraft:mutton": 5}, 6,
-                 [("minecraft:cooked_mutton", 5), ("minecraft:cooked_beef", 1)]),
-                ("must fail: nothing raw: nothing from the bag", {}, 8, [])]
-        for name, have, n, want in rows:
-            with self.subTest(name):
-                self.assertEqual(planner.cooked_from_carried(cooked, lambda t, h=have: h.get(t, 0), n), want)
+    """Raw meat carried is food first: smelt it (seconds) before hunting (minutes) — by price."""
 
     def test_the_plan(self):
         rows = [("2 raw beef, coal, a furnace near, want 2: smelt them", [("beef", 2), ("coal", 4)], 2, {},
@@ -2652,8 +2676,8 @@ class FoodFromTheBag(unittest.TestCase):
 
 
 class TheToolTheBagMakes(unittest.TestCase):
-    """A plan that needs a pickaxe makes the best one the bag makes outright (Planner.craftable_tier, the one answer
-    for every tool goal): a worn-out iron pickaxe and three ingots make an iron one, not a wooden one."""
+    """A plan that needs a pickaxe makes the one that finishes soonest (each tier an option, priced): a worn-out iron
+    pickaxe and three ingots make an iron one (one craft), not a wooden one (logs to fetch)."""
 
     # (situation, what else is carried) → the plan for 2 coal (coal ore in sight; any pickaxe mines it)
     ROWS = [("worn iron pickaxe, 3 iron, sticks, a table: iron", [("iron_ingot", 3)],
@@ -2677,19 +2701,18 @@ class TheToolTheBagMakes(unittest.TestCase):
         for extra, tier in (([("iron_ingot", 3)], 2), ([("cobblestone", 3)], 1), ([("oak_planks", 3)], 0), ([], 0)):
             with self.subTest(extra=extra):
                 inv = bag(inventory(("stick", 2), ("crafting_table", 1), *extra))
-                self.assertEqual(needs.craftable_tier(inv, "pickaxe"), tier)
+                self.assertEqual(planner.craftable_tier(inv, "pickaxe"), tier)
 
 
 class ScarceToTheMostUsedTool(unittest.TestCase):
-    """The best tier the bag makes outright, a scarce material first to what the held plans reserve, then to the
-    tools by use (play.toml tools.use_order): one rule for idle prepare and the broken-tool upkeep (Planner.craftable_tier)."""
+    """R1/G5: the tool that finishes soonest; at equal seconds the lowest tier (then play.toml tools.use_order); what
+    the held plans reserve (bag.RESERVED) is never a tool's material."""
 
     def plan(self, goal, *carried, reserved=()):
         from bonobo.cost import Cost
-        from tests.world import finds
         with tempfile.TemporaryDirectory() as tmp:
             snap = snapshot(state(), inventory(("stick", 4), ("crafting_table", 1), *carried))
-            c = Cost(snap, mem=Memory(os.path.join(tmp, "n.json")), finds=finds(), reserved=reserved)
+            c = Cost(snap, Memory(os.path.join(tmp, "n.json")), reserved=reserved)
             return [st.token for st in decompose.decompose(snap.inv, goal, c) if st.kind == "craft"]
 
     def test_rows(self):
@@ -2700,9 +2723,10 @@ class ScarceToTheMostUsedTool(unittest.TestCase):
                 ("iron pickaxe held, 3 iron: an iron sword, the diamonds kept for the pickaxe",
                  g.have(("tool", "sword", 1)), [("diamond", 3), ("iron_ingot", 3), slot("iron_pickaxe")], (),
                  "minecraft:iron_sword"),
-                ("the iron pickaxe broken, 3 iron and cobble, nothing reserved: iron (tool_tier__one_use)",
+                ("the iron pickaxe broken, 3 iron and cobble, nothing reserved: one craft either way, the lowest tier "
+                 "(stone); the iron kept (tool_tier__one_use)",
                  g.have(("tool", "pickaxe", 1)), [slot("iron_pickaxe", 1, 250), ("iron_ingot", 3), ("cobblestone", 8)],
-                 (), "minecraft:iron_pickaxe"),
+                 (), "minecraft:stone_pickaxe"),
                 ("must fail: iron reserved for a bucket: the pickaxe stone",
                  g.have(("tool", "pickaxe", 1)), [slot("iron_pickaxe", 1, 250), ("iron_ingot", 3), ("cobblestone", 8)],
                  {iron}, "minecraft:stone_pickaxe")]
@@ -2901,7 +2925,9 @@ class NeedsAndReflexesAreIndependent(unittest.TestCase):
 
     def run_order(self, row, needs_first):
         with tempfile.TemporaryDirectory() as tmp:
-            b = brainmod.Brain.__new__(brainmod.Brain)
+            b = brain_fixture()
+            b.unplannable = {}
+            b.abandoned = None
             b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
             b.mem, b.retry, b.blacklist, b.place, b.held = Memory(os.path.join(tmp, "n.json")), retry.Retry(), {}, \
                 PLACE, {}
@@ -2939,7 +2965,9 @@ class TheNightIsPricedOncePerBag(unittest.TestCase):
                 ("back and forth: each new bag once", [WELL_FED, [("stick", 1)], WELL_FED], 2)]
         for name, bags, want in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
-                b = brainmod.Brain.__new__(brainmod.Brain)
+                b = brain_fixture()
+                b.unplannable = {}
+                b.abandoned = None
                 b.mem = Memory(os.path.join(tmp, "notes.json"))
                 table, asked = needs.Needs(b), []
                 snap0 = snapshot(state(), inventory(*bags[0]))
@@ -2948,6 +2976,26 @@ class TheNightIsPricedOncePerBag(unittest.TestCase):
                 for items in bags:
                     table.overnight(snapshot(state(), inventory(*items)))
                 self.assertEqual(len(asked), want)
+
+    def test_the_night_is_one_of_in_one_plan(self):
+        """The night's ways are one one-of target of a single plan_round (planner.Target.options), the way taken the
+        cheapest whole plan (must fail: the ways priced one plan each)."""
+        calls = []
+        real = needs.plan_round
+
+        def spy(*a, **k):
+            calls.append(1)
+            return real(*a, **k)
+        rows = [("a pickaxe: dig in", [("stone_pickaxe", 1)], {"cow": 8}, "dig in"),
+                ("a bed carried: the bed", [("white_bed", 1)], {}, "bed"),
+                ("wool, planks, a table: the bed made", [("white_wool", 3), ("oak_planks", 3), ("crafting_table", 1)],
+                 {}, "bed")]
+        for name, items, seen, want in rows:
+            with self.subTest(name), mock.patch.object(needs, "plan_round", spy):
+                calls.clear()
+                snap = snapshot(state(), inventory(*items))
+                way, _secs, _steps = needs.overnight(snap.inv, cost(snap, **seen))
+                self.assertEqual((way, len(calls)), (want, 1))
 
 
 class RawOnlyWhenStarving(unittest.TestCase):
@@ -2987,8 +3035,11 @@ class EstimatesRememberFirst(unittest.TestCase):
                 ("must fail: nothing anywhere: None", {}, {}, ["diamond_ore"], 48, None)]
         for name, noted, sight, blocks, radius, want in rows:
             with self.subTest(name), mock.patch.object(api, "api", side_effect=AssertionError("an estimate read the world")):
-                c = Cost(snapshot(state(), inventory()), finds=sight,
-                         known=lambda kinds, _n=noted: min((_n[k] for k in kinds if k in _n), default=None))
+                snap, m = snapshot(state(gameTime=1000), inventory(), **sight), memory()
+                m.clock = snap.state["gameTime"]            # the round's clock, as brain sets it from the snapshot
+                for k, d in noted.items():
+                    m.note_seen(k, (int(d), 64, 0), OVER)
+                c = Cost(snap, m)
                 self.assertEqual(c.distance(blocks, radius), want)
 
 class BridgeStockSizedToTheGap(unittest.TestCase):
@@ -3065,59 +3116,111 @@ class AnOreNotedIsEveryFormOfIt(unittest.TestCase):
 
 
 class ToolsThatPayForThemselves(unittest.TestCase):
-    """planner.speed_up: the next tier of a tool the work uses is made when making it costs less than it saves on
-    that work (knowledge.work_s over break_ticks / kill_s), and never from the work it would speed up."""
+    """A tool the work uses is an option of the plan, made when the whole plan is cheaper with it — its saving on that
+    work (knowledge.work_s over break_ticks / kill_s) against making it; the same work may fetch its materials."""
+
+    KIT = [("oak_planks", 8), ("stick", 4), ("crafting_table", 1)]
 
     def test_over_the_table(self):
-        from bonobo.planner import NullCost, Planner
-        kit = {"minecraft:oak_planks": 8, "minecraft:stick": 4, "minecraft:crafting_table": 1}
-        rows = [("12 logs, planks and sticks carried: an axe first", kit, [], [("log", 12)], "minecraft:wooden_axe"),
-                ("must fail: 2 logs: saves less than the axe costs, none", kit, [], [("log", 2)], None),
-                ("12 logs, an empty bag: the axe would need the logs, none", {}, [], [("log", 12)], None),
-                ("12 logs, an axe held: none made", kit, [("axe", 0, 50)], [("log", 12)], None),
-                ("must fail: 8 beef (4 kills): a sword saves 4 × (2.5 − 1.875) s, less than making it",
-                 kit, [], [("minecraft:beef", 8)], None),
-                ("40 beef (20 kills): a sword saves 12.5 s, more than making it: first", kit, [],
-                 [("minecraft:beef", 40)], "minecraft:wooden_sword")]
-        for name, counts, tools, needs_, want in rows:
+        from bonobo.planner import NullCost, plan_needs
+        rows = [("12 logs, planks and sticks carried: an axe first", self.KIT, [("log", 12)], "minecraft:wooden_axe"),
+                ("must fail: 2 logs: saves less than the axe costs, none", self.KIT, [("log", 2)], None),
+                ("12 logs, an axe held: none made", self.KIT + [slot("wooden_axe", 1, 9)], [("log", 12)], None),
+                ("must fail: 8 beef (4 kills): a sword saves less than making it", self.KIT, [("minecraft:beef", 8)],
+                 None),
+                ("40 beef (20 kills): a sword saves more than making it: first", self.KIT, [("minecraft:beef", 40)],
+                 "minecraft:wooden_sword")]
+        for name, carried, needs_, want in rows:
             with self.subTest(name):
-                steps = Planner(dict(counts), list(tools), NullCost()).plan(needs_)
+                steps = plan_needs(bag(inventory(*carried)), needs_, NullCost())
                 made = [s.token for s in steps if s.kind == "craft" and s.token.endswith(("_axe", "_sword"))]
-                self.assertEqual(made[0] if made else None, want)
+                kind = (lambda t: t.rpartition("_")[2] if t else None)
+                self.assertEqual(kind(made[0] if made else None), kind(want), [str(s) for s in steps])  # its tier by price
                 if want:
                     work = next(i for i, s in enumerate(steps) if s.kind in ("gather", "hunt"))
-                    self.assertLess(steps.index(next(s for s in steps if s.token == want)), work)
+                    self.assertLess(steps.index(next(s for s in steps if s.token == made[0])), work)
+
+    def test_the_same_work_may_fetch_the_tools_wood(self):
+        """No rule against an axe whose logs the gather fetches: the plan takes it exactly when it is cheaper —
+        never dearer than the plan with the axe forced, nor than the logs by hand (each priced by the same model)."""
+        from bonobo.planner import NullCost, plan_needs
+        empty = bag(inventory())
+        chosen = sum(s.est for s in plan_needs(empty, [("log", 12)], NullCost()))
+        forced = sum(s.est for s in plan_needs(empty, [("tool", "axe", 0), ("log", 12)], NullCost()))
+        self.assertLessEqual(chosen, forced)
 
 
-class FoodOnItsWay(unittest.TestCase):
-    """needs.food_on_its_way / food_lasts_s: ready food a background job is making counts — meals and points."""
+class TheRoundsPick(unittest.TestCase):
+    """brain.round_for / round_act: the queue's goals and upkeep's needs in the round's one plan (planner.plan_round):
+    the order of least total seconds, the queue's place at equal totals; a plan whose clock runs the bar out is not
+    the one taken."""
 
-    def test_over_the_table(self):
-        rows = [("two cooked beef in the furnace: 2 meals, 16 points", {"minecraft:cooked_beef": 2}, (2, 16)),
-                ("must fail: raw iron smelting: no food", {"minecraft:iron_ingot": 3}, (0, 0)),
-                ("bread and beef: both", {"minecraft:bread": 1, "minecraft:cooked_beef": 1}, (2, 13)),
-                ("nothing on its way", {}, (0, 0))]
-        for name, pending, want in rows:
+    def first(self, entries, snap, seen):
+        q = Held(goals.have(("log", 1)), seen=seen)
+        held = q.b.round_for(entries, snap, cost(snap, mem=q.b.mem, **seen))
+        act = q.b.round_act(held["steps"], snap, round_ctx(q.b, snap)) if held is not None else None
+        return None if act is None else (act.step.kind, act.step.token)
+
+    def test_rows(self):
+        carried = snapshot(state(), inventory(("oak_log", 1), ("oak_planks", 2)))
+        sticks, planks, logs = goals.have(("minecraft:stick", 4)), goals.have(("planks", 4)), goals.have(("log", 6))
+        hungry = snapshot(state(food=3), inventory())
+        seen = {"cow": 8, "oak_log": 6, "stone": 2}
+        # (situation, snapshot, [(name, goal, queue place)], the round plan's first step)
+        rows = [("equal seconds: the queue's first place", carried, [("a", sticks, 0), ("b", planks, 1)],
+                 ("craft", "minecraft:stick")),
+                ("equal seconds, the places swapped: the other", carried, [("a", sticks, 1), ("b", planks, 0)],
+                 ("craft", "planks")),
+                ("unequal seconds, the same total either way (G3): the queue's place, not the cheaper first", carried,
+                 [("a", logs, 0), ("b", sticks, 1)], ("gather", "log")),
+                ("must fail: a plan that starves on the way: food first", hungry,
+                 [("a", goals.have(("tool", "pickaxe", 2)), 0)], ("hunt", "minecraft:beef"))]
+        for name, snap, entries, want in rows:
             with self.subTest(name):
-                self.assertEqual(needs.food_on_its_way(pending), want)
-        snap = snapshot(state(food=10), inventory())
-        self.assertGreater(needs.food_lasts_s(snap, {"minecraft:cooked_beef": 2}), needs.food_lasts_s(snap))
+                self.assertEqual(self.first(entries, snap, seen), want)
 
-    def test_no_food_stock_while_it_cooks(self):
-        """Food 10, nothing ready carried, 2 cooked beef on their way: no food stock need (it was a pig hunt)."""
-        for pending, want in ((True, False), (False, True)):
-            with self.subTest(pending=pending), tempfile.TemporaryDirectory() as tmp:
-                b = brainmod.Brain.__new__(brainmod.Brain)
-                b.mem = Memory(os.path.join(tmp, "notes.json"))
-                b.retry, b.blacklist, b.place, b.held = retry.Retry(), {}, PLACE, {}
-                b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
-                if pending:
-                    b.mem.add_job("smelt", (3, 64, 0), OVER, "minecraft:cooked_beef", 2, time.time() + 20, [])
-                snap = snapshot(state(food=10), inventory(("oak_planks", 4)))
-                c = cost(snap, cow=30)
-                b.needs.cost = lambda _s: c
-                b.needs.propose(snap, None, reads={"enclosed": False, "bed_near": False, "soft_ground": False})
-                self.assertEqual(any(k == "food stock" for k, _g, _w in b.needs.needs_now), want)
+    def test_one_plan_a_round(self):
+        """The round plans once, however many targets (planner.plan_round), and not at all again while nothing it
+        was made from changed (must fail: a plan per target; the same world planned again)."""
+        from bonobo import decompose as dec
+        counted = []
+
+        def spy(fn):
+            def wrapped(*a, **k):
+                counted.append(fn.__name__)
+                return fn(*a, **k)
+            return wrapped
+        goals_ = [goals.have((item, 1)) for item in ("log", "minecraft:stick", "planks", "minecraft:crafting_table",
+                                                       "minecraft:torch", "minecraft:chest")]
+
+        def calls(n):
+            with tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q, \
+                    mock.patch.object(planner, "plan_round", spy(planner.plan_round)), \
+                    mock.patch.object(dec, "solve_needs", spy(dec.solve_needs)):
+                for g in goals_[:n]:
+                    q.task(g)
+                snap = snapshot(state(), inventory())
+                counted.clear()
+                q.b.plan_proposals(snap, round_ctx(q.b, snap))
+                first = len(counted)
+                counted.clear()
+                q.b.plan_proposals(snap, round_ctx(q.b, snap))
+                return first, len(counted)
+        self.assertEqual(calls(2), (1, 0))
+        self.assertEqual(calls(6), (1, 0))
+
+    def test_the_order_is_the_least_total(self):
+        """G3: the round's plan costs no more than its targets in any other place order; equal totals keep the
+        queue's place (must fail: an order dearer in total than another taken)."""
+        import itertools
+        from bonobo.planner import NullCost, Target, plan_round
+        carried = bag(inventory(("oak_log", 1), ("oak_planks", 2)))
+        needs_ = [("logs", [("log", 6)]), ("sticks", [("minecraft:stick", 4)]), ("planks", [("planks", 4)])]
+        chosen = plan_round(carried, [Target(n, x, i) for i, (n, x) in enumerate(needs_)], NullCost())[2]
+        for order in itertools.permutations(needs_):
+            with self.subTest([n for n, _x in order]):
+                other = plan_round(carried, [Target(n, x, i) for i, (n, x) in enumerate(order)], NullCost())[2]
+                self.assertLessEqual(chosen, other + 1e-9)
 
 
 class WhatTheFurnaceHolds(unittest.TestCase):

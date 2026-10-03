@@ -480,7 +480,6 @@ def _kit_gives(row, jobs):
 def base_row(name, base, cond=None, surprise=None):
     """A base changed by a condition or a surprise (the old sheet's `_row`), as data."""
     from .bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK
-    from .runner import ROW_LIMIT_S
     b, c = BASES[base], CONDITIONS[cond] if cond else {}
     x = SURPRISES[surprise] if isinstance(surprise, str) else surprise or {}     # a one-off row: its own surprise
     scene = list(x["scene"]) if x.get("replace_setup") else b["scene"] + c.get("scene", []) + x.get("scene", [])
@@ -527,8 +526,8 @@ def base_row(name, base, cond=None, surprise=None):
     row = {"name": name, "doc": f"{b['doc']} — {x.get('doc') or c.get('doc', 'as is')}", "module": "skills",
            "scene": scene, "before": hooks, "run": run, "check": items(check),
            **({"target_s": target} if target else {}),
-           "budget": (ways.EST[c["est"]]() if c.get("est")
-                      else min(ROW_LIMIT_S, b["budget"] * (2 if c.get("tick_rate", 20) < 20 else 1))),
+           **({"budget": ways.EST[c["est"]]()} if c.get("est")
+              else {"est": ("on", b["scene"], b["est"]) if fails else b["est"]}),
            "skills": list(b["skills"]), "point": x.get("point", b.get("point", "A")),
            "tags": {"base": base, **({c["axis"]: cond} if c else {}), **({"surprise": name} if x else {})}}
     if fails:

@@ -6,12 +6,13 @@ from __future__ import annotations
 
 import collections
 import json
+import math
 import os
 import time
 import traceback
 
 from . import (api, arbiter, bag, decompose, dispatch, explore, goals, hazard, intent, nav, nether, paths, retry,
-               needs, reflexes, tape, tasks, threat, world, perception)
+               needs, planner, reflexes, tape, tasks, threat, world, perception)
 from . import skill as skillkit
 from . import craft, events, lifecycle, mechanisms, skillcore, survive
 api.ANOMALY = events.anomaly      # a swallowed or unexpected error is an event (counted, said at 1st/10th/100th)
@@ -52,10 +53,10 @@ TRACK_FILE = paths.data("track.jsonl")
 # Step kinds a night under cover can carry on with (data.NIGHT_WORK). Everything else (a tree, an animal, a plan's wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
 from .data import NIGHT_WORK, TICKS_PER_S  # noqa: E402
 from . import beliefs, estimate  # noqa: E402
-from .data import TOOL_MATERIAL_FOR_TIER, critical_hp, weapon_hit  # noqa: E402
+from .data import TIER_OF_MATERIAL, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, critical_hp, weapon_hit  # noqa: E402
 
 
-def fight_line_holds(contract, args, state, inv):
+def fight_line_holds(contract, args, state, inv) -> tuple[bool, str | None]:
     """Pure (S5): (ok, why) — a skill that makes an optional fight (`contract.fights(call)`: its mob kinds) is offered
     only with the health above critical covering its loss's quantile (estimate.fight_line_ok) at this sword and
     armour; a threat fight never comes through here."""
@@ -74,6 +75,9 @@ def fight_line_holds(contract, args, state, inv):
         return True, None
     return False, f"health {hp:.0f} under the fight line for {kinds} ({floor:.0f} + {estimate.loss_q(mean, hit):.0f})"
 
+_k.FIGHT_LINE = fight_line_holds      # the planner's cost model asks the same judge (cost.fight_line)
+
+
 LINE_ARMOR = "iron"
 
 
@@ -84,10 +88,14 @@ def line_raisers(kinds, state, inv, material=LINE_ARMOR):
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
     sword, armor = _k.attack_weapon(inv, beliefs.COMMON_FOE_HP), float(state.get("armor", 0))
 
-    def inside(item, points):
-        mean, hit = estimate.melee_loss(kinds, item, beliefs.protection(points, shield, hit=beliefs.hardest_hit(kinds)))
+    def inside(item, points, shapes=()):
+        mean, hit = estimate.melee_loss(kinds, item, beliefs.protection(points, shield, hit=beliefs.hardest_hit(kinds)),
+                                        shapes=shapes)
         return estimate.fight_line_ok(hp, floor, mean, hit)
 
+    # the lid fight_line_holds stands under when the blocks are carried: those blocks are kit too
+    roof = [[("building", threat.ROOF_BLOCKS)]] if inv.count("building") < threat.ROOF_BLOCKS \
+        and inside(sword, armor, (("roof", threat.ROOF_BLOCKS),)) else []
     sets, rows, points = [], [], armor
     for piece in sorted(ARMOR_POINTS[material], key=lambda p: -ARMOR_POINTS[material][p]):
         worn_mat, _, worn_piece = bare(inv.worn(ARMOR_SLOTS[piece]) or "air").rpartition("_")
@@ -103,7 +111,15 @@ def line_raisers(kinds, state, inv, material=LINE_ARMOR):
     for rows_, points_ in sets:
         out += [rows_] if inside(sword, points_) else []
         out += [[("tool", "sword", t)] + rows_ for t, item in swords if inside(item, points_)]
-    return out
+    return out + roof
+
+
+def line_kit(contract, args, state, inv):
+    """Pure: line_raisers for the fights a skill's call makes ([] when it makes none)."""
+    kinds = list(contract.fights(skillkit.Call(args, {})) or ()) if getattr(contract, "fights", None) else []
+    return line_raisers(kinds, state, inv) if kinds else []
+
+_k.LINE_KIT = line_kit      # the planner's cost model asks it when the line refuses a fight (cost.line_kit)
 
 
 def act_commit_s(act):
@@ -111,11 +127,37 @@ def act_commit_s(act):
     ticks = sum(int(getattr(st, "est", 0) or 0) for st in getattr(act, "steps", ()))
     return ticks / TICKS_PER_S if ticks > 0 else None
 
+def pays_switch(held_s, chosen_s, lost_s):
+    """Pure (D4): switch only when new seconds plus the work thrown away beat the held plan's rest."""
+    return chosen_s + lost_s < held_s
+
+def repriced_s(steps, cost, inv):
+    """Seconds left of a held plan, priced as a fresh one (planner.forward); each est updated."""
+    from .knowledge import held_tiers
+    from .planner import Step, forward
+    held, entries = held_tiers(inv), []
+    for i, st in enumerate(steps):
+        entries.append((Step(st.kind, st.token, st.count, dict(st.detail)), dict(held), i))
+        material, _, kind = bare(st.token).rpartition("_")
+        if st.kind == "craft" and kind in TOOL_KINDS and material in TIER_OF_MATERIAL:
+            held[kind] = max(held.get(kind, -1), TIER_OF_MATERIAL[material])
+    priced, ticks = forward(entries, cost)
+    by_key = {p.key(): p.est for p in priced}
+    for st in steps:
+        st.est = by_key.get(st.key(), st.est)
+    return ticks / TICKS_PER_S
+
+def thrown_s(now=None):
+    """Seconds of the running plan act a switch throws away (0 when none runs or it is done)."""
+    cur = arbiter.BODY.current()
+    if cur is None or cur.layer != "plan" or cur.commit_s is None:
+        return 0.0
+    left = arbiter.work_left_s(cur, time.time() if now is None else now)
+    return 0.0 if left is None else cur.commit_s - left
+
 def act_on_surface(act):
-    """Pure: does this act's step walk the surface (arbiter.on_surface)? An act with no step (a chain, a whole
-    skill) is judged by what it runs elsewhere: not flagged."""
-    step = getattr(act, "step", None)
-    return step is not None and arbiter.on_surface(step.kind)
+    """Pure: does this plan act's step (craft_act always names one) walk the surface (arbiter.on_surface)?"""
+    return arbiter.on_surface(act.step.kind)
 
 def craft_run(steps, first, inv=None):
     """Pure: `first` and the crafts straight after it: one table sitting, not one per round — up to the first craft
@@ -156,6 +198,7 @@ class Act:
 
     def __init__(self, layer, name, run, task=None, step=None, steps=None):
         self.layer, self.name, self.run, self.task, self.step = layer, name, run, task, step
+        self.finishes = False         # a run-once task's own step: its success ends the task
         self.steps = steps or ([step] if step is not None else [])   # a craft run carries every craft it makes
 
     def __repr__(self):
@@ -168,19 +211,25 @@ class Brain:
         nav.DOORS = mechanisms.doors_on_way   # taught doors: pressed on the way, never dug
         mechanisms.WALK_TO = nav.go_to
         nav.HOME_DOOR = mechanisms.home_exit
-        nav.DOOR_ROUTE = costmod.DOOR_ROUTE = mechanisms.taught_route_s     # and priced through, not as rock
+        nav.DOOR_ROUTE = mechanisms.taught_route_s     # and walked through, not as rock
+        costmod.DOOR_ROUTE = mechanisms.door_route_s   # priced through over Memory.taught (pure: no file read)
         nav.ROAD_MEM = self.mem       # travelled legs become a road network (roads.py) for later trips
         self.retry = retry.Retry()
         self.planning = True                    # False for a round without the plan layer (Brain.round(plan=False))
         self.picks = collections.Counter()      # what the arbiter chose, by kind (arbiter.note_pick)
-        self.blacklist = {}           # unreachable targets, shared by every round's Context and the cost model
-        self.held = {}                # task id -> {"steps": [Step], "sig": bag signature, "event": bool, "dim": str}
+        self.blacklist = world.Versioned()    # unreachable targets, shared by every round's Context and the cost model
+        self.held = {}                # task id -> the round's plan it is in: {"steps", "sig", "event", "dim", "want", "ran"}
+        self.needs_plan = None        # the round's plan with no task queued
+        self.unplannable: dict[str, str] = {}
+        self.abandoned: str | None = None         # E5: what follows the last give-up
+        self.plan_switch = None       # D4: (held_s, chosen_s, lost_s, switched)
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
         perception.IN_SITE = self.reflexes.in_site      # nightfall asks the night way's judgement, every Brain built
         perception.COVER = self.reflexes.nearest_interior
         perception.NIGHTS_MISSED = lambda: self.mem.nights_missed()
         reflexes.STEP_RUN = dispatch.execute
+        reflexes.PRICED_RUN = dispatch.run_priced
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.place = None  # what causes are cooled against
         self.idle_since = None
@@ -357,6 +406,8 @@ class Brain:
                     cause=retry.cause_of(err) if outcome == "failed" else None)
         if isinstance(err, api.TaskStuck):
             events.anomaly("task stuck", f"{name}: {err}")
+        if err is not None:
+            self.abandoned = abandon_after(err, source)
         first = arbiter.resume_of(source)[1] if source is not None else None
         if outcome == "ok":
             self.retry.succeeded(name)
@@ -437,7 +488,8 @@ class Brain:
         self._mark("inv")
         tape.begin()
         nav.forget_routes()
-        snap = Snapshot.from_readings(api.get("/state"), Inventory())
+        self.mem.reload_taught()          # a lesson taught since the last round (the bench, the CLI) is priced in this one
+        snap = Snapshot.read(_k.SOURCE_BLOCKS, survive.ROUND_GROUND)
         self._mark("snap")
         events.milestones(_bag_counts(snap))
         self.mem.clock = snap.state.get("gameTime")      # None on a jar before 0.1.39: notes then never expire
@@ -488,7 +540,7 @@ class Brain:
         tape.event(act.name, outcome, str(self.last_failure.__dict__) if self.last_failure else "")
         tape.end(self, act, snap)
         if act.task is not None:
-            write(act.task, self.after_step(act, outcome, Inventory))
+            write(act.task, self.after_step(act, outcome))
 
     def idle_wait(self, work_queued):
         """Nothing to do: wait up to IDLE_WAIT_TICKS in IDLE_SLICE_TICKS slices, ending as soon as work is queued. The
@@ -512,8 +564,19 @@ class Brain:
                 break
         return slices
 
-    # -- deciding (nothing acts in here beyond queueing tasks)
+    # -- deciding (nothing acts on the world in here; the queue's bookkeeping — running, done, failed — is written)
     def decide(self, snap, ctx):
+        """One round: its search steps counted from here, to the user's cap (planner.ROUND_STEPS, P4); why nothing
+        could be planned (`unplannable`) is this round's alone."""
+        planner.SPENT["round"] = planner.SPENT["steps"]
+        self.unplannable.clear()
+        planner.PATHS.clear()
+        try:
+            return self._decide_round(snap, ctx)
+        finally:
+            planner.SPENT["round"] = None
+
+    def _decide_round(self, snap, ctx):
         """Every layer proposes, the arbiter chooses; nothing here ranks."""
         def fast():
             out = []
@@ -521,7 +584,8 @@ class Brain:
                 out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
             unanswered = fight_loop.unanswered_now(time.time())
             afloat = self.reflexes.afloat
-            k = hazard.rescue_due(snap.state, unanswered=unanswered, afloat=afloat)
+            k = hazard.rescue_due(snap.state, buried=skillcore.head_buried_in(snap.region, snap.state),
+                                  unanswered=unanswered, afloat=afloat)
             if k is not None and self.ready(f"rescue {k}"):
                 out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
                     ctx, snap.state, self.attempt, self.ready, threatened=bool(threat.threats_seen()[0]),
@@ -533,11 +597,10 @@ class Brain:
             self.needs.propose(snap, ctx)
             out = [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
                    for seq, name, run in self.reflexes.proposals(snap, ctx)]
-            for kind, goal, _why in (self.needs.needs_now if getattr(self, "planning", True) else ()):
-                act = self.need_act(kind, goal, snap, ctx)
-                if act is not None:
-                    out.append(arbiter.Intent("plan", act, kind=kind, key=f"{kind}: {goals.describe(goal)}",
-                                              surface=act_on_surface(act)))
+            if self.abandoned == "cover":
+                self.abandoned = None
+                cover = Act("upkeep", "abandoned: cover", lambda: needs.cover(ctx, snap.state))
+                out.insert(0, arbiter.Intent("maintain", cover, key=cover.name, seq=-1))
             return out
 
         # the gate's facts: what is cooling, and whether the surface is closed (met and unplannable needs are judged
@@ -555,31 +618,69 @@ class Brain:
 
         layers = (timed("fast", fast), timed("upkeep", upkeep)) + \
             ((timed("plan", lambda: self.plan_proposals(snap, ctx)),) if getattr(self, "planning", True) else ())
-        intents, facts = arbiter.first_live(layers, facts_of)
+        try:
+            intents, facts = arbiter.first_live(layers, facts_of)
+        except api.Interrupted as e:
+            # S1/S7: a hazard stopped the plan mid-search: the round restarts on its own fresh read (K10's one read of
+            # the new round), only the fast layer asked
+            api.consume_interrupt()
+            api.detail(f"   planning stopped: {e}")
+            snap = Snapshot.read(_k.SOURCE_BLOCKS, survive.ROUND_GROUND)
+            intents, facts = arbiter.first_live((timed("fast", fast),), facts_of)
+        self.decided_on = snap
         chosen = arbiter.arbitrate(intents, facts=facts)
         self._mark("arb")
         arbiter.note_pick(self.__dict__.setdefault("picks", collections.Counter()), chosen)
         return chosen.action if chosen else None
 
     def plan_proposals(self, snap, ctx):
-        """The queue's head (by night a step needing no sun), else night ore, waiting for day or idle stocking; asked after upkeep, which outranks it."""
+        """The round's one plan over the queue and upkeep's needs; else night ore, waiting for day or idle stocking."""
         items = tasks.load()
         if tasks.expire(items):
             tasks.save(items)
         live = [t for t in items if t["state"] in tasks.LIVE]
         closed = snap.night
         self.just_finished = False
+        entries, queued = [], []
         for seq, task in enumerate(live):
             if not self.ready(f"task {task['id']}"):
                 continue
-            act, update = self.task_act(task, snap, ctx, Cost(snap, self.mem, self.blacklist,
-                                                              policy=self.policy_cache))
-            write(task, update)
+            if goals.remainder(tasks.goal_of(task), snap, self.mem) == {}:
+                write(task, self._collecting(lambda t=task: self.finish(t, "done", ""))[1])
+                continue
+            entries.append((f"task {task['id']}", tasks.goal_of(task), seq))
+            queued.append(task)
+        for kind, goal, _why in (self.needs.needs_now if getattr(self, "planning", True) else ()):
+            name = f"{kind}: {goals.describe(goal)}"
+            if self.ready(name):
+                entries.append((name, goal, len(live) + len(entries)))
+        if entries:
+            cost = Cost(snap, self.mem, self.blacklist, stop=api.stop_asked,
+                        policy=self.policy_cache)
+            old = self.held.get(queued[0]["id"]) if queued else getattr(self, "needs_plan", None)
+            held = self.round_for(entries, snap, cost, old)
+            if held is None:
+                self.unplannable_round(entries, queued, snap, cost)
+                return []
+            self.needs_plan = held
+            for task in queued:
+                self.held[task["id"]] = held
+                if task.get("state") != "running":
+                    write(task, {"state": "running"})
+            act, kind = None, None
+            for task in queued:
+                act, update = self.task_act(task, snap, ctx, cost, held)
+                write(task, update)
+                if act is not None:
+                    kind = "queue"
+                    break
+            if act is None and not queued:
+                act, kind = self.round_act(held["steps"], snap, ctx), "round"
             if act is not None:
-                queued = arbiter.Intent("plan", act, kind="queue", seq=seq, key=f"task {task['id']}",
+                picked = arbiter.Intent("plan", act, kind=kind, key=act.name,
                                         surface=act_on_surface(act) or (closed and self.under_sky(snap)))
-                if arbiter.viable(queued, {"surface_closed": closed}):
-                    return [queued]     # a surface step at night: the next task's, or the night's own work
+                if arbiter.viable(picked, {"surface_closed": closed}):
+                    return [picked]
         if self.just_finished and not any(t["state"] in tasks.LIVE for t in tasks.load()):
             # the round that finished the last task proposes nothing: stocking in the same breath was momentum, not a decision
             return []
@@ -587,12 +688,75 @@ class Brain:
             act = self.prepare(snap, ctx)
             return [arbiter.Intent("plan", act, kind="idle", key=act.name, surface=True)] if act else []
         out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: survive.wait_for_day(ctx)),
-                              kind="wait for day", key="wait for day")]
+                              self.wait_why(snap), kind="wait for day", key="wait for day")]
         if "pickaxe" in self.needs.working:
             act = self.night_stock(snap, ctx)
             if act is not None:
                 out.append(arbiter.Intent("plan", act, kind="night stock", key=act.name))
         return out
+
+    def round_for(self, entries, snap, cost, old=None):
+        """The held plan while nothing it was made from changed, else planned again (K4), switched only when it pays (D4)."""
+        self.plan_switch = None
+        key = round_key(entries, snap, self.mem)
+        if old is not None and not old["event"] and not old.get("ran") and old["sig"] == bag_signature(snap.inv) \
+                and old.get("want") == key and old["dim"] == snap.dimension:
+            return old
+        same = old is not None and not old.get("ran") and old.get("want") == key and old["dim"] == snap.dimension
+        held, why = replan(entries, snap, cost, self.mem.pending_outputs(snap.dimension),
+                           held=old["steps"] if old is not None and old.get("want") == key else None)
+        if held is None:
+            self.unplannable["round"] = why or "unplannable"
+            return None
+        held["want"] = key
+        if old is not None and same and old["steps"] \
+                and [str(s) for s in old["steps"]] != [str(s) for s in held["steps"]]:
+            held_s = repriced_s(old["steps"], cost, snap.inv)
+            chosen_s, lost_s = sum(s.est for s in held["steps"]) / TICKS_PER_S, thrown_s()
+            switched = pays_switch(held_s, chosen_s, lost_s)
+            self.plan_switch = (held_s, chosen_s, lost_s, switched)
+            if not switched:
+                old.update(event=False, sig=bag_signature(snap.inv))
+                return old
+        tape.event("round", "plan", " → ".join(map(str, held["steps"])))
+        if held["steps"]:
+            api.detail("   the round's plan: " + " → ".join(map(str, held["steps"])))
+        return held
+
+    def unplannable_round(self, entries, queued, snap, cost):
+        """Each target planned alone: a task that cannot be fails, a need cools."""
+        tasks_by = {f"task {t['id']}": t for t in queued}
+        for name, goal, rank in entries:
+            if planner.round_spent():
+                break          # the round's steps are spent: the rest are asked again next round, not failed
+            _held, why = replan([(name, goal, rank)], snap, cost, self.mem.pending_outputs(snap.dimension))
+            if why is None or planner.round_spent():
+                continue      # planned, or the search ran out of the round's steps: not proof it cannot be
+            if name in tasks_by:
+                write(tasks_by[name], self._collecting(lambda t=tasks_by[name], w=why: self.fail_task(t, w))[1])
+            else:
+                self.unplannable[name] = why
+                self.failed(name, NotAvailable(why))
+
+    def round_act(self, steps, snap, ctx):
+        """The act for the round plan's first runnable step, or None."""
+        open_air = snap.night and self.under_sky(snap)
+        for st in steps:
+            if not met(st, snap) and self.valid(st, snap, ctx) and not (snap.night and arbiter.on_surface(st.kind)) \
+                    and not open_air:
+                return craft_act("plan", f"round: {step_key(st)}", ctx, steps, st, snap.night, inv=snap.inv)
+        return None
+
+    def wait_why(self, snap):
+        """Why the night is waited out (D1)."""
+        if not self.under_sky(snap):
+            return "night under cover: waiting for day"
+        cooled = decompose.cooled_ways(self.ready)
+        way, _secs, _steps = self.needs.overnight(snap)
+        if way is not None and not cooled:
+            return f"night in the open: {way} is the night's way"
+        return "night in the open, no way through it here: " + (
+            f"{', '.join(cooled)} failed here lately" if cooled else "none can be had")
 
     def under_sky(self, snap):
         """The body stands under the open sky (reflexes.sheltered: not under rock, walled in, nor inside a site): by
@@ -604,11 +768,12 @@ class Brain:
         name = f"{kind}: {goals.describe(goal)}"
         if not self.ready(name):
             return None
-        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED)
+        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED,
+                    stop=api.stop_asked)
         try:
             steps = decompose.decompose(snap.inv, goal, cost, pending=self.mem.pending_outputs(snap.dimension))
         except Unplannable as e:
-            self.__dict__.setdefault("unplannable", {})[name] = str(e)     # why this need offers no step (readout)
+            self.unplannable[name] = str(e)
             return None
         # by night: no surface step, and no step at all under the open sky (the shelter row runs the night's prep)
         closed = snap.night
@@ -620,9 +785,10 @@ class Brain:
         return craft_act("upkeep", name, ctx, steps, step, snap.night, inv=snap.inv)
 
     # -- the queue: hold a plan, check it cheaply, repair it on events
-    def task_act(self, task, snap, ctx, cost):
-        """The queue's decision for one task, IO outside: (act or None, task fields to write — applied by the caller right after)."""
-        return self._collecting(lambda: self._task_act(task, snap, ctx, cost))
+    def task_act(self, task, snap, ctx, cost, held):
+        """The queue's decision for one task, IO outside: (act or None, task fields to write — applied by the caller
+        right after). `held`: the round's plan it is part of."""
+        return self._collecting(lambda: self._task_act(task, snap, ctx, cost, held))
 
     def _collecting(self, decide):
         """(decide(), the task fields it changed): task writes in between are kept, not written."""
@@ -639,7 +805,7 @@ class Brain:
         else:
             tasks.update(task["id"], **fields)
 
-    def _task_act(self, task, snap, ctx, cost):
+    def _task_act(self, task, snap, ctx, cost, held):
         goal = tasks.goal_of(task)
         # reconcile: the remainder is read each round ({} = done); the held plan is a cache of how, never a count
         rest = goals.remainder(goal, snap, self.mem)
@@ -647,16 +813,6 @@ class Brain:
         if finished:
             self.finish(task, "done", "")
             return None
-        held = self.held.get(task["id"])
-        if held is None and task.get("plan"):
-            # a plan saved before a restart is a hint, checked against the bag like any event
-            held = {"steps": [decompose.from_dict(d) for d in task["plan"]], "sig": None, "event": True,
-                    "dim": snap.dimension}
-        if held is None or held["event"] or held.get("want") != rest or held["dim"] != snap.dimension:
-            held = self.repair(task, goal, snap, held, cost)
-            if held is None:
-                return None
-            held["want"] = rest
         if not held["steps"]:
             if finished is None:                  # a run-once goal whose plan has run
                 self.finish(task, "done", "")
@@ -667,12 +823,7 @@ class Brain:
                 return None
             self.fail_task(task, f"nothing left to plan, still short of {waiting}")
             return None
-        step = next((s for s in held["steps"] if self.valid(s, snap, ctx)), None)
-        if step is None and ctx is not None:
-            kinds = self.fight_blocked(held["steps"], snap, ctx)
-            act = self.raise_line(kinds, snap, ctx) if kinds else None
-            if act is not None:
-                return act
+        step = next((s for s in held["steps"] if not met(s, snap) and self.valid(s, snap, ctx)), None)
         if step is None:
             # same bag, same plan: re-solving every round ran nothing, so the step cools until the next event
             self.fail_step(task, NotAvailable("no step of the plan can run from here"))
@@ -683,76 +834,35 @@ class Brain:
             | bag.reserved_ids([], goals.needs(goal, snap.inv))
         bag.RESERVED.clear()
         bag.RESERVED.update(reserved)
-        return craft_act("task", f"task {task['id']}", ctx, held["steps"], step, snap.night, task=task,
-                         inv=snap.inv)
+        act = craft_act("task", f"task {task['id']}", ctx, held["steps"], step, snap.night, task=task, inv=snap.inv)
+        if finished is None:          # a run-once goal: its own step ends it once its contract takes the world
+            own = [n[1] for n in decompose.round_needs(goal, snap.inv, cost) if n[0] == "do"]
+            act.finishes = run_once_ends(own, act.steps, held)
+        return act
 
-    def valid(self, step, snap, ctx=None):
+    def valid(self, step, snap, ctx):
         """The cheap per-round check: inputs held, and the skill's own preconditions pass."""
         if not (runnable(step, snap.inv) and self.ready(step_key(step))):
             return False
-        if ctx is None:
-            return True
         found = dispatch.runner_for(ctx, step)
         if found is not None and not fight_line_holds(found[0].contract, (ctx,) + tuple(found[1]), snap.state, snap.inv)[0]:
             return False
-        return dispatch.can_start(ctx, step)
+        return dispatch.can_start(ctx, step, snap.inv)
 
-    def fight_blocked(self, steps, snap, ctx):
-        """The mob kinds of the first held step refused only by the fight line, or None."""
-        for st in steps:
-            if not (runnable(st, snap.inv) and self.ready(step_key(st))):
-                continue
-            found = dispatch.runner_for(ctx, st)
-            if found is None:
-                continue
-            contract, args = found[0].contract, (ctx,) + tuple(found[1])
-            if not fight_line_holds(contract, args, snap.state, snap.inv)[0]:
-                return list(contract.fights(skillkit.Call(args, {})) or ())
-        return None
+    def after_step(self, act, outcome):
+        """The held plan after a step's outcome; returns the task fields to write."""
+        return self._collecting(lambda: self._after_step(act, outcome))[1]
 
-    def raise_line(self, kinds, snap, ctx):
-        """The first step toward the cheapest kit that clears the fight line, or None."""
-        import math
-        priced = [(self.needs.plan_s(goals.have(*rows), snap), rows) for rows in line_raisers(kinds, snap.state, snap.inv)]
-        priced = [(secs, rows) for secs, rows in priced if secs < math.inf]
-        if not priced:
-            return None
-        _secs, rows = min(priced, key=lambda p: p[0])
-        return self.need_act("fight line", goals.have(*rows), snap, ctx)
-
-    def repair(self, task, goal, snap, held, cost):
-        """Bring the held plan up to date: run-once goals keep what is left (a road walks on); item goals are re-solved from the bag."""
-        if held is not None and goal["goal"] in goals.RUN_ONCE:
-            held.update(event=False, sig=bag_signature(snap.inv), dim=snap.dimension)
-            self.held[task["id"]] = held
-            return held
-        held, why = replan(task, goal, snap, cost, self.mem.pending_outputs(snap.dimension))
-        if held is None:
-            self.fail_task(task, why)
-            return None
-        steps = held["steps"]
-        self.held[task["id"]] = held
-        self._write(task, state="running", plan=[decompose.to_dict(s) for s in steps])
-        tape.event(f"task {task['id']}", "plan", " → ".join(map(str, steps)))
-        if steps:
-            api.detail(f"   plan for {tasks.describe_task(task)}: " + " → ".join(map(str, steps)))
-        return held
-
-    def after_step(self, act, outcome, bag_now):
-        """The held plan after a step's outcome; returns the task fields to write. `bag_now()` is read only on success."""
-        return self._collecting(lambda: self._after_step(act, outcome, bag_now))[1]
-
-    def _after_step(self, act, outcome, bag_now):
+    def _after_step(self, act, outcome):
         task = act.task
         held = self.held.get(task["id"])
         if held is None:
             return
         if outcome == "ok":
-            for st in act.steps:
-                if st in held["steps"]:
-                    held["steps"].remove(st)
-            held["sig"] = bag_signature(bag_now())
-            self._write(task, plan=[decompose.to_dict(s) for s in held["steps"]])
+            if getattr(act, "finishes", False):
+                self.finish(task, "done", "")
+                return
+            held["ran"] = True
             return
         held["event"] = True                          # failed or interrupted: repair before the next step
         verdict = self.last_failure
@@ -805,11 +915,12 @@ class Brain:
     def price_table(self, snap=None):
         """{item: seconds to get one another way}, for skills that ask what a thing is worth."""
         try:
-            snap = snap or Snapshot.from_readings(api.get("/state"), Inventory())
+            snap = snap or Snapshot.read(_k.SOURCE_BLOCKS, survive.ROUND_GROUND)
         except McError as e:
             api.swallowed("brain.price_table", e)
             return {}
-        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache), snap.inv)
+        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache,
+                           stop=api.stop_asked), snap.inv)
 
     # -- bookkeeping
     def track(self, snap):
@@ -876,6 +987,17 @@ def write(task, fields):
     if fields:
         tasks.update(task["id"], **fields)
 
+DANGER_SOURCES = ("layer:safety", "layer:tactic")     # and every "hazard:…"
+
+
+def abandon_after(err, source):
+    """Pure (E5): cover after a danger, else replan; a skill's own `abandon` overrides."""
+    if isinstance(err, api.TaskStuck) and err.then is not None:
+        return err.then
+    if source is not None and (source in DANGER_SOURCES or source.startswith("hazard:")):
+        return "cover"
+    return "replan"
+
 def outcome_of(err) -> "tuple[Outcome, Source | None]":
     """Pure: (outcome, interrupt source); "interrupted" when the source's rule resumes the work — no count, no /stop, no cooldown."""
     if err is None:
@@ -883,16 +1005,37 @@ def outcome_of(err) -> "tuple[Outcome, Source | None]":
     source = retry.source_of(err)
     return ("interrupted" if arbiter.resume_of(source)[0] else "failed"), source
 
-def replan(task, goal, snap, cost, pending=None):
-    """Pure given the cost: (held, None), or (None, why) when no solver can plan `goal`."""
+def run_once_ends(own, steps, held):
+    """Pure: the run-once task's own step is among `steps` (its "do" needs); with none named, the round plan's last
+    step ends it only when that plan is the task's alone (a shared round plan's last step is another target's)."""
+    if own:
+        return any(step_key(o) == step_key(st) for o in own for st in steps)
+    return len(held.get("want") or ()) <= 1 and bool(held["steps"]) and held["steps"][-1] in steps
+
+def met(step, snap):
+    """Pure: the world already holds what a walk makes."""
+    if step.kind == "goto":
+        return math.dist(snap.feet, tuple(step.detail["pos"])) <= float(step.detail.get("range", 2))
+    return False
+
+def round_key(entries, snap, mem) -> tuple:
+    """Each target's name, goal and what the world still lacks."""
+    return tuple((name, json.dumps(goal, sort_keys=True), json.dumps(goals.remainder(goal, snap, mem), sort_keys=True))
+                 for name, goal, _rank in entries)
+
+def replan(entries, snap, cost, pending=None, held=None):
+    """Pure given the cost: (held, None) or (None, why) for `entries` [(name, goal, queue place)]."""
     try:
-        solver = task.get("solver") or goals.SOLVER_FOR.get(goal["goal"]) or decompose.ORDER[0]
-        steps = decompose.decompose(snap.inv, goal, cost, solver=solver, pending=pending)
-    except Unplannable:
-        try:
-            steps = decompose.decompose(snap.inv, goal, cost, solver=None, pending=pending)
-        except Unplannable as e:
-            return None, f"unplannable: {e}"
+        # an unopened home chest is looked into first when the look pays
+        steps = next((look for name, goal, _rank in entries if name.startswith("task ") and goal["goal"] in goals.ITEM_GOALS
+                      for look in [planner.look_first(snap.inv, goals.needs(goal, snap.inv), cost, pending)] if look),
+                     None)
+        if steps is None:
+            targets = [planner.Target(name, decompose.round_needs(goal, snap.inv, cost), rank)
+                       for name, goal, rank in entries]
+            _first, steps, _secs = planner.plan_round(snap.inv, targets, cost, pending, held=held)
+    except Unplannable as e:
+        return None, f"unplannable: {e}"
     return {"steps": steps, "sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension}, None
 
 def code_version():

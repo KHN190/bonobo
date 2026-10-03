@@ -1,4 +1,4 @@
-"""The oracle: one function per invariant of docs/refactor.md (S1–S6, D1–D7, E1–E3, P1–P2, R1–R5; P2 and the plan family in check/inv), each
+"""The oracle: one function per invariant of docs/refactor.md (S1–S6, D1–D7, E1–E3, P1–P5, R1–R5; P2–P5 and the plan family in check/inv), each
 fn(before, d, after, ctx) -> None (holds) | str (why not). An invariant no offline fact can judge returns
 UNCHECKED(why): said, never silently passed. Rules and thresholds come from production."""
 from .facts import PENDING, night_ways
@@ -55,6 +55,9 @@ def S4(b, d, a, ctx):
         return None
     if d.kind is None:
         return "idle in the open at night (nothing proposed)"
+    # no night way here and the wait says why (D1)
+    if _name(d) == "wait for day" and "night_way" in ctx and ctx["night_way"] is None and d.reason:
+        return None
     return f"open-air at night: {d.name} ({ctx.get('step_kind')})"
 
 

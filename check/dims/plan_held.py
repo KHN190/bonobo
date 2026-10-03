@@ -1,8 +1,8 @@
 """plan_held: what the brain holds for the queue's first task from an earlier round (brain.held: the plan cache
-_task_act checks cheaply and repairs on events) — none; a plan marked for repair (an event); a plan run out while
-the goal is still short (waiting, or failed); a plan none of whose steps can run (the step cools); a run-once goal
-whose plan has run (done); a road with legs left after an event (repair keeps them). Read only over the task values
-it is made for."""
+_task_act checks cheaply and makes again from the world on events, K4) — none; a plan marked for repair (an event); a
+plan run out while the goal is still short (waiting, or failed); a plan none of whose steps can run (the step cools); a
+step of it just ran (the next round plans again from the world, no step count kept); a road held after an event. Read
+only over the task values it is made for."""
 NAME = "plan_held"
 VALUES = ("none", "event", "emptied", "stuck", "ran", "walking", "other_dim", "craft_run", "replan_fails")
 # other_dim: held in the other dimension (repaired on arrival); craft_run: crafts in a row from carried logs, short of
@@ -47,23 +47,25 @@ def craft_chain():
             Step("craft", "minecraft:furnace", 1, {"times": 1, "inputs": {"minecraft:cobblestone": 8}})]
 
 
-def held_for(value, goal, snap, mem):
+def held_for(value, goal, snap, mem, key=None, blacklist=None):
     """The held plan of `value` for `goal` (brain.held's shape: steps, sig, event, dim, want), each step priced by the
-    production cost model as the planner prices its own (Step.est: D6 reads it)."""
+    production cost model over the round's readings (its look, perception's ground) as the planner prices its own
+    (Step.est: D6 reads it)."""
     from bonobo.cost import Cost
+    from bonobo.planner import from_bag, price_as_run
     from typing import cast
-    out = _held_for(value, goal, snap, mem)
-    cost = Cost(snap, mem)
-    for st in cast(list, out["steps"]):
-        st.est = cost.estimate(st)
+    out = _held_for(value, goal, snap, mem, key)
+    cost = Cost(snap, mem, blacklist)
+    steps = cast(list, out["steps"])
+    for st, est in zip(steps, price_as_run(steps, list(from_bag(snap.inv, reserved=cost.reserved).tools), cost)):
+        st.est = est                 # as the plan runs: the tools its earlier steps make (planner.plan_round)
     return out
 
 
-def _held_for(value, goal, snap, mem):
-    from bonobo import goals
+def _held_for(value, goal, snap, mem, key=None):
+    from bonobo.bag import bag_signature
     from bonobo.decompose import Step
-    rest = goals.remainder(goal, snap, mem)
-    out = {"sig": None, "event": False, "dim": snap.dimension, "want": rest, "hand_made": True}
+    out = {"sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension, "want": key, "hand_made": True}
     if value == "event":
         return dict(out, steps=[_iron_pickaxe()], event=True)
     if value == "emptied":
@@ -72,7 +74,8 @@ def _held_for(value, goal, snap, mem):
         # its inputs are not in the bag: runnable() refuses it (brain.valid)
         return dict(out, steps=[_iron_pickaxe({"minecraft:iron_ingot": 3, "minecraft:stick": 2})])
     if value == "ran":
-        return dict(out, steps=[])
+        return dict(out, steps=[Step("skill", goal["args"]["name"], 1, {"args": list(goal["args"].get("args", []))})],
+                    ran=True)
     if value == "other_dim":
         other = "minecraft:the_nether" if snap.dimension == "minecraft:overworld" else "minecraft:overworld"
         return dict(out, steps=[_iron_pickaxe()], dim=other)
@@ -86,12 +89,17 @@ def _held_for(value, goal, snap, mem):
 def prepare(brain, facts):
     if facts["plan_held"] == "none":
         return
-    from bonobo import api, tasks
-    from bonobo.world import Inventory, Snapshot
+    from bonobo import tasks
+    from bonobo.knowledge import SOURCE_BLOCKS
+    from bonobo.survive import ROUND_GROUND
+    from bonobo.world import Snapshot
+    from bonobo.brain import round_key
     tid = task_id()
-    task = next(t for t in tasks.load() if t["id"] == tid)
-    snap = Snapshot.from_readings(api.get("/state"), Inventory())
-    brain.held[tid] = held_for(facts["plan_held"], tasks.goal_of(task), snap, brain.mem)
+    live = [t for t in tasks.load() if t["state"] in tasks.LIVE]
+    seq, task = next((i, t) for i, t in enumerate(live) if t["id"] == tid)
+    snap = Snapshot.read(SOURCE_BLOCKS, ROUND_GROUND)    # the round's own reading (check/round.py reads the same)
+    brain.held[tid] = held_for(facts["plan_held"], tasks.goal_of(task), snap, brain.mem,
+                               round_key([(f"task {tid}", tasks.goal_of(task), seq)], snap, brain.mem), brain.blacklist)
 
 
 def alpha(a):
@@ -106,8 +114,10 @@ def alpha(a):
         return "walking" if any(s.kind == "goto" for s in h["steps"]) else "event"
     if len(h["steps"]) > 1 and all(s.kind in ("craft", "mine") for s in h["steps"]):
         return "craft_run"
+    if h.get("ran"):
+        return "ran"
     if not h["steps"]:
-        return "ran" if h["want"] is None else "emptied"
+        return "emptied"
     return "stuck"
 
 

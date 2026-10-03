@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from .game import TICKS_PER_S
 
 STATION_R = 8.0         # a station or machine of ours this near is one we have
+MECHANISMS_NAME = "mechanisms.json"     # the taught mechanisms (mechanisms.learn), beside the notes
 DOOR_NEAR = 2.0         # a door this near the straight way here → there is on the way
 
 if TYPE_CHECKING:
@@ -47,6 +48,8 @@ def mid(name) -> str:
 
 # a pod on open ground: 4 sides at the feet, 4 at the head, the roof and the cap it is placed against (9 left an opening)
 POD_BLOCKS = 10
+# terrain facts: how long a read is kept (P1); our own block-changing sends drop it, the game's block events are not read
+FACT_TTL_S = {"look": 3.0, "ground": 2.0, "kit": 2.0, "reach": 2.0}
 READ_EVERY_S = 0.1     # the fastest useful re-read of the game while waiting on it: two ticks (api waits on it; a fight's estimate charges it per target)
 
 # never thrown whatever a price says (an unpriced diamond went out as junk)
@@ -128,6 +131,13 @@ def weapon_hit(item):
         return float(HAND_DAMAGE), float(HAND_ATTACKS_PER_S)
     return float(WEAPON_DAMAGE[kind][material]), float(ATTACKS_PER_S[kind][material])
 # The tiers a tool is crafted at, and its material: the inverse of TIER_OF_MATERIAL over the craftable materials.
+# piglin bartering (data/minecraft/loot_table/gameplay/piglin_bartering.json, 1.21.11): item → (weight, the pool's
+# total weight, count min, count max) — one gold ingot a barter
+PIGLIN_BARTER = {"minecraft:ender_pearl": (10, 469, 2, 4)}
+# what a built machine provides, by the tag its blueprint carries
+MACHINE_PROVIDES = {"smelting": "minecraft:furnace", "crafting": "minecraft:crafting_table"}
+# the dimensions by the game's ids
+OVERWORLD, NETHER, THE_END = "minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"
 TOOL_MATERIAL_FOR_TIER = {TIER_OF_MATERIAL[m]: m for m in MATERIAL_TOKEN}
 ANIMALS = {"minecraft:cow": "beef", "minecraft:pig": "porkchop", "minecraft:sheep": "mutton",
            "minecraft:chicken": "chicken", "minecraft:rabbit": "rabbit"}
@@ -164,7 +174,7 @@ GROUPS = {
     "food": list(FOOD),
 }
 
-def recipes():
+def recipes() -> dict:
     """item -> (row-major pattern of item ids / group tokens / None, output count). 4 entries = 2×2, 9 = 3×3."""
     s, i = "minecraft:stick", "minecraft:iron_ingot"
     r = {
@@ -232,7 +242,23 @@ def recipes():
         r[f"minecraft:{material}_shovel"] = ([None, tok, None, None, s, None, None, s, None], 1)
         r[f"minecraft:{material}_sword"] = ([None, tok, None, None, tok, None, None, s, None], 1)
         r[f"minecraft:{material}_hoe"] = ([tok, tok, None, None, s, None, None, s, None], 1)
+    r.update(vanilla_recipes())
     return r
+
+def vanilla_recipes():
+    """The recipes copied from the 1.21.11 jar (vanilla/recipe), in recipes()' form."""
+    import json
+    import os
+    out = {}
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vanilla", "recipe")
+    for name in sorted(os.listdir(folder)):
+        with open(os.path.join(folder, name), encoding="utf-8") as f:
+            got = json.load(f)
+        if got["type"] != "minecraft:crafting_shapeless":
+            raise ValueError(f"{name}: recipe type {got['type']} not read")
+        cells = list(got["ingredients"])
+        out[got["result"]["id"]] = (cells + [None] * ((4 if len(cells) <= 4 else 9) - len(cells)), got["result"]["count"])
+    return out
 
 RECIPES = recipes()
 
@@ -341,7 +367,7 @@ def in_box(box, p):
     return all(min(lo[i], hi[i]) <= p[i] <= max(lo[i], hi[i]) for i in range(3))
 
 
-def home_box_of(boxes, p):
+def home_box_of(boxes, p) -> tuple | None:
     """Pure: the box of `boxes` (a home's) the cell of point `p` lies in, or None."""
     cell = tuple(math.floor(v) for v in p)
     return next((b for b in boxes if in_box(b, cell)), None)
@@ -389,7 +415,7 @@ SLEEP_BLOCKERS = {f"minecraft:{n}" for n in (
 SLEEP_BLOCKERS_ANGRY = {"minecraft:zombified_piglin"}
 BED_BOX = (8.0, 5.0, 8.0)        # trySleep's monster box: the bed's bottom centre ± these
 BED_REACH = (3.0, 2.0, 3.0)      # trySleep's isBedWithinRange: the player within these of the bed's bottom centre
-TORCH_LIGHT = 15                 # a torch's block light; one less per block away
+TORCH_LIGHT = 14                 # a torch's block light (Minecraft Wiki, Light: torch 14); one less per block away
 REPAIR_BONUS_PARTS = 20          # combining two tools adds 1/this of the max durability
 DEEPSLATE_TOP = 0        # below this y the overworld's rock is deepslate
 # overworld soil over the rock, in blocks, where the column under the feet is not read (knowledge.soil_depth):
@@ -406,6 +432,7 @@ NAV_NODES = 6000
 WALK_BLOCKS_PER_TICK = 0.12   # measured on real routes (hills, water, re-plans)
 WALK_BLOCKS_PER_S = WALK_BLOCKS_PER_TICK * TICKS_PER_S
 ROUTE_FACTOR = 1.5            # real route length / straight line
+MEASURED_BAND = 4.0           # a run moves its average, and a measured price strays from its prior, at most this factor
 
 
 # every exception an attempt can end in, by class name (this module imports nothing): (cause it is counted and
@@ -423,7 +450,7 @@ EXCEPTIONS: "dict[str, tuple[Cause, Source]]" = {
     "PlayerTookControl": ("interrupt", "player"), "FightHolds": ("interrupt", "layer:tactic"),
     "BodyContested": ("interrupt", "manual"), "Died": ("interrupt", "death"),
     "DimensionChanged": ("interrupt", "dimension change"),
-    "Unplannable": ("error", "stuck"), "Unsolvable": ("error", "crash"), "ReplayMiss": ("error", "crash"),
+    "Unplannable": ("error", "stuck"), "Dearer": ("error", "stuck"), "Cut": ("error", "stuck"), "Unsolvable": ("error", "crash"), "ReplayMiss": ("error", "crash"),
     "SetupInvalid": ("error", "crash"),
 }
 
@@ -445,7 +472,7 @@ CRITICAL_HP = 4            # health at or below which danger overrides everythin
 CRITICAL_HP_END = 12       # in the End: a breath or head butt takes 10+
 
 
-def critical_hp(state):
+def critical_hp(state) -> float:
     """Pure: the critical-health floor where the body stands."""
     return CRITICAL_HP_END if state.get("dimension") == "minecraft:the_end" else CRITICAL_HP
 

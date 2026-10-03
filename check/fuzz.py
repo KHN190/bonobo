@@ -93,7 +93,7 @@ def run(seconds, save=False, stall=None, log=print):
                 found.setdefault(inv, f)
 
         last_new = time.time()
-        while time.time() - t0 < seconds * SEARCH_SHARE:
+        while examples[0] == 0 or time.time() - t0 < seconds * SEARCH_SHARE:     # one chunk at least
             arms = sum(gate.arms.values())
             search()  # pyright: ignore[reportCallIssue]  (@given supplies f)
             now = time.time()

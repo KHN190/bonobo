@@ -6,8 +6,9 @@ import os
 import time
 from typing import Any
 from . import paths, blueprints
-from .data import (GROUPS, ITEM_DESPAWN_S, VOLATILITY, bare, home_may_hold, home_part_kind, in_box, mid, placed_cell,
-                   seen_class)
+from .data import (GROUPS, ITEM_DESPAWN_S, MEASURED_BAND, VOLATILITY, bare, home_may_hold, home_part_kind, in_box, mid, placed_cell,
+                   seen_class, MECHANISMS_NAME)
+from .game import WAYPOINT_R
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
 # the player's homes: their own file beside the notes, written only by `mc.py home` — a bot's save of its notes
@@ -210,9 +211,12 @@ class Memory:
         self._tick_read = (time.time(), value)
         return value
 
-    def __init__(self, path=NOTES_FILE):
+    def __init__(self, path=None):
+        path = NOTES_FILE if path is None else path          # read when made: a moved notes file is the one used
         self.path = path
         self.homes_path = os.path.join(os.path.dirname(path), HOMES_NAME)
+        self.taught_mechs: list = []
+        self.reload_taught()
         self.data: dict[str, Any] = read_notes(path)
         d = self.data
         self.clock: int | None = None     # game ticks (/state gameTime), set each round; what every "seen" note is stamped with
@@ -286,6 +290,15 @@ class Memory:
             if seen_class(kind) in ("static", "slow"):
                 self._put(kind, pos, dim, verify=True)
         return bool(old) or had_veins
+
+    def reload_taught(self):
+        """This save's taught mechanisms (mechanisms.learn's lessons file) read into memory: when made and at each
+        round's start (brain._round_body), never while a round prices."""
+        self.taught_mechs = paths.read_json(os.path.join(os.path.dirname(self.path), MECHANISMS_NAME), [])
+
+    def taught(self, dimension):
+        """The mechanisms taught in `dimension` (press → the cells it opens), as memory last read them."""
+        return [m for m in getattr(self, "taught_mechs", ()) if m["dimension"] == dimension]
 
     def save(self):
         write_notes(self.path, self.data)
@@ -503,6 +516,8 @@ class Memory:
         if d is None:
             self.data["durations"][key] = {"per": per, "n": 1}
         else:
+            # one run moves the average a bounded step: a stuck or lucky run is a sample, never the new price
+            per = min(max(per, d["per"] / MEASURED_BAND), d["per"] * MEASURED_BAND)
             d["per"] = d["per"] * 0.7 + per * 0.3
             d["n"] += 1
         self.save()
@@ -556,6 +571,19 @@ class Memory:
         if near is not None and within is not None:
             out = [s for s in out if math.dist(s["pos"], near) <= within]
         return out
+
+    def known_stations(self, block, dimension, near=None, within=None):
+        """Cells of placed `block` stations (any group member) known here: ours and the homes'."""
+        names = {bare(m) for m in GROUPS.get(block, GROUPS.get(bare(block), []))} | {bare(block)}
+        kinds = {home_part_kind(n) for n in names}
+        cells = [tuple(s["pos"]) for s in self.stations(dimension) if bare(s.get("block") or "") in names]
+        for h in self.homes(dimension):
+            parts = h.get("parts") or {}
+            cells += [tuple(p[1]) for p in parts.get("stations", []) if bare(p[0]) in names]
+            cells += [tuple(p) for p in parts.get("beds", [])] if "beds" in kinds else []
+        if near is not None and within is not None:
+            cells = [c for c in cells if math.dist(c, near) <= within]
+        return list(dict.fromkeys(cells))
 
     def remove_station(self, pos):
         self.data["stations"] = [s for s in self.data["stations"] if s["pos"] != list(pos)]
@@ -648,6 +676,22 @@ class Memory:
         cls = seen_class(kind)
         if self._put(kind, pos, dimension, cls=cls if VOLATILITY.get(cls) else "here") is not None:
             self.save()
+
+    def road_walked(self, a, b, dimension):
+        """A chain of travelled legs (roads.py) joins `a` to `b` in `dimension` (ends within WAYPOINT_R: one waypoint)."""
+        legs = (self.data.get("roads") or {}).get(dimension, [])
+        a, b = tuple(int(round(c)) for c in a), tuple(int(round(c)) for c in b)
+        seen, todo = [a], [a]
+        while todo:
+            here = todo.pop()
+            if math.dist(here, b) < WAYPOINT_R:
+                return True
+            for leg in legs:
+                for x, y in ((leg["a"], leg["b"]), (leg["b"], leg["a"])):
+                    if math.dist(x, here) < WAYPOINT_R and not any(math.dist(y, s) < WAYPOINT_R for s in seen):
+                        seen.append(tuple(y))
+                        todo.append(tuple(y))
+        return False
 
     def seen(self, kind, dimension, within=None):
         """Live notes of this kind here, newest first: {kind, pos, dimension, t, verify}."""

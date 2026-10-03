@@ -5,19 +5,61 @@ import functools
 import math
 
 import time
-from typing import TYPE_CHECKING, Any, Mapping, cast
+from typing import TYPE_CHECKING, Any, Mapping, TypeVar, cast
 
 from . import api, lifecycle
 from .game import EYE_HEIGHT
-from .data import (DAY_END, DAY_TICKS, is_night, DOOR_SUFFIX, GROUPS, HAZARD, NIGHT_END, OPEN_PROP, PARTIAL_SUFFIX, PASSABLE,
+from .data import (DAY_END, DAY_TICKS, FACT_TTL_S, is_night, DOOR_SUFFIX, GROUPS, HAZARD, NIGHT_END, OPEN_PROP, PARTIAL_SUFFIX, PASSABLE,
                    PASSABLE_SUFFIX, is_door,
                    PLAYER_MADE_SUFFIX, TIER_OF_MATERIAL, UNBREAKABLE, bare, living, mid)
 
 if TYPE_CHECKING:
     from .shapes import Cell, EntityReading, Equipment, InventoryReading, Slot, StateReading
 
+K = TypeVar("K")
+V = TypeVar("V")
+
+
+class Versioned(dict[K, V]):
+    """A dict whose `version` grows on every write: what is read off it is kept until it is written."""
+
+    version = 0
+
+    def _wrote(self):
+        self.version += 1
+
+    def __setitem__(self, k, v):
+        super().__setitem__(k, v)
+        self._wrote()
+
+    def __delitem__(self, k):
+        super().__delitem__(k)
+        self._wrote()
+
+    def clear(self):
+        super().clear()
+        self._wrote()
+
+    def update(self, *a, **kw):
+        super().update(*a, **kw)
+        self._wrote()
+
+    def pop(self, *a):
+        self._wrote()
+        return super().pop(*a)
+
+    def popitem(self):
+        self._wrote()
+        return super().popitem()
+
+    def setdefault(self, k: K, default: V, /) -> V:
+        if k not in self:
+            self._wrote()
+        return super().setdefault(k, default)
+
+
 # the round's route answers ({key: (found, seconds)}), kept here so the cost model prices a route without importing movement
-ROUTES = {}
+ROUTES = Versioned()
 
 
 def route_key(cell, range_, nodes):
@@ -70,8 +112,10 @@ def cell_add(p, d) -> Cell:
     return p[0] + d[0], p[1] + d[1], p[2] + d[2]
 
 
-def is_enclosed(region, inside):
-    """Pure: no 2-high opening on any side and a solid roof."""
+def is_enclosed(region, inside) -> bool:
+    """Pure: no 2-high opening on any side and a solid roof; a ground not read is not known enclosed."""
+    if region is None:
+        return False
 
     return not openings(region, inside)
 
@@ -160,14 +204,37 @@ class Snapshot:
     """One consistent read of the player: state + inventory, built from readings the caller took."""
     state: StateReading
     inv: Inventory
+    hits: dict           # the round's look: {block: [hit]}
+    mobs: list           # the living entities around
+    region: "Region | None"     # the ground round the feet, read with the round (None: not read: nothing known of it)
+    region_at: float            # when that ground was read (round_ground: kept while fresh)
+    routes: dict                # the game's route answers known when it was read (ROUTES: asked by walks before it)
+    read_seq: int
+    read_at: float
 
     @classmethod
-    def from_readings(cls, state: Mapping[str, Any], inventory: "Mapping[str, Any] | Inventory") -> "Snapshot":
-        """A snapshot of recorded readings (/state dict, /inventory dict or Inventory): no world read."""
+    def from_readings(cls, state: Mapping[str, Any], inventory: "Mapping[str, Any] | Inventory", hits=None,
+                      mobs=None, region=None, region_at=None, routes=None) -> "Snapshot":
+        """A snapshot of recorded readings (/state, /inventory, the look's `hits` and `mobs`, the ground `region`): no
+        world read."""
         snap = cls.__new__(cls)
         snap.state = cast("StateReading", dict(state))
         snap.inv = inventory if isinstance(inventory, Inventory) else Inventory(inventory)
+        snap.read_seq, snap.read_at = api.STATE.state_reads, api.STATE.state_read_at      # the last /state read then
+        snap.hits, snap.mobs, snap.region = dict(hits or {}), list(mobs or []), region
+        snap.region_at = snap.read_at if region_at is None else region_at
+        snap.routes = dict(routes or {})
         return snap
+
+    @classmethod
+    def read(cls, kinds, ground) -> "Snapshot":
+        """The round's read: /state, the bag, the look at `kinds` around the feet (look_around), and the ground
+        (round_ground: `ground`'s box, kept while fresh): every reading the round's decision makes (K10)."""
+        state = api.get("/state")
+        feet = (state["blockX"], state["blockY"], state["blockZ"])
+        hits, mobs = look_around(feet, state.get("dimension"), kinds)
+        region, at = round_ground(feet, ground)
+        return cls.from_readings(state, Inventory(), hits, mobs, region, at, routes=ROUTES)
 
     @property
     def feet(self) -> Cell:
@@ -198,11 +265,11 @@ class Snapshot:
     def get(self, key, default=None):
         return self.state.get(key, default)
 
-SIGHT_TTL_S = 3.0          # a round's look at "how far is the nearest of each": kept while the feet stay put
 _SIGHT = {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}}
+_GROUND: dict = {}          # the round's ground kept: {"region", "at", "writes"} (round_ground)
 SIGHT_PER_BLOCK = 4        # hits kept per block: a source is the nearest of them outside the protected cells
 # the round's route answers and the last look are about the world we stood in (a new row may stand at the same feet)
-lifecycle.in_place(__name__, "ROUTES", "_SIGHT")
+lifecycle.in_place(__name__, "ROUTES", "_SIGHT", "_GROUND")
 PER_BLOCK_SINCE = (0, 1, 55)       # the jar version that answers /find?perBlock
 
 
@@ -220,13 +287,13 @@ def _per_block_ok():
         api.swallowed("world._per_block_ok", e)
         return False
 
-def nearest(kinds, feet, dimension, radius=48, union=(), skip=None):
+def nearest(kinds, feet, dimension, radius: float = 48, union=(), skip=None):
     """Blocks to the nearest of `kinds` in sight, or None — estimates never search the world themselves. `skip`:
     cells that are not there for this ask (a gather source is never a home block)."""
 
     names = [bare(k) for k in kinds]
-    key = (tuple(feet), dimension)
-    fresh = _SIGHT["key"] == key and time.time() - _SIGHT["t"] < SIGHT_TTL_S
+    key = (tuple(feet), dimension, api.STATE.world_writes)
+    fresh = _SIGHT["key"] == key and time.time() - _SIGHT["t"] < FACT_TTL_S["look"]
     if not fresh:
         _SIGHT.update(key=key, t=time.time(), near={}, y={}, hits={})
     near, hits_of = _SIGHT["near"], _SIGHT.setdefault("hits", {})
@@ -257,16 +324,48 @@ def nearest(kinds, feet, dimension, radius=48, union=(), skip=None):
         got = [near[n] for n in names if near.get(n) is not None and near[n] <= radius]
     return min(got) if got else None
 
-def sight_y(kinds, skip=None):
-    """The y of the nearest of `kinds` the last look saw (`nearest`; `skip`: cells not there), or None: no read of its
-    own."""
-    if skip is not None:
-        got = [(h["distance"], h["y"]) for k in kinds for h in _SIGHT.get("hits", {}).get(bare(k), ())
-               if (h["x"], h["y"], h["z"]) not in skip]
-        return min(got)[1] if got else None
-    near, ys = _SIGHT["near"], _SIGHT["y"]
-    got = [(near[n], ys[n]) for n in (bare(k) for k in kinds) if near.get(n) is not None and n in ys]
-    return min(got)[1] if got else None
+def look_around(feet, dimension, kinds, radius=64):
+    """The round's one look (P1: read into the snapshot, the estimates read it, never the world): ({block: [hit]} of
+    `kinds` in sight, [living entities within `radius`])."""
+    nearest(kinds, feet, dimension, union=kinds)
+    try:
+        mobs = entities(radius)
+    except api.McError as e:
+        api.swallowed("world.look_around", e)
+        mobs = []
+    return {k: list(v) for k, v in _SIGHT.get("hits", {}).items()}, mobs
+
+
+def ground_fresh(kept, feet, body, now):
+    """The one rule a read ground is reused by: younger than FACT_TTL_S["ground"], the cells round the body (`body`'s
+    offsets from the feet) still inside it, and no dig or place of ours since it was read (api.STATE.world_writes)."""
+    return (now - kept["at"] < FACT_TTL_S["ground"] and kept["writes"] == api.STATE.world_writes
+            and kept["region"].covers(cell_add(feet, body[0]), cell_add(feet, body[1])))
+
+
+def round_ground(feet, ground, now=None):
+    """(region, read at) of the ground round the feet: the one kept while `ground_fresh`, else `ground`'s box ((box,
+    body): offsets from the feet) read now."""
+    now = time.time() if now is None else now
+    (lo, hi), body = ground
+    kept = _GROUND.get("kept")
+    if kept is not None and ground_fresh(kept, feet, body, now):
+        return kept["region"], kept["at"]
+    try:
+        region = Region(cell_add(feet, lo), cell_add(feet, hi))
+    except api.McError as e:
+        api.swallowed("world.round_ground", e)      # unread: every reader answers "not known" (S1: the round goes on)
+        return None, now
+    _GROUND["kept"] = {"region": region, "at": now, "writes": api.STATE.world_writes}
+    return region, now
+
+
+def seen_hit(hits, kinds, skip=None, radius=math.inf):
+    """Pure: (distance, cell) of the nearest of `kinds` in a look's `hits`, none in `skip`, within `radius`; or None."""
+    got = [(h["distance"], (h["x"], h["y"], h["z"])) for k in kinds for h in hits.get(bare(k), ())
+           if h["distance"] <= radius and (skip is None or (h["x"], h["y"], h["z"]) not in skip)]
+    return min(got) if got else None
+
 
 def find(blocks, radius=32, limit=50, exposed=False):
     """What `/find` sees."""
@@ -399,7 +498,7 @@ def connected(region, seed: Cell, ids) -> set[Cell]:
         todo.extend(cell_add(p, d) for d in NEIGHBOURS6)
     return out
 
-def job_ready(job, tick=None, now=None):
+def job_ready(job, tick=None, now=None) -> bool:
     """Pure given `tick`/`now`: is a background job done?"""
 
     if job.get("ready_tick") is not None and tick is not None:

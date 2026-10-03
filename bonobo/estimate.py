@@ -44,10 +44,8 @@ def arrival_s(here, hazard, ground=None, horizon=None):
     return seconds if seconds == float("inf") else seconds * slower
 
 def reaches_share(shape, mob):
-    """How much of this mob still reaches us once we have stood a block up, dug down, or done neither."""
+    """How much of this mob still reaches us from `shape` (a block up, dug down, a roof, between: Field.shape_now)."""
 
-    if shape is None:
-        return 1.0
     where, n = shape
     if where == "roof":
         # a 3×3 lid 2 high: a tall mob (enderman) can't stand where it reaches us
@@ -124,10 +122,10 @@ def leaving_hp(press, seconds):
     return round(float(press) * float(seconds) * 0.5, 2)
 
 def _row_dps(row):
-    """A threat row's damage rate: its own (`threat.row` puts it at [5]) where it carries one, else the table's."""
-    return float(row[5]) if len(row) > 5 and row[5] is not None else float(beliefs.MOBS[row[3]]["dps"])
+    """A threat row's damage rate (estimate.row fills [5]: its own, else the table's)."""
+    return float(row[5])
 
-def melee_reachable(here, hazard, ground=None):
+def melee_reachable(here, hazard, ground=None) -> bool:
     """Pure: a sword fight with it is on from where we stand — its feet within reach of our eyes, and the shape we
     stand in now (a pillar, a hole: Field.shape_now) not keeping it off us: we don't step down to trade blows."""
     mob = beliefs.MOBS.get(hazard[3], {})
@@ -137,17 +135,17 @@ def melee_reachable(here, hazard, ground=None):
     reach = float(beliefs.PLAYER["melee_reach"])
     return -reach <= dy <= reach + float(beliefs.PLAYER["eye_height"])
 
-def shoot_cost(here, hazards, prot, speed=None):
+def shoot_cost(here, hazards, prot):
     """Pure: seconds to shoot `hazards` down with a bow."""
     shots = sum(math.ceil(float(beliefs.MOBS[h[3]]["hp"]) / float(ENGAGE["arrow_hp"])) / float(ENGAGE["bow_hit_p"])
                 for h in hazards if h[3] in beliefs.MOBS)
     return round(shots * float(ENGAGE["shot_s"]), 2)
 
-def keepoff_cost(here, hazard, sword, prot, speed=None):
+def keepoff_cost(here, hazard, sword, prot):
     """(seconds, hp lost) to kill a creeper hit-and-back: swing, back past its blast before the fuse, repeat.
     `sword` is the item held (None = the hand): each hit is data.weapon_hit's, one per attack cooldown."""
 
-    speed = float(beliefs.PLAYER["speed"]) if speed is None else float(speed)
+    speed = float(beliefs.PLAYER["speed"])
     mob = beliefs.MOBS[hazard[3]]
     per_hit, rate = weapon_hit(sword)
     swing = 1.0 / rate
@@ -182,13 +180,13 @@ def _under(start, length, own, others, cap):
         total += min(cap, own + sum(r for t, r in others if t <= a)) * (b - a)
     return total
 
-def fight_cost(here, hazards, sword, prot, speed=None, shapes=(), shield=False):
+def fight_cost(here, hazards, sword, prot, shapes=(), shield=False):
     """(seconds, hp lost) to kill every threat in melee, nearest first, while the rest keep hitting. Each kill is the
     whole of what the fight loop does for it: see it (one read of the game, `api.READ_EVERY_S`), walk into reach,
     swing it dead, walk onto its drops (they lie where it died, `pickup_r` short of it) — no hidden work (D6).
     `sword` is the item held (None = the hand), priced by data.weapon_hit: whole hits, one per attack cooldown."""
 
-    speed = float(beliefs.PLAYER["speed"]) if speed is None else float(speed)
+    speed = float(beliefs.PLAYER["speed"])
     per_hit, rate = weapon_hit(sword)
     rate = min(rate, 1.0 / float(beliefs.PLAYER["hurt_immunity_s"]))     # a hit inside the target's immunity is lost
     order = sorted((h for h in hazards if h[3] in beliefs.MOBS), key=lambda h: math.dist(here, h[0]))
@@ -222,10 +220,10 @@ def fight_cost(here, hazards, sword, prot, speed=None, shapes=(), shield=False):
         pos = hazard[0]
     return round(seconds, 2), round(lost, 2)
 
-def loss_q(mean_hp, hit_hp, q=None):
-    """Pure: the `q` quantile (engage.fight_line_q) of the health a fight takes — its hits a Poisson count of mean
+def loss_q(mean_hp, hit_hp):
+    """Pure: the engage.fight_line_q quantile of the health a fight takes — its hits a Poisson count of mean
     mean_hp / hit_hp, each `hit_hp`: the spread around fight_cost's mean, in the one place the fight is priced."""
-    q = float(ENGAGE["fight_line_q"] if q is None else q)
+    q = float(ENGAGE["fight_line_q"])
     if mean_hp <= 0 or hit_hp <= 0:
         return 0.0
     lam = mean_hp / hit_hp
@@ -246,9 +244,9 @@ def melee_loss(kinds, sword, prot, shapes=()):
     _s, lost = fight_cost((0.0, 0.0, 0.0), rows, sword, prot, shapes=shapes)
     return lost, max(float(beliefs.MOBS[r[3]]["attack"]) * (1.0 - prot) for r in rows)
 
-def fight_line_ok(hp, floor, mean_hp, hit_hp, q=None):
-    """Pure (S5): an optional fight starts only when the health above `floor` covers its loss's `q` quantile."""
-    return hp - floor >= loss_q(mean_hp, hit_hp, q)
+def fight_line_ok(hp, floor, mean_hp, hit_hp):
+    """Pure (S5): an optional fight starts only when the health above `floor` covers its loss's quantile (loss_q)."""
+    return hp - floor >= loss_q(mean_hp, hit_hp)
 
 def state_price_s(model, state):
     """The fifth quantity: seconds the future costs from `state`, according to the model that owns it."""

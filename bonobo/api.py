@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import threading
@@ -16,7 +17,7 @@ from . import arbiter, lifecycle, paths, tape
 from .data import EXCEPTIONS, TASK_WAIT_S, item_ids, living
 
 if TYPE_CHECKING:
-    from .shapes import Task, TaskResult
+    from .shapes import Task, TaskResult, TaskStatus
 
 # no default instance path: a wrong one read no token and every request came back 401
 INSTANCE = paths.instance_dir()
@@ -39,8 +40,13 @@ class ApiState(lifecycle.State):
     soft: bool = False                   # a soft skill runs: perception's request stays for it to read, no cut
     last_segment_s: float = 2.0          # how far ahead a watcher must look: a segment's measured length
     posts: int = 0                       # POSTs sent: a read taken since the last one still describes the world
+    world_writes: int = 0                # task sends that may change blocks (all but walks): terrain reads drop
+    state_reads: int = 0                 # /state reads so far, and when the last was taken (P1: a snapshot's own)
+    state_read_at: float = 0.0
     feet_seen: "tuple[float, float, float] | None" = None     # the body's place in the last /state read
     dim_seen: "str | None" = None                              # its dimension then
+    moved_m: float = 0.0                 # blocks the body moved, summed over successive /state reads (E4: the path)
+    bar_seen: "tuple[float, float] | None" = None      # (food, saturation) in the last /state read (E4: the drain)
     home_break: "str | None" = None      # a rescue's reason while it may break a home block (home_break_allowed)
     # the body's clock for the round log (brain._round's gap): when a task's end was first seen, when a task was
     # first posted since the round began (perf_counter seconds; None when not yet)
@@ -57,6 +63,7 @@ STATE = lifecycle.owns(__name__, ApiState())
 
 
 ANOMALY = None      # events.anomaly, wired by the brain (api stays below the event log)
+MOVE_READ_MAX = 32.0      # blocks between two /state reads still counted as moving (farther: a teleport, a respawn)
 
 
 def swallowed(where, err):
@@ -103,7 +110,11 @@ class NavFailed(NotAvailable):
     """The body couldn't get where a skill needed it."""
 
 class TaskStuck(McError):
-    """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled."""
+    """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled. `then`: what follows."""
+
+    def __init__(self, message="", then="replan"):
+        super().__init__(message)
+        self.then = then
 
 class CommitmentExpired(McError):
     """The running task outlived the commitment its plan was made under: the world owes the planner a new decision."""
@@ -123,7 +134,12 @@ def interrupt_pending():
     return STATE.interrupt
 
 
-def request_interrupt(reason):
+def stop_asked():
+    """A stop perception asked for (interrupt_pending)."""
+    return interrupt_pending() is not None
+
+
+def request_interrupt(reason) -> None:
     """Leave `reason` for the running work to take (the arbiter's preemption; perception to a soft skill)."""
     STATE.interrupt = reason
 
@@ -387,12 +403,37 @@ def _game_up(timeout=1.0):
         swallowed("api._game_up", e)
         return False
 
-def get(path) -> Any:
+def get(path) -> dict:
     r = api("GET", path)
     if path.startswith("/state") and isinstance(r, dict) and "x" in r:
-        STATE.feet_seen = (r["x"], r["y"], r["z"])      # read for free where a failure happened
+        STATE.state_reads, STATE.state_read_at = STATE.state_reads + 1, time.time()
+        here, dim = (r["x"], r["y"], r["z"]), r.get("dimension", STATE.dim_seen)
+        if STATE.feet_seen is not None and dim == STATE.dim_seen:
+            step = math.dist(STATE.feet_seen, here)
+            STATE.moved_m += step if step <= MOVE_READ_MAX else 0.0      # a teleport or a respawn is no walk
+        STATE.feet_seen = here      # read for free where a failure happened
+        if "food" in r:
+            STATE.bar_seen = (float(r["food"]), float(r.get("saturation", 0.0)))
         STATE.dim_seen = r.get("dimension", STATE.dim_seen)
     return r
+
+
+TASK_STATUSES: "tuple[TaskStatus, ...]" = ("running", "succeeded", "failed", "cancelled")     # the jar's Task.Status (Task.java), lowercased
+
+
+def task_result(task_id) -> "TaskResult":
+    """GET /task?id=: the jar's record of one task as a TaskResult, its fields read one by one (a record without a
+    status, or with one the jar never sends, is the jar's error, raised)."""
+    r = get(f"/task?id={task_id}")
+    try:
+        status = r["status"]
+        if status not in TASK_STATUSES:
+            raise McError(f"/task?id={task_id}: status {status!r}")
+        return {"id": int(r.get("id", task_id)), "type": str(r.get("type") or ""), "status": status,
+                "message": str(r.get("message") or ""),
+                "seconds": float(r.get("seconds") or 0.0), "doing": str(r.get("doing") or ""), "result": r.get("result")}
+    except (KeyError, TypeError, ValueError) as e:
+        raise McError(f"/task?id={task_id}: not a task record ({type(e).__name__}: {e})") from e
 
 
 def feet_seen():
@@ -440,6 +481,9 @@ def post(path, body=None):
         if not arbiter.BODY.owns(f"api.post({path.split('?')[0]})"):
             return {"status": "failed", "message": "body owned by the arbiter", "tasks": []}
     STATE.posts += 1
+    if path.startswith("/task") and isinstance(body, dict) and any(
+            t.get("type") not in WALKS for t in body.get("tasks") or [body]):
+        STATE.world_writes += 1
     return api("POST", path, body or {})
 
 def game_status():
@@ -657,7 +701,7 @@ HOLD = None      # fn(tasks): the item they name put in the main hand first (ski
 HELD_TYPES = ("mine", "place", "pillar", "attack", "eat", "use_item", "bed_bomb", "interact")
 
 
-def walk_only(task):
+def walk_only(task) -> dict:
     """Pure: a walk as the door sends it — digging, building, bridging and boats off (I3); any other task as it is."""
     if task.get("type") not in WALKS:
         return task
@@ -801,14 +845,14 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
         if resume is not None:
             # The same work is already running: wait for it rather than starting it again.
             await_task(resume, wait)
-            done = [get(f"/task?id={resume}")]
+            done = [task_result(resume)]
         else:
             r = post("/task?wait=0", {"tasks": part, "stopOnFailure": stop_on_failure})
             queued = r.get("tasks") or []
             refuse_unqueued(r, queued=bool(queued))
             STATE.last_posted = (chain_signature(part), queued[-1]["id"])
             await_task(queued[-1]["id"], wait)
-            done = [get(f"/task?id={t['id']}") for t in queued]
+            done = [task_result(t['id']) for t in queued]
         for t in done:
             if t["status"] != "succeeded":
                 detail(f"  {t['type']:<9} {t['status']:<9} {t['message']}")

@@ -23,6 +23,15 @@ class Living(unittest.TestCase):
         self.assertEqual([e["id"] for e in got], [alive["id"]])
         self.assertEqual(living([arrow]), [arrow])
 
+    def test_a_row_with_no_id_is_priced(self):
+        from bonobo.cost import Cost
+        cow = {"type": COW, "distance": 6.0, "health": 10.0}      # the jar's row may carry no id (check dim trace no_id)
+        from tests.world import inventory, memory, state
+        snap = world.Snapshot.from_readings(state(), inventory(), {}, [cow])
+        with mock.patch.object(api, "api", side_effect=AssertionError("an estimate read the world")):
+            # must fail: KeyError 'id' (cost._entity read the ban by the row's id)
+            self.assertEqual(Cost(snap, memory())._entity([COW]), 6.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -62,7 +62,7 @@ def _fire_resistance_held():
 
 @skill(gives=["state:brewed"], remaining=_k.potions(lambda s: s.get("potion") in FIRE_RESISTANCE), needs={"minecraft:nether_wart": 1, "minecraft:blaze_powder": 1, "minecraft:glass_bottle": 1}, start=lambda c: _fire_resistance_held(), verify=lambda c: _fire_resistance_held() > c.base,
        budget=300, stall=120,
-       provides={"brew:fire_resistance": lambda ctx, s: ()})
+       provides={"brew:fire_resistance": lambda ctx, s: ()}, station="minecraft:brewing_stand")
 def brew_fire_resistance(ctx):
     """At a brewing stand (found or placed): water bottles + wart → awkward, + magma cream → fire resistance; blaze powder fuels."""
 

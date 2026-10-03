@@ -140,7 +140,7 @@ def _on_land():
     return not swimming(api.get("/state"))
 
 @skill(gives=["state:footing"], remaining=_k.standing, needs={"building": 1}, done=lambda c: bool(api.get("/state").get("onGround")), budget=30, stall=20,
-       provides={"reach:footing": lambda ctx, s: ()})
+       provides={"reach:footing": lambda ctx, s: ()}, sets={"*": {"footing": True}})
 def stand_on_a_block(ctx):
     """Footing, made rather than travelled to: one block under the feet."""
 
@@ -207,7 +207,8 @@ def bridge_toward(ctx, target):
     api.run_chain(tasks, stop_on_failure=True, before_segment=ctx.policy.before_segment)
     return feet()
 
-@skill(gives=["state:ashore"], remaining=_k.on_dry_ground, needs={}, done=lambda c: _on_land(), budget=180, stall=45, provides={"reach:land": lambda ctx, s: ()})
+@skill(gives=["state:ashore"], remaining=_k.on_dry_ground, needs={}, done=lambda c: _on_land(), budget=180, stall=45, provides={"reach:land": lambda ctx, s: ()},
+       sets={"*": {"footing": True}})
 def reach_land(ctx):
     """Night in the water: swim (or boat) to the nearest dry standing spot first; shelters are made from land."""
 
@@ -263,7 +264,7 @@ def burrow_commands(state, args=()):
 
 @skill(gives=["state:sheltered"], needs={"tool:pickaxe:0": 1}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), budget=90, stall=40, commands=lambda st, a: burrow_commands(st, a),
        provides={"state:sheltered": lambda ctx, s: () if _burrow_here(ctx) else None,
-                 "shelter:burrow": lambda ctx, s: ()})
+                 "shelter:burrow": lambda ctx, s: ()}, sets={"*": {"covered": True}})
 def burrow(ctx):
     """Night shelter in a hillside: tunnel 2 in, step to the end, seal the entrance (both faces visible from inside), one chain."""
 
@@ -374,7 +375,7 @@ def _breathing_now():
     return not head_underwater(s) and s.get("air", AIR_FULL) >= AIR_FULL
 
 @skill(gives=["state:air"], remaining=_k.breathing, needs={}, done=lambda c: _breathing_now(), verify=lambda c: _breathed(), budget=45, stall=12,
-       provides={"reach:air": lambda ctx, s: ()})
+       provides={"reach:air": lambda ctx, s: ()}, sets={"*": {"hands_free": True}})
 def find_air(ctx):
     """Out of breath underwater: swim to the nearest dry cell (surfacing in place sank back), else a block at the surface, else dig the cap."""
 
@@ -429,7 +430,7 @@ def bed_room_tasks(region, feet, protected, places, inv):
                 if not all(region.inside(c) for c in cells + [cell_add(foot, (0, -1, 0)), cell_add(head, (0, -1, 0))]):
                     continue
                 tasks, got = nav.open_tasks(region, cells, [cell_add(foot, (0, -1, 0)), cell_add(head, (0, -1, 0))], feet,
-                                            protected, list(places))
+                                            protected, list(places), at=feet)
                 if tasks is None:
                     why = got
                     continue
@@ -507,7 +508,7 @@ def _day_now():
 
 DAY_WAIT_TICKS = 200      # one wait while sitting the night out
 
-@skill(gives=["state:day"], remaining=_k.daytime, needs={}, done=lambda c: _day_now(), budget=600, stall=60, provides={"wait:day": lambda ctx, s: ()})
+@skill(gives=["state:day"], remaining=_k.daytime, needs={}, done=lambda c: _day_now(), budget=600, stall=60, provides={"wait:day": lambda ctx, s: ()}, sets={"*": {"night": False}})
 def wait_for_day(ctx):
     """Sit the night out where we are, in ten-second waits, until the sun is up."""
     t = int(api.get("/state")["timeOfDay"]) % DAY_TICKS
@@ -519,9 +520,8 @@ def wait_for_day(ctx):
         api.run({"type": "wait", "ticks": DAY_WAIT_TICKS}, wait=15, awaits="the time of day")
         yield api.get("/state")["timeOfDay"]
 
-# needs: none the bag can state — a bed carried or one standing nearby
 @skill(gives=["state:day"], remaining=_k.daytime, needs={}, verify=lambda c: _k.daytime({"state": api.get("/state")}, c) == {}, budget=240, stall=60,
-       provides={"sleep": lambda ctx, s: (_night_policy(ctx),)})
+       provides={"sleep": lambda ctx, s: (_night_policy(ctx),)}, sets={"bed": {"night": False}}, station="bed")
 def sleep(ctx, night_policy):
     """Sleep through the night: the home's bed when it is within reach of the night (HOME_BED_R), else a carried bed
     (placed next to us, picked up after), else a nearby site bed."""
@@ -681,19 +681,24 @@ def dig_in_site(region, feet_at, protected=()):
     start = dig_in_start(region, tuple(feet_at))
     return nav.safe_depth(region, start, DIG_IN_DEPTH, protected, dug_to=feet_at[1]) >= DIG_IN_DEPTH
 
-def night_ground():
-    """One region read around the feet for the night's pricing: (seconds' walk to hand-diggable ground or None,
-    whether a dig-in can finish right here)."""
+# the ground the round reads with its snapshot (world.Snapshot.read): the night's soft ground and dig-in column; and
+# the cells round the body its readers ask (enclosed, a pit, a buried head) — kept while they stay inside it
+ROUND_GROUND = (((-SOFT_RADIUS, -DIG_IN_DEPTH - 2, -SOFT_RADIUS), (SOFT_RADIUS, 3, SOFT_RADIUS)),
+                ((-1, -1, -1), (1, 3, 1)))
 
-    x, y, z = feet()
-    region = Region((x - SOFT_RADIUS, y - DIG_IN_DEPTH - 2, z - SOFT_RADIUS), (x + SOFT_RADIUS, y + 3, z + SOFT_RADIUS))
-    spot = nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
-    return (None if spot is None else spot[1] / WALK_BLOCKS_PER_S), dig_in_site(region, (x, y, z))
+
+def night_ground(region, at):
+    """Pure over the round's ground: (seconds' walk to hand-diggable ground or None, whether a dig-in can finish right
+    here); a ground not read is none of either (priced as no soft ground, no dig-in: never taken as safe)."""
+    if region is None:
+        return None, False
+    spot = nearest_soft(region, tuple(at), DIG_IN_DEPTH)
+    return (None if spot is None else spot[1] / WALK_BLOCKS_PER_S), dig_in_site(region, tuple(at))
 
 @skill(gives=["state:sheltered"], needs={}, remaining=lambda st, c: dug_in_left(st, c), start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
        provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None,
                  "shelter:dig in": lambda ctx, s: ()}, prefer=1,
-       budget=60, stall=30)
+       budget=60, stall=30, sets={"*": {"covered": True}})
 def dig_in(ctx):
     """On the surface at night without a bed: dig up to 3 down under the feet and seal the opening overhead."""
 
@@ -821,7 +826,7 @@ def pod_commands(state, args=()) -> "list[Task]":
     return tasks
 
 @skill(gives=["state:sheltered"], needs={"building": POD_BLOCKS}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40,
-       provides={"state:sheltered": lambda ctx, s: (), "shelter:wall in": lambda ctx, s: ()}, prefer=-1)
+       provides={"state:sheltered": lambda ctx, s: (), "shelter:wall in": lambda ctx, s: ()}, prefer=-1, sets={"*": {"covered": True}})
 def pod(ctx):
     """Night fallback where digging in is unsafe (water/caves below): wall in the body — four sides at feet and head, a roof."""
 

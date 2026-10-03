@@ -12,6 +12,7 @@ from .stub import StubWorld
 
 
 FOOD_OF = {"full": FULL_BAR, "low": EAT_BELOW - 1, "starve": STARVE}
+LOW_HP = 8.0      # hp low: above the critical floor, at reflexes.nether_retreat's line (health ≤ 8)
 
 
 def inputs(item):
@@ -98,7 +99,7 @@ def gamma(f, mem):
     sky = 0 if f["place"] != "open" else 15
     state = {"x": x + 0.5, "y": float(y), "z": z + 0.5, "blockX": x, "blockY": y, "blockZ": z,
              "dimension": f["dimension"], "timeOfDay": (DAY_END + NIGHT_END) // 2 if f["night"] else DAY_TICKS // 4,
-             "health": {"crit": float(CRITICAL_HP), "low": MAX_HP / 2}.get(f["hp"], MAX_HP), "food": FOOD_OF[f["hunger"]], "saturation": 5.0,
+             "health": {"crit": float(CRITICAL_HP), "low": LOW_HP}.get(f["hp"], MAX_HP), "food": FOOD_OF[f["hunger"]], "saturation": 5.0,
              "onGround": True, "inWater": False, "skyLight": sky, "blockLight": 0, "air": 300, "armor": 0,
              "gameTime": 1000, "selectedSlot": 0,
              "control": {"active": True, "paused": bool(f["takeover"]), "task": None}}

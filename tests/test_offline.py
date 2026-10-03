@@ -24,7 +24,7 @@ from bonobo.bench import runner  # noqa: E402
 from bonobo.data import RECIPES  # noqa: E402
 from bonobo.knowledge import nether_kit_missing  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
-from bonobo.planner import NullCost, Planner, Step  # noqa: E402
+from bonobo.planner import NullCost, Step, plan_needs  # noqa: E402
 from bonobo.skillcore import Context  # noqa: E402
 from bonobo.world import ticks_until_dusk  # noqa: E402
 
@@ -195,25 +195,23 @@ class PlanningAndBag(unittest.TestCase):
         worn = {"id": "minecraft:stone_pickaxe", "count": 1, "slot": 4, "damage": 100, "maxDamage": 131}
 
         def reserved(for_the_farm, then):
-            BG.RESERVED = BG.reserved_ids(farm, [("minecraft:stone_hoe", 1)]) if for_the_farm else \
+            held = BG.reserved_ids(farm, [("minecraft:stone_hoe", 1)]) if for_the_farm else \
                 {"minecraft:wheat_seeds", "minecraft:cobblestone"}
-            try:
+            with mock.patch.object(BG, "RESERVED", held):
                 return then()
-            finally:
-                BG.RESERVED = set()
 
         def left(bag, gone):
             return {s["id"] for s in bag if s not in gone}
 
         table(self, [
             ("hoppers from the bag: crafts only",
-             lambda: Planner.from_inventory(rich, NullCost()).plan([("minecraft:hopper", 3), ("minecraft:chest", 3)]),
+             lambda: plan_needs(rich, [("minecraft:hopper", 3), ("minecraft:chest", 3)], NullCost()),
              lambda p: p and all(s.kind == "craft" for s in p)),
             ("no pickaxe, cobble carried: the stone pickaxe crafted directly",
-             lambda: Planner.from_inventory(no_pick, NullCost()).plan([("tool", "pickaxe", 1)]),
+             lambda: plan_needs(no_pick, [("tool", "pickaxe", 1)], NullCost()),
              lambda p: p and p[0].kind == "craft" and p[-1].token == "minecraft:stone_pickaxe"),
             ("boundary: an output on its way meets the need",
-             lambda: Planner.from_inventory(rich, NullCost(), {"minecraft:hopper": 3}).plan([("minecraft:hopper", 3)]),
+             lambda: plan_needs(rich, [("minecraft:hopper", 3)], NullCost(), pending={"minecraft:hopper": 3}),
              []),
             ("pickup: below 28 slots everything", lambda: BG.pickup_whitelist(27, ["minecraft:raw_iron"]), None),
             ("must fail: from 28 slots only wanted and kept items (no cobble, no dirt)",
