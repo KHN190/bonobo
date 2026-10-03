@@ -471,7 +471,7 @@ def reach_stand(task, policy, faces=None):
         walks = plan_walks(cands, 0.5)
         steps, why, seconds = plan_way(region, here, target, kind, inventory_now(), policy.protected, walks)
         if steps is None:
-            raise api.NavFailed(f"no way to {kind} {target}: {why}")
+            raise api.NavFailed(f"no way to {kind} {target}: {why}", pos=target)
         if not steps:
             return
         api.detail(f"   way to {kind} {target}: {len(steps)} steps, ~{seconds:.0f}s")
@@ -480,7 +480,7 @@ def reach_stand(task, policy, faces=None):
             api.run_chain(steps, stop_on_failure=True)
         finally:
             _IN_WAY[0] -= 1
-    raise api.NavFailed(f"no stand for {kind} {target} after {WAY_TRIES} ways")
+    raise api.NavFailed(f"no stand for {kind} {target} after {WAY_TRIES} ways", pos=target)
 
 ARRIVE_RANGE = 1.5       # a walk arrives this near its target (go_to's own margin): what "came to us" means
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)

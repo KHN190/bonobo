@@ -65,6 +65,19 @@ def tier_rows(rows, tier, named):
     return [n for n, r in rows.items() if r["tier"] != "acceptance"
             and (not named or tier == "all" or r["tier"] == tier)]
 
+def slice_limit_s(minutes):
+    """Pure: a slice's limit in seconds (its rows give minutes)."""
+    return minutes * 60
+
+
+def slice_unfinished(elapsed_s, limit_s, queue_over, last):
+    """Pure: why a slice ended with its outcome not reached — its queue ended (its goals failed or finished) before
+    the limit, else the limit itself — with the seconds it ran and the last decision."""
+    why = (f"its queue ended after {elapsed_s:.0f} s of {limit_s:.0f} s" if queue_over and elapsed_s < limit_s
+           else f"not done after {limit_s:.0f} s")
+    return f"slice {why}, last decision: {last}"
+
+
 def _slice(done, minutes, target=None, queue=(), max_idle=15, outlast=False):
     """Run the whole cerebellum until done() or `minutes`, on a private task queue holding `queue`."""
     def run(ctx):
@@ -82,7 +95,7 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15, outlast=False):
         start_line = len(getattr(sys.stdout, "lines", []))       # the bench's capturing stdout keeps its lines
         stopped = None
         try:
-            while time.time() - t0 < minutes * 60:
+            while time.time() - t0 < slice_limit_s(minutes):
                 # the queue's goals finished end the slice, unless `outlast`: then done() alone does
                 if (done is not None and done()) or (not outlast and queue and queue_finished(tasks.load())):
                     break
@@ -109,7 +122,9 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15, outlast=False):
         if done is not None and not done():
             last = [l.strip() for l in getattr(sys.stdout, "lines", [])[start_line:]
                     if "→" in l or "!!" in l or "task" in l or "upkeep" in l]
-            raise api.McError(f"slice not done after {minutes} min, last decision: {last[-1] if last else 'no decision logged'}")
+            raise api.McError(slice_unfinished(time.time() - t0, slice_limit_s(minutes),
+                                               bool(queue) and queue_finished(tasks.load()),
+                                               last[-1] if last else "no decision logged"))
         return True
     return run
 
