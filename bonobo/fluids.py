@@ -142,7 +142,7 @@ def fill_water_bucket(ctx):
         # "used" isn't "filled": one attempt per call, then the retry policy decides
         ctx.ban(c)
         ctx.ban(source)
-        raise NotAvailable(f"clicked water at {source} but the bucket stayed empty")
+        raise NotAvailable(f"clicked water at {source} but the bucket stayed empty", pos=source)
     raise NotAvailable("no still water with a clear line of sight within 48 blocks")
 
 def cast_frame_plan(bp, origin, turns, solid):

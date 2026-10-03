@@ -5,10 +5,10 @@ import time
 
 from . import api
 from .api import Interrupted, McError
-from .data import MEASURED_BAND, MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, GROUPS, NAV_NODES, bare, mid
+from .data import MEASURED_BAND, MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, GROUPS, HARDNESS, HAZARD, NAV_NODES, bare, mid
 from .knowledge import SURFACE_Y, sources, step_station, work_s, food_count, soil_depth, dawn_s, body_facts, expected_find_s, step_kinds, WALK_TICKS_PER_BLOCK, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
-from .world import Region, Versioned, job_ready, route_key, seen_hit
+from .world import Region, Versioned, job_ready, route_key
 from .skill import MIN_SAMPLES
 from .planner import Unplannable, plan_needs, way
 
@@ -95,6 +95,15 @@ class _Gone:
         return p in self.cells or (self.protected is not None and p in self.protected)
 
 
+def stand_kind(kinds):
+    """Pure: the door's stand kind for working one of `kinds` (nav.stands_for): a fluid is used (a bucket), a block
+    mined; None for what is no block (a mob, a pseudo-kind): its way is the walker's."""
+    names = [bare(k) for k in kinds]
+    if not names or any(n not in HARDNESS for n in names):
+        return None
+    return "use" if any(n in HAZARD for n in names) else "mine"
+
+
 def route_refused(routes, where):
     """Pure: the game's route to `where` was asked and not found (`routes`: the answers the snapshot was read with)."""
     return routes.get(route_key(where, 2.0, NAV_NODES), (None, None))[0] is False
@@ -141,9 +150,41 @@ class Cost:
         kinds = list(kinds) + (["tree"] if any(bare(k).endswith("log") for k in kinds) else [])
         here, dim = self.snap.feet, self.snap.dimension
         skip = self.not_there(sources)
-        spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if tuple(r["pos"]) not in skip]
-        best = min(spots, key=lambda p: math.dist(p, here), default=None)
-        return (best, math.dist(best, here)) if best is not None else None
+        spots = {tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if tuple(r["pos"]) not in skip}
+        got = self.workable([(math.dist(p, here), p) for p in spots], stand_kind(kinds))
+        return (got[1], got[0]) if got else None
+
+    def seen(self, kinds, skip, radius=math.inf):
+        """(distance, cell) of the nearest of `kinds` in the round's look, none in `skip`, within `radius`, that a way
+        is not known to fail to (workable); or None."""
+        got = [(h["distance"], (h["x"], h["y"], h["z"])) for k in kinds for h in self.snap.hits.get(bare(k), ())
+               if h["distance"] <= radius and (h["x"], h["y"], h["z"]) not in skip]
+        return self.workable(got, stand_kind(kinds))
+
+    def workable(self, cands, kind):
+        """The nearest of `cands` ((distance, cell)) no known way refusal bars (refused): asked lazily, nearest first,
+        stopping at the first that is not refused; or None."""
+        for d, c in sorted(cands):
+            if kind is None or self.refused(c, kind) is None:
+                return d, c
+        return None
+
+    def refused(self, cell, kind):
+        """The why no way to `kind` (nav.stands_for) at `cell` exists from these feet over the round's read ground —
+        nav.known_refusal, the door's own predicate, banned cells no-go —, or None (a way, or unknown past the read).
+        Snapshot only (K10), once a round per (cell, kind, bans) (D8)."""
+        if self.region is None or not self.region.inside(cell):
+            return None
+        from . import nav
+        gone = self.not_there(False)
+        key = ("refused", tuple(cell), kind, gone)
+        if key not in self.cache:
+            feet = tuple(int(c) for c in self.snap.feet)
+            ground = _Ground(feet, cell, self.region.name(cell), self.soil(), False, self.region)
+            self.cache[key] = nav.known_refusal(ground, feet, tuple(cell), kind, self.snap.inv,
+                                                set(self.protected() or ()) | gone.cells,
+                                                lambda p: self.region.inside(p) or p in gone.cells)
+        return self.cache[key]
 
     def ripe(self, token):
         """Ripe crop cells known to give `token` from due crop jobs (memory only: an estimate never touches the world)."""
@@ -172,7 +213,7 @@ class Cost:
             if known is not None and known <= radius:
                 self.cache[key] = known
         if key not in self.cache:
-            seen = seen_hit(self.snap.hits, blocks, self.not_there(sources), radius)
+            seen = self.seen(blocks, self.not_there(sources), radius)
             self.cache[key] = seen[0] if seen is not None else self._known(blocks, sources)
         return self.cache[key]
 
@@ -242,6 +283,8 @@ class Cost:
         ids = set(members(token))
         out = []
         for pos, item, have in sorted(mem.stored(token, snap.dimension), key=lambda r: math.dist(r[0], snap.feet)):
+            if self.refused(pos, "use") is not None:
+                continue                    # a container no way reaches: taken from nothing
             rec = mem.container_record(pos)
             p = container_p(rec, ids, time.time() - rec.get("at", time.time()), rate)
             out.append((pos, item, have, p))
@@ -351,7 +394,7 @@ class Cost:
         """The blocks the way to the nearest in sight breaks (dug_way), [] when none is in sight or no way is found."""
         blocks = step.detail.get("blocks") or ()
         feet = tuple(int(c) for c in self.snap.feet)
-        hit = seen_hit(self.snap.hits, blocks, self.not_there(True))
+        hit = self.seen(blocks, self.not_there(True))
         if hit is None:
             return []
         target = hit[1]
@@ -393,7 +436,7 @@ class Cost:
         key = ("site", k == "hunt", sources, tuple(kinds), self.not_there(sources), self.not_there(True))
         if key not in self.cache:
             hit = self._nearest(kinds, sources=sources)
-            seen = seen_hit(self.snap.hits, kinds, self.not_there(True)) if hit is None and k != "hunt" else None
+            seen = self.seen(kinds, self.not_there(True)) if hit is None and k != "hunt" else None
             self.cache[key] = hit[0] if hit is not None else (seen[1] if seen is not None else None)
         return self.cache[key]
 

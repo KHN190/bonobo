@@ -136,7 +136,7 @@ def build_bed_pit(ctx):
     probe = pit_geometry(side, top)
     floor_y = _floor_at(probe["mouth"][0], probe["mouth"][2], top)
     if floor_y is None:
-        raise NotAvailable(f"no floor at the pit's mouth {probe['mouth']}")
+        raise NotAvailable(f"no floor at the pit's mouth {probe['mouth']}", pos=probe["mouth"])
     pit = pit_geometry(side, floor_y)
     if not nav.arrived_near(pit["mouth"], ctx.policy, range_=0.6, attempts=2):
         raise api.NavFailed(f"the pit's mouth {pit['mouth']} not reached", pos=pit["mouth"])

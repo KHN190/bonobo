@@ -412,7 +412,7 @@ def gate(tasks, policy):
             raise api.NavFailed(f"planned step not standable: {bad[0]['type']} at {_cell_of(bad[0])}")
         reach_stand(bad[0], policy)
     else:
-        raise api.NavFailed(f"no stand reached for {[(t['type'], _cell_of(t)) for t, _s in pairs][:3]}")
+        raise api.NavFailed(f"no stand reached for {[(t['type'], _cell_of(t)) for t, _s in pairs][:3]}", pos=_cell_of(pairs[0][0]))
     before = region
     return lambda done: unplanned(before, tasks, done)
 
@@ -471,7 +471,7 @@ def reach_stand(task, policy, faces=None):
         walks = plan_walks(cands, 0.5)
         steps, why, seconds = plan_way(region, here, target, kind, inventory_now(), policy.protected, walks)
         if steps is None:
-            raise api.NavFailed(f"no way to {kind} {target}: {why}")
+            raise api.NavFailed(f"no way to {kind} {target}: {why}", pos=getattr(why, "cell", None))
         if not steps:
             return
         api.detail(f"   way to {kind} {target}: {len(steps)} steps, ~{seconds:.0f}s")
@@ -480,7 +480,7 @@ def reach_stand(task, policy, faces=None):
             api.run_chain(steps, stop_on_failure=True)
         finally:
             _IN_WAY[0] -= 1
-    raise api.NavFailed(f"no stand for {kind} {target} after {WAY_TRIES} ways")
+    raise api.NavFailed(f"no stand for {kind} {target} after {WAY_TRIES} ways", pos=target)
 
 ARRIVE_RANGE = 1.5       # a walk arrives this near its target (go_to's own margin): what "came to us" means
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
@@ -1135,18 +1135,28 @@ def dig_cells(region, cells, start):
         want.update(falling_above(region, c))
     return [c for c in mine_order(want, start) if region.solid(c)]
 
+class Why(str):
+    """A way's why not, with the cell it names (`cell`: the tread, the support, the fluid, the home, the
+    unbreakable block; None when it names none: off the read, no way at all): what a failure is keyed by (E5)."""
+
+    def __new__(cls, text, cell=None):
+        out = super().__new__(cls, text)
+        out.cell = None if cell is None else tuple(cell)
+        return out
+
+
 def _path_blocked(region, cells, protected, placed=(), at=None, down=False):
     """Pure: why these cells may not be opened — a fluid in or beside one (but a floor the step places: a bridge
     fills it), a protected or unbreakable one, the body's support at `at` — or None."""
     for c in cells:
         if at is not None and holds_up(at, c, down):
-            return f"support at {c}"
+            return Why(f"support at {c}", c)
         if region.hazard(c) or any(region.hazard(cell_add(c, n)) and cell_add(c, n) not in placed for n in NEIGHBOURS6):
-            return f"fluid at {c}"
+            return Why(f"fluid at {c}", c)
         if c in protected:
-            return f"home at {c}"
+            return Why(f"home at {c}", c)
         if region.unbreakable(c):
-            return f"unbreakable at {c}"
+            return Why(f"unbreakable at {c}", c)
     return None
 
 def open_tasks(region, cells, floors, start, protected, places, at=None, down=False):
@@ -1161,9 +1171,9 @@ def open_tasks(region, cells, floors, start, protected, places, at=None, down=Fa
     tasks = [mine_task(c) for c in opened]
     for f in missing:
         if f in protected:
-            return None, f"home at {f}"
+            return None, Why(f"home at {f}", f)
         if not places:
-            return None, f"no tread at {f}"
+            return None, Why(f"no tread at {f}", f)
         tasks.append({"type": "place", "item": places.pop(), "x": f[0], "y": f[1], "z": f[2]})
     return tasks, None
 
@@ -1284,6 +1294,14 @@ def plan_way(region, feet, target, kind, inv, protected, walks=None) -> tuple[li
     if not ways:
         return None, next((why for _s, why in dug if why), None) or f"no way to {tuple(target)}", None
     return min(ways, key=lambda w: (w[1] is not None, w[2]))
+
+def known_refusal(region, feet, target, kind, inv, protected, known=lambda c: True):
+    """Pure: plan_way's why when no way to `kind` at `target` exists and the cell it names is `known` (read), else
+    None: a way, or a failure only past what was read (unknown is possible). The one predicate a plan refuses a
+    source by and the door's reach_stand fails by."""
+    steps, why, _s = plan_way(region, feet, target, kind, inv, protected)
+    cell = getattr(why, "cell", None)
+    return why if steps is None and cell is not None and known(cell) else None
 
 def in_pit(region, feet):
     """Pure: the body stands in a hole it cannot jump out of — on every side the cell at head height is solid (a 1-deep

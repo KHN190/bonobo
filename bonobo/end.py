@@ -64,7 +64,7 @@ def activate_end_portal(ctx):
                     range_=1.0, attempts=1)
         place(block, floor)
     if not nav.arrived_near(stand, ctx.policy, range_=0.5, attempts=1):
-        raise api.NavFailed(f"the ring's middle at {stand} is not reachable")
+        raise api.NavFailed(f"the ring's middle at {stand} is not reachable", pos=stand)
     # every eye in one chain: the last opens the portal under the feet
     done = api.run_chain([{"type": "use_item", "item": "minecraft:ender_eye", "x": f[0] + 0.5, "y": f[1] + 0.8125,
                            "z": f[2] + 0.5, "onBlock": True} for f in frames], stop_on_failure=True, wait=20)

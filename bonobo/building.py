@@ -29,7 +29,7 @@ def _mod_at_least(version):
 def _open_container(pos):
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=60, awaits="the caller reads the opened container's slots next")
     if not opened(r):
-        raise McError(f"could not open the container at {pos}: {r['message']}")
+        raise McError(f"could not open the container at {pos}: {r['message']}", pos=pos)
 
 def _empty_container_slot():
     for s in world.container()["slots"]:
@@ -221,13 +221,13 @@ def place_oriented(ctx, pos, token, facing=None, against=None, either_way=False)
         task["facing"] = facing
     r = api.run(task, wait=90, awaits="the placed block's `facing` is read back before the next part (a mirrored stair is re-done)")
     if r["status"] != "succeeded":
-        raise McError(f"placing {bare(item)} at {pos} failed: {r['message']}")
+        raise McError(f"placing {bare(item)} at {pos} failed: {r['message']}", pos=pos)
     if facing is None:
         return
     actual = Region(pos, pos, props=True).prop(pos, "facing")
     if actual is None or actual == facing or (either_way and actual == blueprints.OPPOSITE[facing]):
         return
-    raise McError(f"{bare(item)} at {pos} faces {actual}, wanted {facing}")
+    raise McError(f"{bare(item)} at {pos} faces {actual}, wanted {facing}", pos=pos)
 
 def materials_missing(bp):
     inv = Inventory()
@@ -327,7 +327,7 @@ def _build_parts(ctx, bp, origin, turns):
             continue   # resuming an interrupted build: this part is already in place
         # stay at the build: the place task's approach search is short (6 000 nodes)
         if math.dist(feet(), pos) > nav.REACH and not nav.arrived_near(access, ctx.policy, range_=1.5, attempts=1):
-            raise api.NavFailed(f"can't get back to the {bp.name} build at {origin}")
+            raise api.NavFailed(f"can't get back to the {bp.name} build at {origin}", pos=origin)
         if pos[1] - feet()[1] >= 2:
             # the face (top of the part below) must be below the eye (feet + 1.62): pillar until the feet are at pos.y - 1
             f = feet()
@@ -344,11 +344,11 @@ def _build_parts(ctx, bp, origin, turns):
                     fx, fy, fz = feet()
                     above = (fx, fy + 2, fz)
                     if above in ctx.policy.protected:
-                        raise McError(f"can't clear {above} above the pillar (protected)")
+                        raise McError(f"can't clear {above} above the pillar (protected)", pos=above)
                     api.run(nav.mine_task(above), wait=30, awaits="the head cell cleared before the next pillar step")
                     r = api.run({"type": "pillar", "item": block}, wait=20, awaits="each pillar step's height decides the next")
                 if r["status"] != "succeeded":
-                    raise McError(f"couldn't pillar up to reach {pos}: {r['message']}")
+                    raise McError(f"couldn't pillar up to reach {pos}: {r['message']}", pos=pos)
                 yield feet()
         place_oriented(ctx, pos, part.item, facing, against, part.either_way)
         yield pos
@@ -557,7 +557,7 @@ def cast_portal(ctx):
         placed += mould
         if Region(cell, cell).name(cell) != "obsidian":
             bad = next((t["message"] for t in done if t["status"] != "succeeded"), "")
-            raise McError(f"no obsidian formed at {cell} {bad}".rstrip())
+            raise McError(f"no obsidian formed at {cell} {bad}".rstrip(), pos=cell)
         if not Inventory().count("minecraft:water_bucket"):
             fluids.fill_water_bucket(ctx)
         breaks = [nav.mine_task(m) for m in fluids.mould_to_break(bp, origin, turns, placed) if Region(m, m).solid(m)]
