@@ -1068,15 +1068,27 @@ class Brain:
                              self.mem.pending_outputs(snap.dimension))
             if c is None:
                 self.enroute_choice = EnrouteChoice(name, sum(st.est for st in held["steps"]) / TICKS_PER_S, None, p,
-                                                    bag.item_value(item, n, prices.get), False)
+                                                    None, False)
                 return held
             steps = c["steps"]
             a_s, c_s = (sum(st.est for st in s) / TICKS_PER_S for s in (held["steps"], steps))
-        value = bag.item_value(item, n, prices.get)
+        value = bag.item_value(item, n, self.hidden_prices(snap, step, where).get)
         chosen = _k.side_saving(p, value or 0.0, 0.0, c_s - a_s) > 0
         self.enroute_choice = EnrouteChoice(name, a_s, c_s, p, value, chosen)
         api.detail(f"   {name}: A {a_s:.0f}s, C {c_s:.0f}s, P {p:.2f} × value {value or 0:.0f}s → {'C' if chosen else 'A'}")
         return dict(held, steps=steps, enroute=name) if chosen else held
+
+    def hidden_prices(self, snap, step, where):
+        """Prices (price_table's) with the en-route candidate hidden — its cell, a mob's entity, banned (the ban mask
+        every estimate reads: Cost.not_there, _entity): an item's worth later by a trip of its own were this source
+        not there. An unopened chest's look hides nothing (no source yet)."""
+        mask = world.Versioned(self.blacklist)
+        if step.kind != "look":
+            mask[tuple(where)] = skillcore.Ban(math.inf)
+            for e in snap.mobs or ():
+                if e.get("id") is not None and tuple(math.floor(e[k]) for k in ("x", "y", "z")) == tuple(where):
+                    mask[(e["id"], 0, 0)] = skillcore.Ban(math.inf)
+        return Prices(Cost(snap, self.mem, mask, policy=self.policy_cache, stop=api.stop_asked), snap.inv)
 
     def light_intent(self, snap, ctx):
         """An open dark area underground (never the surface, a short shaft or a sealed hole): lit first where work

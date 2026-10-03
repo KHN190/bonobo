@@ -351,8 +351,8 @@ class Cost:
         ids = set(members(token))
         out = []
         for pos, item, have in sorted(mem.stored(token, snap.dimension), key=lambda r: math.dist(r[0], snap.feet)):
-            if self.refused(pos, "use") is not None:
-                continue                    # a container no way reaches: taken from nothing
+            if tuple(pos) in self.not_there(False) or self.refused(pos, "use") is not None:
+                continue                    # a banned container, or one no way reaches: taken from nothing
             rec = mem.container_record(pos)
             p = container_p(rec, ids, time.time() - rec.get("at", time.time()), rate)
             out.append((pos, item, have, p))
