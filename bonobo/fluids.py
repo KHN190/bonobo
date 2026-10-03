@@ -52,8 +52,8 @@ def fill_spot(region, here, fluid="water", inv=None, protected=(), near=None):
                      key=lambda p: (math.dist(p, near if near is not None else here), math.dist(p, here)))
     for w in sources[:FILL_TRIES]:
         if region.inside(here):
-            got = nav.reach(region, here, w, "use_item", inv, protected)
-            stands = [got.stand] if got.stand is not None else []
+            reached = nav.reach(region, here, w, "use_item", inv, protected)
+            stands = [reached.stand] if reached.stand is not None else []
         else:
             stands = sorted(nav.stand_candidates(region, w, "use_item"), key=lambda s: math.dist(s, here))
         stand = next((s for s in stands if not (fluid == "lava" and lava_within(region, s, 2))), None)
