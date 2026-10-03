@@ -20,7 +20,6 @@ DOOR_ROUTE = None      # (taught, here, there, walk_s) → seconds through a doo
 TABLE = "minecraft:crafting_table"   # nothing known nearby: what a search usually costs
 # work per unit before anything is measured, in ticks, bare-handed: a held tool's declared speed is taken off (_sped_up)
 # step kind → (statistics key, units): the keys the skill runner records under
-MOB_KINDS = frozenset(m for mobs in HUNT.values() for m in mobs)   # the mobs a hunt gets something from
 STAT_KEYS = {"mine": lambda s: (f"mine:{s.token}", s.count), "gather": lambda s: ("chop", s.count),
              "hunt": lambda s: (f"hunt:{s.token}", s.count), "smelt": lambda s: ("smelt", s.count),
              "craft": lambda s: ("craft", 1)}
@@ -593,20 +592,19 @@ class Cost:
         return None
 
     def enroute(self, here, there, wanted, price):
-        """[(saving s, step, where)] for what lies beside the leg `here` → `there` worth taking on the way (G3, K4:
-        knowledge.side_saving): each thing seen or remembered (the notes' yields, bag.note_yields; a container's
-        remembered contents × the chance they are still there, container_p) yielding an item `wanted` ({item: (P used
-        later, how many still lacked)}), as many as lacked, its later price bag.item_value at `price`, its work now the
-        step's own (work), its detour the walk off the leg and back plus the door's way to it (reach). An unopened
-        chest within reach of the leg is looked into (its detour a walk past it: free); far ones are skipped. Best
-        first, only s > 0."""
+        """[(bound s, step, where, item, n, P)] for what lies beside the leg `here` → `there`, best first by a cheap
+        bound (knowledge.side_saving over the straight detour; the planner prices the real one, brain.enroute_plan):
+        each thing seen or remembered (bag.note_yields) yielding an item `wanted` ({item: (P used later, how many
+        still lacked)}); a container's remembered contents by the chance they are still there (container_p); an
+        unopened chest looked into, the best wanted item by the chance a chest holds it (planner.p_unknown over the
+        chests seen). Its later price bag.item_value at `price`; only s > 0."""
         from .bag import item_value, note_yields
         from .knowledge import side_saving
+        from .planner import p_unknown
         if not wanted or here is None or there is None:
             return []
         here, there, dim = tuple(here), tuple(there), self.snap.dimension
         leg = walk_ticks(math.dist(here, there)) / TICKS_PER_S
-        best_later = max(p * (item_value(i, n, price) or 0.0) for i, (p, n) in wanted.items())
 
         def detour(c):
             return (walk_ticks(math.dist(here, c)) + walk_ticks(math.dist(c, there))) / TICKS_PER_S - leg
@@ -624,52 +622,41 @@ class Cost:
             found.setdefault((math.floor(e["x"]), math.floor(e["y"]), math.floor(e["z"])), bare(e["type"]))
         out = []
         for c, kind in found.items():
-            off = detour(c)
-            if off >= best_later:
-                continue                   # no yield can pay this walk back (a lower bound: the way only adds)
-            items = [(i, min(n, want(i)[1]), want(i)[0]) for i, n in note_yields(kind).items() if want(i)[0] > 0]
-            if not items:
-                continue
-            got = None if f"minecraft:{bare(kind)}" in MOB_KINDS else self.reach(c, stand_kind([kind]) or "mine")
-            if got is not None and got.stand is None:
-                continue                   # the door has no way to it
-            way_s = got.seconds if got is not None else 0.0
-            for item, n, p in items:
-                step = self.got_step(item, kind, n)
-                if step is None:
-                    continue
-                later = item_value(item, n, price)
-                if later is None:
-                    continue
-                s = side_saving(p, later, self.work(step) / TICKS_PER_S, off + way_s)
-                if s > 0:
-                    out.append((s, step, c))
+            for item, n in note_yields(kind).items():
+                p, need = want(item)
+                step = self.got_step(item, kind, min(n, need)) if p > 0 else None
+                later = item_value(item, min(n, need), price) if step is not None else None
+                if later is not None:
+                    out.append((side_saving(p, later, self.work(step) / TICKS_PER_S, detour(c)), step, c, item,
+                                min(n, need), p))
         rate = self.mem.container_change_rate()
-        for rec in self.mem.data.get("containers", {}).values():
-            if rec.get("dimension") != dim:
-                continue
+        records = [r for r in self.mem.data.get("containers", {}).values() if r.get("dimension") == dim]
+        for rec in records:
             c = tuple(rec["pos"])
-            off = detour(c)
             for item, have in rec["items"].items():
                 p, need = want(item)
-                have = min(have, need)            # what the plan or a milestone still lacks, never the whole chest
+                have = min(have, need)            # what a milestone still lacks, never the whole chest
                 if p <= 0 or have <= 0:
                     continue
                 chance = container_p(rec, {item}, time.time() - rec.get("at", time.time()), rate)
                 step = Step("withdraw", item, have, {"pos": list(c), "p": chance})
                 later = item_value(item, have, price)
                 if later is not None:
-                    s = side_saving(p * chance, later, self.work(step) / TICKS_PER_S, off)
-                    if s > 0:
-                        out.append((s, step, c))
-        from . import nav
+                    out.append((side_saving(p * chance, later, self.work(step) / TICKS_PER_S, detour(c)), step, c,
+                                item, have, p * chance))
         for h in (self.snap.hits or {}).get("chest", ()):
             c = (h["x"], h["y"], h["z"])
-            reach_s = walk_ticks(nav.REACH) / TICKS_PER_S
-            if self.mem.container_record(c) is None and detour(c) < reach_s:
-                # unopened, within reach of the leg: looked into on the way past (its contents known from then)
-                out.append((reach_s - detour(c), Step("look", "minecraft:chest", 1, {"pos": list(c)}), c))
-        return sorted(out, key=lambda r: -r[0])
+            if self.mem.container_record(c) is not None:
+                continue
+            look = Step("look", "container", 1, {"pos": list(c)})
+            for item, (p, n) in wanted.items():
+                held = sum(1 for r in records if any(mid(i) in members(item) or i == item for i in r["items"]))
+                later = item_value(item, n, price)
+                if later is not None:
+                    chance = p * p_unknown(held, len(records))
+                    out.append((side_saving(chance, later, self.work(look) / TICKS_PER_S, detour(c)), look, c,
+                                item, n, chance))
+        return sorted((r for r in out if r[0] > 0), key=lambda r: -r[0])
 
     def _kinds_of(self, step):
         """A site's kinds: a search has none, its place is what it finds."""
