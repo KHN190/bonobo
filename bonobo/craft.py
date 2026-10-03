@@ -20,6 +20,12 @@ from .building import _open_container, _empty_container_slot, _machine_roles, _g
 
 # -- placing things near us
 
+def placeable(inv, protected):
+    """free_spots'/free_spots_here's `reachable`: a spot only offered if nav.reach also accepts placing there
+    (P2/K1) — built here (and in store.py), not in skillcore, so skillcore itself never imports nav (test_layers'
+    frozen closures)."""
+    return lambda region, feet_at, spot: nav.reach(region, feet_at, spot, "place", inv, protected).stand is not None
+
 def make_room(ctx):
     """Boxed in a 1-wide shaft: dig the side cell at head height so there is a free spot for a station."""
 
@@ -131,7 +137,7 @@ class Station:
         elif Inventory().count(self.block):
             last = "no free spot"
             # offered only if nav.reach also accepts it (P2/K1): place() goes through the same gate
-            spots = free_spots_here(limit=3, inv=Inventory(), protected=self.ctx.policy.protected) or make_room(self.ctx)
+            spots = free_spots_here(limit=3, reachable=placeable(Inventory(), self.ctx.policy.protected)) or make_room(self.ctx)
             for spot in spots:
                 try:
                     place(self.block, spot)
@@ -425,7 +431,7 @@ def _sitting(ctx, recipes, next_use=None):
             state["table"] = (near[0]["x"], near[0]["y"], near[0]["z"])
         else:
             # offered only if nav.reach also accepts it (P2/K1): never a spot the run then refuses
-            spots = free_spots_here(limit=1, inv=inv, protected=ctx.policy.protected) or make_room(ctx)
+            spots = free_spots_here(limit=1, reachable=placeable(inv, ctx.policy.protected)) or make_room(ctx)
             state["spot"] = spots[0] if spots else None
     tasks = craft_commands(state, (recipes,))
     placed = next(((t["x"], t["y"], t["z"]) for t in tasks if t.get("type") == "place"), None)

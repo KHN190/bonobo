@@ -12,7 +12,7 @@ from .bag import let_go, FREE_SLOTS_TARGET, throw_direction, store_plan
 from .terrain import chest_spot_ok
 from .skillcore import close_screen, free_spots_here, opened, place, lost
 from .world import feet
-from .craft import craft, make_bag_room, make_room
+from .craft import craft, make_bag_room, make_room, placeable
 
 def openable_container(pos):
     """A chest opens only with no solid block right above it (barrels always open)."""
@@ -89,7 +89,7 @@ def _place_cache_chest(ctx):
     x, y, z = feet()
     around = Region((x - 5, y - 4, z - 5), (x + 5, y + 5, z + 5))
     # offered only if nav.reach also accepts it (P2/K1): place() goes through the same gate
-    spots = [p for p in free_spots_here(limit=8, inv=Inventory(), protected=ctx.policy.protected)
+    spots = [p for p in free_spots_here(limit=8, reachable=placeable(Inventory(), ctx.policy.protected))
              if chest_spot_ok(around, p)][:3] or make_room(ctx)
     for spot in spots:
         try:

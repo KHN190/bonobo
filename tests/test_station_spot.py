@@ -3,8 +3,9 @@ placing a new table must pass nav.reach's own stand test (P2/K1) -- never one th
 
 The rows below drive the real production path (craft._sitting, through the real free_spots/free_spots_here, not a
 stand-in): on the base commit (6ba6f1b), free_spots_here(limit=1) ignores reachability, so the sealed-box row's
-place task is queued at a spot nav.reach refuses -- red by assertion. On this branch, free_spots_here is given
-inv/protected and filters it out, so no place is queued at all (StationMissing instead) -- green."""
+place task is queued at a spot nav.reach refuses -- red by assertion. On this branch, free_spots_here is given a
+`reachable` predicate (craft.placeable) and filters it out, so no place is queued at all (StationMissing instead)
+-- green."""
 import os
 import sys
 import unittest
@@ -99,15 +100,15 @@ class StationSpotPassesTheGate(unittest.TestCase):
                               "a place was queued at a spot the gate then refuses")
 
 
-class FreeSpotsKeepsTheOldOfferWithNoInv(unittest.TestCase):
+class FreeSpotsKeepsTheOldOfferWithNoReachable(unittest.TestCase):
     """Every other free_spots_here caller (store.tidy_inventory, survive.move_to_open_space's verify) passes no
-    inv: free_spots must not start refusing for them."""
+    `reachable`: free_spots must not start refusing for them."""
 
-    def test_inv_none_skips_the_gate_check(self):
+    def test_reachable_none_skips_the_gate_check(self):
         region, protected = _sealed_box()
         st = state(x=FEET[0] + .5, y=FEET[1], z=FEET[2] + .5)
         self.assertTrue(free_spots(region, st, reach=4, limit=1),
-                         "must fail: the gate check ran though inv was never passed")
+                         "must fail: the gate check ran though reachable was never passed")
 
 
 if __name__ == "__main__":
