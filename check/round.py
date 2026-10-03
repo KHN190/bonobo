@@ -353,11 +353,14 @@ def plan_ctx(b, act, snap, mem, world, spent):
         else:
             out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost, pending)
         if not out["plan_hand_made"] and look is None:
+            names: list = []
             out["exact_s"], out["exact_unknown"] = exact_s(snap.inv, held.get("want"), goals.needs(goal, snap.inv), cost,
-                                                           pending)
+                                                           pending, names=names)
             if spent and out["exact_s"] is not None:
                 # a budget-cut round is no violation: what the cut cost is the run's distribution (check.run)
                 out["p5_loss_s"] = sum(int(getattr(s, "est", 0) or 0) for s in held["steps"]) / TICKS_PER_S - out["exact_s"]
+                from bonobo.planner import plan_name
+                out["p5_case"] = (plan_name(held["steps"]), names[0] if names else None)
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
     # the plan and the chosen candidate priced as they run, now (D6): a later reading would see another world
     priced = {tuple(map(id, steps)): price_as_run(list(steps), tools, cost)
@@ -381,13 +384,13 @@ def plan_ctx(b, act, snap, mem, world, spent):
 EXACT_STEPS = 5_000      # search steps the unpruned reference may take in one state; past them P5 is unknown
 
 
-def exact_s(inv, want, needs, cost, pending=None, limit=EXACT_STEPS):
+def exact_s(inv, want, needs, cost, pending=None, limit=EXACT_STEPS, names=None):
     """(seconds of the cheapest plan with no search budget for what the round planned, None; or None and why it is
     unknown): the reference stops after `limit` search steps."""
     import copy
     import json
     from bonobo import api, decompose
-    from bonobo.planner import Target, Unplannable, plan_candidates, plan_round
+    from bonobo.planner import Target, Unplannable, plan_candidates, plan_name, plan_round
     steps, asked = [0], cost.stop or (lambda: False)
 
     def stop():
@@ -399,8 +402,14 @@ def exact_s(inv, want, needs, cost, pending=None, limit=EXACT_STEPS):
         if want:
             targets = [Target(name, decompose.round_needs(json.loads(goal), inv, capped), rank)
                        for rank, (name, goal, *_left) in enumerate(want)]
-            return plan_round(inv, targets, capped, pending, exact=True)[2], None
-        return plan_candidates(inv, needs, capped, exact=True)[0][1], None
+            _first, steps, secs = plan_round(inv, targets, capped, pending, exact=True)
+            if names is not None:
+                names.append(plan_name(steps))      # the reference's ways, for the loss report
+            return secs, None
+        name, secs, _steps = plan_candidates(inv, needs, capped, exact=True)[0]
+        if names is not None:
+            names.append(name)
+        return secs, None
     except Unplannable:
         return None, None
     except api.Interrupted:
