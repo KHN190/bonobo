@@ -61,6 +61,28 @@ class AMissLooksFurther(unittest.TestCase):
                 self.assertEqual(got, data.SEARCH_RINGS[0])
 
 
+class AStepsMissSeeks(unittest.TestCase):
+    """dispatch: a step whose skill found none in range (NotAvailable, not a nav failure) is answered by a seek for
+    the step's own kinds (knowledge.step_kinds), then run again — the water fills included (E5)."""
+
+    def test_table(self):
+        from bonobo import dispatch
+        from bonobo.planner import Step
+        rows = [("mine", Step("mine", "minecraft:raw_iron", 1, {"blocks": ["iron_ore"]}), ["iron_ore"]),
+                ("gather", Step("gather", "log", 1), list(data.GROUPS["log"])),
+                ("must fail: a water bucket's miss seeks water", Step("fill", "minecraft:water_bucket", 1), ["water"]),
+                ("must fail: bottles' miss seeks water", Step("fill", "minecraft:potion", 3), ["water"])]
+        for name, step, kinds in rows:
+            with self.subTest(name):
+                self.assertIn(step.kind, dispatch.SEEK_KINDS)
+                with mock.patch.object(dispatch.explore, "seek_blocks", return_value=[{}]) as seek, \
+                        mock.patch.object(dispatch.nav, "arrive", return_value=True):
+                    ctx = mock.Mock(mem=mock.Mock(seen=lambda *a: []), dimension="minecraft:the_nether")
+                    with mock.patch.object(dispatch.world, "feet", return_value=(0, 64, 0)):
+                        self.assertTrue(dispatch.go_find(ctx, step))
+                seek.assert_called_once_with(ctx, kinds)
+
+
 class TheRowsOwnScene(unittest.TestCase):
     """ore_buried's scene: its iron lies inside the first ring the search looks at, and the price sees it too."""
 
