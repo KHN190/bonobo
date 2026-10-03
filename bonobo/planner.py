@@ -555,6 +555,7 @@ class Search:
         self.stored_c, self.near_c, self.reach_c, self.least_c = (shared.setdefault(k, {}) for k in
                                                                    ("stored", "near", "reach", "least"))
         self.task_keys: dict = {}       # id(task) → (task, its key): signature, once a task
+        self.saves_c: dict = {}         # (kind, tier had, tier) → {token: ticks a unit's making saves at the most}
         self._kept = None
         self.start_tools: list = []
         self.h_memo: dict = {}          # (what is left, the bag) → its bound
@@ -1000,6 +1001,55 @@ class Search:
             return self.dead(self.no_way(tool_item(kind, tier)))
         return self.options(node, opts)
 
+    def saves_at_most(self, node, kind, have, tier, step):
+        """Ticks a `kind` tool of `tier` (over `have`) saves at the most on all left after `step`: every step on the stack
+        and every need's making through its ways at their dearest in that work (an upper bound); inf when a task
+        is not in the tables."""
+        memo = self.saves_c.setdefault((kind, have, tier), {})
+
+        def own(st):
+            b, k = own_work(st)
+            b = [x for x in b if tool_kind(x) == kind] if kind != "sword" else []
+            k = k if kind == "sword" else []
+            return (work_s(b, k, {kind: have} if have >= 0 else {}, TICKS_PER_S)
+                    - work_s(b, k, {kind: tier}, TICKS_PER_S)) * TICKS_PER_S
+
+        def unit(token, path=()):
+            if token in memo:
+                return memo[token]
+            if token in path:
+                return None             # a cycle: no finite plan takes it
+            best = 0.0
+            for made, src in self.sources(token):
+                got = way(src, made, 1)
+                if got is None:
+                    continue
+                step, inputs, station, _adds = got
+                parts = [unit(t, path + (token,)) for t, _c in inputs] + [unit(station, path + (token,)) if station else 0.0]
+                if any(p is None for p in parts):
+                    continue
+                best = max(best, (own(step) + sum(c * p for (_t, c), p in zip(inputs, parts))) / max(1, step.count)
+                           + (parts[-1] or 0.0))
+            memo[token] = best
+            return best
+
+        total = 0.0
+        for task in node.stack:
+            op = task[0]
+            if op == "need":
+                total += task[2] * (unit(task[1]) or 0.0)
+            elif op == "tool":
+                total += unit(tool_item(task[1], task[2])) or 0.0
+            elif op == "station":
+                total += unit(task[1]) or 0.0
+            elif op == "emit" and task[1] is not step:
+                total += own(task[1])
+            elif op == "fuel":
+                total += task[1].count * (unit("coal") or 0.0)
+            elif op in ("fact", "do"):
+                return math.inf
+        return total
+
     def only_for(self, node, item):
         """The least of the tools making `item` takes that the bag lacks and nothing else left to plan asks for:
         made for this tool alone, so its price is the tool's too."""
@@ -1074,8 +1124,12 @@ class Search:
                 if t <= held.get(kind, -1) or not self.sources(tool_item(kind, t)):
                     continue
                 saved = (base - work_s(breaks, kills, {**held, kind: t}, TICKS_PER_S)) * TICKS_PER_S
-                if saved <= 0 or saved <= self.least(tool_item(kind, t), 1, node.inv) + self.only_for(node, tool_item(kind, t)):
-                    continue            # what it saves here cannot pay even the least the tool costs
+                if saved <= 0:
+                    continue
+                # what it can save over all that is left (each need's ways at their most) cannot pay its least
+                if saved + self.saves_at_most(node, kind, held.get(kind, -1), t, step) \
+                        <= self.least(tool_item(kind, t), 1, node.inv) + self.only_for(node, tool_item(kind, t)):
+                    continue
                 opts.append(((t + 1, use_rank(kind), 1), [("tool", kind, t, self.uses(step, kind), depth)]))
         return self.options(node, opts, self.after(node, step))
 
