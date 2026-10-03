@@ -1,6 +1,6 @@
-"""D1: a held plan with no runnable step still names why (brain.step_reason), never the bare "no step of the plan can
-run from here" while steps exist — accept5's three idle situations (short, cooling, surface-only underground) plus
-the one case the bare default is actually right (no steps at all)."""
+"""D1: a held plan with no runnable step still names why (brain.step_reason), never a guessed reason — `skip` names
+its own (a str), and only a plain bool falls back to the bare "skipped by <predicate>" text — and never the bare
+"no step of the plan can run from here" while steps exist (the one case it's actually right: no steps at all)."""
 import os
 import sys
 import unittest
@@ -17,22 +17,28 @@ class StepReasonNamesTheStep(unittest.TestCase):
         gather_wood = Step("gather", "minecraft:oak_log", 1, {})
         mine_stone = Step("mine", "minecraft:stone", 1, {})
         make_table = Step("craft", "minecraft:crafting_table", 1, {"inputs": {"minecraft:oak_planks": 4}})
+        def skip_night(st):     # round_act/need_act's own words, not a guess
+            return "a surface step, and it's night"
+
         # (name, steps, skip, runnable, ready) -> want (brain.step_key(the named step): its reason)
         rows = [
             ("short of what it needs: a craft with nothing to craft it from",
-             [make_table], (lambda st: False), (lambda st, inv: False), (lambda name: True),
+             [make_table], (lambda st: None), (lambda st, inv: False), (lambda name: True),
              f"{brainmod.step_key(make_table)}: short of what it needs"),
             ("cooling, no seek found a way (the same source failed before)",
-             [mine_stone], (lambda st: False), (lambda st, inv: True), (lambda name: False),
+             [mine_stone], (lambda st: None), (lambda st, inv: True), (lambda name: False),
              f"{brainmod.step_key(mine_stone)}: cooling, no seek alternative found it a way"),
-            ("accept5: a surface step, underground by night — every step skipped, still named",
+            ("accept5: every step skipped, named in the skip check's own words (not a guess)",
+             [gather_wood], skip_night, (lambda st, inv: True), (lambda name: True),
+             f"{brainmod.step_key(gather_wood)}: a surface step, and it's night"),
+            ("must fail: a skip check that only says yes/no (no reason) falls back to naming itself, not a guess",
              [gather_wood], (lambda st: True), (lambda st, inv: True), (lambda name: True),
-             f"{brainmod.step_key(gather_wood)}: a surface step, underground by night"),
+             f"{brainmod.step_key(gather_wood)}: skipped by <lambda>"),
             ("its own precondition refuses it (station, fight line)",
-             [mine_stone], (lambda st: False), (lambda st, inv: True), (lambda name: True),
+             [mine_stone], (lambda st: None), (lambda st, inv: True), (lambda name: True),
              f"{brainmod.step_key(mine_stone)}: its own preconditions (station, fight line) refuse it"),
             ("must fail: no steps at all is the one case the bare default is right",
-             [], (lambda st: False), (lambda st, inv: True), (lambda name: True),
+             [], (lambda st: None), (lambda st, inv: True), (lambda name: True),
              "no step of the plan can run from here"),
         ]
         b = brain_fixture()

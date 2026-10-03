@@ -788,15 +788,23 @@ class Brain:
     def round_act(self, steps, snap, ctx):
         """The act for the round plan's first runnable step, or None."""
         open_air = snap.night and self.under_sky(snap)
-        st = self.next_step(steps, snap, ctx, lambda s: met(s, snap) or (snap.night and arbiter.on_surface(s.kind))
-                            or open_air)
+
+        def skip(s):
+            if met(s, snap):
+                return "already met"
+            if snap.night and arbiter.on_surface(s.kind):
+                return "a surface step, and it's night"
+            if open_air:
+                return "under the open sky by night: no surface work"
+            return None
+        st = self.next_step(steps, snap, ctx, skip)
         return None if st is None else craft_act("plan", f"round: {step_key(st)}", ctx, steps, st, snap.night,
                                                  inv=snap.inv)
 
-    def next_step(self, steps, snap, ctx, skip=lambda st: False):
-        """The plan's first step that can run now (and is not `skip`ped); a sourced step whose own key cools here —
-        its known sources failed — gives way to the search for its kinds (seek_for: a search is always a way while
-        the world is unexplored), never to "no step of the plan can run" (K3)."""
+    def next_step(self, steps, snap, ctx, skip=lambda st: None):
+        """The plan's first step that can run now (and is not `skip`ped — a reason str, or None/False); a sourced
+        step whose own key cools here — its known sources failed — gives way to the search for its kinds (seek_for:
+        a search is always a way while the world is unexplored), never to "no step of the plan can run" (K3)."""
         for st in steps:
             if skip(st):
                 continue
@@ -807,14 +815,18 @@ class Brain:
                 return alt
         return None
 
-    def step_reason(self, steps, snap, ctx, skip=lambda st: False):
+    def step_reason(self, steps, snap, ctx, skip=lambda st: None):
         """D1: why `next_step` found none — the first non-skipped step's own failing check, named (never the bare
-        default: next_step's order, read again). Every step skipped (accept5: a surface step, underground by night)
-        is still named, by the first of them — not silently the bare default either."""
+        default: next_step's order, read again). `skip` names its own reason (a str) for the step it skips, or
+        None/False for one it doesn't; every step skipped is still named by the first of them, in its own words —
+        never a guessed one (a bare `skipped by <predicate>` only when `skip` gave a plain bool, not a reason)."""
         first_skipped = None
         for st in steps:
-            if skip(st):
-                first_skipped = first_skipped or st
+            why = skip(st)
+            if why:
+                if not isinstance(why, str):
+                    why = f"skipped by {getattr(skip, '__name__', 'its skip check')}"
+                first_skipped = first_skipped or (st, why)
                 continue
             if not runnable(st, snap.inv):
                 return f"{step_key(st)}: short of what it needs"
@@ -822,7 +834,8 @@ class Brain:
                 return f"{step_key(st)}: cooling, no seek alternative found it a way"
             return f"{step_key(st)}: its own preconditions (station, fight line) refuse it"
         if first_skipped is not None:
-            return f"{step_key(first_skipped)}: a surface step, underground by night"
+            st, why = first_skipped
+            return f"{step_key(st)}: {why}"
         return "no step of the plan can run from here"
 
     def wait_why(self, snap):
@@ -856,7 +869,14 @@ class Brain:
         # by night: no surface step, and no step at all under the open sky (the shelter row runs the night's prep)
         closed = snap.night
         open_air = closed and self.under_sky(snap)
-        step = self.next_step(steps, snap, ctx, lambda st: (closed and arbiter.on_surface(st.kind)) or open_air)
+
+        def skip(st):
+            if closed and arbiter.on_surface(st.kind):
+                return "a surface step, and it's night"
+            if open_air:
+                return "under the open sky by night: no surface work"
+            return None
+        step = self.next_step(steps, snap, ctx, skip)
         if step is None:
             return None
         act = craft_act("upkeep", name, ctx, steps, step, snap.night, inv=snap.inv)
@@ -895,10 +915,11 @@ class Brain:
                 return None
             self.fail_task(task, f"nothing left to plan, still short of {waiting}")
             return None
-        step = self.next_step(held["steps"], snap, ctx, lambda s: met(s, snap))
+        met_skip = lambda s: "already met" if met(s, snap) else None  # noqa: E731
+        step = self.next_step(held["steps"], snap, ctx, met_skip)
         if step is None:
             # same bag, same plan: re-solving every round ran nothing, so the step cools until the next event
-            reason = self.step_reason(held["steps"], snap, ctx, lambda s: met(s, snap))
+            reason = self.step_reason(held["steps"], snap, ctx, met_skip)
             self.step_whys.append(f"{tasks.describe_task(task)}: {reason}")
             self.fail_step(task, NotAvailable(reason))
             return None
