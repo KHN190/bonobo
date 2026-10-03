@@ -148,6 +148,12 @@ def memory():
     return Memory(os.path.join(tempfile.mkdtemp(prefix="mem-"), "notes.json"))
 
 
+def handles(step):
+    """The test oracle: a registered skill carries out `step` (a named skill, or a provider of one of its effects)."""
+    from bonobo import skill
+    return step.kind == "skill" and step.token in skill.REGISTRY or any(skill.providers(e) for e in skill.step_keys(step))
+
+
 def cost(snap=None, mem=None, **seen):
     """The real `cost.Cost` over a real snapshot (with `seen` in its look) and memory: no query made."""
     from bonobo.cost import Cost
