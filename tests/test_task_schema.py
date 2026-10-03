@@ -4,6 +4,7 @@ The jar's reader is parsed from its source (MC_MOD_SRC or the sibling checkout);
 import ast
 import glob
 import os
+import pathlib
 import re
 import unittest
 
@@ -59,14 +60,14 @@ def mismatches(schema, tree, where=""):
 @unittest.skipUnless(os.path.exists(FACTORY), "the jar's source is not on disk")
 class TaskSchema(unittest.TestCase):
     def test_the_package(self):
-        schema = jar_schema(open(FACTORY).read())
+        schema = jar_schema(pathlib.Path(FACTORY).read_text())
         bad = []
         for path in sorted(glob.glob(os.path.join(ROOT, "bonobo", "**", "*.py"), recursive=True)):
-            bad += mismatches(schema, ast.parse(open(path).read()), os.path.relpath(path, ROOT))
+            bad += mismatches(schema, ast.parse(pathlib.Path(path).read_text()), os.path.relpath(path, ROOT))
         self.assertEqual(bad, [])
 
     def test_rows(self):
-        schema = jar_schema(open(FACTORY).read())
+        schema = jar_schema(pathlib.Path(FACTORY).read_text())
         # (situation, a dict) → caught
         rows = [("an attack with its entity", '{"type": "attack", "entity": 5, "footwork": "back"}', False),
                 ("an attack's keep-off distance", '{"type": "attack", "entity": 5, "keepOff": 7.5}', False),

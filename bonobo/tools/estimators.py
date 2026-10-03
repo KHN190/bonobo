@@ -2,6 +2,7 @@
 
 import ast
 import os
+import pathlib
 import sys
 
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,7 +47,7 @@ def estimators(pkg=PKG):
     """[(module, name, line, unit, concept)] — every function whose name declares a quantity."""
     out = []
     for module, path in _modules(pkg):
-        tree = ast.parse(open(path).read())     # a module that does not parse is an error here, not skipped
+        tree = ast.parse(pathlib.Path(path).read_text())     # a module that does not parse is an error here, not skipped
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -72,7 +73,7 @@ def clamps(pkg=PKG):
 
     out = []
     for module, path in _modules(pkg):
-        source = open(path).read()
+        source = pathlib.Path(path).read_text()
         tree = ast.parse(source)
         lines = source.splitlines()
         for node in ast.walk(tree):

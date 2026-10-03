@@ -1,5 +1,6 @@
 """A free run never begins at a bench site: where the body is decides it (tools.leave_bench.bench_site)."""
 import os
+import pathlib
 import sys
 import unittest
 
@@ -59,7 +60,7 @@ class BenchRestores(unittest.TestCase):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         files = [f for f in glob.glob(os.path.join(root, "bonobo/bench/**/*.py"), recursive=True)
                  if not f.endswith("core.py")]
-        changed = set(core.BENCH_WORLD).union(*(settings_in(open(f).read()) for f in files))
+        changed = set(core.BENCH_WORLD).union(*(settings_in(pathlib.Path(f).read_text()) for f in files))
         self.assertIn("gamerule advance_time", changed)           # the reader sees the frozen clock
         self.assertEqual(changed - set(core.WORLD_NORMAL), set())
         restore = core.restore_commands()

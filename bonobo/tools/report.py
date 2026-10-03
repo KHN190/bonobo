@@ -1,6 +1,7 @@
 """What the collected tapes say about the dragon, aggregated across every recording. One tape is an anecdote: a phase that happened to last 5 s once tells the planner nothing about the window it can count on. This pools every tape in the tape directory and reports the distributions the planner actually budgets against — how long each phase lasts, how the cycle is ordered, where the breath lands, what damage came from what. Offline: reads files, never the game. Usage: phase_report.py [NAME_PREFIX]"""
 
 import os
+import pathlib
 import statistics
 import sys
 
@@ -45,7 +46,7 @@ def write_fit(values, path=None):
     """Write fitted values into fight.toml and drop their names from `unmeasured`. Returns what changed."""
     import re
     path = path or fight_plan.CONFIG_PATH
-    text = open(path).read()
+    text = pathlib.Path(path).read_text()
     changed = {}
     for name, value in values.items():
         pattern = rf"^({re.escape(name)}\s*=\s*)([0-9.]+)"
