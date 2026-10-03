@@ -86,12 +86,13 @@ class Cost:
     """The cost model a planner is given."""
 
     def __init__(self, snap, mem=None, blacklist=None, known=None, finds=None, policy=None, ripe=None, reserved=(),
-                 region=None):
+                 region=None, stop=None):
         """`known`: fn(kinds) -> distance or None, standing in for memory (offline: no snapshot, no world).
         `reserved`: item ids the held plans will consume (bag.RESERVED), kept from a better tool's material.
-        `region`: the blocks perception read (perception.price_inputs' ground), None when unread."""
+        `region`: the blocks perception read (perception.price_inputs' ground), None when unread.
+        `stop`: () → True ends a search planning with this model (planner.Search), None never."""
 
-        self.snap, self.mem, self.region = snap, mem, region
+        self.snap, self.mem, self.region, self.stop = snap, mem, region, stop
         self.reserved = frozenset(reserved)
         self.blacklist = blacklist or {}
         self.cache = {}

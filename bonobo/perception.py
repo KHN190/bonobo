@@ -480,12 +480,14 @@ class Watcher(threading.Thread):
             now = time.time()
             if reason is None or now - self.last.get(reason, 0) < REPEAT_S:
                 continue
-            if not (s.get("control") or {}).get("task"):
-                continue        # nothing running to interrupt; the next round's survival check will see it
             if reason == "hostiles" and not answering(now):
                 # stopping the body is not an answer: only the layer about to answer a threat may stop the work
                 continue
             self.last[reason] = now
+            if not (s.get("control") or {}).get("task"):
+                api.request_interrupt(reason)     # no task to stop: a plan being searched ends (S1)
+                api.log(f"!! perception: {reason} → the round's planning stops")
+                continue
             if api.soft():
                 api.request_interrupt(reason)     # soft skill: message only, no /stop — the skill takes cover itself
                 # a soft skill takes cover itself; cancelling its task stranded the player

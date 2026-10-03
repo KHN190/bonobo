@@ -418,6 +418,7 @@ class Node:
 class Search:
     def __init__(self, cost, kinds=None):
         self.hungry = getattr(cost, "hunger_rate", lambda: 0.0)()
+        self.stop = getattr(cost, "stop", None) or (lambda: False)     # injected: true ends the search (Interrupted)
         self.cost = cost
         self.kinds = kinds              # step kinds allowed (None: all)
         self.lb = bound(cost)
@@ -900,6 +901,8 @@ class Search:
         push(self.h(root), (), root)
         nodes = 0
         while heap and nodes <= MAX_NODES:
+            if self.stop():
+                raise api.Interrupted("a hazard while planning")
             f, tie, n = heapq.heappop(heap)
             if best is not None and (f, tie) >= (best[0], best[1]):
                 break
