@@ -27,6 +27,7 @@ from bonobo.bench import runner  # noqa: E402
 from bonobo.bench import bench_acceptance, bench_bases, core, vocab  # noqa: E402
 from bonobo.bench.words import brain as words_brain, checks as words_checks  # noqa: E402
 from bonobo.bench.words import runs as words_runs, scene as words_scene  # noqa: E402
+from bonobo.skillcore import Ban  # noqa: E402
 
 CHAIN_C = ("slice_start_tools", "iron_ingots", "slice_nether_kit")    # test point C, in this order
 
@@ -605,7 +606,7 @@ class ResetBrain(unittest.TestCase):
         # (what the last row left, how to read it after the reset, the clean value)
         rows = [("a broken axe note", lambda: br.needs.broken.add("axe"), lambda: br.needs.broken, set()),
                 ("a tier that worked", lambda: br.needs.working.update(pickaxe=2), lambda: br.needs.working, {}),
-                ("a ban", lambda: br.blacklist.update({(1, 2, 3): 9e9}), lambda: br.blacklist, {}),
+                ("a ban", lambda: br.blacklist.update({(1, 2, 3): Ban(9e9)}), lambda: br.blacklist, {}),
                 ("a held plan", lambda: br.held.update(t1={}), lambda: br.held, {}),
                 ("a committed task", lambda: setattr(br, "committed", "t1"), lambda: br.committed, None),
                 ("the ban dict stays the one fight_loop holds", lambda: None, lambda: br.blacklist is shared, True),

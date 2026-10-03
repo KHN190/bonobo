@@ -47,6 +47,7 @@ class ApiState(lifecycle.State):
     dim_seen: "str | None" = None                              # its dimension then
     moved_m: float = 0.0                 # blocks the body moved, summed over successive /state reads (E4: the path)
     bar_seen: "tuple[float, float] | None" = None      # (food, saturation) in the last /state read (E4: the drain)
+    kinds_seen: "frozenset | None" = None    # the item kinds in the last /inventory read (E5: a ban's state)
     home_break: "str | None" = None      # a rescue's reason while it may break a home block (home_break_allowed)
     # the body's clock for the round log (brain._round's gap): when a task's end was first seen, when a task was
     # first posted since the round began (perf_counter seconds; None when not yet)
@@ -416,6 +417,8 @@ def get(path) -> dict:
         if "food" in r:
             STATE.bar_seen = (float(r["food"]), float(r.get("saturation", 0.0)))
         STATE.dim_seen = r.get("dimension", STATE.dim_seen)
+    if path.startswith("/inventory") and isinstance(r, dict) and "slots" in r:
+        STATE.kinds_seen = frozenset(s["id"] for s in r["slots"] if s.get("count"))
     return r
 
 

@@ -1804,7 +1804,7 @@ class Retry(unittest.TestCase):
         for _ in range(6):
             t0 = time.time()
             ctx.ban(cell, seconds=60)
-            spans.append(round(ctx.blacklist[cell] - t0))
+            spans.append(round(ctx.blacklist[cell].until - t0))
         self.assertEqual(spans, sorted(spans))
         self.assertLessEqual(max(spans), skillcore.BAN_MAX_S)
         self.assertEqual(spans[:2], [60, 120])
@@ -1812,15 +1812,40 @@ class Retry(unittest.TestCase):
         self.assertFalse(ctx.blocked(other))
 
     def test_one_reading_of_a_ban(self):
+        B = skillcore.Ban
         # (situation, blacklist, key asked, now) → banned: skillcore.banned, read by Context.blocked and the cost model
-        rows = [("a cell banned till later", {(5, 64, 5): 200.0}, (5, 64, 5), 100.0, True),
-                ("must fail: the ban ran out", {(5, 64, 5): 50.0}, (5, 64, 5), 100.0, False),
-                ("must fail: expiring this instant is over", {(5, 64, 5): 100.0}, (5, 64, 5), 100.0, False),
-                ("an entity key, asked as a list", {(42, 0, 0): 200.0}, [42, 0, 0], 100.0, True),
-                ("must fail: another cell", {(5, 64, 5): 200.0}, (6, 64, 5), 100.0, False)]
+        rows = [("a cell banned till later", {(5, 64, 5): B(200.0)}, (5, 64, 5), 100.0, True),
+                ("must fail: the ban ran out", {(5, 64, 5): B(50.0)}, (5, 64, 5), 100.0, False),
+                ("must fail: expiring this instant is over", {(5, 64, 5): B(100.0)}, (5, 64, 5), 100.0, False),
+                ("an entity key, asked as a list", {(42, 0, 0): B(200.0)}, [42, 0, 0], 100.0, True),
+                ("must fail: another cell", {(5, 64, 5): B(200.0)}, (6, 64, 5), 100.0, False)]
         for name, blacklist, key, now, want in rows:
             with self.subTest(name):
                 self.assertEqual(skillcore.banned(blacklist, key, now), want)
+
+    def test_a_ban_lifts_on_a_changed_state(self):
+        """K5 (E5): every ban holds while the state it was made in does, the clock its cap — whatever its seconds."""
+        from bonobo import api
+        from bonobo.data import BAN_MAX_S
+        feet, kinds = (5.5, 64.0, 5.5), frozenset({"minecraft:oak_log"})
+        far = (feet[0] + 1000, feet[1], feet[2])      # another place bin, whatever its size
+        # the seconds the ban sites pass (gather/loot/nether/survive/ui/farming: BAN_MAX_S, 120, 300, 900, 1800)
+        for seconds in sorted({BAN_MAX_S, 120, 300, 900, 1800}):
+            for key in ((5, 64, 5), (42, 0, 0)):
+                ctx = skillcore.Context(None, None, OVER, blacklist={})
+                ctx.ban_counts = {}
+                with mock.patch.object(api.STATE, "feet_seen", feet), mock.patch.object(api.STATE, "kinds_seen", kinds):
+                    ctx.ban(key, seconds)
+                now = time.time() + 1
+                rows = [("the same state: banned", skillcore.ban_state(feet, kinds), now, True),
+                        ("must fail: a new kind carried, still banned",
+                         skillcore.ban_state(feet, kinds | {"minecraft:cobblestone"}), now, False),
+                        ("another place", skillcore.ban_state(far, kinds), now, False),
+                        ("the same state past the cap", skillcore.ban_state(feet, kinds), now + BAN_MAX_S, False),
+                        ("no state known: the clock alone", None, now, True)]
+                for name, state, at, want in rows:
+                    with self.subTest(name, seconds=seconds, key=key):
+                        self.assertEqual(skillcore.banned(ctx.blacklist, key, at, state), want)
 
     # fixture: (module source) → (ban sites, the ones that follow a go_to walk in the same function)
     BANS = [("a ban after arrived: fine", "def f(ctx):\n    if not nav.arrived(c, p):\n        ctx.ban(c)\n", (1, [])),

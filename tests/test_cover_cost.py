@@ -5,10 +5,11 @@ from unittest import mock
 
 from bonobo import needs
 from bonobo.api import NotAvailable
+from bonobo.skillcore import Ban  # noqa: E402
 
 
 class Ctx:
-    mem, blacklist, policy = object(), {(1, 2, 3): 9e18}, object()
+    mem, blacklist, policy = object(), {(1, 2, 3): Ban(9e18)}, object()
 
 
 class CoverCost(unittest.TestCase):

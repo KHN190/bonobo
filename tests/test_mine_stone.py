@@ -12,6 +12,7 @@ from bonobo.data import SOIL_DEPTH, STAIR_CELLS  # noqa: E402
 from bonobo.knowledge import FIND_AT, MINE, break_overhead  # noqa: E402
 from bonobo.planner import Step  # noqa: E402
 from tests.world import FakeRegion, bag, inventory, memory, state  # noqa: E402
+from bonobo.skillcore import Ban  # noqa: E402
 
 FEET = (0, 64, 0)
 SOIL = 3                    # blocks of soil over the stone in every scene
@@ -205,7 +206,7 @@ class Overburden(unittest.TestCase):
         hit = {"x": cell[0], "y": y, "z": cell[2], "distance": 5.0, "block": blocks[0]}
         snap = world.Snapshot.from_readings(state(x=FEET[0] + 0.5, y=float(FEET[1]), z=FEET[2] + 0.5), inv,
                                             {world.bare(blocks[0]): [hit]})
-        c = costmod.Cost(snap, memory(), blacklist={cell: time.time() + 60} if ban else None)
+        c = costmod.Cost(snap, memory(), blacklist={cell: Ban(time.time() + 60)} if ban else None)
         step = Step("mine", token, 1, {"blocks": blocks})
         return c._dug(step), c.dig_to(step)
 

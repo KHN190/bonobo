@@ -27,6 +27,7 @@ from bonobo import brain, data, knowledge, loot, memory, nav, skill, skillcore  
 from bonobo.cost import Cost, walk_ticks  # noqa: E402
 from bonobo.planner import Step, plan_needs  # noqa: E402
 from tests.world import FakeRegion, bag, flat, inventory, snapshot, state  # noqa: E402
+from bonobo.skillcore import Ban  # noqa: E402
 
 
 def mem():
@@ -57,7 +58,7 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
                 m = mem()
                 if pos:
                     m.note_here("stone", pos, "minecraft:overworld")
-                cost = Cost(Snap(), m, blacklist={} if reachable else {tuple(pos): float("inf")})
+                cost = Cost(Snap(), m, blacklist={} if reachable else {tuple(pos): Ban(float("inf"))})
                 step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
                 walk = cost.estimate(step) - cost.work(step)
                 want = cost.find_ticks(["stone"]) if where is None else walk_ticks(math.dist(Snap().feet, where))
@@ -456,7 +457,7 @@ class ARoundReadsEachThingOnce(unittest.TestCase):
             refused.snap.hits["stone"] = list(self.HITS)
             self.assertEqual(refused.site(step), (6, 64, 0))    # the snapshot's answer: not there
             del world.ROUTES[key]
-            c.blacklist[(3, 64, 0)] = time.time() + 60
+            c.blacklist[(3, 64, 0)] = Ban(time.time() + 60)
             self.assertEqual(c.site(step), (6, 64, 0))      # must fail: a kept answer outliving the ban that changed it
 
     def test_providers_follow_the_registry(self):

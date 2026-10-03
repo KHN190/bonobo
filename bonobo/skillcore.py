@@ -4,12 +4,13 @@ import math
 import time
 
 from . import api, beliefs, knowledge as _know, lifecycle, tape
+from . import retry
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import BAN_MAX_S, REACH, bare
 from .game import EYE_HEIGHT, SUFFOCATION
 from .world import BAG_SLOTS, Inventory, Region, Versioned, cell_add, inventory_now, box, screen_slot
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 if TYPE_CHECKING:
     from .shapes import BodyState
@@ -70,10 +71,27 @@ class ToolMissing(McError):
 _BAN_COUNTS = {}
 lifecycle.in_place(__name__, "_BAN_COUNTS")     # in place: every Context shares it; bans name the last life's cells
 
-def banned(blacklist, pos, now=None):
-    """Pure given `now`: is `pos` (a cell, or (entity id, 0, 0)) banned in `blacklist` ({key: expiry})?"""
-    exp = blacklist.get(tuple(pos))
-    return exp is not None and exp > (time.time() if now is None else now)
+class Ban(NamedTuple):
+    """A ban's value: until when at the most (the clock is its cap), and the state it holds in (ban_state; None:
+    unknown, the clock alone)."""
+    until: float
+    state: "tuple | None" = None
+
+
+def ban_state(feet, kinds):
+    """Pure: what a ban holds while (E5, retry.state_signature): the place, the kinds carried; None when unread."""
+    if feet is None or kinds is None:
+        return None
+    return retry.state_signature(retry.place_signature(feet, False), kinds, True)
+
+
+def banned(blacklist, pos, now=None, state=None):
+    """Pure given `now`: is `pos` (a cell, or (entity id, 0, 0)) banned in `blacklist` ({key: Ban})? A ban lifts
+    when the `state` now (ban_state) is not the one it was made in, else at its time."""
+    b = blacklist.get(tuple(pos))
+    if b is None or state is not None and b.state is not None and state != b.state:
+        return False
+    return b.until > (time.time() if now is None else now)
 
 class Context:
     """What skills need from the brain: memory, movement policy, target blacklist."""
@@ -94,14 +112,15 @@ class Context:
         return got or {}
 
     def blocked(self, pos):
-        return banned(self.blacklist, pos)
+        return banned(self.blacklist, pos, state=ban_state(api.STATE.feet_seen, api.STATE.kinds_seen))
 
     def ban(self, pos, seconds=BAN_MAX_S):
         """Ban a cell after a failure (never an interruption); repeats escalate, capped at BAN_MAX_S because the world changes."""
         key = tuple(pos)
         count = self.ban_counts.get(key, 0) + 1
         self.ban_counts[key] = count
-        self.blacklist[key] = time.time() + min(seconds * (2 ** (count - 1)), BAN_MAX_S)
+        self.blacklist[key] = Ban(time.time() + min(seconds * (2 ** (count - 1)), BAN_MAX_S),
+                                  ban_state(api.STATE.feet_seen, api.STATE.kinds_seen))
         api.detail(f"   ban {key} ×{count} by {ban_caller()}")       # who banned it (a row starting banned: its writer)
 
 

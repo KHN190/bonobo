@@ -13,6 +13,7 @@ from bonobo.data import HARDNESS  # noqa: E402
 from bonobo.knowledge import MINE  # noqa: E402
 from bonobo.world import Snapshot, Versioned  # noqa: E402
 from tests.world import FakeRegion, inventory, memory, state  # noqa: E402
+from bonobo.skillcore import Ban  # noqa: E402
 
 FEET = (0, 64, 0)
 LO, HI = (-8, 56, -8), (8, 74, 8)
@@ -131,7 +132,7 @@ class AFailedWayIsKeyedByItsCause(unittest.TestCase):
         region = Unread(LO, HI, {p: n for p, n in blocks.items() if p != why.cell})
         self.assertIsNone(cost(region, feet, 0).refused(t, "mine"))            # unknown: possible
         bans = Versioned()
-        bans[why.cell] = float("inf")
+        bans[why.cell] = Ban(float("inf"))
         # must fail: the same cause failing again for the next target behind it
         self.assertIsNotNone(cost(region, feet, 0, bans).refused(t, "mine"))
 

@@ -186,7 +186,8 @@ def _have(*needs):
 
 
 def _not_banned(pos):
-    return lambda api, inv: core.BRAIN.blacklist.get(tuple(pos), 0) <= time.time()
+    from bonobo.skillcore import banned
+    return lambda api, inv: not banned(core.BRAIN.blacklist, pos)
 
 def _clear_bans(ctx):
     core.BRAIN.blacklist.clear()

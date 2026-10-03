@@ -7,7 +7,7 @@ from . import api
 from .api import Interrupted, McError
 from .data import MEASURED_BAND, MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, GROUPS, HARDNESS, HAZARD, NAV_NODES, bare, mid
 from .knowledge import SURFACE_Y, sources, step_station, work_s, food_count, soil_depth, dawn_s, body_facts, expected_find_s, step_kinds, WALK_TICKS_PER_BLOCK, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
-from .skillcore import banned
+from .skillcore import ban_state, banned
 from .world import Region, Versioned, job_ready, route_key
 from .skill import MIN_SAMPLES
 from .planner import Unplannable, plan_needs, way
@@ -83,10 +83,10 @@ def planned_bag(inv, held):
 class _Gone:
     """Cells an estimate never goes to:"""
 
-    def __init__(self, protected, blacklist, routes, now=None):
+    def __init__(self, protected, blacklist, routes, now=None, state=None):
         self.protected, self.blacklist = protected, blacklist
         now = time.time() if now is None else now
-        self.cells = frozenset({tuple(p) for p in blacklist if banned(blacklist, p, now)}
+        self.cells = frozenset({tuple(p) for p in blacklist if banned(blacklist, p, now, state)}
                                | {k[0] for k, (found, _s) in routes.items() if found is False
                                   and k[1:] == (2.0, NAV_NODES)})
 
@@ -139,8 +139,9 @@ class Cost:
         version = getattr(self.blacklist, "version", None)
         got = self.cache.get(("gone", sources))
         if got is None or version is None or got[0] != version:
+            state = ban_state(self.snap.feet, frozenset(s["id"] for s in self.snap.inv.slots if s.get("count")))
             got = self.cache[("gone", sources)] = (version, _Gone(self.protected() if sources else None, self.blacklist,
-                                                                  self.snap.routes))
+                                                                  self.snap.routes, state=state))
         return got[1]
 
     def _nearest(self, kinds, sources=False):

@@ -77,7 +77,7 @@ def row_for(brain, act, snap, now=None):
         "task": task, "plan": [str(s) for s in held["steps"]] if held else None,
         "act": repr(act) if act else None, "step": str(act.step) if act is not None and act.step else None,
         "events": list(_events), "readings": list(_readings),
-        "blacklist": [[list(k), v] for k, v in brain.blacklist.items()],
+        "blacklist": [[list(k), v.until, v.state] for k, v in brain.blacklist.items()],
     }
 
 def trim(path, keep_bytes):
