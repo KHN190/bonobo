@@ -522,10 +522,11 @@ class Node:
     horizon: int = 0            # the stack's length once the choice that made this node is settled
     asked: str = ""             # what that choice was about (said when none of its options can be had)
     open: tuple = ()            # what is being made right now, outermost first: asked again inside, a cycle
+    path: tuple = ()            # (g, h) after each step emitted: what the plan was weighed at on its way (P3's)
 
     def child(self):
         return Node(self.inv.clone(), list(self.stack), list(self.steps), self.g, self.tie, self.horizon, self.asked,
-                    self.open)
+                    self.open, self.path)
 
 
 def _scaled(step, n):
@@ -578,7 +579,8 @@ class Search:
         self.reasons = []
         self.memo = shared.setdefault("memo", {})
         self._sources = shared.setdefault("sources", {})
-        self.considered = []        # every complete plan priced: (name, seconds, steps) — the round's alternatives
+        self.considered = []
+        self.paths: dict = {}           # id(a finished plan's steps) → the (g, h) its node was weighed at, step by step        # every complete plan priced: (name, seconds, steps) — the round's alternatives
         from . import knowledge
         knowledge.producers()                 # the skills registered: their hooks below are wired
         # the contracts' answers about a step, asked once a search per step (the registry does not change within one)
@@ -1264,12 +1266,14 @@ class Search:
         for fact, value in self.sets(step).items():
             node.inv.set_fact(fact, value)
         node.steps.append((step, held, start))      # start: where the steps it needs begin
+        node.path = node.path + ((node.g, self.h(node)),)
         return None
 
     # -- the whole search
     def finish(self, node):
         steps, ticks = forward(node.steps, self.cost, self.start_tools)
         self.considered.append((plan_name(steps), ticks / TICKS_PER_S, steps))
+        self.paths[id(steps)] = node.path
         return ticks, node.tie, steps
 
     def settle(self, node, floor=0, cap=math.inf):
@@ -1306,20 +1310,22 @@ class Search:
         key = (signature(node.stack[node.horizon:], self.task_keys), node.inv.signature(), node.open)
         hit = self.memo.get(key)
         if hit is not None:
-            ok, inv, steps, g, tie = hit
+            ok, inv, steps, g, tie, path = hit
             if not ok or node.g + g > cap:
                 return None
             out = node.child()
             out.inv, out.stack = inv.clone(), out.stack[:node.horizon]
             out.steps, out.g, out.tie = node.steps + list(steps), node.g + g, node.tie + tie
+            out.path = node.path + tuple((node.g + dg, h) for dg, h in path)
             return out
-        start, g0, t0 = len(node.steps), node.g, len(node.tie)
+        start, g0, t0, p0 = len(node.steps), node.g, len(node.tie), len(node.path)
         done = self.settle(node, node.horizon, cap)
         if done is None:
             if cap == math.inf:
-                self.memo[key] = (False, None, (), 0.0, ())
+                self.memo[key] = (False, None, (), 0.0, (), ())
             return None
-        self.memo[key] = (True, done.inv.clone(), tuple(done.steps[start:]), done.g - g0, done.tie[t0:])
+        self.memo[key] = (True, done.inv.clone(), tuple(done.steps[start:]), done.g - g0, done.tie[t0:],
+                          tuple((g - g0, h) for g, h in done.path[p0:]))
         return done
 
     def dive(self, root, cap=math.inf):
@@ -1399,6 +1405,8 @@ class Search:
             raise Dearer(f"no plan under {cap:.0f} ticks")
         if best is None:
             raise Unplannable(first_reason or (self.reasons[0] if self.reasons else "no way found"))
+        if not self.exact and id(best[2]) in self.paths:
+            PATHS.append((best[0], self.paths[id(best[2])]))      # the plan taken, and its way there (P3 reads it)
         return best[2]
 
 
@@ -1543,6 +1551,7 @@ def plan_name(steps) -> str:
 
 
 SPENT: dict = {"steps": 0, "budget": 0, "round": None}   # steps advanced, searches a budget stopped, where a round began
+PATHS: list = []        # each plan a round's searches took: (its price as run, (g, h) at every step on its way there)
 ROUND_STEPS = 1500      # the user's cap on a round's search steps, against a runaway search (P4)
 DIVE_RESERVE = 200      # of it kept from A* for the first plans the round's later searches still owe
 
@@ -1559,6 +1568,7 @@ def round_spent():
     """Pure given SPENT: a round is open (brain.decide marks where it began) and has advanced its cap of steps."""
     return SPENT["round"] is not None and SPENT["steps"] - SPENT["round"] >= ROUND_STEPS
 lifecycle.in_place(__name__, "SPENT")
+lifecycle.in_place(__name__, "PATHS")
 
 
 def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact=False, held=None,

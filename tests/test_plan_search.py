@@ -378,6 +378,17 @@ class TheSearchPricesAtTheLeast(unittest.TestCase):
             self.assertLessEqual(c.walk_lb(step), walk_ticks(1.0))
 
 
+class ThePlanTakenSaysItsWay(unittest.TestCase):
+    def test_every_step_weighed_on_its_way_is_kept(self):
+        del planner.PATHS[:]
+        steps = plan_needs(bag(inventory()), [("tool", "pickaxe", 1)], NullCost())
+        # must fail: no record of what the plan taken was weighed at (P3 judges each against its price as run)
+        price, path = planner.PATHS[-1]
+        self.assertEqual(price, sum(st.est for st in steps))
+        self.assertGreaterEqual(len(path), len(steps))
+        self.assertTrue(all(g + h <= price for g, h in path), path)
+
+
 class TheRoundsBudgetIsShared(unittest.TestCase):
     def test_rows(self):
         saved = dict(planner.SPENT)
