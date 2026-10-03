@@ -60,6 +60,11 @@ def takes_back(block, has_pickaxe):
 
     return has_pickaxe or bare(block).endswith(HAND_MINEABLE_SUFFIX)
 
+def take_table(pos):
+    """Pure: the task that takes our crafting table back — always, never priced (survive.take_bed's own: ours is
+    simply carried on, nothing left standing on a maybe)."""
+    return nav.mine_task(pos, collect=True)
+
 def _break_ticks_held(block, inv):
     """Pure: ticks to break `block` with the best of the hand and what the bag holds (knowledge.work_s's own
     min-over-held) — never a chosen item (E1, test_one_bag: skillcore.arm alone picks what a task holds)."""
@@ -68,28 +73,45 @@ def _break_ticks_held(block, inv):
     return min(_k.break_ticks(bare(block), i) for i in items)
 
 def station_kept(block, pos, next_use, inv, extra_s=0.0):
-    """Pure (G3): left standing pays when walking back from `next_use` (D6: the plan's own place for it) costs
-    fewer ticks than breaking `block`, carrying it, and placing it again there; `extra_s` counts in a furnace
-    still smelting (waited out or collected before it can break). False with no known next use: always carry."""
+    """Pure (G3): left standing pays when the ticks back from `next_use` (place, real dig-path ticks — the
+    `_next_use_at` Cost replay, never less than the straight line, a floor only, never the price itself) cost
+    fewer than breaking `block`, carrying it, and placing it again there; `extra_s` counts in a furnace still
+    smelting (waited out or collected before it can break). False with no known next use: always carry."""
     if next_use is None:
         return False
+    place, ticks_back = next_use
     rebuild = _break_ticks_held(block, inv) + _k.break_overhead() + round((nav.PLACE_S + extra_s) * TICKS_PER_S)
-    return _k.walk_ticks(math.dist(pos, next_use)) < rebuild
+    return max(ticks_back, _k.walk_ticks(math.dist(pos, place))) < rebuild
+
+def station_left(block, pos, next_use, inv, extra_s=0.0):
+    """Pure: the one call Station.__exit__ asks — is a station it placed left standing? A furnace by price
+    (station_kept); every other station Station ever places (brewing stand, enchanting table, anvil: built once,
+    reused standing) always, a next use or none never changing that. (A crafting table never goes through Station:
+    craft_commands always takes its own back, take_table, no price asked either.)"""
+    if bare(block) == "furnace":
+        return station_kept(block, pos, next_use, inv, extra_s)
+    return True
 
 def _next_use_at(cost, steps, last, needs):
-    """Pure: the planned place (D6: price_as_run's own at-chain) of the first step after `last` that `needs` it, else
-    None. Starts from the station's own place (`last`'s site, else the feet): no sited step in between means no
-    move at all, not an unknown place (station_kept must read "here" as 0 ticks back, not as "never keep")."""
-    at = cost.site(last)
-    if at is None:
-        at = cost.feet()
+    """Pure: (place, ticks) for the first step after `last` that `needs` it, else None — `place` the planned place
+    (D6: price_as_run's own at-chain), `ticks` the real cost home from it to `last`'s own site (dug_way's breaks,
+    knowledge.work_s, atop the walk: a buried station's way is not its straight line). Starts from the station's
+    own place (`last`'s site, else the feet): no sited step in between means no move at all, not an unknown place
+    (station_kept must read "here" as 0 ticks back, not as "never keep")."""
+    station = cost.site(last)
+    if station is None:
+        station = cost.feet()
+    at = station
     after = False
     for s in steps:
         if after:
             site = cost.site(s)
             at = site if site is not None else at
             if needs(s):
-                return at
+                blocks = cost._way_breaks(tuple(at), tuple(station), "stone", True)
+                ticks = _k.walk_ticks(math.dist(at, station)) + round(
+                    _k.work_s(blocks, [], _k.held_tiers(cost.snap.inv), TICKS_PER_S) * TICKS_PER_S)
+                return (at, ticks)
         after = after or s is last
     return None
 
@@ -176,7 +198,7 @@ class Station:
         api.post("/close")
         can_take = self.placed and takes_back(self.block, bool(Inventory().tools("pickaxe")))
         if self.placed and (not can_take
-                            or station_kept(self.block, self.pos, self.next_use, Inventory(), wait_s)):
+                            or station_left(self.block, self.pos, self.next_use, Inventory(), wait_s)):
             # left standing, remembered as a station: a furnace broken by hand takes ~17 s and drops nothing
             log(f"   left the {bare(self.block)} standing"
                 + ("" if can_take else ": no pickaxe to take it back"))
@@ -385,10 +407,9 @@ def craft_commands(state, args):
             pos, placed = tuple(state["spot"]), True
             out.append({"type": "place", "item": "minecraft:crafting_table", "x": pos[0], "y": pos[1], "z": pos[2]})
         out += [{"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}] + crafts + [CLOSE]
-        # taken back unless leaving it standing for the next use (state["next_use"]) prices cheaper (G3, station_kept)
-        if placed and takes_back("minecraft:crafting_table", bool(inv.tools("pickaxe"))) \
-                and not station_kept("minecraft:crafting_table", pos, state.get("next_use"), inv):
-            out.append(nav.mine_task(pos, collect=True))
+        # ours (just placed, or standing where we put it before: own_table) is always taken back, never another's.
+        if placed or state.get("own_table"):
+            out.append(take_table(pos))
     return out
 
 def room_clicks(slots, need, price=None):
@@ -406,9 +427,9 @@ def make_bag_room(ctx, need):
     return clicks
 
 def _sitting(ctx, recipes, next_use=None):
-    """Craft `recipes` in one sitting: the table opened (or placed) once and closed (or taken back) once — left
-    standing when `next_use` (the plan's own place for the next table use, D6) prices cheaper than breaking it
-    and placing a new one there (station_kept)."""
+    """Craft `recipes` in one sitting: the table opened (or placed, or an own one reused) once and taken back once
+    (take_table: ours, never priced); `next_use` only decides whether brain.craft_act keeps batching crafts
+    on, never whether the table stays standing."""
 
     inv = Inventory()
     if inv.used_slots() >= BAG_SLOTS:
@@ -429,23 +450,30 @@ def _sitting(ctx, recipes, next_use=None):
             near = [{"x": home[0], "y": home[1], "z": home[2]}]
         if near:
             state["table"] = (near[0]["x"], near[0]["y"], near[0]["z"])
+            # standing where we (memory.stations) put it before: ours to judge for take-back too.
+            state["own_table"] = mem is not None and any(
+                bare(s["block"]) == TABLE and tuple(s["pos"]) == state["table"] for s in mem.stations(ctx.dimension))
         else:
             # offered only if nav.reach also accepts it (P2/K1): never a spot the run then refuses
             spots = free_spots_here(limit=1, reachable=placeable(inv, ctx.policy.protected)) or make_room(ctx)
             state["spot"] = spots[0] if spots else None
     tasks = craft_commands(state, (recipes,))
     placed = next(((t["x"], t["y"], t["z"]) for t in tasks if t.get("type") == "place"), None)
+    acted = placed     # pos memory's bookkeeping below applies to: placed, or an own table the chain tried taking back
+    if acted is None and state.get("own_table") and any(
+            t.get("type") == "mine" and (t["x"], t["y"], t["z"]) == tuple(state["table"]) for t in tasks):
+        acted = tuple(state["table"])
     before = Inventory().count("minecraft:crafting_table")
     close_screen()
     try:
         run_split(tasks, wait=120)
     finally:
-        if placed is not None:
+        if acted is not None:
             # Memory knows where our table stands: kept when it was left there, dropped once it is back in the bag.
-            if Inventory().count("minecraft:crafting_table") > before or not _standing("crafting_table", placed, 1):
-                ctx.mem.remove_station(placed)
+            if Inventory().count("minecraft:crafting_table") > before or not _standing("crafting_table", acted, 1):
+                ctx.mem.remove_station(acted)
             else:
-                ctx.mem.add_station("minecraft:crafting_table", placed, ctx.dimension)
+                ctx.mem.add_station("minecraft:crafting_table", acted, ctx.dimension)
     return [(t, times) for t, times in recipes]
 
 @skill(gives=[K.GIVES_CRAFT_GROUP, K.GIVES_CRAFT], needs={}, start=lambda c: _plan_start([(c.args[1], c.args[2])]), verify=_plan_made, budget=90, stall=60,
