@@ -126,7 +126,8 @@ def run_priced(dimension, step, night, run):
                 "game_s": None if g1 is None else (g1 - g0) / TICKS_PER_S, **step_moved(PHASES, api.STATE),
                 "ticks": api.ticks_since(api.STATE.ticks, PHASES["ticks_after"])}
     try:
-        out = run()
+        with nav.step_budget(step.est):        # its ways held to OVERRUN × its as-run price (Step.est), every try
+            out = run()
     except GameUnreachable:
         raise
     except api.INTERRUPTIONS as e:

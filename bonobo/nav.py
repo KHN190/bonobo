@@ -4,11 +4,12 @@ from __future__ import annotations
 import math
 import re
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
-from .data import DOOR_NEAR, ENTITY_REACH, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, OVERRUN, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .data import DOOR_NEAR, ENTITY_REACH, OVERRUN, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .game import EYE_HEIGHT, PLAYER_SPRINT
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
 from .knowledge import WAY_BLOCKS, dig_ticks, find_class
@@ -559,15 +560,14 @@ def stand_candidates(region, target, kind):
           and not region.solid(cell_add(c, (0, 1, 0))) and stands_for(kind, region, c, target)]
     return sorted(ok, key=lambda c: math.dist(c, target))
 
-def reach_stand(task, policy, faces=None, at=None, est=None):
+def reach_stand(task, policy, faces=None, at=None):
     """The way to a stand for `task` (I4) on its cell (`at`: target_of, a mob's where it is now): read the box,
     plan_way (a88's: explicit mine/place/goto steps) over the game's walks (break off) to the stand candidates
     (`faces`, else stand_candidates), each asked as plan_way reads it, send them through the door, and again until
-    the stand holds; plan_way's None → NavFailed with its why. The live twin of reach's loop. `est`: the step's own
-    estimate in ticks (E4) — a way over OVERRUN× it is refused before digging, or stopped partway through."""
+    the stand holds; plan_way's None → NavFailed with its why. The live twin of reach's loop. Within the running
+    step's budget (afford/run_way: the whole way priced first, its digging timed)."""
     kind = "stand" if task.get("type") == "goto" else act_of(task) or task["type"]
     target = tuple(at) if at is not None else _cell_of(task)
-    est_s = est / TICKS_PER_S if est is not None else None
     tried, tries = 0, 1
     while tried < tries:
         here = feet()
@@ -585,30 +585,76 @@ def reach_stand(task, policy, faces=None, at=None, est=None):
             raise api.NavFailed(f"no way to {kind} {target}: {why}", pos=getattr(why, "cell", None))
         if not steps:
             return
-        if est_s is not None and seconds > OVERRUN * est_s:
-            raise api.NavFailed(f"way {seconds:.0f}s > {OVERRUN}× estimate {est_s:.0f}s", pos=target)
+        whole = reach(region, here, target, kind, inventory_now(), policy.protected, walks=walks) \
+            if tried == 1 and region is not None and BUDGET[0] is not None else None
+        afford(max(seconds or 0.0, whole.seconds if whole is not None and whole.stand is not None else 0.0), target)
         api.detail(f"   way to {kind} {target}: {len(steps)} steps, ~{seconds:.0f}s")
         _IN_WAY[0] += 1
         try:
-            _run_way(steps, est_s, kind, target)
+            run_way(steps, policy)
         finally:
             _IN_WAY[0] -= 1
+    here = feet()
+    if kind != "stand" and stands_for(kind, _read_box([here, target]), here, target, task.get("down", False)):
+        return                          # the last way stood it (reach's own last check)
     raise api.NavFailed(f"no stand for {kind} {target} after {tries} ways", pos=target)
 
-WAY_CHUNK = 6            # steps a budgeted way runs between overrun checks (run_chain's own segment size)
 
-def _run_way(steps, est_s, kind, target):
-    """steps, straight through, with no budget (est_s: None); chunked and timed against OVERRUN×est_s else —
-    NavFailed partway stops the dig and lets the round re-plan rather than finishing an overrun way."""
-    if est_s is None:
-        api.run_chain(steps, stop_on_failure=True)
-        return
-    began = time.time()
-    for i in range(0, len(steps), WAY_CHUNK):
-        api.run_chain(steps[i:i + WAY_CHUNK], stop_on_failure=True)
-        elapsed = time.time() - began
-        if elapsed > OVERRUN * est_s:
-            raise api.NavFailed(f"way overran {elapsed:.0f}s > {OVERRUN}× estimate {est_s:.0f}s", pos=target)
+class Overrun(McError):
+    """A step's ways past its budget (OVERRUN × its as-run price): stopped, nothing banned (a price missed is no
+    cell's failure, K2) — the round prices it again from where the body stands."""
+
+
+@dataclass
+class WayBudget:
+    """One step's seconds for its ways — OVERRUN × its planned as-run price (Step.est) — spent across every try and
+    every way of the step."""
+    limit_s: float
+    spent_s: float = 0.0
+
+    def left(self):
+        return self.limit_s - self.spent_s
+
+
+BUDGET: list = [None]    # the running step's WayBudget (dispatch.run_step, step_budget), None outside a step
+lifecycle.in_place(__name__, "BUDGET")
+
+
+@contextmanager
+def step_budget(est_ticks):
+    """The ways of the step run inside are held to OVERRUN × `est_ticks` (its as-run price; none when unpriced)."""
+    before = BUDGET[0]
+    BUDGET[0] = WayBudget(OVERRUN * est_ticks / TICKS_PER_S) if est_ticks else None
+    try:
+        yield BUDGET[0]
+    finally:
+        BUDGET[0] = before
+
+
+def afford(seconds, target):
+    """Overrun before any digging when a way priced `seconds` is past what the running step has left."""
+    budget = BUDGET[0]
+    if budget is not None and seconds > budget.left():
+        raise Overrun(f"way to {target} ~{seconds:.0f}s > the step's {budget.left():.0f}s left "
+                      f"({OVERRUN}× its price, {budget.spent_s:.0f}s spent)")
+
+
+def run_way(steps, policy):
+    """A way's steps as one chain (run_chain: its segments, the interrupt check between them, policy.before_segment's
+    hazard hook — S1/S7), the running step's budget spent by the clock and checked before each segment (Overrun)."""
+    budget, began = BUDGET[0], time.time()
+
+    def before(part):
+        if policy.before_segment:
+            policy.before_segment(part)
+        if budget is not None and budget.spent_s + time.time() - began > budget.limit_s:
+            raise Overrun(f"ways ran {budget.spent_s + time.time() - began:.0f}s > the step's "
+                          f"{budget.limit_s:.0f}s ({OVERRUN}× its price)")
+    try:
+        api.run_chain(steps, stop_on_failure=True, before_segment=before)
+    finally:
+        if budget is not None:
+            budget.spent_s += time.time() - began
 
 ARRIVE_RANGE = 1.5       # a walk arrives this near its target (go_to's own margin): what "came to us" means
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
@@ -772,12 +818,12 @@ def landing(region, here, spot, max_drop=None, least=2):
     return far_enough(best)
 
 def go_to(pos, policy, range_=ARRIVE_RANGE, attempts=3, min_hp: float | None = MIN_WALK_HP, avoid_hazards=True, purpose="work",
-          y_guess=False, est=None):
+          y_guess=False):
     """`_go_to`, its seconds added to WALKED (the outermost walk only: a leg inside a trip is the trip's)."""
     WALKED["depth"] += 1
     t0 = time.time()
     try:
-        return _go_to(pos, policy, range_, attempts, min_hp, avoid_hazards, purpose, y_guess, est)
+        return _go_to(pos, policy, range_, attempts, min_hp, avoid_hazards, purpose, y_guess)
     finally:
         WALKED["depth"] -= 1
         if not WALKED["depth"]:
@@ -790,7 +836,7 @@ lifecycle.in_place(__name__, "WALKED")
 
 
 def _go_to(pos, policy, range_=ARRIVE_RANGE, attempts=3, min_hp: float | None = MIN_WALK_HP, avoid_hazards=True, purpose="work",
-          y_guess=False, est=None):
+          y_guess=False):
     """Walk; when the walker can't get there, build/dig a route toward the target. `y_guess`: the target's y is not
     known (a waypoint) — only then is a "no route" retried on the column's ground."""
 
@@ -804,7 +850,7 @@ def _go_to(pos, policy, range_=ARRIVE_RANGE, attempts=3, min_hp: float | None = 
         if pos is None:
             return False
     if "travel" in mod_features():
-        return _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_guess, est)
+        return _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_guess)
     for _ in range(attempts):
         # a jar without `travel`: one step at a time, the same rule
         api.run({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_, "partial": True}, awaits="whether the step arrived (`there`) decides the next attempt")
@@ -927,9 +973,8 @@ def _leg(task, awaits):
         return {"status": "failed", "message": str(e)}
 
 
-def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_guess=False, est=None):
-    """The mod plans and runs the whole route, so Python never plans moves the walker can't make. `est`: the calling
-    step's own estimate in ticks, passed on to reach_stand's dig branch (OVERRUN: E4)."""
+def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_guess=False):
+    """The mod plans and runs the whole route, so Python never plans moves the walker can't make."""
     here = feet()
     asked = pos
     if ROAD_MEM is not None and math.hypot(pos[0] - here[0], pos[2] - here[2]) > LEG:
@@ -965,7 +1010,7 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_gue
             # no route: one way (plan_way's steps; NavFailed with its why when there is none), then judged at the
             # asked cell — never LEGS more asks
             api.detail(f"   no walk to {tuple(pos)}: a way dug to it")
-            reach_stand({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2]}, policy, est=est)
+            reach_stand({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2]}, policy)
             ok = there(api.get("/state"), asked, range_)
             return _arrived(_from, asked, _began, ok, closer=True)
         try:
