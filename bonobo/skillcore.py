@@ -114,15 +114,13 @@ class Context:
     def blocked(self, pos):
         return banned(self.blacklist, pos, state=ban_state(api.STATE.feet_seen, api.STATE.kinds_seen))
 
-    def ban(self, pos, seconds=BAN_MAX_S, state=None):
-        """Ban a cell after a failure (never an interruption); repeats escalate, capped at BAN_MAX_S because the world
-        changes. `state`: what it holds in (E5) — a nav refusal's caller passes ban_state(feet, way kinds) so it lifts
-        on a changed way, not just the clock; the round's own state (feet, every kind carried) when None."""
+    def ban(self, pos, seconds=BAN_MAX_S):
+        """Ban a cell after a failure (never an interruption); repeats escalate, capped at BAN_MAX_S because the world changes."""
         key = tuple(pos)
         count = self.ban_counts.get(key, 0) + 1
         self.ban_counts[key] = count
         self.blacklist[key] = Ban(time.time() + min(seconds * (2 ** (count - 1)), BAN_MAX_S),
-                                  state if state is not None else ban_state(api.STATE.feet_seen, api.STATE.kinds_seen))
+                                  ban_state(api.STATE.feet_seen, api.STATE.kinds_seen))
         api.detail(f"   ban {key} ×{count} by {ban_caller()}")       # who banned it (a row starting banned: its writer)
 
 
