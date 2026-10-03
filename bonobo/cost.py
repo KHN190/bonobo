@@ -206,7 +206,7 @@ class Cost:
             self.cache[key] = min(got) if got else self._known(types)
         if key not in self.cache:
             try:
-                es = [e for e in entities(64, list(types)) if not banned(self.blacklist, (e["id"], 0, 0))]
+                es = [e for e in entities(64, list(types)) if e.get("id") is None or not banned(self.blacklist, (e["id"], 0, 0))]
             except McError:
                 es = []
             self.cache[key] = es[0]["distance"] if es else self._known(types)
