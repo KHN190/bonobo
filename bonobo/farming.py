@@ -28,21 +28,35 @@ RING = [(dx, dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1) if (dx, dz) != (0, 0)
 
 # ---------------------------------------------------------------- pure planners
 
-def farm_plot(region, here, protected=(), radius=8):
-    """Pure: a 3×3 plot centre: nine soil cells at one height, two air above each, none protected."""
+def plot_stand(centre):
+    """Pure: the stand beside the plot the centre is dug and watered from (finish_commands)."""
+    return centre[0] - 2, centre[1] + 1, centre[2]
 
-    best = None
+def plot_workable(region, here, centre, inv, protected=()):
+    """Pure: the door would work this plot (P2): a way (nav.reach "stand") onto the centre block, every ring top in
+    the click's sight from there (stands_for "use_item": the gated till and sow), and a way on to the stand beside
+    it."""
+    on_centre = cell_add(centre, (0, 1, 0))
+    if nav.reach(region, here, on_centre, "stand", inv, protected).stand is None:
+        return False
+    if not all(nav.stands_for("use_item", region, on_centre, (centre[0] + dx, centre[1], centre[2] + dz))
+               for dx, dz in RING):
+        return False
+    return nav.reach(region, on_centre, plot_stand(centre), "stand", inv, protected).stand is not None
+
+def farm_plot(region, here, protected=(), radius=8, inv=None):
+    """Pure: a 3×3 plot centre, the nearest: nine soil cells at one height, two air above each, none protected, that
+    the door would work from here with `inv` (plot_workable; none: no way blocks)."""
+    inv = inv if inv is not None else Inventory({"slots": [], "equipment": {}})
+    found = []
     for (x, y, z), name in region.blocks.items():
         if name not in SOIL or math.dist((x, y, z), here) > radius:
             continue
         cells = [(x, y, z)] + [(x + dx, y, z + dz) for dx, dz in RING]
-        ok = all(region.name(c) in SOIL and c not in protected and region.name(cell_add(c, (0, 1, 0))) in ("air", "short_grass")
-                 and region.name(cell_add(c, (0, 2, 0))) == "air" for c in cells)
-        if ok:
-            d = math.dist((x, y, z), here)
-            if best is None or d < best[0]:
-                best = (d, (x, y, z))
-    return None if best is None else best[1]
+        if all(region.name(c) in SOIL and c not in protected and region.name(cell_add(c, (0, 1, 0))) in ("air", "short_grass")
+               and region.name(cell_add(c, (0, 2, 0))) == "air" for c in cells):
+            found.append((math.dist((x, y, z), here), (x, y, z)))
+    return next((c for _d, c in sorted(found) if plot_workable(region, here, c, inv, protected)), None)
 
 def breeding_pair(animals, kind, max_gap=8):
     """Pure: two adult animals of `kind` close to each other (ids), or None. `animals` are /entities entries."""
@@ -170,7 +184,7 @@ def plant_farm_commands(state, args, stand=None):
     if inv.count("minecraft:wheat_seeds") < 8:
         raise NotAvailable("need 8 wheat seeds")
     region = state["region"]
-    centre = started_plot(region, state["feet"]) or farm_plot(region, state["feet"], state.get("protected", ()))
+    centre = started_plot(region, state["feet"]) or farm_plot(region, state["feet"], state.get("protected", ()), inv=inv)
     if centre is None:
         raise NotAvailable("no flat 3×3 soil nearby for a farm")
     if region.name(centre) != "water" and not inv.count("minecraft:water_bucket"):
@@ -263,10 +277,10 @@ def plant_farm(ctx):
     here = world.feet()
     state = body_state(ctx, Region(cell_add(here, (-9, -3, -9)), cell_add(here, (9, 3, 9))))
     region = state["region"]
-    centre = started_plot(region, here) or farm_plot(region, here, ctx.policy.protected)
+    centre = started_plot(region, here) or farm_plot(region, here, ctx.policy.protected, inv=state["inv"])
     if centre is None:
         raise NotAvailable("no 3×3 of soil with room above within 8 blocks for a plot")
-    stand = (centre[0] - 2, centre[1] + 1, centre[2])
+    stand = plot_stand(centre)
     hoe = next((h for h in HOES if state["inv"].count(h)), None)
     if hoe is None:
         raise NotAvailable("no hoe")
