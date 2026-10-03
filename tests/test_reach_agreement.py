@@ -393,5 +393,43 @@ class CumulativeBudget(unittest.TestCase):
         return nav.stands_for("mine", region, feet, target), region, feet, inv
 
 
+def _deep_vein(depth):
+    """A solid stone column from the surface down to well past `depth`, an ore cell `depth` below the start --
+    reached only by a staircase (nav.py:1217 stair_steps descends STAIR_STEPS=8 per plan_way call), so a vein this
+    deep needs ceil(depth / STAIR_STEPS) plan_way calls -- `reach`'s own ways (nav.py:1456), one per try."""
+    lo, hi = (-30, 10, -30), (30, 80, 30)
+    blocks = {(x, y, z): "stone" for x in range(-5, 10) for z in range(-5, 10) for y in range(10, 64)}
+    target = (0, 64 - depth, 0)
+    blocks[target] = "iron_ore"
+    return FakeRegion(lo, hi, blocks), FEET, target
+
+
+class ManyWays(unittest.TestCase):
+    """P2/nav.ways_for: a mined source gets MINE_PASSES + WAY_TRIES tries (nav.py:314-317), not the gate's own
+    WAY_TRIES=3 -- a vein needing more than 3 but no more than that many ways must still agree, on both sides,
+    that it is reachable (and both sides must be asking `ways_for("mine")`, not a hardcoded WAY_TRIES, or they'd
+    disagree the moment a vein needs its 4th way)."""
+
+    def test_deep_vein_needs_more_than_way_tries(self):
+        depth = 8 * 4 + 1   # 33: ceil(33/8) = 5 plan_way calls -- > WAY_TRIES(3), <= ways_for("mine")=13
+        region, feet, target = _deep_vein(depth)
+        inv = _inv(32)
+        self.assertGreater(-(-depth // nav.STAIR_STEPS), nav.WAY_TRIES)
+        self.assertLessEqual(-(-depth // nav.STAIR_STEPS), nav.ways_for("mine"))
+
+        # plan-side: cost.Cost.refused (cost.py:199) -> nav.reach with no explicit tries -> ways_for(kind) inside it
+        snap = world.Snapshot.from_readings(state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5), inv, {}, [], region)
+        plan = _cost.Cost(snap, memory()).refused(target, "mine") is None
+
+        # run-side: the gate's own tries for this act (nav.ways_for("mine")), not the generic WAY_TRIES
+        run_full = _run_reachable(region, feet, target, "mine", inv, tries=nav.ways_for("mine"))
+        # and the point of ways_for existing at all: capped at the generic WAY_TRIES, this same vein is NOT reached
+        run_capped = _run_reachable(region, feet, target, "mine", inv, tries=nav.WAY_TRIES)
+
+        self.assertEqual(plan, run_full, f"plan={plan} run(ways_for)={run_full}")
+        self.assertFalse(run_capped, "a vein needing its 4th way must fail under the gate's OWN WAY_TRIES=3 cap -- "
+                                      "proof ways_for(act), not a hardcoded WAY_TRIES, is what must be shared")
+
+
 if __name__ == "__main__":
     unittest.main()
