@@ -924,6 +924,17 @@ def sheltered(sky_light, enclosed, in_site=lambda: False):
     return under_rock(sky_light) or bool(enclosed()) or bool(in_site())
 
 
+def side_saving(p_used, later_s, now_s, detour_s):
+    """Pure: seconds a side act saves (K4): its work now instead of later, by the chance its output is used, less
+    the detour it costs; a side act runs only when this is above 0, or an invariant forces it (arbiter.side_why)."""
+    return p_used * (later_s - now_s) - detour_s
+
+
+def hostile_s(plan_s):
+    """Pure: seconds hostiles are expected to cost `plan_s` seconds of work where they spawn (PRIOR_TICKS)."""
+    return plan_s / 60 * PRIOR_TICKS["hostile_per_min"] / TICKS_PER_S
+
+
 # -- a step's prior work in ticks: the one table (cost.Cost before anything is measured, and planner.NullCost)
 PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 60,
                "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
@@ -933,7 +944,9 @@ PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 
                "shelter:dig_in": 500, "shelter:pod": 800, "shelter:hut": 2400,
                "room:tidy": 300, "room:deposit": 1200,
                "surface": 200, "surface_per_block": 30,     # out from under rock: a base and per block below SURFACE_Y
-               "break_task": 1}     # a mine's own ticks past the break and BREAK_COOLDOWN: the segment boundary
+               "break_task": 1,     # a mine's own ticks past the break and BREAK_COOLDOWN: the segment boundary
+               "hostile_per_min": 200,     # work ticks hostiles cost a minute of work where they spawn (dark, night)
+               "equip": 20}         # one armour piece or the shield put on
 #                                    (bench q5: 2-4 ticks a segment of 2-4 mines)
 SURFACE_Y = 64
 GROW_S = {"crop": 900, "animal": 1200}     # seconds (jobs.DURATION)
@@ -948,7 +961,7 @@ PRICE_SOURCE = {
         "reach": "prior", "breed": "prior", "eat": "game", "pickup_each": "measured", "shelter:dig_in": "prior", "shelter:pod": "prior",
         "shelter:hut": "prior", "room:tidy": "prior", "room:deposit": "prior", "surface": "prior",
         "surface_per_block": "prior",
-        "break_task": "measured"},      # bench q5 ticks (readiness: mine_stone__base, ore_buried, chop__base)
+        "break_task": "measured", "hostile_per_min": "prior", "equip": "prior"},      # bench q5 ticks (readiness: mine_stone__base, ore_buried, chop__base)
     "knowledge.SURFACE_Y": "game", "data.MEASURED_BAND": "policy", "knowledge.GROW_S": {"crop": "prior", "animal": "game"}, "knowledge.NIGHT_S": "game",
     "knowledge.FIND_AT": "game", "knowledge.FIND_DENSITY": {"tree": "prior", "water": "prior", "sand": "prior", "clay": "prior", "other": "prior"}, "knowledge.TUNNEL_FACES": "game",
     "data.ORE_VEINS": "game", "data.TREES_PER_CHUNK": "game", "data.BIOME_CREATURES": "game", "data.VILLAGE_BIOMES": "game", "data.BIOME_PATCH": "prior", "data.CREATURE_CHUNK_P": "game", "data.VILLAGE_REGION_BLOCKS": "game", "data.SOIL_DEPTH": "prior", "data.DEEPSLATE_TOP": "game",

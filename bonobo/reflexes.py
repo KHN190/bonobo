@@ -7,7 +7,7 @@ from typing import Any, Callable
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, building, craft, nav, nether, skillcore, store, survive, world, jobs
 from .api import McError, NotAvailable, log
-from .data import STATION_R, BASE_MARKERS, FULL_BAR, MAX_HP, WALK_BLOCKS_PER_S
+from .data import STATION_R, BASE_MARKERS, FULL_BAR, MAX_HP, TICKS_PER_S, WALK_BLOCKS_PER_S
 from .game import OPEN_SKY
 from .estimate import eat_due
 from .knowledge import RAW_MEAT, food_count
@@ -89,6 +89,12 @@ TABLE = [
     ("unstuck", lambda v: v["stuck"], lambda m, v: m.unstuck(v["snap"], v["ctx"])),
 ]
 NAMES = tuple(row[0] for row in TABLE)
+# K4: the rows an invariant forces (P2 only when the held plan's next step is refused from here: brain.p2_refused);
+# every other row is priced (Maintain.saving_of)
+FORCED_BY = {"eat": "S8", "sleep": "S4", "shelter": "S4", "leave the Nether": "S1",
+             "dig out": "P2", "unstuck": "P2", "leave the pit": "P2", "path blocked": "P2"}
+PRICED = ("recover items", "collect job", "collect machine", "empty the bag")
+GAINING = ("gather", "mine", "hunt", "take", "trade", "smelt")     # step kinds whose drops a full bag loses
 
 LAND_EXIT_S = 1.0     # on land this long before ashore (shore water flips `swimming`)
 
@@ -188,6 +194,7 @@ class Maintain:
         self.land_since = None        # when the body last stood on something that is not water
         self.afloat = False
         self.last_run: tuple[str, Any] | None = None     # (name, progress when it started): judged next round (`stalled`)
+        self.terms: dict = {}         # this round's fired rows → (forced_by, saving) (K4: arbiter.side_why)
 
     def observe(self, snap):
         now = time.time()
@@ -242,6 +249,7 @@ class Maintain:
             blocked_at=blocked, building=inv.count("building"), feet=snap.feet)
         fired = due(view)
         names = [name for _seq, name in fired]
+        self.terms = {name: self.terms_of(name, snap) for name in names}
         if self.last_run is not None:
             name, before = self.last_run
             self.last_run = None
@@ -257,6 +265,40 @@ class Maintain:
             step.est = int(b.needs.cost(snap).estimate(step))
             return PRICED_RUN(snap.dimension, step, snap.night, lambda: rows[name](self, view))
         return [(seq, name, (lambda name=name: run(name))) for seq, name in fired if b.ready(name)]
+
+    def terms_of(self, name, snap):
+        """(forced_by, saving) of a fired row (K4): its invariant (P2 only while the held plan's next step is refused
+        from here), else its price."""
+        forced = FORCED_BY.get(name)
+        if forced == "P2" and not self.brain.p2_refused(snap):
+            return None, None
+        if forced:
+            return forced, None
+        return None, (self.saving_of(name, snap) if name in PRICED else None)
+
+    def saving_of(self, name, snap):
+        """Seconds a priced row saves (knowledge.side_saving at production prices):
+        recover items: the drops' price less the walk (recovery_s); a furnace's or a machine's output: its price when
+        a held plan uses it, less the walk there and back; emptying the bag: the held plan's gathering steps (a full
+        bag loses their drops) less the tidy."""
+        b = self.brain
+        steps = b.held_steps()
+        if name == "recover items":
+            return recovery_s(b, snap)
+        if name in ("collect job", "collect machine"):
+            found = self.ready_job(snap) if name == "collect job" else self.ready_machine(snap)
+            if found is None:
+                return None
+            out = [(found["item"], found["count"])] if name == "collect job" else \
+                [(p["item"], p["count"]) for p in found.get("pending", [])]
+            at = found["pos"] if name == "collect job" else found["origin"]
+            used = {t for st in steps for t in [st.token, *st.detail.get("inputs", {})]}
+            prices = b.price_table(snap)
+            value = sum((prices.get(i) or 0.0) * n for i, n in out)
+            return _k.side_saving(1.0 if any(i in used for i, _n in out) else 0.0, value, 0.0,
+                                  2 * math.dist(snap.feet, at) / nav.PLAYER_SPEED)
+        later = sum(st.est for st in steps if st.kind in GAINING) / TICKS_PER_S
+        return _k.side_saving(1.0 if later else 0.0, later, 0.0, _k.PRIOR_TICKS["room:tidy"] / TICKS_PER_S)
 
     # -- path blocked
     def blocked_here(self, place):
@@ -455,16 +497,23 @@ def recovery_worth(value_s, dist, since_s, speed, despawn_s):
     return (value_s if reached else 0.0) - trip
 
 
-def worth_recovering(b, snap):
-    """The last death (same dimension, drops not yet despawned) is worth the walk: its bag priced another way."""
+def recovery_s(b, snap):
+    """Seconds the walk back to the last death's drops (same dimension, not yet despawned) is worth, its bag priced
+    another way; None with no death to go back to."""
     from .data import ITEM_DESPAWN_S      # data, not memory: the needs closure stays as it was
     death = b.mem.recent_death(snap.dimension)
     if death is None:
-        return False
+        return None
     prices = b.price_table(snap)
     value = sum((prices.get(item) or 0.0) * n for item, n in death.get("carried", ()))
     since = time.time() - death["t"]
-    return recovery_worth(value, math.dist(snap.feet, death["pos"]), since, nav.PLAYER_SPEED, ITEM_DESPAWN_S) > 0
+    return recovery_worth(value, math.dist(snap.feet, death["pos"]), since, nav.PLAYER_SPEED, ITEM_DESPAWN_S)
+
+
+def worth_recovering(b, snap):
+    """The last death is worth the walk back (recovery_s above 0)."""
+    got = recovery_s(b, snap)
+    return got is not None and got > 0
 
 
 def _death_retired(c):

@@ -31,7 +31,8 @@ def fresh_enough(seen_at, now=None, within=1.0):
 class Intent:
     """What a layer would like the body to do; the arbiter decides."""
 
-    def __init__(self, layer, action, reason="", *, key, at=None, commit_s=None, kind=None, seq=0, surface=False):
+    def __init__(self, layer, action, reason="", *, key, at=None, commit_s=None, kind=None, seq=0, surface=False,
+                 side=False, forced_by=None, saving=None):
         if layer not in SCALES:
             raise ValueError(f"unknown layer {layer!r}: expected one of {sorted(SCALES)}")
         if not isinstance(key, str) or not key:
@@ -49,6 +50,9 @@ class Intent:
         # how long the body may stay on this before the planner is asked again
         self.commit_s = commit_s
         self.at = time.time() if at is None else at
+        # K4: a side act (not the queue's plan, not a hazard) runs only when an invariant forces it (forced_by) or it
+        # pays in seconds at production prices (saving): side_why
+        self.side, self.forced_by, self.saving = bool(side), forced_by, saving
 
     @property
     def scale(self):
@@ -98,12 +102,29 @@ def on_surface(step_kind):
     digging, crafting, smelting) — a tree, an animal, a search out in the open."""
     return step_kind not in NIGHT_WORK
 
+# the invariants a side act may be forced by: safety (S1–S8) and the plan's own order (P2: its next step cannot run
+# from here without it)
+FORCING = ("S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "P2")
+
+
+def side_why(forced_by, saving):
+    """Pure (K4, the one gate): None when a side act may run — forced by an invariant it names, or it saves seconds
+    (knowledge.side_saving > 0); else why not (D1)."""
+    if forced_by in FORCING:
+        return None
+    if saving is not None and saving > 0:
+        return None
+    return f"forced by nothing, saves {0.0 if saving is None else saving:.0f} s"
+
+
 def viable(intent, facts):
     """Pure: may this proposal be offered at all — not while its key is cooling, nor a surface walk while the surface
     is closed (night in the Overworld: speedrun style, the night is worked under cover, never sat out while there is
     work). Met and unplannable needs are judged once, where proposed (needs.propose, brain.need_act)."""
 
     if facts.get("surface_closed") and intent.surface:
+        return False
+    if intent.side and side_why(intent.forced_by, intent.saving) is not None:
         return False
     return intent.key not in facts.get("cooling", ())
 

@@ -725,12 +725,13 @@ import atexit  # noqa: E402
 atexit.register(report_written)      # the last row's report is written before the bench exits
 
 def _run_row(sc, make_ctx, fired):
-    """(result, exc, note, crashed, when the clock started): the row's `before` hooks, then its run under the limit."""
+    """(result, exc, note, crashed, when the clock started): the row's `before` hooks, then its run under the limit
+    (a slice's own `limit`, else its budget; the verdict is the budget's, `judge`)."""
     from .. import api
     from ..api import McError
     t0 = time.time()
     result, exc, note, crashed = None, None, "", False
-    limit = sc["budget"]
+    limit = sc.get("limit", sc["budget"])
     timer = None
     try:
         try:

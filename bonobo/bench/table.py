@@ -213,12 +213,26 @@ def est_budget(row, setup):
     return max(1, math.ceil(seconds * TICKS_PER_S / row.get("tick_rate", TICKS_PER_S) * TARGET_SLACK))
 
 
+def slice_deadline(row, tier):
+    """Pure: (the run, its stop in seconds) of a slice row — one deadline: the slice's own limit (its minutes),
+    capped by the row limit below the acceptance tier, is both its loop's end and where the runner stops the row (a
+    budget below it stopped a slice still at work); the verdict stays the row's budget. None for any other run."""
+    from .runner import ROW_LIMIT_S
+    from .words.runs import slice_limit_s
+    run = row["run"]
+    if not (isinstance(run, (tuple, list)) and run and run[0] == "slice"):
+        return None
+    limit = round(slice_limit_s(run[2])) if tier == "acceptance" else min(round(slice_limit_s(run[2])), ROW_LIMIT_S)
+    return (run[0], run[1], limit / 60) + tuple(run[3:]), limit
+
+
 def build(row, tier):
     """A table row → the runner's row dict."""
     from .runner import ROW_LIMIT_S
     setup = list(row["setup"]) if "scene" not in row else words_scene.scene(row["scene"])    # a one-off row: its commands
+    deadline = slice_deadline(row, tier)
     out = {"doc": row["doc"], "module": row["module"], "setup": setup,
-           "run": make_word(row["run"]), "tier": tier}
+           "run": make_word(row["run"] if deadline is None else deadline[0]), "tier": tier}
     if "why" in row and not callable(row["check"]):
         out["check"] = resolve("_named_all")([(make_word(c), w) for c, w in zip(row["check"], row["why"])])
     else:
@@ -233,6 +247,8 @@ def build(row, tier):
     if jobs:                                 # the kit rule: the best work tool per job, the sword a fight calls for
         out["setup"] = out["setup"] + resolve("_kit_gives")(out, jobs)
     out["budget"] = row.get("budget") or (est_budget(row, out["setup"]) if "est" in row else row_budget(row))
+    if deadline is not None:
+        out["limit"] = deadline[1]          # where the run stops; the verdict is the budget
     for k, v in row.items():
         if k not in out and k not in ("name", "scene", "why", "no_detail", "kit", "est"):
             out[k] = dec(v)
