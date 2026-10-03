@@ -135,13 +135,14 @@ def _achieve(ctx, needs, done, rounds=12):
     from ..cost import Cost
     from .. import api
     from ..world import Inventory, Snapshot
+    from ..knowledge import SOURCE_BLOCKS
     from .. import jobs as _jobs
     brain = BRAIN
     assert brain is not None, "set_brain first: plan-driven rows run the brain's own path"
     for _ in range(rounds * 4):
         if done():
             return True
-        snap = Snapshot.from_readings(api.get("/state"), bag_now())
+        snap = Snapshot.read(SOURCE_BLOCKS)
         pending = brain.mem.jobs(snap.dimension)
         from .. import world as _world
         ready = [j for j in pending if _world.job_ready(j, snap.state.get("gameTime"))]

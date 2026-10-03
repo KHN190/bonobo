@@ -12,8 +12,7 @@ from bonobo import decompose, goals, skill  # noqa: E402
 from bonobo.cost import Cost  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import Unplannable  # noqa: E402
-from bonobo.world import Snapshot  # noqa: E402
-from tests.world import inventory  # noqa: E402
+from tests.world import inventory, snapshot, state  # noqa: E402
 
 OVER, NETHER = "minecraft:overworld", "minecraft:the_nether"
 
@@ -21,14 +20,13 @@ OVER, NETHER = "minecraft:overworld", "minecraft:the_nether"
 def world(dim=OVER, items=(), seen=(), sites=(), finds=None):
     """(bag, cost model) for a bag of `items`, memory that has `seen` [(kind, pos)] and `sites` [(kind, pos, dim)]."""
     inv = inventory(*items)
-    snap = Snapshot.from_readings({"dimension": dim, "blockX": 0, "blockY": 64, "blockZ": 0, "skyLight": 15, "health": 20.0,
-                                   "timeOfDay": 2000}, inv)
+    snap = snapshot(state(dimension=dim, skyLight=15, timeOfDay=2000), inv, **(finds or {}))
     m = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
     for kind, pos in seen:
         m.note_seen(kind, pos, dim)
     for kind, pos, where in sites:
         m.add_site(kind, pos, where, name=kind)
-    return snap.inv, Cost(snap, m, finds=finds or {})
+    return snap.inv, Cost(snap, m)
 
 
 def kinds(steps):

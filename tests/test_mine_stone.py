@@ -11,7 +11,7 @@ from bonobo import cost as costmod, gather, world  # noqa: E402
 from bonobo.data import SOIL_DEPTH, STAIR_CELLS  # noqa: E402
 from bonobo.knowledge import FIND_AT, MINE  # noqa: E402
 from bonobo.planner import Step  # noqa: E402
-from tests.world import FakeRegion, bag, inventory  # noqa: E402
+from tests.world import FakeRegion, bag, inventory, memory, state  # noqa: E402
 
 FEET = (0, 64, 0)
 SOIL = 3                    # blocks of soil over the stone in every scene
@@ -92,13 +92,12 @@ class Overburden(unittest.TestCase):
     def priced(self, token, y, inv, ban=False):
         blocks = MINE[token][0]
         cell = (FEET[0] + 2, y, FEET[2])
-        c = costmod.Cost(None, blacklist={cell: time.time() + 60} if ban else None)
-        c.snap = type("Snap", (), {"feet": FEET, "inv": inv})()
         hit = {"x": cell[0], "y": y, "z": cell[2], "distance": 5.0, "block": blocks[0]}
-        with mock.patch.dict(world._SIGHT, {"near": {blocks[0]: 5.0}, "y": {blocks[0]: y},
-                                            "hits": {world.bare(blocks[0]): [hit]}}):
-            step = Step("mine", token, 1, {"blocks": blocks})
-            return c._dug(step), c.dig_to(step)
+        snap = world.Snapshot.from_readings(state(x=FEET[0] + 0.5, y=float(FEET[1]), z=FEET[2] + 0.5), inv,
+                                            {world.bare(blocks[0]): [hit]})
+        c = costmod.Cost(snap, memory(), blacklist={cell: time.time() + 60} if ban else None)
+        step = Step("mine", token, 1, {"blocks": blocks})
+        return c._dug(step), c.dig_to(step)
 
     def test_rows(self):
         stone_tok = next(t for t, (b, _tier) in MINE.items() if "stone" in b and FIND_AT.get(t) is None)

@@ -37,7 +37,7 @@ from bonobo.knowledge import members  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import Unplannable  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
-from tests.world import (PLANNER_DIMS, bag, cost, full_bag, inventory, places, slot, snapshot, state,  # noqa: E402
+from tests.world import (PLANNER_DIMS, bag, cost, full_bag, inventory, memory, slot, snapshot, state,  # noqa: E402
                          worlds)
 
 OVER, NETHER = "minecraft:overworld", "minecraft:the_nether"
@@ -601,7 +601,10 @@ class CostModel(unittest.TestCase):
         prior = float(costmod._PLAY["plan"]["seek_prior_s"])
         for name, known, want in self.SEEKS:
             with self.subTest(name):
-                c = costmod.Cost(None, known=lambda kinds, d=known: d)
+                m = memory()
+                if known is not None:
+                    m.note_seen("iron_ore", (int(known), 64, 0), OVER)       # `known` blocks from the feet
+                c = costmod.Cost(snapshot(), m)
                 self.assertAlmostEqual(c.seek_s(["iron_ore"]), round(want if want is not None else prior, 1), places=1)
                 self.assertEqual(c.find_p(["iron_ore"]), float(costmod._PLAY["plan"]["exists_prior"]))
 
@@ -609,7 +612,7 @@ class CostModel(unittest.TestCase):
         # unseen kinds priced by how the game makes them (data.FIND_P), the rest by the prior
         from bonobo import data
         prior = float(costmod._PLAY["plan"]["exists_prior"])
-        c = costmod.Cost(None, known=lambda kinds: None)
+        c = costmod.Cost(snapshot(), memory())
         sheep, bed = max(data.PASSIVE_WEIGHT, key=data.PASSIVE_WEIGHT.get), f"{data.COLORS[0]}_bed"
         rows = [("the commonest animal: found every search", ["minecraft:" + sheep], 1.0),
                 ("a village-only block", [bed], data.VILLAGE_P),
@@ -2644,10 +2647,9 @@ class ScarceToTheMostUsedTool(unittest.TestCase):
 
     def plan(self, goal, *carried, reserved=()):
         from bonobo.cost import Cost
-        from tests.world import finds
         with tempfile.TemporaryDirectory() as tmp:
             snap = snapshot(state(), inventory(("stick", 4), ("crafting_table", 1), *carried))
-            c = Cost(snap, mem=Memory(os.path.join(tmp, "n.json")), finds=finds(), reserved=reserved)
+            c = Cost(snap, Memory(os.path.join(tmp, "n.json")), reserved=reserved)
             return [st.token for st in decompose.decompose(snap.inv, goal, c) if st.kind == "craft"]
 
     def test_rows(self):
@@ -2970,8 +2972,10 @@ class EstimatesRememberFirst(unittest.TestCase):
                 ("must fail: nothing anywhere: None", {}, {}, ["diamond_ore"], 48, None)]
         for name, noted, sight, blocks, radius, want in rows:
             with self.subTest(name), mock.patch.object(api, "api", side_effect=AssertionError("an estimate read the world")):
-                c = Cost(snapshot(state(), inventory()), finds=sight,
-                         known=lambda kinds, _n=noted: min((_n[k] for k in kinds if k in _n), default=None))
+                m = memory()
+                for k, d in noted.items():
+                    m.note_seen(k, (int(d), 64, 0), OVER)
+                c = Cost(snapshot(state(), inventory(), **sight), m)
                 self.assertEqual(c.distance(blocks, radius), want)
 
 class BridgeStockSizedToTheGap(unittest.TestCase):
