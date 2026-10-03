@@ -2,7 +2,7 @@
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 Built into the one SCENARIOS by table.py."""
 
-ACCEPT_LIMIT_S = 600       # an iron pickaxe from nothing: a speedrun or plain play does it in 3–10 minutes
+ACCEPT_LIMIT_S = 300       # an iron pickaxe from nothing: faster than a plain player (3–10 minutes)
 
 FAMILIES = [
 
