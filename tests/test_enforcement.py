@@ -160,7 +160,10 @@ class TheSafetyLayerStopsTheBody(unittest.TestCase):
               [("safety", "claude: look at this")], None),
              ("lava under a soft skill: the message only, the skill takes cover itself",
               dict(inLava=True, control=RUNNING), True, None, [], "lava"),
-             ("must fail: lava, nothing running: nothing to stop", dict(inLava=True), False, None, [], None),
+             # S1: no task, a plan being searched: the arbiter, the one writer, stops it too
+             ("must fail: lava, nothing running: the round's planning stopped by the arbiter", dict(inLava=True), False,
+              None, [("safety", "lava")], None),
+             ("all well, nothing running: nothing", dict(), False, None, [], None),
              ("all well under a running task: nothing", dict(control=RUNNING), False, None, [], None)]
 
     def test_perception_stops_only_through_the_arbiter(self):

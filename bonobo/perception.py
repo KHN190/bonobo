@@ -484,10 +484,6 @@ class Watcher(threading.Thread):
                 # stopping the body is not an answer: only the layer about to answer a threat may stop the work
                 continue
             self.last[reason] = now
-            if not (s.get("control") or {}).get("task"):
-                api.request_interrupt(reason)     # no task to stop: a plan being searched ends (S1)
-                api.log(f"!! perception: {reason} → the round's planning stops")
-                continue
             if api.soft():
                 api.request_interrupt(reason)     # soft skill: message only, no /stop — the skill takes cover itself
                 # a soft skill takes cover itself; cancelling its task stranded the player
@@ -497,7 +493,7 @@ class Watcher(threading.Thread):
                 arbiter.BODY.preempt("safety", lambda: api.post("/stop"), reason)
             except Exception as e:  # guard: the watcher outlives a failed stop; said, the danger repeats after REPEAT_S
                 api.unexpected("perception: safety stop", e, "the task was not stopped")
-            api.log(f"!! perception: {reason} → interrupting the current task")
+            api.log(f"!! perception: {reason} → interrupting the current task or the round's planning")
 
 ANSWERED_MAX = 500
 
