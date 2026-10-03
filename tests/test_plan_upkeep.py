@@ -1050,6 +1050,17 @@ class HeldPlans(unittest.TestCase):
                     got.append(q.b.ready("seek bed"))
                 self.assertEqual(tuple(got), want)
 
+    def test_a_cause_cooled_everywhere_holds_after_a_walk(self):
+        """A cause not cooled by place (a mod error) failed 70 blocks from the round's start is one cooling,
+        everywhere, in the round's state (check fuzz D5: cooled, dusk, error — the feet's place written over it
+        lifted it at once, and the step was picked again)."""
+        from unittest import mock
+        start, far = (0.0, 64.0, 0.0), (70.0, 64.0, 0.0)
+        with tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q, mock.patch.object(api.STATE, "feet_seen", far):
+            q.b.place, q.b.round_snap = retry.place_signature(start, False), snapshot(state(), inventory())
+            q.b.failed("task t1", api.McError("check: the step failed here"))
+            self.assertFalse(q.b.ready("task t1"))      # must fail: ready at once, the step picked again
+
     def test_idle_beside_the_queue(self):
         """plan_proposals: the queue's tasks stay planned while they cool (accept_fresh_iron_pickaxe: a cooled task
         handed the round to food, a bed, flint and 12 ender pearls, ~195 s), the run's next milestone only with
@@ -2509,7 +2520,8 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
             ("a rescue runs (survival mode)", None, "survival", None, True, "L0", []),
             ("must fail: nobody holds it, a hazard is due", None, "normal", "drowning", True, "L0", []),
             ("nobody holds it, upkeep has work", None, "normal", None, True, "upkeep", ["upkeep"]),
-            ("nobody holds it, nothing to do", None, "normal", None, False, None, ["upkeep"])]
+            ("nobody holds it, upkeep idle, nothing queued: the run's next milestone, planned", None, "normal", None,
+             False, "plan", ["upkeep"])]
 
     def test_order_over_the_table(self):
         from unittest import mock
@@ -2527,7 +2539,6 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
             b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
             b.reflexes = mock.Mock(proposals=proposals)
             b.task_act = lambda task, snap, ctx: None
-            b.prepare = lambda snap, ctx: None
             snap = snapshot(state(), inventory())
             with self.subTest(name), mock.patch.object(api.STATE, "mode", mode), \
                     mock.patch.object(arbiter.BODY, "holder", return_value=holder), \
@@ -2539,29 +2550,30 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
 
 class GivenUpThenANextStep(unittest.TestCase):
     """E5: work given up is followed by what its cause asks (brain.abandon_after) — into cover the next
-    round, once; "replan" leaves the round to plan again. Nothing hangs."""
+    round, once; "replan" leaves the round to plan again. Nothing hangs: each round has a next step or its
+    written reason (D1)."""
 
     def test_rows(self):
         from unittest import mock
-        # (situation, what the skill declared, the next two rounds' first act names)
-        rows = [("given up, cover declared: into cover, then the round goes on", "cover",
-                 ["abandoned: cover", "prepare"]),
-                ("given up, replan declared: the round plans again", "replan", ["prepare", "prepare"]),
-                ("must fail: nothing given up: no cover", None, ["prepare", "prepare"])]
+        # (situation, what the skill declared, the next two rounds: is each the cover)
+        rows = [("given up, cover declared: into cover, then the round goes on", "cover", [True, False]),
+                ("given up, replan declared: the round plans again", "replan", [False, False]),
+                ("must fail: nothing given up: no cover", None, [False, False])]
         for name, then, want in rows:
             b = brain_fixture()
             b.unplannable, b.abandoned = {}, None
             b.retry, b.place, b.held = retry.Retry(), PLACE, {}
             b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
             b.reflexes = mock.Mock(proposals=lambda snap, ctx, reads=None: [])
-            b.prepare = lambda snap, ctx: brainmod.Act("idle", "prepare", None)
             b.abandoned = then          # brain.attempt sets it from the TaskStuck the runner raised (then=)
             snap = snapshot(state(), inventory())
             with self.subTest(name), mock.patch.object(api.STATE, "mode", "normal"), \
                     mock.patch.object(brainmod.hazard, "rescue_due", return_value=None), \
                     mock.patch.object(tasks, "load", return_value=[]), mock.patch.object(tasks, "expire", return_value=False):
-                got = [b.decide(snap, round_ctx(b, snap)).name for _ in range(2)]
-                self.assertEqual(got, want)
+                acts = [b.decide(snap, round_ctx(b, snap)) for _ in range(2)]
+                self.assertEqual([a is not None and a.name == "abandoned: cover" for a in acts], want)
+                for a in acts:
+                    self.assertTrue(a is not None or b.idle_why, "E5/D1: neither a next step nor its reason")
 
     def test_what_follows_by_cause(self):
         # E5/G3 (brain.abandon_after): a danger that stopped it → cover; not found or stuck → replan (no walk to
