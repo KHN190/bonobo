@@ -6,6 +6,7 @@ import os
 import time
 
 from . import api, explore, gather, lifecycle, nav, paths, retry, skillcore
+from .cost import refuted_key
 from . import world
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, log, swallowed
@@ -109,9 +110,10 @@ def step_moved(start, now):
     return out
 
 
-def run_priced(dimension, step, night, run):
+def run_priced(dimension, step, night, run, budget=True):
     """`run()` carried out as `step`, its price line written however it ends: every way a step is run (a task's step,
-    a reflex's shelter, a bench row's) goes through here, so each is priced and timed the same way."""
+    a reflex's shelter, a bench row's) goes through here, so each is priced and timed the same way. `budget`: the
+    step held to its overrun budget (nav.step_budget) — off for a reflex's (S1/S7)."""
     t0, g0 = time.time(), _game_tick()
     PHASES.clear()
     PHASES.update(ticks_after=api.ticks_mark())
@@ -126,7 +128,8 @@ def run_priced(dimension, step, night, run):
                 "game_s": None if g1 is None else (g1 - g0) / TICKS_PER_S, **step_moved(PHASES, api.STATE),
                 "ticks": api.ticks_since(api.STATE.ticks, PHASES["ticks_after"])}
     try:
-        out = run()
+        with nav.step_budget(step.est if budget else None):      # OVERRUN × its as-run price, every try
+            out = run()
     except GameUnreachable:
         raise
     except api.INTERRUPTIONS as e:
@@ -159,6 +162,12 @@ def execute(ctx, step, night):
     try:
         out = run_priced(ctx.dimension, step, night, run)
     except GameUnreachable:
+        raise
+    except api.Overrun as e:
+        # the one writer of a refuted price (Cost reads it): the step's measured rest at its target, while the
+        # state it was measured in holds (E5); no outcome counted — an interruption, re-planned, nothing failed
+        ctx.mem.refute(refuted_key(step, e.pos), e.remaining_s,
+                       skillcore.ban_state(api.STATE.feet_seen, api.STATE.kinds_seen))
         raise
     except api.INTERRUPTIONS:
         raise      # no statistics

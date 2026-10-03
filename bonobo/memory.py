@@ -220,6 +220,7 @@ class Memory:
         self.data: dict[str, Any] = read_notes(path)
         d = self.data
         self.clock: int | None = None     # game ticks (/state gameTime), set each round; what every "seen" note is stamped with
+        self.refuted: dict = {}           # (step kind, token, target) → (seconds, state): prices a run refuted (refute)
         for key, default in (("sites", []), ("stations", []), ("seen", []), ("deaths", []),
                              ("night", {"phase": "day", "slept": False, "missed": 0}), ("machines", []),
                              ("stats", {}), ("durations", {}), ("jobs", [])):
@@ -502,6 +503,17 @@ class Memory:
         return cells
 
     # -- skill outcomes (DEPS-style selector: plans through steps that keep failing get dearer)
+    def refute(self, key, seconds, state):
+        """A step's price the run refuted (api.Overrun): the measured rest, `seconds`, of `key` (step kind, token,
+        target or None) while `state` (skillcore.ban_state) holds — in process, never saved (K4); one writer
+        (dispatch.execute), one reader (Cost)."""
+        self.refuted[tuple(key)] = (float(seconds), state)
+
+    def refuted_s(self, key, state):
+        """The refuted seconds of `key` in `state`, None when none or the state changed (it lifted)."""
+        got = self.refuted.get(tuple(key))
+        return got[0] if got is not None and got[1] == state else None
+
     def record_outcome(self, key, ok):
         s = self.data["stats"].setdefault(key, {"ok": 0.0, "fail": 0.0})
         # exponential forgetting: new tools or a new area can redeem a step

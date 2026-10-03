@@ -178,7 +178,7 @@ def one_step(ctx, kind, token, count=1, detail=None):
     step.est = int(Cost(snap, BRAIN.mem).estimate(step))
     if dispatch.runner_for(ctx, step) is not None:
         return dispatch.execute(ctx, step, snap.night)
-    return dispatch.run_priced(snap.dimension, step, snap.night, lambda: reflexes.SHELTER_RUN[token](ctx))
+    return dispatch.run_priced(snap.dimension, step, snap.night, lambda: reflexes.SHELTER_RUN[token](ctx), budget=False)
 
 
 def clock_ahead(ctx, ticks):

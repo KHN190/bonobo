@@ -4,6 +4,7 @@ Contract fields: needs/gives (what the planner prices), remaining (what is left 
 start, done, verify, budget, stall, provides (effect → the call a plan step makes), prefer, and commands — the pure
 batch an open-loop skill sends, so a fight can post the same batch itself. The runner watches the goal metric across
 tasks; api.await_task watches one mod task."""
+import contextlib
 import dataclasses
 import functools
 import inspect
@@ -494,10 +495,13 @@ def skill(name=None, **options):
             api.set_soft(contract.soft or prev_soft)  # nested skills (eat inside a fight) inherit the protection
             tape.SKILL = contract.name                # whose post-action readings the tape is recording
             CALLS.append(c)
+            from . import nav
             try:
-                out = fn(*args, **kwargs)
-                if inspect.isgenerator(out):
-                    out = _drive(contract, c, out)
+                # a fight (soft: S1/S7) is never held to the planned step's budget it runs inside
+                with nav.step_budget(None) if contract.soft else contextlib.nullcontext():
+                    out = fn(*args, **kwargs)
+                    if inspect.isgenerator(out):
+                        out = _drive(contract, c, out)
             except api.INTERRUPTIONS:
                 RESUME[key] = (time.time(), c.base, c.want, c.keep)
                 raise
@@ -657,6 +661,8 @@ def _drive_checks(contract, c, marker, t0, dim0, last, since):
         raise api.Died(f"{contract.name}: died")
     if contract.done and contract.done(c):
         return None          # before the dimension: a portal skill's goal IS the other dimension
+    from . import nav
+    nav.check_budget()          # a planned step past its budget, its goal unmet: its price refuted (OVERRUN)
     if s.get("dimension") and dim0 and s["dimension"] != dim0:
         raise api.DimensionChanged(f"{contract.name}: now in {s['dimension']}, begun in {dim0}")
     bag_check(contract, c)

@@ -326,7 +326,7 @@ class Maintain:
             if len(steps) > 1:
                 return STEP_RUN(ctx, steps[0], True)
             run = lambda: SHELTER_RUN[steps[-1].token](ctx)     # noqa: E731
-            return PRICED_RUN(snap.dimension, steps[-1], True, run) if PRICED_RUN is not None else run()
+            return PRICED_RUN(snap.dimension, steps[-1], True, run, budget=False) if PRICED_RUN is not None else run()
         except McError as e:
             if api.interrupted(e):
                 raise
