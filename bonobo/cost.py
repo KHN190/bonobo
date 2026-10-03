@@ -247,8 +247,10 @@ class Cost:
         return prior_work_ticks(step, held, TICKS_PER_S)
 
     def soil(self):
-        """The soil under the feet (knowledge.soil_depth): no column is read here, so the prior."""
-        return soil_depth(None, tuple(self.snap.feet))
+        """The soil under the feet (knowledge.soil_depth) in the blocks perception read (never read again here);
+        the prior where the column was not read."""
+        from . import perception
+        return soil_depth(perception.STATE.region, tuple(self.snap.feet))
 
     def work_of(self, step, reach=True):
         """(breaks, kills) a step is expected to make: its own work (knowledge.own_work) and (`reach`) the digging
