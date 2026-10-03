@@ -34,7 +34,7 @@ CLOSURE = {
     "bag": 12,
     "beliefs": 2,
     "blueprints": 1,
-    "brain": 56,            # + reflexes (the maintenance table split off needs); + mechanisms (taught doors)
+    "brain": 57,            # + reflexes (the maintenance table split off needs); + mechanisms (taught doors); + fight_plan (dragon)
     "brewing": 22,
     "building": 20,
     "combat": 18,
