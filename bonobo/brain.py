@@ -209,7 +209,7 @@ class Brain:
         self.picks = collections.Counter()      # what the arbiter chose, by kind (arbiter.note_pick)
         self.blacklist = world.Versioned()    # unreachable targets, shared by every round's Context and the cost model
         self.held = {}                # task id -> the round's plan it is in: {"steps", "sig", "event", "dim", "want", "ran"}
-        self.round = None             # the round's plan when no task is queued (upkeep's needs alone)
+        self.needs_plan = None        # the round's plan when no task is queued (upkeep's needs alone)
         self.plan_switch = None       # (held_s, chosen_s, lost_s, switched) of the round's replan over a held plan
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
@@ -623,12 +623,12 @@ class Brain:
             if self.ready(name):
                 entries.append((name, goal, len(live) + len(entries)))
         if entries:
-            old = self.held.get(queued[0]["id"]) if queued else getattr(self, "round", None)
+            old = self.held.get(queued[0]["id"]) if queued else getattr(self, "needs_plan", None)
             held = self.round_for(entries, snap, cost, old)
             if held is None:
                 self.unplannable_round(entries, queued, snap, cost)
                 return []
-            self.round = held
+            self.needs_plan = held
             for task in queued:
                 self.held[task["id"]] = held
                 if task.get("state") != "running":
@@ -676,7 +676,8 @@ class Brain:
         if held is None:
             self.__dict__.setdefault("unplannable", {})["round"] = why
             return None
-        if same and old["steps"] and [str(s) for s in old["steps"]] != [str(s) for s in held["steps"]]:
+        if old is not None and same and old["steps"] \
+                and [str(s) for s in old["steps"]] != [str(s) for s in held["steps"]]:
             held_s = repriced_s(old["steps"], cost)
             chosen_s, lost_s = sum(s.est for s in held["steps"]) / TICKS_PER_S, thrown_s()
             switched = pays_switch(held_s, chosen_s, lost_s)
@@ -770,7 +771,7 @@ class Brain:
         if held is None:
             held = self.round_for([(f"task {task['id']}", goal, 0)], snap, cost, self.held.get(task["id"]))
             if held is None:
-                self.fail_task(task, self.unplannable["round"])
+                self.fail_task(task, self.__dict__.get("unplannable", {}).get("round", "unplannable"))
                 return None
             self.held[task["id"]] = held
             if task.get("state") != "running":
