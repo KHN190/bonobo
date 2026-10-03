@@ -257,6 +257,8 @@ def P3(b, d, a, ctx):
     if plan is None or bound is None or ctx.get("plan_hand_made"):
         return Unchecked("no planner plan with its bound this round")
     paid = sum(int(getattr(st, "est", 0) or 0) for st in plan)
+    if len(plan) == 1 and plan[0].kind == "look" and "expected" in plan[0].detail:
+        paid = plan[0].detail["expected"]          # a look first: its expected price (look, p·take, (1 − p)·make)
     if bound > paid + TOL_TICKS:
         return f"the bound {bound:.0f} ticks is above the plan's own price {paid} ({len(plan)} steps)"
     return None

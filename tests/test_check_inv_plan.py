@@ -150,6 +150,8 @@ class Plan(unittest.TestCase):
         ("P3", {"plan": BEEF_IN_ORDER, "bound": 155}, False),            # boundary: the plan's own price
         ("P3", {"plan": BEEF_IN_ORDER, "bound": 400}, True),             # must fail: the bound above what is paid
         ("P3", {"plan": BEEF_IN_ORDER, "bound": 400, "plan_hand_made": True}, False),   # a hand-made plan: not judged
+        ("P3", {"plan": [step("look", "container", 220, pos=[0, 64, 0], p=0.5, expected=300)], "bound": 300}, False),
+        ("P3", {"plan": [step("look", "container", 220, pos=[0, 64, 0], p=0.5, expected=300)], "bound": 400}, True),   # must fail: above the look's expected price
         # a held plan against the round's chosen one: (held_s, chosen_s, lost_s, switched)
         ("D4", {"plan_switch": (30.0, 10.0, 5.0, True)}, False),
         ("D4", {"plan_switch": (30.0, 28.0, 5.0, True)}, True),     # must fail: the switch throws away more than it saves

@@ -1223,7 +1223,8 @@ def forward(entries, cost, tools=None):
 
 def price_as_run(steps, tools, cost, held=None):
     """Pure given the cost:"""
-    out, at, have = [], None, list(tools or ())
+    out, at = [], None
+    have: list[tuple] = list(tools or ())
     hungry = getattr(cost, "hunger_rate", lambda: 0.0)()      # F1l: hunger's seconds until a step makes food
     for i, step in enumerate(steps):
         tiers = held[i] if held is not None else _tiers(have)
@@ -1555,9 +1556,10 @@ def look_first(inv, needs, cost, pending=None):
             look = Step("look", "container", 1, {"pos": list(c)})
             look.est = price_as_run([look], [], cost)[0]
             take = Step("withdraw", mid(token), short, {"pos": list(c)})
-            saved = make - (look.est + p * cost.estimate(take, at=tuple(c)) + (1 - p) * make)
-            if saved > 0 and (best is None or saved > best[0]):
-                best = (saved, look)
+            expected = look.est + p * cost.estimate(take, at=tuple(c)) + (1 - p) * make
+            if make - expected > 0 and (best is None or make - expected > best[0]):
+                look.detail.update(p=p, expected=round(expected), need=[token, short])     # what the look saves on average
+                best = (make - expected, look)
         if best is not None:
             return [best[1]]
     return []
