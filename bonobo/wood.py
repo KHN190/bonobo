@@ -7,7 +7,7 @@ from .api import McError, NotAvailable, log
 from .data import GROUPS
 from .explore import seek_blocks
 from .skill import skill
-from .skillcore import gained, settle
+from .skillcore import settle
 from .world import feet
 from .world import Inventory, find
 
@@ -25,12 +25,6 @@ def trunk_batch(base, overhead, want):
 def felled(trunk, still):
     """Pure: none of this trunk's logs still stands (`still`: the log cells the world lists after chopping)."""
     return not any((t["x"], t["y"], t["z"]) in still for t in trunk)
-
-def chop_outcome(before, now, trunk, still):
-    """Pure: "got" (logs held rose), "lying" (none held but a trunk log is gone: its drop lies about), "nothing"."""
-    if now > before:
-        return "got"
-    return "lying" if any((t["x"], t["y"], t["z"]) not in still for t in trunk) else "nothing"
 
 def pick_trunks(logs):
     """Pure: logs grouped into trunks (within one block sideways of the group's first), in /find's nearest-first order."""
@@ -130,15 +124,7 @@ def chop(ctx, n):
             if cell in still and not nav.reachable(cell, ctx.policy, 2.0)[0]:
                 ctx.ban(cell)
         logs_now = lambda: Inventory().count("log")   # noqa: E731
-        outcome = chop_outcome(before, gained(logs_now, before), trunk, still)
-        if outcome == "lying":
-            log(f"   trunk at {(base['x'], base['y'], base['z'])}: logs broken but not picked up; sweeping")
-            try:
-                nav.walk_sweep(ctx, radius=4, only=GROUPS["log"])
-            except api.Unreachable as e:
-                log(f"   the dropped logs lie out of reach: {e}")
-            outcome = chop_outcome(before, gained(logs_now, before), trunk, still)
-        if outcome != "got":
+        if nav.sweep_lying(ctx, ["log"], logs_now, before) <= before:
             # this trunk gave nothing: ban it and take the next tree in the same call
             for t in trunk:
                 ctx.ban((t["x"], t["y"], t["z"]))

@@ -881,19 +881,38 @@ class Connected(unittest.TestCase):
         run_table(self, connected, self.TABLE)
 
 
-class ChopOutcome(unittest.TestCase):
-    """wood.chop_outcome: a trunk whose log is gone but not held has its drop lying about (swept), not "nothing"
-    (night_first__low 175033: the base log broken, the drop left, the trunk banned, the task failed)."""
+class LyingDrops(unittest.TestCase):
+    """nav.lying_drops: the drops a batch's sweep left lying, by item id (night_first__low 175033: the log written off
+    by the jar's sweep, the trunk banned, the task failed) — what sweep_lying sweeps once more."""
 
     def test_table(self):
-        from bonobo import wood
-        trunk = [{"x": 3, "y": 0, "z": 3}, {"x": 3, "y": 1, "z": 3}]
-        rows = [("held rose: got", 1, 2, {(3, 1, 3)}, "got"),
-                ("must fail: the base broken, none held: lying", 1, 1, {(3, 1, 3)}, "lying"),
-                ("all standing, none held: nothing", 1, 1, {(3, 0, 3), (3, 1, 3)}, "nothing")]
-        for name, before, now, still, want in rows:
+        from bonobo import nav
+        log = {"type": "minecraft:item", "item": {"id": "minecraft:oak_log", "count": 1}}
+        dirt = {"type": "minecraft:item", "item": {"id": "minecraft:dirt", "count": 1}}
+        rows = [("must fail: a log left lying is found", [log, dirt], ["minecraft:oak_log"], [log]),
+                ("another item only: none", [dirt], ["minecraft:oak_log"], []),
+                ("nothing lying: none", [], ["minecraft:oak_log"], [])]
+        for name, items, only, want in rows:
             with self.subTest(name):
-                self.assertEqual(wood.chop_outcome(before, now, trunk, still), want)
+                self.assertEqual(nav.lying_drops(items, only), want)
+
+
+class PickupPriced(unittest.TestCase):
+    """knowledge.pickup_ticks: each break's drop walked onto is in the work's price (mine_stone__base 181618: three
+    drops in their holes, ~1 s each, past a 5 s budget)."""
+
+    def test_table(self):
+        from bonobo import knowledge
+        from bonobo.planner import Step
+        each = knowledge.PRIOR_TICKS["pickup_each"]
+        rows = [("three stone breaks", Step("mine", "cobblestone", 3, detail={"blocks": ["stone"], "breaks": 3}), 3 * each),
+                ("two logs", Step("gather", "log", 2), 2 * each),
+                ("must fail: a craft drops nothing", Step("craft", "stick", 4), 0)]
+        for name, step, want in rows:
+            with self.subTest(name):
+                self.assertEqual(knowledge.pickup_ticks(step), want)
+        mine = rows[0][1]
+        self.assertGreaterEqual(knowledge.prior_work_ticks(mine, {}, 20), 3 * each)
 
 
 if __name__ == "__main__":

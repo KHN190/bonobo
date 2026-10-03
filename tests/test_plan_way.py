@@ -5,7 +5,7 @@ import unittest
 from bonobo import nav
 from bonobo.beliefs import TICKS_PER_S
 from bonobo.data import STAIR_CELLS
-from bonobo.knowledge import break_ticks
+from bonobo.knowledge import PRIOR_TICKS, break_ticks
 from tests.world import FakeRegion, bag, inventory
 
 FEET = (0, 64, 0)
@@ -165,9 +165,10 @@ class WayPrice(unittest.TestCase):
         cells = mined(steps)
         walk = sum(1 for t in steps if t["type"] == "goto") * (2 ** 0.5) / nav.PLAYER_SPEED
         # (held) → seconds: each break by the tool held for it, the walk down the steps
-        rows = [("bare hands", bag(inventory()), len(cells) * break_ticks("stone", "hand") / TICKS_PER_S + walk),
+        task = PRIOR_TICKS["break_task"]      # each break a mine task: the game's break and the task's own time
+        rows = [("bare hands", bag(inventory()), len(cells) * (break_ticks("stone", "hand") + task) / TICKS_PER_S + walk),
                 ("a diamond pickaxe", bag(inventory(PICK)),
-                 len(cells) * break_ticks("stone", "minecraft:diamond_pickaxe") / TICKS_PER_S + walk)]
+                 len(cells) * (break_ticks("stone", "minecraft:diamond_pickaxe") + task) / TICKS_PER_S + walk)]
         for name, inv, want in rows:
             with self.subTest(name):
                 self.assertAlmostEqual(nav.way_s(region, FEET, steps, inv), want, places=6)
