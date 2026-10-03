@@ -31,8 +31,7 @@ def fresh_enough(seen_at, now=None, within=1.0):
 class Intent:
     """What a layer would like the body to do; the arbiter decides."""
 
-    def __init__(self, layer, action, reason="", *, key, deadline_s=None, at=None, commit_s=None,
-                 cost_rate=0.0, cost_s=None, resumable=True, redo_s=0.0, kind=None, seq=0, surface=False):
+    def __init__(self, layer, action, reason="", *, key, at=None, commit_s=None, kind=None, seq=0, surface=False):
         if layer not in SCALES:
             raise ValueError(f"unknown layer {layer!r}: expected one of {sorted(SCALES)}")
         if not isinstance(key, str) or not key:
@@ -47,24 +46,13 @@ class Intent:
         # walks the surface (on_surface): not offered while the surface is closed (night in the Overworld)
         self.surface = bool(surface)
         self.reason = reason
-        self.deadline_s = deadline_s
-        # how long the body may stay on this before the planner is asked again (deadline_s is when it is too old to start)
+        # how long the body may stay on this before the planner is asked again
         self.commit_s = commit_s
-        self.cost_rate = float(cost_rate)
-        self.cost_s = None if cost_s is None else float(cost_s)
-        # data for the log and tape only: whether stopping loses work is the layer's call, through `release`
-        self.resumable = bool(resumable)
-        self.redo_s = float(redo_s)
         self.at = time.time() if at is None else at
 
     @property
     def scale(self):
         return SCALES[self.layer]
-
-    def expired(self, now=None):
-        if self.deadline_s is None:
-            return False
-        return (now if now is not None else time.time()) - self.at > self.deadline_s
 
     def __repr__(self):
         return f"Intent({self.layer}, {self.reason!r})"
@@ -148,10 +136,10 @@ def first_live(groups, facts_of):
             return live, facts
     return [], {}
 
-def arbitrate(intents, now=None, facts=None):
+def arbitrate(intents, facts=None):
     """Pure: the one intent that may drive the body, or None."""
 
-    live = gate_intents([i for i in intents if not i.expired(now)], facts)
+    live = gate_intents(list(intents), facts)
     if not live:
         return None
     return min(live, key=lambda i: (i.scale, i.seq, -i.at, i.key))
@@ -322,14 +310,13 @@ class Motion:
         self._run(intent)  # outside the lock: a long action must not freeze the body
         return (intent.layer, intent.reason), None
 
-    def drive(self, layer, action, reason="", commit_s=None, resumable=True, redo_s=0.0):
+    def drive(self, layer, action, reason="", commit_s=None):
         """Run `action` now, on this thread, under a commitment (ordinary play's entry)."""
 
         if not self.allows(layer):
             self._log(f"   motion: {layer} '{reason}' stands down: the body is Claude's")
             return False
-        self._run(Intent(layer, action, reason, key=reason or layer, commit_s=commit_s, resumable=resumable,
-                         redo_s=redo_s))
+        self._run(Intent(layer, action, reason, key=reason or layer, commit_s=commit_s))
         return True
 
 BODY = Motion()      # the one player this process drives

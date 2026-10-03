@@ -1973,9 +1973,9 @@ class OneArbiter(unittest.TestCase):
     round's one plan chose: TheRoundsPick). The day's failures, as the proposals each situation makes."""
 
     @staticmethod
-    def intent(layer, kind=None, seq=0, deadline_s=None, at=None):
+    def intent(layer, kind=None, seq=0, at=None):
         from bonobo import arbiter
-        return arbiter.Intent(layer, kind or layer, kind=kind, seq=seq, deadline_s=deadline_s, at=at, key=kind or layer)
+        return arbiter.Intent(layer, kind or layer, kind=kind, seq=seq, at=at, key=kind or layer)
 
     def test_decisions_over_the_table(self):
         from bonobo import arbiter, reflexes
@@ -2010,12 +2010,10 @@ class OneArbiter(unittest.TestCase):
                  [M("recover items"), M("sleep")], "sleep"),
                 ("died a minute ago, hungry: eat before the walk back to the drops", [M("eat"), M("recover items")],
                  "eat"),
-                ("an expired rescue is not run late: the plan", [self.intent("safety", "rescue", deadline_s=1.0, at=0.0),
-                                                                P("queue")], "queue"),
                 ("must fail: nothing proposed: nothing", [], None)]
         for name, intents, want in rows:
             with self.subTest(name):
-                got = arbiter.arbitrate(intents, now=100.0)
+                got = arbiter.arbitrate(intents)
                 self.assertEqual(got.action if got else None, want)
 
     def test_eating_first_keeps_the_drops(self):

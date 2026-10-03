@@ -16,28 +16,23 @@ def intent(layer, mark, out, **kw):
     return arbiter.Intent(layer, lambda: out.append(mark), mark, **{"key": mark, **kw})
 
 
-# (intents as (layer, reason, at, deadline_s), now) → the reason arbitrate picks, or None
+# (intents as (layer, reason, at)) → the reason arbitrate picks, or None
 ARBITRATE = [
-    ("plan vs tactic: the faster", [("plan", "p", 0.0, None), ("tactic", "t", 0.0, None)], 0.0, "t"),
-    ("tactic vs safety", [("tactic", "t", 0.0, None), ("safety", "s", 0.0, None)], 0.0, "s"),
-    ("safety vs reflex", [("safety", "s", 0.0, None), ("reflex", "r", 0.0, None)], 0.0, "r"),
-    ("the order of submission does not matter", [("reflex", "r", 0.0, None), ("plan", "p", 5.0, None)], 5.0, "r"),
-    ("within a layer the newest reading", [("tactic", "old", 100.0, None), ("tactic", "new", 101.0, None)], 101.0,
-     "new"),
-    ("must fail: an expired intent is dropped, not run late", [("plan", "stale", 100.0, 1.0)], 102.0, None),
-    ("an expired faster intent loses to a live slower one",
-     [("reflex", "stale", 100.0, 1.0), ("plan", "live", 101.5, None)], 102.0, "live"),
-    ("nothing to arbitrate", [], 0.0, None),
+    ("plan vs tactic: the faster", [("plan", "p", 0.0), ("tactic", "t", 0.0)], "t"),
+    ("tactic vs safety", [("tactic", "t", 0.0), ("safety", "s", 0.0)], "s"),
+    ("safety vs reflex", [("safety", "s", 0.0), ("reflex", "r", 0.0)], "r"),
+    ("the order of submission does not matter", [("reflex", "r", 0.0), ("plan", "p", 5.0)], "r"),
+    ("within a layer the newest reading", [("tactic", "old", 100.0), ("tactic", "new", 101.0)], "new"),
+    ("nothing to arbitrate", [], None),
 ]
 
 
 class Ordering(unittest.TestCase):
     def test_arbitrate_over_the_table(self):
-        for name, rows, now, want in ARBITRATE:
+        for name, rows, want in ARBITRATE:
             with self.subTest(name):
                 out = []
-                got = arbiter.arbitrate([intent(layer, r, out, at=at, deadline_s=d) for layer, r, at, d in rows],
-                                        now=now)
+                got = arbiter.arbitrate([intent(layer, r, out, at=at) for layer, r, at in rows])
                 self.assertEqual(None if got is None else got.reason, want)
 
     def test_an_unknown_layer_is_refused(self):
@@ -201,8 +196,8 @@ def situation(view=(), fight=False, hazard=False, plan=(), ready=lambda name: Tr
     return out
 
 
-def chosen(intents, now=0.0):
-    got = arbiter.arbitrate(intents, now=now)
+def chosen(intents):
+    got = arbiter.arbitrate(intents)
     return None if got is None else got.reason
 
 
@@ -247,15 +242,7 @@ class Invariants(unittest.TestCase):
             with self.subTest(name):
                 intents = [arbiter.Intent("plan", lambda: None, str(i), at=a, kind="queue", seq=sq, key=str(i))
                            for i, (sq, a) in enumerate(((s0, a0), (s1, a1)))]
-                self.assertEqual([chosen(intents, now=10.0) for _ in range(3)], [str(want)] * 3)
-
-    def test_an_expired_intent_never_runs(self):
-        for layer in self.LAYERS:
-            with self.subTest(layer):
-                stale = arbiter.Intent(layer, lambda: None, "stale", at=0.0, deadline_s=1.0, kind="queue", key="stale")
-                live = arbiter.Intent("plan", lambda: None, "live", at=0.0, kind="idle", key="live")
-                self.assertEqual((chosen([stale], now=2.0), chosen([stale, live], now=2.0), chosen([stale], now=0.5)),
-                                 (None, "live", "stale"))
+                self.assertEqual([chosen(intents) for _ in range(3)], [str(want)] * 3)
 
     def test_no_plan_kind_outranks_another(self):
         # G3: within PLAN the round's one plan chose by seconds; the arbiter keeps no order of kinds — the place in line
@@ -349,7 +336,7 @@ class GroupsAskedInTurn(unittest.TestCase):
 
 
 def chosen_with(intents, facts):
-    got = arbiter.arbitrate(intents, now=0.0, facts=facts)
+    got = arbiter.arbitrate(intents, facts=facts)
     return None if got is None else got.reason
 
 class Crowded(unittest.TestCase):
@@ -445,7 +432,7 @@ def simulate(view_of, plan, cause_for, rounds):
         intents = [arbiter.Intent("maintain", lambda: None, x, at=now, kind=x, seq=reflexes.NAMES.index(x), key=x)
                    for x in fired if r.ready(x, now, "here")]
         intents += [arbiter.Intent("plan", lambda: None, k, at=now, kind=k, key=k) for k in plan]
-        pick = chosen(intents, now=now)
+        pick = chosen(intents)
         picks.append(pick)
         if pick in reflexes.NAMES:
             if cause_for(pick):

@@ -1,19 +1,48 @@
 """One plan step, carried out: the skill that provides it (`skill.provider`), and where to look when nothing is in range. No switch on kinds here — a new skill is one decorated function. Everything it needs comes on the Context."""
 
+import json
 import math
+import os
+import time
 
-from . import api, explore, gather, nav, retry, skillcore
+from . import api, explore, gather, nav, paths, retry, skillcore
 from . import world
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, log, swallowed
 from .data import GROUPS, bare, mid, seen_class
-from .knowledge import FIND_AT
+from .knowledge import FIND_AT, PRICE_SOURCE, PRIOR_TICKS
 
 SEEK_KINDS = ("mine", "gather", "hunt")      # steps whose "nothing in range" is answered by looking elsewhere
+
+PRICES = paths.data("prices.jsonl", env="MC_PRICES")
+PER_UNIT = {"smelt": "smelt_each", "mine": "mine_each", "gather": "gather_each", "hunt": "hunt_each"}
+
+
+def price_line(step, night, dimension, actual_s, why=None, row=None):
+    """Pure: one step as priced and as run (E4's sample): its estimate, the seconds it took, what it was, the
+    conditions, and where its work's price came from (knowledge.PRICE_SOURCE)."""
+    prior = PER_UNIT.get(step.kind, step.kind if step.kind in PRIOR_TICKS else "skill")
+    detail = {k: step.detail[k] for k in ("breaks", "kills", "p", "pos", "blocks", "types") if k in step.detail}
+    return {"t": round(time.time(), 1), "row": row, "kind": step.kind, "token": step.token, "count": step.count,
+            "est": int(getattr(step, "est", 0) or 0), "actual_s": round(actual_s, 2), "ok": why is None, "why": why,
+            "price": {"work": f"PRIOR_TICKS.{prior}:{PRICE_SOURCE['knowledge.PRIOR_TICKS'].get(prior, 'prior')}"},
+            "cond": {"night": bool(night), "dim": dimension, **detail}}
+
+
+def trace(step, night, dimension, t0, why=None):
+    """The step's price line appended to prices.jsonl (MC_DATA); a bench row names itself (MC_BENCH_ROW)."""
+    line = price_line(step, night, dimension, time.time() - t0, why, os.environ.get("MC_BENCH_ROW"))
+    try:
+        with open(PRICES, "a") as fh:
+            fh.write(json.dumps(line, default=str) + "\n")
+    except OSError as e:
+        swallowed("dispatch.trace", e)
+
 
 def execute(ctx, step, night):
     log(f"   → {step} at {api.feet_seen()}")          # where the pick was made: the cooling place, proven
     key = f"{step.kind}:{step.token}"
+    t0 = time.time()
     try:
         out = run_step(ctx, step, night)
         if isinstance(out, NotAvailable):
@@ -22,11 +51,14 @@ def execute(ctx, step, night):
             out = run_step(ctx, step, night, seek=False)
     except GameUnreachable:
         raise
-    except api.INTERRUPTIONS:
+    except api.INTERRUPTIONS as e:
+        trace(step, night, ctx.dimension, t0, f"interrupted: {type(e).__name__}")
         raise      # no statistics
     except (McError, skillcore.ToolMissing) as e:
+        trace(step, night, ctx.dimension, t0, f"failed: {type(e).__name__}")
         ctx.mem.record_outcome(f"nav:{step.kind}" if retry.cause_of(e) == "nav" else key, False)
         raise
+    trace(step, night, ctx.dimension, t0)
     if not (isinstance(out, dict) and "ordered" in out):
         ctx.mem.record_outcome(key, True)   # a furnace loaded is not a step done: that is when it is held
 

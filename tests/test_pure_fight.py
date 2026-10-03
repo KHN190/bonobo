@@ -352,7 +352,6 @@ class ReachesShare(unittest.TestCase):
         stop = float(estimate.ENGAGE["melee_stop_blocks"])
         archer, walker, squeezer = {"ranged": True}, {}, {"squeezes": True}
         rows = [
-            ("no shape", None, walker, 1.0),
             ("block between delays only", ("between", 5), walker, 1.0),
             # a step at melee_stop_blocks: one block up or down the boxes still meet and every hit lands
             ("must fail: walker, one block up: still hit, all of it", ("up", 1), walker, 1.0),

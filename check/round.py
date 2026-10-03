@@ -182,8 +182,8 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
     seen = {}
     real_arbitrate = arbiter.arbitrate
 
-    def watched(intents, now=None, facts=None):
-        chosen = real_arbitrate(intents, now=now, facts=facts)
+    def watched(intents, facts=None):
+        chosen = real_arbitrate(intents, facts=facts)
         seen["intents"], seen["chosen"] = list(intents), chosen
         return chosen
     from .facts import DIMS

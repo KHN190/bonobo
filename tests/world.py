@@ -500,11 +500,7 @@ def along_day(dimension, **fixed):
 # asking for the body says its answer is worth. A bundle would hide the very thing these are for — "has been
 # running for a while" must be separable from "costs a lot to abandon".
 
-INTENT = {                                   # {resumable, redo_s}: what abandoning this work would throw away
-    "walk": {"resumable": True, "redo_s": 0.0},
-    "dig": {"resumable": True, "redo_s": 0.0},
-    "window": {"resumable": False, "redo_s": 3.0},        # open-loop: stopping means starting again
-}
+INTENT = ("walk", "dig", "window")          # the kinds of running work
 ELAPSED = {"just_started": 0.0, "a_while": 20.0, "long": 300.0}
 WORTH = {"none": 0.0, "small": 5.0, "large": 500.0}
 LAYERS = {"reflex": "reflex", "safety": "safety", "tactic": "tactic", "plan": "plan"}
@@ -554,8 +550,7 @@ def faster_than(layer, step=-1):
 def intent(kind="walk", layer="plan", elapsed="just_started", at=0.0, **kw):
     """One running intent, built from the dimensions rather than from a pile of keywords."""
     from bonobo import arbiter
-    return arbiter.Intent(LAYERS[layer], lambda: None, kind, at=at, cost_rate=1.0, cost_s=600.0,
-                          **dict({"key": kind}, **dict(INTENT[kind], **kw)))
+    return arbiter.Intent(LAYERS[layer], lambda: None, kind, at=at, **dict({"key": kind}, **kw))
 
 
 # ---------------------------------------------------------------- one table of dimensions, one product
