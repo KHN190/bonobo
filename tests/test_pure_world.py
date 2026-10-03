@@ -1371,3 +1371,33 @@ class HeadBuried(unittest.TestCase):
                 return {"palette": [block], "blocks": [entry]}
             with self.subTest(name), mock.patch.object(api, "get", get):
                 self.assertEqual(skillcore.head_buried(state), want)
+
+
+class RoundGroundKept(unittest.TestCase):
+    """world.round_ground: the round's ground read once and kept while fresh (world.ground_fresh: FACT_TTL_S["ground"],
+    the cells round the body inside it, no dig or place of ours since)."""
+
+    def test_rows(self):
+        from bonobo import api, lifecycle, survive, world
+        from bonobo.data import FACT_TTL_S
+        lifecycle.reset_all()
+        reads = []
+
+        def read(lo, hi):
+            reads.append((lo, hi))
+            return Region.of(lo, hi, {})
+        feet, t, ttl = (0, 64, 0), 1000.0, FACT_TTL_S["ground"]
+        far = (feet[0] + 2 * survive.ROUND_GROUND[0][1][0], feet[1], feet[2])      # out of the box read
+        writes = api.STATE.world_writes
+        # (situation, feet, time, writes since) → reads so far
+        rows = [("the first round reads it", feet, t, 0, 1),
+                ("must fail: a still body's next rounds read nothing", feet, t + ttl / 4, 0, 1),
+                ("a third still round", feet, t + ttl / 2, 0, 1),
+                ("must fail: a dig of ours since: read again", feet, t + ttl / 2, 1, 2),
+                ("the body left the box: read again", far, t + ttl / 2, 1, 3),
+                ("older than the ground's TTL: read again", far, t + 2 * ttl, 1, 4)]
+        with mock.patch.object(world, "Region", side_effect=read):
+            for name, at, now, dug, want in rows:
+                with self.subTest(name), mock.patch.object(api.STATE, "world_writes", writes + dug):
+                    world.round_ground(at, survive.ROUND_GROUND, now=now)
+                    self.assertEqual(len(reads), want)

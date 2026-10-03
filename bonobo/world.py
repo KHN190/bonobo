@@ -205,12 +205,13 @@ class Snapshot:
     hits: dict           # the round's look: {block: [hit]}
     mobs: list           # the living entities around
     region: "Region | None"     # the ground round the feet, read with the round (None: not read: nothing known of it)
+    region_at: float            # when that ground was read (round_ground: kept while fresh)
     read_seq: int
     read_at: float
 
     @classmethod
     def from_readings(cls, state: Mapping[str, Any], inventory: "Mapping[str, Any] | Inventory", hits=None,
-                      mobs=None, region=None) -> "Snapshot":
+                      mobs=None, region=None, region_at=None) -> "Snapshot":
         """A snapshot of recorded readings (/state, /inventory, the look's `hits` and `mobs`, the ground `region`): no
         world read."""
         snap = cls.__new__(cls)
@@ -218,18 +219,18 @@ class Snapshot:
         snap.inv = inventory if isinstance(inventory, Inventory) else Inventory(inventory)
         snap.read_seq, snap.read_at = api.STATE.state_reads, api.STATE.state_read_at      # the last /state read then
         snap.hits, snap.mobs, snap.region = dict(hits or {}), list(mobs or []), region
+        snap.region_at = snap.read_at if region_at is None else region_at
         return snap
 
     @classmethod
     def read(cls, kinds, ground) -> "Snapshot":
-        """The round's read: /state, the bag, the look at `kinds` around the feet (look_around), and the ground in the
-        box `ground` ((lo, hi) offsets from the feet): every reading the round's decision makes (K10)."""
+        """The round's read: /state, the bag, the look at `kinds` around the feet (look_around), and the ground
+        (round_ground: `ground`'s box, kept while fresh): every reading the round's decision makes (K10)."""
         state = api.get("/state")
         feet = (state["blockX"], state["blockY"], state["blockZ"])
         hits, mobs = look_around(feet, state.get("dimension"), kinds)
-        lo, hi = ground
-        region = Region(cell_add(feet, lo), cell_add(feet, hi))
-        return cls.from_readings(state, Inventory(), hits, mobs, region)
+        region, at = round_ground(feet, ground)
+        return cls.from_readings(state, Inventory(), hits, mobs, region, at)
 
     @property
     def feet(self) -> Cell:
@@ -261,9 +262,10 @@ class Snapshot:
         return self.state.get(key, default)
 
 _SIGHT = {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}}
+_GROUND: dict = {}          # the round's ground kept: {"region", "at", "writes"} (round_ground)
 SIGHT_PER_BLOCK = 4        # hits kept per block: a source is the nearest of them outside the protected cells
 # the round's route answers and the last look are about the world we stood in (a new row may stand at the same feet)
-lifecycle.in_place(__name__, "ROUTES", "_SIGHT")
+lifecycle.in_place(__name__, "ROUTES", "_SIGHT", "_GROUND")
 PER_BLOCK_SINCE = (0, 1, 55)       # the jar version that answers /find?perBlock
 
 
@@ -328,6 +330,26 @@ def look_around(feet, dimension, kinds, radius=64):
         api.swallowed("world.look_around", e)
         mobs = []
     return {k: list(v) for k, v in _SIGHT.get("hits", {}).items()}, mobs
+
+
+def ground_fresh(kept, feet, body, now):
+    """The one rule a read ground is reused by: younger than FACT_TTL_S["ground"], the cells round the body (`body`'s
+    offsets from the feet) still inside it, and no dig or place of ours since it was read (api.STATE.world_writes)."""
+    return (now - kept["at"] < FACT_TTL_S["ground"] and kept["writes"] == api.STATE.world_writes
+            and kept["region"].covers(cell_add(feet, body[0]), cell_add(feet, body[1])))
+
+
+def round_ground(feet, ground, now=None):
+    """(region, read at) of the ground round the feet: the one kept while `ground_fresh`, else `ground`'s box ((box,
+    body): offsets from the feet) read now."""
+    now = time.time() if now is None else now
+    (lo, hi), body = ground
+    kept = _GROUND.get("kept")
+    if kept is not None and ground_fresh(kept, feet, body, now):
+        return kept["region"], kept["at"]
+    region = Region(cell_add(feet, lo), cell_add(feet, hi))
+    _GROUND["kept"] = {"region": region, "at": now, "writes": api.STATE.world_writes}
+    return region, now
 
 
 def seen_hit(hits, kinds, skip=None, radius=math.inf):

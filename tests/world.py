@@ -134,7 +134,7 @@ def snapshot(st=None, inv=None, region=None, **seen):
     st = st if st is not None else state()
     fx, fy, fz = st["blockX"], st["blockY"], st["blockZ"]
     if region is None:
-        lo, hi = (cell_add((fx, fy, fz), d) for d in ROUND_GROUND)
+        lo, hi = (cell_add((fx, fy, fz), d) for d in ROUND_GROUND[0])
         region = flat(lo, hi, floor_y=fy - 1)
     hits, mobs = {}, []
     for i, (name, d) in enumerate(seen.items()):

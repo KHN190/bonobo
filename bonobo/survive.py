@@ -681,9 +681,10 @@ def dig_in_site(region, feet_at, protected=()):
     start = dig_in_start(region, tuple(feet_at))
     return nav.safe_depth(region, start, DIG_IN_DEPTH, protected, dug_to=feet_at[1]) >= DIG_IN_DEPTH
 
-# the ground the round reads with its snapshot (world.Snapshot.read): the night's soft ground and dig-in column, the
-# cells round the body (enclosed, a pit, a buried head) inside it
-ROUND_GROUND = ((-SOFT_RADIUS, -DIG_IN_DEPTH - 2, -SOFT_RADIUS), (SOFT_RADIUS, 3, SOFT_RADIUS))
+# the ground the round reads with its snapshot (world.Snapshot.read): the night's soft ground and dig-in column; and
+# the cells round the body its readers ask (enclosed, a pit, a buried head) — kept while they stay inside it
+ROUND_GROUND = (((-SOFT_RADIUS, -DIG_IN_DEPTH - 2, -SOFT_RADIUS), (SOFT_RADIUS, 3, SOFT_RADIUS)),
+                ((-1, -1, -1), (1, 3, 1)))
 
 
 def night_ground(region, at):

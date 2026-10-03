@@ -65,7 +65,8 @@ def fact_ages(b, round_snap):
     look = world._SIGHT
     ages = {"the look (world.nearest)": (snap.read_at - look["t"] if look.get("key") else 0.0, FACT_TTL_S["look"]),
             "the ground (perception)": (snap.read_at - perception.STATE.grid_at if perception.STATE.grid_at else 0.0,
-                                        FACT_TTL_S["ground"])}
+                                        FACT_TTL_S["ground"]),
+            "the ground (the round's)": (snap.read_at - snap.region_at, FACT_TTL_S["ground"])}
     return (snap.read_seq, round_snap.read_seq), ages
 
 
