@@ -323,8 +323,12 @@ class Fight:
                 return False, f"needs terrain.{key} = {wanted}"
         if state["threats"]:
             # feasibility after committing `busy` s: a safe cell still reachable before the first threat, over all threats (a pincer killed a run)
+            # the cells a body can stand on, by the run's own test (combat_model.standable_at, as nav.safe_destination
+            # walks it) over the ground the fight's state carries (perception's read: no read of its own, S7)
+            ground = state.get("ground")
+            standable = (lambda p: combat_model.standable_at(ground.solid, p)) if ground is not None else None
             _spot, slack = combat_model.best_step(me["pos"], state["threats"], speed=me["speed"],
-                                                  horizon=busy + 1.0, cover=me.get("cover"))
+                                                  horizon=busy + 1.0, cover=me.get("cover"), standable=standable)
             if slack is not None and slack < busy:
                 return False, f"committing {busy:.1f}s, first threat arrives in {slack + busy:.1f}s"
         expected = action.duration_s * self.dps_here(state)

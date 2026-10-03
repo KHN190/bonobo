@@ -512,11 +512,38 @@ class HazardsAndStandableSpots(unittest.TestCase):
               ((10005.5, 200.0, 9998.5), 3.0)]
         target = (10007, 200, 10000)
         rows = [("must fail: without the ground, the spot lands in the wall", None, True),
-                ("with it, never in the wall", lambda p: nav.standable_at(solid, p), False)]
+                ("with it, never in the wall", lambda p: cm.standable_at(solid, p), False)]
         for name, standable, in_wall in rows:
             with self.subTest(name):
                 spot = nav.safe_destination(target, hz, standable=standable)
                 self.assertEqual(spot is not None and solid((int(spot[0] // 1), 200, 0)), in_wall)
+
+    def test_the_plans_retreat_cell_is_standable(self):
+        """P2/K1: fight_plan.admissible's safe cell passes the run's own stand test (combat_model.standable_at, as
+        nav.safe_destination walks it) over the ground the fight's state carries — a pocket walled on three sides, the
+        threat at its mouth: the only clear steps are in the walls, so committing is refused; on open ground the
+        same commit stands."""
+        import types
+        from bonobo import fight_plan
+        fight = fight_plan.Fight()
+        here = (10007.5, 200.0, 10000.5)
+        pocket = lambda c: c[1] == 199 or c[0] >= 10009 or c[2] >= 10001 or c[2] <= 9999  # noqa: E731
+        open_ground = lambda c: c[1] == 199  # noqa: E731
+        hz = [((here[0] - 5.0, 200.0, here[2]), 3.0, (0.0, 0.0, 0.0), "minecraft:zombie")]
+
+        def state(solid):
+            return {"self": {"pos": here, "hp": 20.0, "in_cover": False, "cover": None,
+                             "hp_floor": fight_plan.CONFIG["combat"]["hp_floor"],
+                             "speed": fight_plan.CONFIG["combat"]["sprint_speed"]},
+                    "boss": {"phase": 0, "phase_elapsed_s": 0.0, "hp": 200.0}, "threats": hz,
+                    "ground": types.SimpleNamespace(solid=solid),
+                    "resources": {"beds": 0, "obsidian": 0, "water": 0, "bow": 0, "arrows": 0},
+                    "terrain": {"tunnel_ready": False, "bed_placed": False, "reinforced": False, "crystals_open": 0}}
+        rows = [("must fail: the safe cell inside the pocket's wall, the commit allowed", pocket, False),
+                ("open ground: unchanged, allowed", open_ground, True)]
+        for name, solid, allowed in rows:
+            with self.subTest(name):
+                self.assertEqual(fight.admissible(state(solid), fight.action("dig_tunnel"))[0], allowed)
 
 
 class StillWorth(unittest.TestCase):
