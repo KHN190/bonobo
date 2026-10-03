@@ -172,7 +172,6 @@ def priced_ways(key, amount, default, inv, cost, extra=None, facts=None, free_on
     read from)], why the others are not offered) — the default (`default()`'s steps) and each SOURCES[key] source
     that can finish here. `free_only`: only the sources that need nothing (priced without planning)."""
 
-    mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
     why, out = [], []
     try:
         if free_only:
@@ -181,9 +180,26 @@ def priced_ways(key, amount, default, inv, cost, extra=None, facts=None, free_on
         out.append(("default", cost.plan_s(steps), steps, ()))
     except Unplannable as e:
         why.append(f"default: {e}")
-    for src in SOURCES.get(key, ()):
-        if free_only and src["needs"]:
+    sources, why_not = offered_sources(key, amount, inv, cost, facts)
+    why += why_not
+    for src, needs, own in sources:
+        if free_only and needs:
             continue
+        try:
+            pre = solve_needs(inv, needs, cost, extra) if needs else []
+        except Unplannable as e:
+            why.append(f"{src['name']}: {e}")
+            continue
+        out.append((src["name"], cost.plan_s(pre + own), pre + own, tuple(src.get("extra_s", ()))))
+    return out, why
+
+def offered_sources(key, amount, inv, cost, facts=None):
+    """The SOURCES[key] sources that can finish here: ([(source, its needs for `amount`, its own steps, each priced)],
+    why each other is not offered) — no planning."""
+
+    mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
+    why, out = [], []
+    for src in SOURCES.get(key, ()):
         if src["name"] in (facts or {}).get("cooled", ()):
             why.append(f"{src['name']}: failed here lately (cooling)")
             continue                 # a way that just failed is not priced again tonight: the next way is
@@ -209,12 +225,7 @@ def priced_ways(key, amount, default, inv, cost, extra=None, facts=None, free_on
             why.append(f"{src['name']}: {known[1]}")
             continue
         runs = math.ceil(amount / src["yields"])
-        try:
-            needs = [n if n[0] == "tool" or n[0].endswith("_helmet") else (n[0], n[1] * runs) for n in src["needs"]]
-            pre = solve_needs(inv, needs, cost, extra) if needs else []
-        except Unplannable as e:
-            why.append(f"{src['name']}: {e}")
-            continue
+        needs = [n if n[0] == "tool" or n[0].endswith("_helmet") else (n[0], n[1] * runs) for n in src["needs"]]
         own = []
         for kind, tok, detail in src["steps"]:
             # priced one run at a time; the step does every run
@@ -222,7 +233,7 @@ def priced_ways(key, amount, default, inv, cost, extra=None, facts=None, free_on
                                                        else {})})
             step.est = cost.estimate(Step(kind, tok, 1, dict(detail))) * runs
             own.append(step)
-        out.append((src["name"], cost.plan_s(pre + own), pre + own, tuple(src.get("extra_s", ()))))
+        out.append((src, needs, own))
     return out, why
 
 def _action(kind, token, cost, **detail):

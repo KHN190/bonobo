@@ -172,6 +172,7 @@ class Rescue(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 b = brainmod.Brain.__new__(brainmod.Brain)
                 b.unplannable = {}
+                b.abandoned = None
                 b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
                 b.mem, b.retry, b.place = Memory(tmp + "/notes.json"), retry.Retry(), ("here", False)
                 b.needs, b.reflexes, b.last_failure = needs.Needs(b), reflexes.Maintain(b), None

@@ -7,9 +7,10 @@ R5 game data only in data.py and game.py (ticks<->seconds by the tick rate, a li
 R6 no dead code (a module-level def or constant production never names); R7 no swallowed exception (a handler that
 only passes, continues or returns a value); R8 no module-level container changed in a function unless its module
 registers its reset (lifecycle.in_place / on_reset covers); R9 a "Pure" function reaches no api call, HTTP or
-module-state write; R10 no bench budget or estimate written as a number; R11 (K9, over check/) a checker function
-that prices (its name says a price, a cost, an estimate, seconds or ticks) calls production for it, never a model of
-its own."""
+module-state write; R10 no bench budget or estimate written as a number; R11 (E5) every skill bounded and never left
+hanging: its `budget` declared, its `abandon` one of skill.ABANDON_WAYS, "cover" only for a fight's soft skill;
+R12 (K9, over check/) a checker function that prices (its name says a price, a cost, an estimate, seconds or ticks)
+calls production for it, never a model of its own."""
 import ast
 import os
 import re
@@ -565,6 +566,36 @@ def r10(trees):
     return sorted(out)
 
 
+# -- R11 (E5) every action bounded, and a next step after it is given up ---------------------------------------------
+ABANDON_WAYS = ("cover", "replan")      # skill.ABANDON_WAYS, read without importing the package's skills
+
+
+def r11(trees):
+    """[(path:line, what)]: a `@skill(...)` with no `budget=` (no time limit declared), an `abandon=` that is not a
+    string of ABANDON_WAYS (no next step), or "cover" for a skill neither soft nor fighting (seconds spent for no
+    danger; a shelter's would be its own way back)."""
+    out = []
+    for path, (tree, _src) in trees.items():
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for d in fn.decorator_list:
+                if not (isinstance(d, ast.Call) and getattr(d.func, "id", None) == "skill"):
+                    continue
+                kws = {k.arg: k.value for k in d.keywords}
+                where = f"{path}:{d.lineno} {fn.name}"
+                if "budget" not in kws:
+                    out.append((where, "no budget: no time limit"))
+                way = kws.get("abandon")
+                given = way.value if isinstance(way, ast.Constant) else None if way is None else "?"
+                if given is not None and given not in ABANDON_WAYS:
+                    out.append((where, f"abandon {given!r}: not one of {ABANDON_WAYS}"))
+                soft = isinstance(kws.get("soft"), ast.Constant) and kws["soft"].value is True
+                if given == "cover" and not (soft or "fights" in kws):
+                    out.append((where, "cover after giving up, with no danger: replan"))
+    return sorted(out)
+
+
 PRICE_NAME = re.compile(r"(^|_)(price|prices|cost|costs|estimate|estimates)(_|$)|_(s|ticks)$")
 CHECK = os.path.join(HERE, "check")
 
@@ -586,7 +617,7 @@ def _root(f):
     return f.id if isinstance(f, ast.Name) else None
 
 
-def r11(trees):
+def r12(trees):
     """[(path:line, name)] in check/: a function named for a price that calls nothing production's."""
     out = []
     for path, (tree, _src) in trees.items():
@@ -600,7 +631,7 @@ def r11(trees):
 
 
 RULES = {"R1": r1, "R2": r2, "R3": r3, "R4": r4, "R5": r5, "R6": r6, "R7": r7, "R8": r8, "R9": r9, "R10": r10,
-         "R11": r11}
+         "R11": r11, "R12": r12}
 ENTRY = "mc.py"         # production beside bonobo/: its uses keep code alive (R6)
 
 
@@ -614,7 +645,7 @@ def hits():
     with open(os.path.join(HERE, ENTRY)) as fh:
         production = dict(trees, **parse({os.path.join(os.pardir, ENTRY): fh.read()}))
     checker = parse(sources(CHECK))
-    return {k: (fn(trees, production) if fn is r6 else fn(checker) if fn is r11 else fn(trees))
+    return {k: (fn(trees, production) if fn is r6 else fn(checker) if fn is r12 else fn(trees))
             for k, fn in RULES.items()}
 
 
@@ -625,12 +656,12 @@ def run_row(rule, srcs):
 
 # (rule, {path: source}, hits?): each rule's holding rows and its must-fail rows
 ROWS = [
-    ("R11", {"c.py": "def exact_s(x):\n from bonobo.planner import plan_candidates\n return plan_candidates(x)[0][1]"},
+    ("R12", {"c.py": "def exact_s(x):\n from bonobo.planner import plan_candidates\n return plan_candidates(x)[0][1]"},
      False),                                                                        # production's price, called
-    ("R11", {"c.py": "def walk_s(d):\n return d / 4.3"}, True),                    # must fail: a model of its own
-    ("R11", {"c.py": "from bonobo import nav\ndef way_cost(a, b):\n return nav.least_way_s(a, b)"}, False),
-    ("R11", {"c.py": "def price(step):\n return {'mine': 60}[step]"}, True),       # must fail: a price table
-    ("R11", {"c.py": "def judge(x):\n return x + 1"}, False),                      # not a price
+    ("R12", {"c.py": "def walk_s(d):\n return d / 4.3"}, True),                    # must fail: a model of its own
+    ("R12", {"c.py": "from bonobo import nav\ndef way_cost(a, b):\n return nav.least_way_s(a, b)"}, False),
+    ("R12", {"c.py": "def price(step):\n return {'mine': 60}[step]"}, True),       # must fail: a price table
+    ("R12", {"c.py": "def judge(x):\n return x + 1"}, False),                      # not a price
     ("R1", {"a.py": "def f(): pass", "b.py": "def g(): pass"}, False),
     ("R1", {"a.py": "def f(): pass", "b.py": "def f(): pass"}, True),               # must fail
     ("R1", {"a.py": "class A:\n def f(self): pass", "b.py": "def f(): pass"}, False),
@@ -701,6 +732,12 @@ ROWS = [
     ("R10", {"bench/a.py": "ROW = dict(name='x', budget=est('x') * TARGET_SLACK)"}, False),
     ("R10", {"bench/a.py": "def row(name, budget=30): pass"}, True),                # must fail: a default
     ("R10", {"a.py": "ROW = dict(name='x', budget=25)"}, False),                    # not the bench
+    ("R11", {"a.py": "@skill(budget=60)\ndef f(): pass"}, False),                  # bounded, replanned after
+    ("R11", {"a.py": "@skill(needs={})\ndef f(): pass"}, True),                    # must fail: no time limit
+    ("R11", {"a.py": "@skill(budget=60, abandon='wander')\ndef f(): pass"}, True),  # must fail: no next step
+    ("R11", {"a.py": "@skill(budget=60, abandon='cover')\ndef f(): pass"}, True),  # must fail: cover for nothing
+    ("R11", {"a.py": "@skill(budget=60, soft=True, abandon='cover')\ndef f(): pass"}, False),   # a fight's
+    ("R11", {"a.py": "@skill(budget=60, fights=g, abandon='cover')\ndef f(): pass"}, False),
 ]
 
 

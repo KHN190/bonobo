@@ -350,6 +350,7 @@ class CanStart(unittest.TestCase):
                 bag_ = inventory(("oak_planks", 2)) if inv is not None else inventory()
                 b = brainmod.Brain.__new__(brainmod.Brain)
                 b.unplannable = {}
+                b.abandoned = None
                 b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
                 b.retry, b.place = retry.Retry(), ("here", False)
                 ctx = type("Ctx", (), {"policy": None, "mem": None})()
@@ -372,6 +373,7 @@ class CanStart(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 b = brainmod.Brain.__new__(brainmod.Brain)
                 b.unplannable = {}
+                b.abandoned = None
                 b.retry, b.place, b.mem = retry.Retry(), ("here", False), Memory(tmp + "/notes.json")
                 b.reflexes = type("R", (), {"failed": lambda self, *a: None})()
 
@@ -721,6 +723,7 @@ class Held:
         self.seen, self.after_inv, self.act, self.first = seen, inventory(), None, None
         b = self.b = brainmod.Brain.__new__(brainmod.Brain)
         b.unplannable = {}
+        b.abandoned = None
         b.policy_cache = nav.Policy()
         b.mem = Notes()
         b.retry, b.blacklist, b.place, b.held = retry.Retry(), {}, PLACE, {}
@@ -756,6 +759,7 @@ class Queue_:
         self.tmp, self.seen, self.after_inv = tmp, seen, inventory()
         b = self.b = brainmod.Brain.__new__(brainmod.Brain)
         b.unplannable = {}
+        b.abandoned = None
         b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
         b.mem = Memory(os.path.join(tmp, "notes.json"))
         b.retry, b.blacklist, b.place, b.held = retry.Retry(), {}, PLACE, {}
@@ -1247,6 +1251,7 @@ def run_upkeep(row, tmp):
     """The real upkeep table, one round, on a real unstarted Brain. Returns (row name, [queued needs])."""
     b = brainmod.Brain.__new__(brainmod.Brain)
     b.unplannable = {}
+    b.abandoned = None
     b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
     b.mem = Memory(os.path.join(tmp, "notes.json"))
     b.retry, b.blacklist = retry.Retry(), {}
@@ -1644,6 +1649,7 @@ class Ledger(unittest.TestCase):
 def new_brain(tmp):
     b = brainmod.Brain.__new__(brainmod.Brain)
     b.unplannable = {}
+    b.abandoned = None
     b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
     b.mem = Memory(os.path.join(tmp, "notes.json"))
     b.retry, b.blacklist, b.place = retry.Retry(), {}, HERE
@@ -2028,16 +2034,21 @@ class OneArbiter(unittest.TestCase):
         from unittest import mock
         b = brainmod.Brain.__new__(brainmod.Brain)
         b.unplannable = {}
+        b.abandoned = None
         b.retry, b.place = retry.Retry(), PLACE
         b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
         b.reflexes = mock.Mock(proposals=lambda snap, ctx, reads=None: [])       # caught in the open, nothing due
         chop = brainmod.Act("task", "task t1", None, step=planner.Step("gather", "log", 2))
-        b.task_act = lambda task, snap, ctx, cost: (chop, {})
-        b.mem, b.blacklist, b.policy_cache = None, {}, None
+        # the round's one plan is the chop (brain.round_for), the task's act its step
+        b.round_for = lambda entries, snap, cost, old=None: {"steps": [chop.step], "sig": None, "event": False,
+                                                             "dim": snap.dimension, "want": ()}
+        b.task_act = lambda task, snap, ctx, cost, held=None: (chop, {})
+        b.mem, b.blacklist, b.policy_cache, b.held = None, {}, None, {}
         b.prepare = lambda snap, ctx: brainmod.Act("idle", "prepare", None)
         snap = snapshot(state(timeOfDay=NIGHT), inventory())
+        task = {"id": "t1", "state": "running", **goals.have(("log", 2))}
         with mock.patch.object(api.STATE, "mode", "normal"), mock.patch.object(brainmod.hazard, "rescue_due", return_value=None), \
-                mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "pending"}]), \
+                mock.patch.object(tasks, "load", return_value=[task]), \
                 mock.patch.object(tasks, "expire", return_value=False):
             act = b.decide(snap, None)
         self.assertEqual((act.layer, act.name), ("idle", "wait for day"))
@@ -2103,6 +2114,7 @@ class Overnight(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 b = brainmod.Brain.__new__(brainmod.Brain)
                 b.unplannable = {}
+                b.abandoned = None
                 b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
                 b.mem, b.retry, b.blacklist, b.place, b.held = Memory(os.path.join(tmp, "n.json")), retry.Retry(), \
                     {}, PLACE, {}
@@ -2129,6 +2141,7 @@ class Overnight(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             b = brainmod.Brain.__new__(brainmod.Brain)
             b.unplannable = {}
+            b.abandoned = None
             b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
             b.mem, b.retry, b.blacklist, b.place, b.held = Memory(os.path.join(tmp, "n.json")), retry.Retry(), \
                 {}, PLACE, {}
@@ -2404,6 +2417,7 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
             asked = []
             b = brainmod.Brain.__new__(brainmod.Brain)
             b.unplannable = {}
+            b.abandoned = None
             b.retry, b.place = retry.Retry(), PLACE
 
             def proposals(snap, ctx, reads=None, _busy=busy):
@@ -2420,6 +2434,51 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
                     mock.patch.object(tasks, "load", return_value=[]), mock.patch.object(tasks, "expire", return_value=False):
                 act = b.decide(snap, None)
                 self.assertEqual((act.layer if act else None, asked), (want, asked_want))
+
+
+class GivenUpThenANextStep(unittest.TestCase):
+    """E5: work given up is followed by what its cause asks (brain.abandon_after) — into cover the next
+    round, once; "replan" leaves the round to plan again. Nothing hangs."""
+
+    def test_rows(self):
+        from unittest import mock
+        # (situation, what the skill declared, the next two rounds' first act names)
+        rows = [("given up, cover declared: into cover, then the round goes on", "cover",
+                 ["abandoned: cover", "prepare"]),
+                ("given up, replan declared: the round plans again", "replan", ["prepare", "prepare"]),
+                ("must fail: nothing given up: no cover", None, ["prepare", "prepare"])]
+        for name, then, want in rows:
+            b = brainmod.Brain.__new__(brainmod.Brain)
+            b.unplannable, b.abandoned = {}, None
+            b.retry, b.place, b.held = retry.Retry(), PLACE, {}
+            b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
+            b.reflexes = mock.Mock(proposals=lambda snap, ctx, reads=None: [])
+            b.prepare = lambda snap, ctx: brainmod.Act("idle", "prepare", None)
+            b.abandoned = then          # brain.attempt sets it from the TaskStuck the runner raised (then=)
+            snap = snapshot(state(), inventory())
+            with self.subTest(name), mock.patch.object(api.STATE, "mode", "normal"), \
+                    mock.patch.object(brainmod.hazard, "rescue_due", return_value=None), \
+                    mock.patch.object(tasks, "load", return_value=[]), mock.patch.object(tasks, "expire", return_value=False):
+                got = [b.decide(snap, None).name for _ in range(2)]
+                self.assertEqual(got, want)
+
+    def test_what_follows_by_cause(self):
+        # E5/G3 (brain.abandon_after): a danger that stopped it → cover; not found or stuck → replan (no walk to
+        # cover); a skill's own `abandon` overriding the cause
+        rows = [("not found: replan", api.NotAvailable("no trees found nearby"), None, "replan"),
+                ("a jar task stuck: replan", api.TaskStuck("goto: no progress"), "stuck", "replan"),
+                ("must fail: lava stopped it: cover", api.Interrupted("lava"), "hazard:lava", "cover"),
+                ("a threat took the body: cover", api.Interrupted("threat"), "layer:tactic", "cover"),
+                ("a fight's soft skill stuck: its own cover", api.TaskStuck("slay: no progress", then="cover"),
+                 "stuck", "cover")]
+        for name, err, source, want in rows:
+            with self.subTest(name):
+                self.assertEqual(brainmod.abandon_after(err, source), want)
+
+    def test_a_skill_with_no_next_step_is_refused(self):
+        # must fail: an abandon outside skill.ABANDON_WAYS is refused where it is declared
+        with self.assertRaises(TypeError):
+            skillkit.skill(name="e5_no_next_step", needs={}, gives=[], budget=10, abandon="wander")(lambda ctx: None)
 
 
 class StationGone(unittest.TestCase):
@@ -2819,6 +2878,7 @@ class NeedsAndReflexesAreIndependent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             b = brainmod.Brain.__new__(brainmod.Brain)
             b.unplannable = {}
+            b.abandoned = None
             b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
             b.mem, b.retry, b.blacklist, b.place, b.held = Memory(os.path.join(tmp, "n.json")), retry.Retry(), {}, \
                 PLACE, {}
@@ -2858,6 +2918,7 @@ class TheNightIsPricedOncePerBag(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 b = brainmod.Brain.__new__(brainmod.Brain)
                 b.unplannable = {}
+                b.abandoned = None
                 b.mem = Memory(os.path.join(tmp, "notes.json"))
                 table, asked = needs.Needs(b), []
                 snap0 = snapshot(state(), inventory(*bags[0]))
@@ -2866,6 +2927,26 @@ class TheNightIsPricedOncePerBag(unittest.TestCase):
                 for items in bags:
                     table.overnight(snapshot(state(), inventory(*items)))
                 self.assertEqual(len(asked), want)
+
+    def test_the_night_is_one_of_in_one_plan(self):
+        """The night's ways are one one-of target of a single plan_round (planner.Target.options), the way taken the
+        cheapest whole plan (must fail: the ways priced one plan each)."""
+        calls = []
+        real = needs.plan_round
+
+        def spy(*a, **k):
+            calls.append(1)
+            return real(*a, **k)
+        rows = [("a pickaxe: dig in", [("stone_pickaxe", 1)], {"cow": 8}, "dig in"),
+                ("a bed carried: the bed", [("white_bed", 1)], {}, "bed"),
+                ("wool, planks, a table: the bed made", [("white_wool", 3), ("oak_planks", 3), ("crafting_table", 1)],
+                 {}, "bed")]
+        for name, items, seen, want in rows:
+            with self.subTest(name), mock.patch.object(needs, "plan_round", spy):
+                calls.clear()
+                snap = snapshot(state(), inventory(*items))
+                way, _secs, _steps = needs.overnight(snap.inv, cost(snap, **seen))
+                self.assertEqual((way, len(calls)), (want, 1))
 
 
 class RawOnlyWhenStarving(unittest.TestCase):

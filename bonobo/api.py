@@ -103,7 +103,12 @@ class NavFailed(NotAvailable):
     """The body couldn't get where a skill needed it."""
 
 class TaskStuck(McError):
-    """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled."""
+    """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled. `then`: what its skill
+    declared follows (skill.ABANDON_WAYS); a jar task's own: the round plans again."""
+
+    def __init__(self, message="", then="replan"):
+        super().__init__(message)
+        self.then = then
 
 class CommitmentExpired(McError):
     """The running task outlived the commitment its plan was made under: the world owes the planner a new decision."""
@@ -121,6 +126,12 @@ class NightFell(Interrupted):
 def interrupt_pending():
     """The pending interrupt reason, or None (not taken)."""
     return STATE.interrupt
+
+
+def stop_asked():
+    """A stop perception asked for (interrupt_pending): a plan being searched ends, the round starts again from
+    survival."""
+    return interrupt_pending() is not None
 
 
 def request_interrupt(reason):

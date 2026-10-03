@@ -115,15 +115,6 @@ def act_commit_s(act):
     ticks = sum(int(getattr(st, "est", 0) or 0) for st in getattr(act, "steps", ()))
     return ticks / TICKS_PER_S if ticks > 0 else None
 
-def ground_of(snap):
-    """The blocks perception read (perception.price_inputs' ground): the region a Cost prices digging over."""
-    return perception.price_inputs(snap.state)["ground"]
-
-def hazard_seen():
-    """A stop perception asked for (api.interrupt_pending): a plan being searched ends, the round starts again from
-    survival."""
-    return api.interrupt_pending() is not None
-
 def pays_switch(held_s, chosen_s, lost_s):
     """Pure (D4): a new plan replaces the held one only when its seconds and the work the switch throws away beat
     what is left of the held one."""
@@ -222,6 +213,7 @@ class Brain:
         self.held = {}                # task id -> the round's plan it is in: {"steps", "sig", "event", "dim", "want", "ran"}
         self.needs_plan = None        # the round's plan when no task is queued (upkeep's needs alone)
         self.unplannable: dict[str, str] = {}     # target or need name -> why it could not be planned (readout)
+        self.abandoned: str | None = None         # E5: what the last skill given up declared follows (ABANDON_WAYS)
         self.plan_switch = None       # (held_s, chosen_s, lost_s, switched) of the round's replan over a held plan
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
@@ -405,6 +397,8 @@ class Brain:
                     cause=retry.cause_of(err) if outcome == "failed" else None)
         if isinstance(err, api.TaskStuck):
             events.anomaly("task stuck", f"{name}: {err}")
+        if err is not None:
+            self.abandoned = abandon_after(err, source)     # E5: what follows it, by its cause
         first = arbiter.resume_of(source)[1] if source is not None else None
         if outcome == "ok":
             self.retry.succeeded(name)
@@ -579,8 +573,13 @@ class Brain:
 
         def upkeep():
             self.needs.propose(snap, ctx)
-            return [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
-                    for seq, name, run in self.reflexes.proposals(snap, ctx)]
+            out = [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
+                   for seq, name, run in self.reflexes.proposals(snap, ctx)]
+            if self.abandoned == "cover":       # E5: a skill given up: into cover, once, before anything else
+                self.abandoned = None
+                cover = Act("upkeep", "abandoned: cover", lambda: needs.cover(ctx, snap.state))
+                out.insert(0, arbiter.Intent("maintain", cover, key=cover.name, seq=-1))
+            return out
 
         # the gate's facts: what is cooling, and whether the surface is closed (met and unplannable needs are judged
         # where proposed, never intents)
@@ -620,7 +619,6 @@ class Brain:
         live = [t for t in items if t["state"] in tasks.LIVE]
         closed = snap.night
         self.just_finished = False
-        cost = Cost(snap, self.mem, self.blacklist, region=ground_of(snap), stop=hazard_seen, policy=self.policy_cache)
         entries, queued = [], []
         for seq, task in enumerate(live):
             if not self.ready(f"task {task['id']}"):
@@ -635,6 +633,8 @@ class Brain:
             if self.ready(name):
                 entries.append((name, goal, len(live) + len(entries)))
         if entries:
+            cost = Cost(snap, self.mem, self.blacklist, region=perception.ground_read(snap), stop=api.stop_asked,
+                        policy=self.policy_cache)
             old = self.held.get(queued[0]["id"]) if queued else getattr(self, "needs_plan", None)
             held = self.round_for(entries, snap, cost, old)
             if held is None:
@@ -747,8 +747,8 @@ class Brain:
         name = f"{kind}: {goals.describe(goal)}"
         if not self.ready(name):
             return None
-        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED, region=ground_of(snap),
-                    stop=hazard_seen)
+        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED, region=perception.ground_read(snap),
+                    stop=api.stop_asked)
         try:
             steps = decompose.decompose(snap.inv, goal, cost, pending=self.mem.pending_outputs(snap.dimension))
         except Unplannable as e:
@@ -936,8 +936,8 @@ class Brain:
         except McError as e:
             api.swallowed("brain.price_table", e)
             return {}
-        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, region=ground_of(snap),
-                           stop=hazard_seen), snap.inv)
+        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, region=perception.ground_read(snap),
+                           stop=api.stop_asked), snap.inv)
 
     # -- bookkeeping
     def track(self, snap):
@@ -1004,6 +1004,18 @@ def write(task, fields):
     if fields:
         tasks.update(task["id"], **fields)
 
+DANGER_SOURCES = ("layer:safety", "layer:tactic")     # with every "hazard:…": work given up to a danger
+
+
+def abandon_after(err, source):
+    """Pure (E5): what follows work given up — into cover when a danger stopped it (S1, a threat), else the round
+    plans again (not found, stuck: no walk to cover); a skill's own `abandon` (TaskStuck.then) overriding."""
+    if isinstance(err, api.TaskStuck) and err.then is not None:
+        return err.then
+    if source is not None and (source in DANGER_SOURCES or source.startswith("hazard:")):
+        return "cover"
+    return "replan"
+
 def outcome_of(err) -> "tuple[Outcome, Source | None]":
     """Pure: (outcome, interrupt source); "interrupted" when the source's rule resumes the work — no count, no /stop, no cooldown."""
     if err is None:
@@ -1035,6 +1047,9 @@ def replan(entries, snap, cost, pending=None, held=None):
             targets = [planner.Target(name, decompose.round_needs(goal, snap.inv, cost), rank)
                        for name, goal, rank in entries]
             _first, steps, _secs = planner.plan_round(snap.inv, targets, cost, pending, held=held)
+        missing = [st for st in steps if not skillkit.handles(st)]
+        if missing:
+            raise Unplannable(f"no skill provides {missing[0].kind} {missing[0].token}")
     except Unplannable as e:
         return None, f"unplannable: {e}"
     return {"steps": steps, "sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension,

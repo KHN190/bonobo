@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from .shapes import BagState, CraftTask
 from .data import DAY_END, NIGHT_WORK, TOOL_KINDS, memo_ttl, DAY_TICKS, TICKS_PER_S, REPAIR_BONUS_PARTS
 from .knowledge import FIND_AT
-from .planner import Unplannable, craftable_tier
+from .planner import Target, Unplannable, craftable_tier, plan_round
 from .skill import skill
 from .skillcore import lost
 from .world import Inventory
@@ -52,10 +52,10 @@ def cover(ctx, state):
     from . import skill as skillkit
     # priced as the brain prices (brain.py's Cost: memory, the targets banned here, the movement policy): a banned
     # entity or block is no shelter's way (W3)
-    from .brain import ground_of, hazard_seen
+    from .perception import ground_read
     snap = Snapshot.from_readings(state, Inventory())
     cost = Cost(snap, getattr(ctx, "mem", None), getattr(ctx, "blacklist", None), policy=getattr(ctx, "policy", None),
-                region=ground_of(snap), stop=hazard_seen)
+                region=ground_read(snap), stop=api.stop_asked)
     ways = []
     for c in skillkit.REGISTRY.values():
         for effect in c.provides:
@@ -69,41 +69,41 @@ def cover(ctx, state):
     _s, runner, args = min(ways, key=lambda w: w[0])
     runner(ctx, *args)
 
-def night_ways(inv, cost, facts=None):
-    """Every way through a night priced once: [(way, its plan's seconds, steps, the facts its extra seconds are read
-    from, a bed way?)] — a carried bed (the sleep row's), the home's bed a walk reaches, making a bed, a shelter."""
-
-    def carried():
-        if inv.count("bed") <= 0:
-            raise Unplannable("no bed carried")
-        return []
-
-    def bed_plan():
-        return decompose.decompose(inv, goals.have(("bed", 1)), cost)
-
-    out = []
-    for key, default in (("overnight bed", carried), ("overnight", bed_plan)):
-        ways, why = decompose.priced_ways(key, 1, default, inv, cost, facts=facts)
-        if not ways:
+def night_options(inv, cost, facts=None, bed_too=True):
+    """[(way, its needs, the seconds it adds beyond its needs' steps, of them the ones spent before dark, its own
+    steps)] every way through a night — a bed (carried: the sleep row's; else made), the home's bed a walk reaches,
+    a shelter waited in. Its own steps (the shelter row runs them) are priced, never planned."""
+    out = [("bed", [] if inv.count("bed") > 0 else [("bed", 1)], 0.0, 0.0, [])] if bed_too else []
+    for key in ("overnight bed", "overnight"):
+        sources, why = decompose.offered_sources(key, 1, inv, cost, facts)
+        if not sources:
             log(f"upkeep: no {key} way ({'; '.join(why)})")
-        out += [("bed", secs, steps, extra, True) if name == "default" else (name, secs, steps, extra, False)
-                for name, secs, steps, extra in ways]
+        for src, needs, own in sources:
+            own_s = sum(st.est for st in own) / TICKS_PER_S
+            keys = src.get("extra_s", ())
+            out.append((src["name"], list(needs), own_s + decompose.extra_s(keys, facts),
+                        own_s + decompose.day_extra_s(keys, facts), own))
     return out
 
-def overnight(inv, cost, facts=None, bed_too=True, ways=None):
-    """How to get through a night, by price: (choice, seconds, steps); (None, inf, []) when there is none. The bed
-    ways (a carried bed — the sleep row's: a room, light, the gate, taken back — or the home's bed a walk reaches,
-    its open walk priced with the night's risk) against making a bed or a shelter waited in (the night ahead and a
-    sheltered night's risk: night_facts): the cheapest. A shelter is never paired with a sleep. `ways`: night_ways
-    already priced for this bag."""
+def overnight(inv, cost, facts=None, bed_too=True):
+    """How to get through a night, by price: (choice, seconds, steps); (None, inf, []) when there is none — the night
+    a one-of target (night_options) of one plan_round: the bed ways (a carried bed — the sleep row's: a room, light,
+    the gate, taken back — or the home's bed a walk reaches, its open walk priced with the night's risk) against
+    making a bed or a shelter waited in (the night ahead and a sheltered night's risk: night_facts): the cheapest
+    whole plan. A shelter is never paired with a sleep. `seconds`: what it takes before dark."""
 
-    ways = night_ways(inv, cost, facts) if ways is None else ways
-    offered = [(way, secs + decompose.extra_s(extra, facts), steps, extra) for way, secs, steps, extra, bed in ways
-               if bed_too or not bed]
-    if not offered:
+    options = night_options(inv, cost, facts, bed_too)
+    if not options:
         return None, math.inf, []
-    way, _secs, steps, extra = min(offered, key=lambda w: w[1])
-    return way, cost.plan_s(steps) + decompose.day_extra_s(extra, facts), steps
+    chosen = {}
+    try:
+        _first, steps, seconds = plan_round(inv, [Target("night", [], 0, (), tuple(o[:3] for o in options))], cost,
+                                            chosen=chosen)
+    except Unplannable as e:
+        log(f"upkeep: no way through the night ({e})")
+        return None, math.inf, []
+    _way, _needs, _extra, day_s, own = next(o for o in options if o[0] == chosen["night"])
+    return chosen["night"], seconds + day_s, steps + own
 
 def due_now(left_s, plan_s, known, at_threshold):
     """Pure: is it time to start getting something?"""
@@ -215,15 +215,13 @@ class Needs:
         return self.needs_now
 
     def dusk_due(self, snap):
-        """(way, steps) of the night's cheapest way when dusk comes before it could be had (due_now), else None —
-        not priced at all while a way that needs nothing (a walk home, digging in by hand) ends the night inside the
-        light left (the cheapest is no dearer than it)."""
-        left = dusk_s(snap)
-        free = self.night_free_s(snap)
-        if left > 0 and free is not None and left >= free * LEAD:
+        """(way, steps) of the night's cheapest way when dusk comes before its preparation could be had (night_prep_s,
+        due_now), else None."""
+        left, prep = dusk_s(snap), self.night_prep_s(snap)
+        if prep is None:
             return None
-        way, seconds, steps = self.overnight(snap)
-        if way is not None and due_now(left, self.marginal_s(seconds, steps), self.known(steps, snap), left <= 0):
+        way, _seconds, steps = self.overnight(snap)
+        if way is not None and due_now(left, prep, self.known(steps, snap), left <= 0):
             return way, steps
         return None
 
@@ -269,7 +267,8 @@ class Needs:
     def night_free_s(self, snap):
         """Seconds of light the cheapest way through the night that needs nothing got first takes (a walk home,
         digging in by hand), the night itself left out, priced without planning; None when none is offered."""
-        facts, cost = self.night_facts(snap), self.cost(snap)
+        facts = self._facts[1] if self._facts is not None and self._facts[0] is snap else None
+        cost = self.cost(snap)
         free = [secs + decompose.day_extra_s(extra, facts) for key in ("overnight bed", "overnight")
                 for _n, secs, _st, extra in decompose.priced_ways(key, 1, list, snap.inv, cost, facts=facts,
                                                                   free_only=True)[0]]
@@ -294,9 +293,9 @@ class Needs:
             self.need("night prep", goals.have(*src["needs"]), f"dark before {way} could be had")
 
     def cost(self, snap):
-        from .brain import ground_of, hazard_seen
+        from .perception import ground_read
         return Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache, reserved=bag.RESERVED,
-                    region=ground_of(snap), stop=hazard_seen)
+                    region=ground_read(snap), stop=api.stop_asked)
 
     def need(self, kind, goal, why):
         """Propose getting `goal` (`kind` names it)."""
@@ -317,15 +316,16 @@ class Needs:
                         price, time.time())
 
     def overnight(self, snap, facts=None, bed_too=True):
-        """`overnight` over the night's ways priced once for this bag and place (night_ways, kept briefly: the bed's
-        and the shelter's choices, the reflex's and the checker's, read the same table); `facts`: the round's."""
+        """`overnight` priced once for these facts and this bag (kept PLAN_S_TTL: the bed's and the shelter's choices,
+        the reflex's and the checker's, read the same); `facts`: the round's night facts once read (night_facts),
+        else none (offline: no place read)."""
 
-        facts = self.night_facts(snap) if facts is None else facts
-        filters = {k: v for k, v in facts.items() if not k.endswith("_s")}     # what offers a way; its seconds apart
-        key = ("night ways", json.dumps(filters, sort_keys=True, default=str), bag_signature(snap.inv), snap.dimension)
-        cost = self.cost(snap)
-        ways = memo_ttl(self.plan_s_cache, key, PLAN_S_TTL, lambda: night_ways(snap.inv, cost, facts), time.time())
-        return overnight(snap.inv, cost, facts, bed_too=bed_too, ways=ways)
+        if facts is None and self._facts is not None and self._facts[0] is snap:
+            facts = self._facts[1]
+        key = ("night", json.dumps(facts, sort_keys=True, default=str), bed_too, bag_signature(snap.inv),
+               snap.dimension)
+        return memo_ttl(self.plan_s_cache, key, PLAN_S_TTL,
+                        lambda: overnight(snap.inv, self.cost(snap), facts, bed_too=bed_too), time.time())
 
     def night_facts(self, snap, reads=None):
         """The round's night facts (decompose.night_facts), read once a snapshot: soft ground, ways cooling, a dig-in
@@ -335,7 +335,9 @@ class Needs:
         from .reflexes import home_walk_s
         b = self.brain
         _enclosed, soft_ground, dig_site = ground(reads)
-        facts = night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), home_walk_s(b, snap), night_left_s(snap),
+        left = night_left_s(snap)
+        left = None if left is None else math.ceil(left / PLAN_S_TTL) * PLAN_S_TTL     # as fine as the memo keeps it
+        facts = night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), home_walk_s(b, snap), left,
                             covered_work_s=self.route_covered_s(snap))
         self._facts = (snap, facts)
         return facts

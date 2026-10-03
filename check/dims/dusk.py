@@ -34,6 +34,7 @@ def alpha(a):
         return False
     if a.brain is not None:
         # the brain's own reading (needs.night_prep_s): the light the night's way needs before dark, never the night
+        a.brain.needs.night_facts(snap)
         prep = a.brain.needs.night_prep_s(snap)
         return prep is not None and dusk_s(snap) < prep * LEAD
     way, seconds, _steps = overnight(snap.inv, Cost(snap, a.mem))

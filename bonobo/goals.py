@@ -2,9 +2,7 @@
 
 import math
 
-from . import roads
-from .data import bare
-from .roads import SNAP as ROAD_RANGE     # at a road's end: within one waypoint of it
+from .data import WAYPOINT_R, bare
 from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held_count, kit_needs, reconcile,  # noqa: F401
                         tool_ok)
 
@@ -134,11 +132,11 @@ def _sleep_remainder(goal, snap, mem):
 @desired("road")
 def _road_remainder(goal, snap, mem):
     a, b = goal["args"]["a"], goal["args"]["b"]
-    legs = (mem.data.get("roads") or {}).get(snap.dimension, []) if mem is not None else []
-    away = math.dist(snap.feet, tuple(b)) - ROAD_RANGE
-    if roads.walked_between(legs, a, b) and away <= 0:
+    walked = mem is not None and mem.road_walked(a, b, snap.dimension)
+    away = math.dist(snap.feet, tuple(b)) - WAYPOINT_R
+    if walked and away <= 0:
         return {}
-    return {"road walked": 0 if roads.walked_between(legs, a, b) else 1, "blocks away": round(max(0.0, away), 1)}
+    return {"road walked": 0 if walked else 1, "blocks away": round(max(0.0, away), 1)}
 
 @desired(*RUN_ONCE)
 def _ran(goal, snap, mem):

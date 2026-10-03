@@ -663,6 +663,11 @@ class Memory:
         if self._put(kind, pos, dimension, cls=cls if VOLATILITY.get(cls) else "here") is not None:
             self.save()
 
+    def road_walked(self, a, b, dimension):
+        """A chain of travelled legs (roads.py) joins `a` to `b` in `dimension`."""
+        from . import roads
+        return roads.walked_between((self.data.get("roads") or {}).get(dimension, []), a, b)
+
     def seen(self, kind, dimension, within=None):
         """Live notes of this kind here, newest first: {kind, pos, dimension, t, verify}."""
 

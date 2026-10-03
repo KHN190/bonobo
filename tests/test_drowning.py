@@ -83,6 +83,7 @@ class TheBrainAsksTheSameTable(unittest.TestCase):
             with self.subTest(name):
                 b = brainmod.Brain.__new__(brainmod.Brain)
                 b.unplannable = {}
+                b.abandoned = None
                 b.retry, b.place, b.blacklist = retry.Retry(), None, {}
                 b.reflexes = __import__("bonobo.reflexes", fromlist=["Maintain"]).Maintain(b)
                 snap = Snapshot.from_readings(st, {"slots": [], "equipment": {}})
