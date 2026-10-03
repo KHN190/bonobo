@@ -26,6 +26,21 @@ def add_leg(roads, a, b, seconds, now):
     del roads[MAX_LEGS:]
     return roads
 
+def walked_between(roads, a, b):
+    """Pure: a chain of travelled legs joins `a` to `b` (endpoints within SNAP are one waypoint)."""
+    a, b = _key(a), _key(b)
+    seen, todo = [a], [a]
+    while todo:
+        here = todo.pop()
+        if math.dist(here, b) < SNAP:
+            return True
+        for leg in roads:
+            for x, y in ((leg["a"], leg["b"]), (leg["b"], leg["a"])):
+                if math.dist(x, here) < SNAP and not any(math.dist(y, s) < SNAP for s in seen):
+                    seen.append(tuple(y))
+                    todo.append(tuple(y))
+    return False
+
 def route(roads, start, goal):
     """Pure: the fastest chain of known legs from start to goal, with unknown direct parts costed at WALK_S per block."""
 

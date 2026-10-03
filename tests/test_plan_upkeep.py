@@ -676,27 +676,23 @@ class Repairs(unittest.TestCase):
                     continue
                 self.assertEqual((held, why.split(":")[0]), (None, "unplannable"))
 
-    def test_a_saved_plan_survives_a_restart(self):
-        """tasks.json keeps step dicts; what comes back is the same plan (repair then runs from the bag)."""
-        for goal, where, _c, _o in PLANS:
-            w = next(iter(worlds(**where))) if where else next(iter(worlds()))
-            steps = decompose.decompose(w.snapshot().inv, goal, w.cost())
-            with self.subTest(goals.describe(goal)):
-                back = [decompose.from_dict(json.loads(json.dumps(decompose.to_dict(s)))) for s in steps]
-                self.assertEqual([(s.kind, s.token, s.count, s.detail, s.est) for s in back],
-                                 [(s.kind, s.token, s.count, json.loads(json.dumps(s.detail)), s.est) for s in steps])
-
-    def test_run_once_goals_are_done_by_their_plan_not_the_world(self):
-        snap = snapshot()
-        # (goal) → done? None: its plan decides; the must-not: an item goal is read off the bag
-        rows = [(goals.make("road", a=[0, 64, 0], b=[9, 64, 0]), None),
-                (goals.make("skill", name="chop", args=[1]), None),
-                (goals.make("effect", effect="mine:minecraft:stone", detail={"pos": [0, 64, 0]}), None),
-                (goals.have(("log", 1)), False)]  # must fail: an item goal is read off the bag
-        for goal, want in rows:
-            with self.subTest(goal["goal"]):
+    def test_done_is_read_off_the_world(self):
+        from types import SimpleNamespace
+        here, there = snapshot(), snapshot(state(x=40.5, z=0.5))
+        walked = SimpleNamespace(data={"roads": {OVER: [{"a": [0, 64, 0], "b": [40, 64, 0], "s": 9.0, "used": 0}]}})
+        road = goals.make("road", a=[0, 64, 0], b=[40, 64, 0])
+        # (situation, goal, snapshot, memory) → done? None: the goal's own step, accepted by its contract, ends it
+        rows = [("a road walked, the body at its end", road, there, walked, True),
+                ("must fail: a road walked, the body back at its start", road, here, walked, False),
+                ("must fail: at the road's end, the road never walked", road, there, None, False),
+                ("a skill", goals.make("skill", name="chop", args=[1]), here, None, None),
+                ("an effect", goals.make("effect", effect="mine:minecraft:stone", detail={"pos": [0, 64, 0]}), here,
+                 None, None),
+                ("must fail: an item goal not held", goals.have(("log", 1)), here, None, False)]
+        for name, goal, snap, mem, want in rows:
+            with self.subTest(name):
                 self.assertEqual(goal["goal"] in goals.RUN_ONCE, want is None)
-                self.assertIs(goals.done(goal, snap, None), want)
+                self.assertIs(goals.done(goal, snap, mem), want)
 
 
 # ----------------------------------------------------------------------------------------------- held plans
@@ -730,7 +726,7 @@ class Held:
         b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
         b.last_failure, b.committed, b.last_hold_log, b.task_writes = None, None, 0, None
         self.task = {"id": "t1", "goal": goal["goal"], "args": goal.get("args", {}), "state": "pending", "reason": "",
-                     "plan": plan}
+                     **({"plan": plan} if plan is not None else {})}
         self._reserved = bagmod.RESERVED          # task_act sets the module-wide reservation: put back after
 
     def restore(self):
@@ -746,7 +742,7 @@ class Held:
         return act
 
     def after(self, outcome):
-        self.task.update(self.b.after_step(self.act, outcome, lambda: bag(self.after_inv)))
+        self.task.update(self.b.after_step(self.act, outcome))
 
     def state(self):
         return self.task["state"], self.task["reason"]
@@ -782,32 +778,37 @@ class Queue_:
             p.stop()
         bagmod.RESERVED = self._reserved      # task_act sets the module-wide reservation
 
-    def task(self, goal, plan=None):
-        t = tasks.add(goal)
-        if plan is not None:
-            tasks.update(t["id"], plan=plan)
+    def task(self, goal):
+        tasks.add(goal)
         return tasks.load()[0]
 
     def state(self, task_id="t1"):
         return next((t["state"], t["reason"]) for t in tasks.load() if t["id"] == task_id)
 
 
-# (situation, goal, [(op, args...)]). ops: ("round", inv) → the act, kept as q.act; ("ok", bag after) / ("interrupted",)
-# / ("failed", n failures of cause nav): the step's outcome; ("check", fn(test, q)).
+# (situation, goal, [(op, args...)]). ops: ("round", inv[, state]) → the act, kept as q.act; ("ok", bag after) /
+# ("interrupted",) / ("failed", n failures of cause nav): the step's outcome; ("walked", a, b): a road leg noted;
+# ("check", fn(test, q)).
+ROAD = goals.make("road", a=[0, 64, 0], b=[40, 64, 0])
 HELD = [
     ("a fresh task: plan, hold, first step", goals.have(("log", 4)), [
         ("round", inventory()),
         ("check", lambda t, q: (t.assertEqual((q.act.step.kind, q.act.step.token), ("gather", "log")),
                                 t.assertEqual(q.state(), ("running", "")),
-                                t.assertTrue(q.task["plan"], "the plan is saved with the task")))]),
+                                t.assertNotIn("plan", q.task, "K4: no plan stored with the task")))]),
     ("the goal is met already: done, no act", goals.have(("log", 4)), [
         ("round", inventory(("oak_log", 4))),
         ("check", lambda t, q: (t.assertIsNone(q.act), t.assertEqual(q.state(), ("done", ""))))]),
-    ("a step done: removed, the rest kept without replanning", PICK1, [
+    ("a step done: no step count kept, the next round plans from the world, the done step not redone", PICK1, [
         ("round", inventory()), ("ok", inventory(("oak_log", 3))),
-        ("check", lambda t, q: t.assertNotIn(q.first, q.b.held["t1"]["steps"])),
+        ("check", lambda t, q: t.assertIn(q.first, q.b.held["t1"]["steps"])),
         ("round", inventory(("oak_log", 3))),
         ("check", lambda t, q: t.assertNotEqual((q.act.step.kind, q.act.step.token), ("gather", "log")))]),
+    ("must fail: a step's work undone by the world is done again", goals.have(("log", 4)), [
+        ("round", inventory()), ("ok", inventory(("oak_log", 4))),
+        ("round", inventory(("oak_log", 1))),
+        ("check", lambda t, q: (t.assertEqual((q.act.step.kind, q.act.step.token), ("gather", "log")),
+                                t.assertEqual(q.act.step.count, 3)))]),
     ("interrupted: the next round repairs from the bag", goals.have(("log", 8)), [
         ("round", inventory()), ("interrupted",),
         ("check", lambda t, q: t.assertTrue(q.b.held["t1"]["event"])),
@@ -837,30 +838,40 @@ HELD = [
             t.assertEqual([st.count for st in q.b.held["t1"]["steps"] if (st.kind, st.token) == ("mine", "minecraft:cobblestone")], [4]),
             t.assertEqual(q.b.held["t1"]["steps"][-1].kind, "build"),
             t.assertNotIn(pair("craft", "door"), pairs(q.b.held["t1"]["steps"]))))]),
-    ("road: interrupted on the second leg → that leg only", goals.make("road", a=[0, 64, 0], b=[40, 64, 0]), [
-        ("round", inventory()), ("ok", inventory()), ("round", inventory()), ("interrupted",),
+    ("road: the body at its start: that leg met by the world, the second walked", ROAD, [
         ("round", inventory()),
-        ("check", lambda t, q: t.assertEqual([st.detail["pos"] for st in q.b.held["t1"]["steps"]], [[40, 64, 0]]))]),
+        ("check", lambda t, q: t.assertEqual(q.act.step.detail["pos"], [40, 64, 0]))]),
+    ("must fail: road: the body moved off its start: the first leg walked again", ROAD, [
+        ("round", inventory()), ("interrupted",), ("round", inventory(), state(x=20.5, z=0.5)),
+        ("check", lambda t, q: t.assertEqual(q.act.step.detail["pos"], [0, 64, 0]))]),
     ("failed on the third source: the task is failed with its cause", goals.have(("log", 4)), [
         ("round", inventory()), ("failed", 3),
         ("check", lambda t, q: (t.assertEqual(q.state()[0], "failed"), t.assertTrue(q.state()[1].startswith("nav"))))]),
     ("failed once: kept, repaired next round", goals.have(("log", 4)), [
         ("round", inventory()), ("failed", 1),
         ("check", lambda t, q: (t.assertEqual(q.state()[0], "running"), t.assertTrue(q.b.held["t1"]["event"])))]),
-    ("a saved plan after a restart is checked against the bag", goals.have(("log", 6)), [
-        ("saved", [{"kind": "gather", "token": "log", "count": 6, "detail": {}, "est": 100}]),
+    ("must fail: a plan left in an old task file is never read (no stored progress)", goals.have(("log", 6)), [
+        ("saved", [{"kind": "craft", "token": "minecraft:stick", "count": 4, "detail": {}, "est": 100}]),
         ("round", inventory(("oak_log", 4))),
-        ("check", lambda t, q: t.assertEqual(q.act.step.count, 2))]),
+        ("check", lambda t, q: t.assertEqual((q.act.step.kind, q.act.step.count), ("gather", 2)))]),
     ("must fail: unplannable: failed, and says why", goals.make("skill", name="fly_to_the_moon"), [
         ("round", inventory()),
         ("check", lambda t, q: (t.assertIsNone(q.act), t.assertEqual(q.state()[0], "failed"),
                                 t.assertIn("unplannable", q.state()[1])))]),
-    ("a road walks on from where it stopped", goals.make("road", a=[0, 64, 0], b=[40, 64, 0]), [
-        ("round", inventory()), ("ok", inventory()),
-        ("round", inventory()),
-        ("check", lambda t, q: t.assertEqual(q.act.step.detail["pos"], [40, 64, 0])),
-        ("ok", inventory()), ("round", inventory()),
+    ("a road walked, the body at its end: done from the world", ROAD, [
+        ("round", inventory()), ("ok", inventory()), ("walked", [0, 64, 0], [40, 64, 0]),
+        ("round", inventory(), state(x=40.5, z=0.5)),
         ("check", lambda t, q: (t.assertIsNone(q.act), t.assertEqual(q.state(), ("done", ""))))]),
+    ("must fail: at the road's end, never walked: not done", ROAD, [
+        ("round", inventory(), state(x=40.5, z=0.5)),
+        ("check", lambda t, q: (t.assertIsNotNone(q.act), t.assertEqual(q.state()[0], "running")))]),
+    ("a skill's own step accepted by its contract: done; a step before it: the task goes on",
+     goals.make("skill", name="chop", args=[2]), [
+        ("round", inventory()), ("ok", inventory(("oak_log", 2))),
+        ("check", lambda t, q: t.assertEqual(q.state()[0], "done" if q.first.kind == "skill" else "running"))]),
+    ("must fail: a skill's step interrupted: not done", goals.make("skill", name="chop", args=[2]), [
+        ("round", inventory()), ("interrupted",),
+        ("check", lambda t, q: t.assertEqual(q.state()[0], "running"))]),
     ("no trees anywhere: the plan runs dry, the task fails as unavailable", goals.have(("log", 4)), [
         ("seen", {}), ("round", inventory()),
         ("check", lambda t, q: t.assertEqual((q.act.step.kind, q.act.step.token), ("gather", "log"))),
@@ -885,7 +896,7 @@ class HeldPlans(unittest.TestCase):
                 with self.subTest(name):
                     for op_, *a in ops:
                         if op_ == "round":
-                            q.act = q.round(a[0])
+                            q.act = q.round(*a)
                             q.first = q.act.step if q.act else None
                         elif op_ == "ok":
                             q.after_inv = a[0]
@@ -899,6 +910,9 @@ class HeldPlans(unittest.TestCase):
                             q.after("failed")
                         elif op_ == "seen":
                             q.seen = a[0]
+                        elif op_ == "walked":
+                            q.b.mem.data.setdefault("roads", {}).setdefault(OVER, []).append(
+                                {"a": a[0], "b": a[1], "s": 9.0, "used": time.time()})
                         elif op_ == "job":
                             q.b.mem.add_job("smelt", (3, 64, 0), OVER, a[0], a[1], time.time() + 60, [])
                         elif op_ == "check":
@@ -1782,8 +1796,8 @@ QUEUE = [
      [("t2", "pending")], "t2"),
     ("a finished goal can be queued again", [op_add(G3), op(tasks.mark, "t1", "done"), op_add(G3)],
      [("t1", "done"), ("t2", "pending")], "t2"),
-    ("running keeps its plan; leaving LIVE drops it",
-     [op_add(G1), op(tasks.update, "t1", state="running", plan=[{"kind": "gather", "token": "log", "count": 4}])],
+    ("running is live (no plan kept with it: K4)",
+     [op_add(G1), op(tasks.update, "t1", state="running")],
      [("t1", "running")], "t1"),
 ]
 

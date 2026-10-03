@@ -260,12 +260,6 @@ def _prepared(inv, step, cost, pending):
     """`step` and what its call needs first (its contract's needs and facts), planned as one."""
     return solve_needs(inv, [("do", step)], cost, pending)
 
-def to_dict(step: Step) -> dict:
-    return {"kind": step.kind, "token": step.token, "count": step.count, "detail": step.detail, "est": step.est}
-
-def from_dict(d) -> Step:
-    return Step(d["kind"], d["token"], int(d["count"]), dict(d.get("detail") or {}), int(d.get("est", 0)))
-
 def night_left_s(snap):
     """Seconds of night still ahead: (NIGHT_END − timeOfDay) / 20 at night, a whole night before dusk (None)."""
     t = int(snap.time) % DAY_TICKS
