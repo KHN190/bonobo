@@ -121,7 +121,7 @@ class TaskStuck(McError):
 class CommitmentExpired(McError):
     """The running task outlived the commitment its plan was made under: the world owes the planner a new decision."""
 
-class Overrun(McError):
+class Overrun(CommitmentExpired):
     """A step past its budget (nav.step_budget: OVERRUN × its as-run price): its price refuted — stopped and
     re-planned at once (EXCEPTIONS: replan, an interruption: nothing counted, banned or cooled; the skill resumes
     from what it did), the measured rest recorded for its target (`pos`, `remaining_s`: dispatch.execute)."""

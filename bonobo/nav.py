@@ -766,6 +766,8 @@ def climb_out(land):
     if tasks:
         try:
             api.run_chain(tasks, stop_on_failure=True, wait=10)
+        except api.INTERRUPTIONS:
+            raise
         except McError as err:
             log(f"   climb out onto {land}: {err}")
     return ashore(api.get("/state"), land)
