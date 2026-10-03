@@ -340,7 +340,7 @@ class EveryProduct(unittest.TestCase):
     planned for it is whole too."""
 
     def test_every_given_token_from_an_empty_bag(self):
-        from bonobo.skill import handles
+        from tests.world import handles
         variants = {mid(m) for g in knowledge.GROUP_RECIPES for m in GROUPS.get(g, ())}
         faults, kinds = [], Counter()
         for token, by in sorted(given_tokens().items()):
@@ -357,7 +357,7 @@ class EveryProduct(unittest.TestCase):
         self.assertTrue(all(kinds[k] >= 1 for k in ("held stock", "taken", "planned")), kinds)
 
     def test_a_broken_chain_is_caught(self):
-        from bonobo.skill import handles
+        from tests.world import handles
         from bonobo.planner import Step
         steps = plan([("minecraft:stone_pickaxe", 1)])
         rows = [("as planned", steps, []),

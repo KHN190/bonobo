@@ -201,10 +201,6 @@ def provider(ctx, step):
                 return contract.runner, tuple(args)
     return None
 
-def handles(step):
-    """Does any registered skill provide what this step asks for? (No world read: decompose asks it.)"""
-    return step.kind == "skill" and step.token in REGISTRY or any(providers(e) for e in step_keys(step))
-
 def needs_of(contract: Contract, args: tuple) -> Needs:
     """The hard prerequisites of this call: the static `needs`, or the function of the call's args."""
     fn = getattr(contract, "needs_fn", None)

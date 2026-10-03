@@ -126,11 +126,7 @@ def _action(kind, token, cost, **detail):
 def decompose(inv, goal, cost, pending=None) -> list[Step]:
     """Ordered steps for `goal` from this bag."""
 
-    steps = _decompose(inv, goal, cost, pending)
-    missing = [s for s in steps if not skill.handles(s)]
-    if missing:
-        raise Unplannable(f"no skill provides {missing[0].kind} {missing[0].token}")
-    return steps
+    return _decompose(inv, goal, cost, pending)
 
 # Milestones that end in doing, not holding: after their items, the fact their last step leaves.
 THEN = {"end portal": ("state:end_portal_open", True)}

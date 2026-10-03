@@ -246,6 +246,18 @@ class TheExactSearchIsCapped(unittest.TestCase):
                 self.assertEqual(isinstance(got, str), violated, got)
 
 
+class HeldPlanPricedAsTheRound(unittest.TestCase):
+    """plan_held's fixture prices its steps as the planner does, over the round's own look: a craft run's mine after
+    the pickaxe it crafts is priced with that pickaxe (price_as_run), not bare-handed with no look (Cost(snap, mem))."""
+
+    def test_rows(self):
+        from check import round as rnd
+        f = of(plan_held="craft_run", task="tool", carried="logs", station="crafting_table")
+        d, _got, ctx = rnd.decide(f, fail_then_again=False)
+        # must fail: 'mine 8× cobblestone planned at 1212 ticks, the model prices it 108 now'
+        self.assertEqual([v for v in oracle.violations(f, d, f, ctx) if v[0] == "D6"], [])
+
+
 class FinishedRound(unittest.TestCase):
     """D1 on the production round: the round that finishes the queue's last task proposes nothing on purpose (brain
     just_finished) — the task it finished is the reason; a queue empty before the round, nothing proposed, no reason
