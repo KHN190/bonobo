@@ -197,6 +197,8 @@ class Act:
     def __init__(self, layer, name, run, task=None, step=None, steps=None):
         self.layer, self.name, self.run, self.task, self.step = layer, name, run, task, step
         self.finishes = False         # a run-once task's own step: its success ends the task
+        self.site: "tuple | None" = None     # where the step was priced to happen (a failure's target)
+        self.plan: list = []          # the whole plan the step was drawn from (a side act's price)
         self.steps = steps or ([step] if step is not None else [])   # a craft run carries every craft it makes
 
     def __repr__(self):
@@ -557,7 +559,7 @@ class Brain:
         box = {}
         also = (step_key(act.step),) if getattr(act, "step", None) is not None else ()
         ran = self._running(lambda: arbiter.BODY.drive(
-            "plan", lambda: box.update(outcome=self.attempt(act.name, act.run, also, getattr(act, "site", None))),
+            "plan", lambda: box.update(outcome=self.attempt(act.name, act.run, also, act.site)),
             act.name, commit_s=act_commit_s(act)))
         outcome = box.get("outcome", "interrupted") if ran else "interrupted"
         ACTS.append(act_record(act, began, time.time(), outcome, self.last_cause if outcome == "failed" else None))
