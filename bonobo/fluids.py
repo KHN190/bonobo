@@ -8,8 +8,7 @@ from . import world
 from . import knowledge as _k
 from . import api, blueprints, nav, skillcore
 from .api import McError, NotAvailable, log
-from .data import GROUPS, WORK_REACH, bare
-from .game import EYE_HEIGHT
+from .data import GROUPS, bare
 from .skill import skill
 from .skillcore import body_state, gained
 from .world import feet
@@ -19,11 +18,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .shapes import Task
 
-REACH = WORK_REACH        # the reach holds uses: the jar's range less its margin
-
-def _eye(cell):
-    return cell[0] + 0.5, cell[1] + EYE_HEIGHT, cell[2] + 0.5
-
 def is_source(region, p, fluid):
     """A still source block of `fluid` (level 0). Regions without block properties count every fluid cell."""
     if region.name(p) != fluid:
@@ -31,26 +25,6 @@ def is_source(region, p, fluid):
     prop = getattr(region, "prop", None)
     level = prop(p, "level") if prop else None
     return level is None or str(level) == "0"
-
-def standable(region, p):
-    below, head = cell_add(p, (0, -1, 0)), cell_add(p, (0, 1, 0))
-    return (region.inside(below) and region.solid(below) and not region.hazard(below)
-            and not region.solid(p) and not region.hazard(p) and not region.solid(head) and not region.hazard(head))
-
-def clear_line(region, eye, target_cell, target_point, margin=0.2):
-    """Pure: nothing solid between the eye and a point in `target_cell` (sampled every 0.1 block, with an aim margin)."""
-
-    steps = max(1, int(math.dist(eye, target_point) / 0.1))
-    target = tuple(target_cell)
-    offsets = [(dx, dz) for dx in (-margin, 0, margin) for dz in (-margin, 0, margin)]
-    for i in range(1, steps):
-        t = i / steps
-        q = [eye[k] + (target_point[k] - eye[k]) * t for k in range(3)]
-        for dx, dz in offsets:
-            p = (int(math.floor(q[0] + dx)), int(math.floor(q[1])), int(math.floor(q[2] + dz)))
-            if p != target and region.solid(p):
-                return False
-    return True
 
 def lava_within(region, p, r) -> bool:
     """Lava in the box of half-size r around p (feet, head and the floor layers)."""
@@ -66,13 +40,17 @@ def surface_aim(cell):
 
     return cell[0] + 0.5, cell[1] + 0.95, cell[2] + 0.5
 
-def fill_spot(region, here, fluid="water", inv=None, protected=()):
-    """Pure: (stand, source) to fill a bucket from, the nearest source first: where the door's own predicate for the
-    click (nav.reach, "use_item": in sight, never below the surface) gets to from `here` with `inv` (none: no way
-    blocks) — or, `here` off the read, the nearest stand it holds from as read (lava: 2 away from any)."""
+FILL_TRIES = 8           # sources one fill_spot asks a way to (a lake has hundreds), nearest first
+
+def fill_spot(region, here, fluid="water", inv=None, protected=(), near=None):
+    """Pure: (stand, source) to fill a bucket from, the nearest source (to `near`, else `here`) first: where the
+    door's own predicate for the click (nav.reach, "use_item": in sight, never below the surface) gets to from
+    `here` with `inv` (none: no way blocks) — or, `here` off the read, the nearest stand it holds from as read
+    (lava: 2 away from any)."""
     inv = inv if inv is not None else Inventory({"slots": [], "equipment": {}})
-    sources = sorted((p for p in region.blocks if is_source(region, p, fluid)), key=lambda p: math.dist(p, here))
-    for w in sources:
+    sources = sorted((p for p in region.blocks if is_source(region, p, fluid)),
+                     key=lambda p: (math.dist(p, near if near is not None else here), math.dist(p, here)))
+    for w in sources[:FILL_TRIES]:
         if region.inside(here):
             got = nav.reach(region, here, w, "use_item", inv, protected)
             stands = [got.stand] if got.stand is not None else []
@@ -120,16 +98,20 @@ def fill_water_bucket(ctx):
                   key=lambda h: h["distance"])
     for h in hits[:6]:
         c = (h["x"], h["y"], h["z"])
-        region = Region(cell_add(c, (-5, -3, -5)), cell_add(c, (5, 3, 5)), props=True)
-        spot = fill_spot(region, here)
+        # the box the door reads for the way there (nav.read_bounds), not a box round the water the feet are off
+        region = Region(*nav.read_bounds([here, c]), props=True)
+        spot = fill_spot(region, here, inv=Inventory(), protected=ctx.policy.protected, near=c)
         if spot is None:
             ctx.ban(c)
             continue   # planning only (no game action): trying the next water cell is not a retry
         stand, source = spot
-        if not nav.arrived_near(stand, ctx.policy, range_=0.6, attempts=1):
+        nav.arrived_near(stand, ctx.policy, range_=0.6, attempts=1)
+        try:
+            # the walk short of the stand: the gate makes the way (reach_stand), as fill_spot's reach planned it
+            _use("minecraft:bucket", surface_aim(source), False)     # the same point fill_spot checked
+        except api.NavFailed:
             ctx.ban(c)
-            raise api.NavFailed(f"stand spot {stand} for water at {source} not reachable", pos=source)
-        _use("minecraft:bucket", surface_aim(source), False)     # the same point fill_spot checked
+            raise
         yield Inventory().count("minecraft:water_bucket")
         if gained(lambda: Inventory().count("minecraft:water_bucket"), 0):
             return

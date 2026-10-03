@@ -474,10 +474,14 @@ def task_stands(tasks, feet_at):
             out.append((t, at))
     return out
 
-def _read_box(cells, pad=REACH):
+def read_bounds(cells, pad=REACH):
+    """Pure: (lo, hi) of the box the door reads round `cells`: what a way to them is planned over."""
     lo = tuple(math.floor(min(c[i] for c in cells) - pad) for i in range(3))
     hi = tuple(math.ceil(max(c[i] for c in cells) + pad) for i in range(3))
-    return box(lo, hi)
+    return lo, hi
+
+def _read_box(cells, pad=REACH):
+    return box(*read_bounds(cells, pad))
 
 _IN_WAY = [0]            # how deep a way's own steps are being sent (their gate never asks for another way)
 lifecycle.in_place(__name__, "_IN_WAY")
