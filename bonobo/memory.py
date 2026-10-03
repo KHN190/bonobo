@@ -6,7 +6,7 @@ import os
 import time
 from typing import Any
 from . import paths, blueprints
-from .data import (GROUPS, ITEM_DESPAWN_S, VOLATILITY, bare, home_may_hold, home_part_kind, in_box, mid, placed_cell,
+from .data import (GROUPS, ITEM_DESPAWN_S, MEASURED_BAND, VOLATILITY, bare, home_may_hold, home_part_kind, in_box, mid, placed_cell,
                    seen_class)
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
@@ -504,6 +504,8 @@ class Memory:
         if d is None:
             self.data["durations"][key] = {"per": per, "n": 1}
         else:
+            # one run moves the average a bounded step: a stuck or lucky run is a sample, never the new price
+            per = min(max(per, d["per"] / MEASURED_BAND), d["per"] * MEASURED_BAND)
             d["per"] = d["per"] * 0.7 + per * 0.3
             d["n"] += 1
         self.save()

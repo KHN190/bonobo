@@ -433,6 +433,7 @@ NAV_NODES = 6000
 WALK_BLOCKS_PER_TICK = 0.12   # measured on real routes (hills, water, re-plans)
 WALK_BLOCKS_PER_S = WALK_BLOCKS_PER_TICK * TICKS_PER_S
 ROUTE_FACTOR = 1.5            # real route length / straight line
+MEASURED_BAND = 4.0           # a run moves its average, and a measured price strays from its prior, at most this factor
 
 
 # every exception an attempt can end in, by class name (this module imports nothing): (cause it is counted and

@@ -6,8 +6,8 @@ import time
 from . import api
 from .api import Interrupted, McError
 from .beliefs import CONFIG as _PLAY
-from .data import MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare, mid
-from .knowledge import food_count, soil_depth, dawn_s, MIN_FIND_P, body_facts, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
+from .data import MEASURED_BAND, MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare, mid
+from .knowledge import SURFACE_Y, food_count, soil_depth, dawn_s, MIN_FIND_P, body_facts, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
 from .world import ROUTES, Region, Versioned, job_ready, route_key, seen_hit
 from .skill import MIN_SAMPLES
@@ -17,7 +17,7 @@ from .game import TICKS_PER_S
 DOOR_ROUTE = None      # mechanisms.route_s, wired by the brain: seconds through a taught door, or None
 
 WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~12.5 ticks a block, walking with detours
-UNKNOWN_WALK_TICKS = 6000                   # nothing known nearby: what a search usually costs
+UNKNOWN_WALK_TICKS = PRIOR_TICKS["unknown_walk"]   # nothing known nearby: what a search usually costs
 # work per unit before anything is measured, in ticks, bare-handed: a held tool's declared speed is taken off (_sped_up)
 # step kind → (statistics key, units): the keys the skill runner records under
 STAT_KEYS = {"mine": lambda s: (f"mine:{s.token}", s.count), "gather": lambda s: ("chop", s.count),
@@ -186,7 +186,7 @@ class Cost:
         """Under rock, getting out is part of any surface trip, and it scales with depth."""
         if not under_rock(self.snap.get("skyLight", 15)):
             return 0
-        return 200 + 30 * max(0, 64 - int(self.snap.feet[1]))
+        return PRIOR_TICKS["surface"] + PRIOR_TICKS["surface_per_block"] * max(0, SURFACE_Y - int(self.snap.feet[1]))
 
     # -- what the planner asks
     def facts(self):
@@ -262,7 +262,10 @@ class Cost:
             return None
         key, units = STAT_KEYS[step.kind](step)
         per = self.mem.duration(key, min_samples=MIN_SAMPLES)
-        return int(per * max(1, units) * TICKS_PER_S) if per is not None else None
+        if per is None:
+            return None
+        prior = prior_ticks(step)          # a measurement is trusted within MEASURED_BAND of the prior it replaces
+        return int(min(max(per * max(1, units) * TICKS_PER_S, prior / MEASURED_BAND), prior * MEASURED_BAND))
 
     def estimate(self, step, held=None, at=None):
         """Ticks this step takes: its work (`work`) plus the walk to where it happens — from `at` (the plan's place
@@ -396,7 +399,7 @@ class Cost:
                 + (self._surface_trip() if k != "mine" else self.dig_to(step, held) if dig else 0)
         if k == "fill":
             d = self._known(["water"])
-            return walk_ticks(d) if d is not None else 1200
+            return walk_ticks(d) if d is not None else PRIOR_TICKS["unknown_water"]
         if k in ("goto", "withdraw", "look"):
             through = self.door_s(tuple(step.detail["pos"]))
             return round(through * TICKS_PER_S) if through is not None else \
