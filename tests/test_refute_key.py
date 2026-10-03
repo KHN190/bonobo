@@ -70,12 +70,14 @@ class MineOverrunKey(unittest.TestCase):
                 mock.patch.object(api, "run_chain", lambda *a, **k: []), \
                 mock.patch.object(api.STATE, "feet_seen", FEET), \
                 mock.patch.object(api.STATE, "kinds_seen", kinds), \
-                self.assertRaises(api.Overrun):
+                self.assertRaises(api.Overrun) as raised:
             dispatch.execute(ctx, step, False)
 
-        got_ticks = cost_of().estimate(step)
-        self.assertGreater(got_ticks, base_ticks,
-                            "must fail: the refuted price written at the approach cell, never read at Cost.site")
+        # the step's hand-set price is not Cost's, so the refuted rest can land under base_ticks: compare to it instead
+        refuted_ticks = round(raised.exception.remaining_s * TICKS_PER_S)
+        self.assertNotEqual(refuted_ticks, base_ticks)
+        self.assertEqual(cost_of().estimate(step), refuted_ticks,
+                         "must fail: the refuted price written at the approach cell, never read at Cost.site")
 
 
 if __name__ == "__main__":
