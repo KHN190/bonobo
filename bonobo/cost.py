@@ -284,12 +284,21 @@ class Cost:
         stand in reach of it as it stands now, the gate's own), not banned; else the nearest remembered."""
         key = ("ent", tuple(types))
         if key not in self.cache:
-            ids = {mid(t) for t in types}
-            near = [e["distance"] for e in self.snap.mobs if mid(e["type"]) in ids
-                    and (e.get("id") is None or not banned(self.blacklist, (e["id"], 0, 0)))
-                    and ("x" not in e or self.refused(tuple(math.floor(e[k]) for k in ("x", "y", "z")), "attack") is None)]
+            near = [d for d, _c in self._mobs(types)]
             self.cache[key] = min(near) if near else self._known(types)
         return self.cache[key]
+
+    def _mobs(self, types):
+        """[(distance, cell or None)] of `types` in the round's look, not banned, none the door refuses to attack."""
+        ids = {mid(t) for t in types}
+        out = []
+        for e in self.snap.mobs or ():
+            if mid(e["type"]) not in ids or (e.get("id") is not None and banned(self.blacklist, (e["id"], 0, 0))):
+                continue
+            cell = tuple(math.floor(e[k]) for k in ("x", "y", "z")) if "x" in e else None
+            if cell is None or self.refused(cell, "attack") is None:
+                out.append((e["distance"], cell))
+        return out
 
     def _surface_trip(self, at=None):
         """Under rock, getting out is part of any surface trip, and it scales with depth — from the step's own place
@@ -696,7 +705,12 @@ class Cost:
         return sum(self._walk_parts(step, at, held, dig).values())
 
     def way_kind(self, step):
-        """The door's act at a sourced step's site (stand_kind), None for a step that walks to no source."""
+        """The door's act at a step's site (stand_kind for a source; a container opened, a place stood on), None for
+        a step that walks to no site."""
+        if step.kind in ("withdraw", "look"):
+            return "use"
+        if step.kind == "goto":
+            return "stand"
         return stand_kind(step_kinds(step)) if step.kind in ("gather", "mine", "take") else None
 
     def way_spent(self, step, at=None, spent=0):
@@ -713,31 +727,52 @@ class Cost:
         out = {"walk": 0, "dig": 0, "surface": 0, "seek": 0}
         site = self.site(step) if at is not None else None
         kind = self.way_kind(step)
+        mob = min(self._mobs(step.detail.get("types", ())), key=lambda m: m[0], default=(None, None))[1] if k == "hunt" else None
         if site is not None and kind is not None and self.unfixable(site, kind, at, spent) is not None:
             out["seek"] = self.find_ticks(step_kinds(step), held, at)
+        elif mob is not None and (ways := self.reach_ticks(mob, "attack", at, spent)) is not None:
+            out["walk"] = ways          # where it stands now (K7), not where it was noted
+            out["surface"] = self._surface_trip(at) if at is None else 0
         elif at is not None and site is not None:
-            out["walk"] = walk_ticks(math.dist(at, site))
+            ways = self.reach_ticks(site, kind, at, spent) if kind is not None else None
+            out["walk"] = ways if ways is not None else walk_ticks(math.dist(at, site))
             if k in ("goto", "withdraw", "look"):
                 through = self.door_s(site, at)
                 out["walk"] = round(through * TICKS_PER_S) if through is not None else out["walk"]
-            out["dig"] = self.dig_to(step, held, at) if k == "mine" and dig else 0
+            # the way's own digs are in its seconds: dig_to only where no way was read
+            out["dig"] = self.dig_to(step, held, at) if k == "mine" and dig and ways is None else 0
         elif k in self.SOURCED:
             # one target: the walk to the site the dig prices (a refuted nearest's cheaper other, _cheaper_source)
             mine_site = self.site(step) if k in ("gather", "mine", "take") else None
+            ways = self.reach_ticks(mine_site, kind, None, spent) if mine_site is not None and kind is not None else None
             d = math.dist(self.snap.feet, mine_site) if mine_site is not None else self._source(step)
-            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else self.find_ticks(step_kinds(step), held, at)
+            out["walk" if d is not None else "seek"] = ways if ways is not None else walk_ticks(d) if d is not None \
+                else self.find_ticks(step_kinds(step), held, at)
             if k != "mine":
                 out["surface"] = self._surface_trip(at)
-            elif dig:
+            elif dig and ways is None:
                 out["dig"] = self.dig_to(step, held, at)
         elif k == "fill":
-            d = self._known(["water"])
-            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else self.find_ticks(["water"], held, at)
+            hit = self._nearest(["water"])
+            ways = self.reach_ticks(hit[0], stand_kind(["water"]), at, spent) if hit is not None else None
+            out["walk" if hit is not None else "seek"] = ways if ways is not None else walk_ticks(hit[1]) \
+                if hit is not None else self.find_ticks(["water"], held, at)
         elif k in ("goto", "withdraw", "look"):
-            through = self.door_s(tuple(step.detail["pos"]))
-            out["walk"] = round(through * TICKS_PER_S) if through is not None else \
-                walk_ticks(math.dist(self.snap.feet, tuple(step.detail["pos"])))
+            pos = tuple(step.detail["pos"])
+            through = self.door_s(pos)
+            ways = self.reach_ticks(pos, kind, None, spent) if through is None else None
+            out["walk"] = round(through * TICKS_PER_S) if through is not None else ways if ways is not None else \
+                walk_ticks(math.dist(self.snap.feet, pos))
         return out
+
+    def reach_ticks(self, cell, kind, at=None, spent=0):
+        """Ticks of the door's way to `kind` at `cell` (reach: its walk, digs and treads), with the way blocks the plan
+        gets first when the bag is short; None off the read or refused."""
+        got = self.reach(cell, kind, at, spent)
+        if got is not None and got.stand is None:
+            short = self.way_blocks_short(cell, kind, at, spent)
+            got = self.reach(cell, kind, at, spent, extra=short) if short else None
+        return round(got.seconds * TICKS_PER_S) if got is not None and got.stand is not None else None
 
     def dig_lb(self, step, held=None):
         """Ticks no dig to this step's ore in sight can beat: the least of dig_to over every place it may start from
