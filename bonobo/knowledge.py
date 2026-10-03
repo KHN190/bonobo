@@ -3,7 +3,7 @@ import functools
 import math
 
 from .game import COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
-from .data import ANIMAL_HP, BASE_MARKERS, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, DEEPSLATE_ORE_HARDNESS, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
+from .data import ANIMAL_HP, BASE_MARKERS, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, HARDNESS, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
 from .data import TAKEABLE
 from .data import COLORS, WOODS, ATTACKS_PER_S, HAND_ATTACKS_PER_S, HAND_DAMAGE, NETHER, OVERWORLD, PIGLIN_BARTER, is_night
 
@@ -351,13 +351,8 @@ def item_tier(item):
     return TIER_OF_MATERIAL.get(name.rpartition("_")[0], 0)
 
 def hardness(block):
-    """Pure: a block's hardness (data.HARDNESS, its suffixes; an unlisted one priced as stone)."""
-    name = bare(block or "")
-    if name in HARDNESS:
-        return HARDNESS[name]
-    if name.startswith("deepslate_") and name.endswith("_ore"):
-        return DEEPSLATE_ORE_HARDNESS
-    return next((h for suffix, h in HARDNESS_SUFFIX if name.endswith(suffix)), UNLISTED_HARDNESS)
+    """Pure: a block's hardness (data.HARDNESS: every block the game has; one it has not priced as stone)."""
+    return HARDNESS.get(bare(block or ""), UNLISTED_HARDNESS)
 
 def drop_need(block):
     """Pure: (the item kinds, the least tier) that make `block` drop — a pickaxe block needs its MINE tier (else the

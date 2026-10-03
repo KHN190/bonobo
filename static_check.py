@@ -13,8 +13,11 @@ R12 (K9, over check/) a checker function that prices (its name says a price, a c
 calls production for it, never a model of its own; R13 a bonobo function check/ calls declares its return type
 (a tuple's element count included); R14 every price says where it comes from (knowledge.PRICE_SOURCE,
 a play.toml tag): game, measured, prior or policy — and pricing code (cost.py) holds no number of its own.
-`--priors` lists what is still a prior: E4's to do."""
+`--priors` lists what is still a prior: E4's to do; R15 the game data written out by hand agrees with the
+game's (bonobo/vanilla/minecraft_data.json, minecraft-data for the instance's version): a mob's width, every recipe's
+inputs, count and grid."""
 import ast
+import json
 import os
 import re
 import sys
@@ -816,8 +819,62 @@ def priors():
     return out + [f"{f}[{s}] {k}" for (f, s, k), t in toml.items() if t == "prior"]
 
 
+# -- R15 game data by hand agrees with the game's ---------------------------------------------------------------------
+GAME_DATA = os.path.join(ROOT, "vanilla", "minecraft_data.json")
+
+
+def recipe_mismatches(recipes, groups, vendored):
+    """[(item, why)]: our recipe (item id → (pattern of ids / group tokens / None, count)) that no recipe of the game's
+    (vendored: name → [{in: {name: n}, count, table}]) makes alike — its inputs (a group token: one of its members), its
+    count, and whether it needs a table (a 3×3 pattern)."""
+    out = []
+    for item, (pattern, count) in recipes.items():
+        name = item.split(":")[-1]
+        ours = {}
+        for cell in pattern:
+            if cell is not None:
+                ours[cell] = ours.get(cell, 0) + 1
+
+        def alike(r):
+            left = dict(r["in"])
+            for tok, n in ours.items():
+                hit = next((m for m in (x.split(":")[-1] for x in groups.get(tok, [tok])) if left.get(m, 0) >= n), None)
+                if hit is None:
+                    return False
+                left[hit] -= n
+            return r["count"] == count and r["table"] == (len(pattern) == 9) and not any(left.values())
+        if not any(alike(r) for r in vendored.get(name, ())):
+            out.append((item, f"no {name} recipe of the game's makes {count} from {ours}" +
+                        (" at a table" if len(pattern) == 9 else " in the bag")))
+    return out
+
+
+def r15(trees):
+    """[(where, what)]: game data written out by hand that the game's own data (GAME_DATA) contradicts."""
+    with open(GAME_DATA, encoding="utf-8") as fh:
+        game = json.load(fh)
+    out = []
+    for path, (tree, _src) in trees.items():
+        if tree is None:
+            continue
+        width = _top(tree, "MOB_WIDTH") if os.path.basename(path) == "game.py" else None
+        if isinstance(width, ast.Dict):
+            for mob, w in ast.literal_eval(width).items():
+                if game["width"].get(mob.split(":")[-1]) != w:
+                    out.append((f"{path}:{width.lineno}", f"MOB_WIDTH[{mob!r}] {w}, the game's {game['width'].get(mob.split(':')[-1])}"))
+        recipes = _top(tree, "RECIPES") if os.path.basename(path) == "data.py" else None
+        if isinstance(recipes, ast.Dict):           # a row's own table, written out
+            out += [(f"{path}:{recipes.lineno}", why) for _i, why in
+                    recipe_mismatches(ast.literal_eval(recipes), {}, game["recipes"])]
+        elif recipes is not None:                   # production's: built at import from data.py's own tables
+            from bonobo import data
+            out += [(f"{path}:{recipes.lineno}", why) for _i, why in
+                    recipe_mismatches(data.RECIPES, data.GROUPS, game["recipes"])]
+    return sorted(out)
+
+
 RULES = {"R1": r1, "R2": r2, "R3": r3, "R4": r4, "R5": r5, "R6": r6, "R7": r7, "R8": r8, "R9": r9, "R10": r10,
-         "R11": r11, "R12": r12, "R13": r13, "R14": r14}
+         "R11": r11, "R12": r12, "R13": r13, "R14": r14, "R15": r15}
 ENTRY = "mc.py"         # production beside bonobo/: its uses keep code alive (R6)
 
 
@@ -849,6 +906,14 @@ def run_row(rule, srcs):
 
 # (rule, {path: source}, hits?): each rule's holding rows and its must-fail rows
 ROWS = [
+    ("R15", {"game.py": "MOB_WIDTH = {'minecraft:zombie': 0.6}"}, False),
+    ("R15", {"game.py": "MOB_WIDTH = {'minecraft:zombie': 0.7}"}, True),            # must fail: not the game's width
+    ("R15", {"data.py": "RECIPES = {'minecraft:book': (['minecraft:paper', 'minecraft:paper', 'minecraft:paper', "
+                        "'minecraft:leather'], 1)}"}, False),
+    ("R15", {"data.py": "RECIPES = {'minecraft:book': (['minecraft:paper', 'minecraft:paper', None, 'minecraft:paper', "
+                        "'minecraft:leather', None, None, None, None], 1)}"}, True),     # must fail: a 2×2 one made at a table
+    ("R15", {"data.py": "RECIPES = {'minecraft:torch': (['minecraft:coal', None, 'minecraft:stick', None], 3)}"},
+     True),                                                                         # must fail: four torches, not three
     ("R13", {"bonobo/m.py": "def f(x) -> int:\n return x", "check/c.py": "from bonobo.m import f\nf(1)"}, False),
     ("R13", {"bonobo/m.py": "def f(x):\n return x", "check/c.py": "from bonobo.m import f\nf(1)"}, True),  # must fail
     ("R13", {"bonobo/m.py": "def f(x) -> tuple:\n return x, x", "check/c.py": "from bonobo import m\nm.f(1)"},

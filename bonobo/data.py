@@ -1,8 +1,21 @@
 """Static game knowledge (Minecraft Java 1.21). Pure data, no I/O."""
 import math
+import os
 from typing import TYPE_CHECKING
 
 from .game import TICKS_PER_S
+
+
+def vanilla(name):
+    """A file the game's own data was copied to (bonobo/vanilla), read."""
+    import json
+    with open(os.path.join(VANILLA, name), encoding="utf-8") as f:
+        return json.load(f)
+
+
+VANILLA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vanilla")
+# PrismarineJS minecraft-data (MIT), the fields read here, for the game version the instance runs (its "version", "commit")
+MINECRAFT_DATA = vanilla("minecraft_data.json")
 
 STATION_R = 8.0         # a station or machine of ours this near is one we have
 MECHANISMS_NAME = "mechanisms.json"     # the taught mechanisms (mechanisms.learn), beside the notes
@@ -95,25 +108,15 @@ LOG_TO_PLANKS.update({"minecraft:crimson_stem": "minecraft:crimson_planks",
 TIER_OF_MATERIAL = {"wooden": 0, "golden": 0, "stone": 1, "iron": 2, "diamond": 3, "netherite": 4}
 MATERIAL_TOKEN = {"wooden": "planks", "stone": "stone", "iron": "minecraft:iron_ingot", "diamond": "minecraft:diamond"}
 TOOL_KINDS = ("pickaxe", "axe", "shovel", "sword", "hoe")     # every kind of tool, in one place
-# breaking (Minecraft Wiki, Breaking): a block's hardness; a tool's speed on the blocks its kind is for; a hand is 1
-HARDNESS = {"stone": 1.5, "cobblestone": 2.0, "mossy_cobblestone": 2.0, "granite": 1.5, "diorite": 1.5, "andesite": 1.5,
-            "tuff": 1.5, "calcite": 0.75, "deepslate": 3.0, "cobbled_deepslate": 3.5, "dirt": 0.5, "coarse_dirt": 0.5,
-            "rooted_dirt": 0.5, "grass_block": 0.6, "podzol": 0.5, "mycelium": 0.6, "mud": 0.5, "farmland": 0.6,
-            "dirt_path": 0.65, "sand": 0.5, "red_sand": 0.5, "gravel": 0.6, "clay": 0.6, "soul_sand": 0.5,
-            "soul_soil": 0.5, "snow": 0.1, "snow_block": 0.2, "sandstone": 0.8, "red_sandstone": 0.8,
-            "smooth_sandstone": 2.0, "netherrack": 0.4, "basalt": 1.25, "blackstone": 1.5, "end_stone": 3.0,
-            "obsidian": 50.0, "crying_obsidian": 50.0, "ancient_debris": 30.0, "ice": 0.5, "packed_ice": 0.5,
-            "glass": 0.3, "crafting_table": 2.5, "chest": 2.5, "barrel": 2.5, "furnace": 3.5, "bookshelf": 1.5,
-            "cobweb": 4.0, "terracotta": 1.25, "bricks": 2.0, "stone_bricks": 1.5, "melon": 1.0, "pumpkin": 1.0,
-            "hay_block": 0.5}
-HARDNESS_SUFFIX = (("_log", 2.0), ("_wood", 2.0), ("_planks", 2.0), ("_leaves", 0.2), ("_wool", 0.8),
-                   ("_terracotta", 1.25), ("_concrete", 1.8), ("_glass", 0.3), ("_ore", 3.0))
-DEEPSLATE_ORE_HARDNESS = 4.5
+# breaking: every block's hardness (minecraft-data, vendored); a tool's speed on the blocks its kind is for; a hand is 1
+HARDNESS = dict(MINECRAFT_DATA["hardness"])
 UNLISTED_HARDNESS = 1.5        # a block not listed is priced as stone
-TOOL_SPEED = {"wooden": 2.0, "stone": 4.0, "iron": 6.0, "diamond": 8.0, "netherite": 9.0, "golden": 12.0}
+TOOL_SPEED = {m: MINECRAFT_DATA["mining_speed"]["mineable/pickaxe"][f"{m}_pickaxe"]
+              for m in ("wooden", "stone", "iron", "diamond", "netherite", "golden")}
 # (item kind, block suffix) → speed where no tool kind is the block's (shears on leaves, a sword on a cobweb)
-SPECIAL_SPEED = {("shears", "cobweb"): 15.0, ("shears", "leaves"): 15.0, ("shears", "wool"): 5.0,
-                 ("sword", "cobweb"): 15.0, ("sword", "leaves"): 1.5}
+SPECIAL_SPEED = {(kind, suffix): MINECRAFT_DATA["mining_speed"][material][item] for kind, suffix, material, item in (
+    ("shears", "cobweb", "coweb", "shears"), ("shears", "leaves", "leaves", "shears"), ("shears", "wool", "wool", "shears"),
+    ("sword", "cobweb", "coweb", "wooden_sword"), ("sword", "leaves", "leaves", "wooden_sword"))}
 DROP_KINDS = {"cobweb": ("shears", "sword")}     # blocks that drop only to these item kinds (no pickaxe block)
 HOE_BLOCKS = ("leaves", "hay_block", "moss_block", "sponge", "target", "sculk")
 BREAK_DIVISOR = {True: 30, False: 100}     # per tick: speed / hardness / this (the tool is right for the drop, or not)
@@ -148,10 +151,10 @@ SMELTS = {"minecraft:stone": "minecraft:cobblestone", "minecraft:glass": "minecr
           "minecraft:copper_ingot": "minecraft:raw_copper", "minecraft:charcoal": "log",
           **{cooked: raw for raw, cooked in COOKED.items()}}
 # the one food table: hunger points per item, best first, raw last; FOOD, RAW and bite sizes read from here
-NUTRITION = {"cooked_beef": 8, "cooked_porkchop": 8, "cooked_mutton": 6, "cooked_chicken": 6, "cooked_rabbit": 5,
-             "cooked_salmon": 6, "cooked_cod": 5, "bread": 5, "baked_potato": 5, "golden_carrot": 6, "apple": 4,
-             "carrot": 3, "sweet_berries": 2, "glow_berries": 2, "melon_slice": 2, "cookie": 2,
-             "beef": 3, "porkchop": 3, "mutton": 2, "chicken": 2, "rabbit": 3}
+NUTRITION = {f: int(MINECRAFT_DATA["food_points"][f]) for f in (
+    "cooked_beef", "cooked_porkchop", "cooked_mutton", "cooked_chicken", "cooked_rabbit", "cooked_salmon", "cooked_cod",
+    "bread", "baked_potato", "golden_carrot", "apple", "carrot", "sweet_berries", "glow_berries", "melon_slice", "cookie",
+    "beef", "porkchop", "mutton", "chicken", "rabbit")}
 RAW = ("beef", "porkchop", "mutton", "chicken", "rabbit")
 FOOD = [f for f in NUTRITION if f not in RAW]
 FULL_BAR = 20
@@ -228,7 +231,7 @@ def recipes() -> dict:
     # Enchanting and anvils.
     d, o, p = "minecraft:diamond", "minecraft:obsidian", "minecraft:paper"
     r["minecraft:paper"] = (["minecraft:sugar_cane"] * 3 + [None] * 6, 3)
-    r["minecraft:book"] = ([p, p, None, p, "minecraft:leather", None, None, None, None], 1)
+    r["minecraft:book"] = ([p, p, p, "minecraft:leather"], 1)
     r["minecraft:enchanting_table"] = ([None, "minecraft:book", None, d, o, d, o, o, o], 1)
     r["minecraft:iron_block"] = (["minecraft:iron_ingot"] * 9, 1)
     r["minecraft:bread"] = (["minecraft:wheat"] * 3 + [None] * 6, 1)
@@ -247,13 +250,9 @@ def recipes() -> dict:
 
 def vanilla_recipes():
     """The recipes copied from the 1.21.11 jar (vanilla/recipe), in recipes()' form."""
-    import json
-    import os
     out = {}
-    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vanilla", "recipe")
-    for name in sorted(os.listdir(folder)):
-        with open(os.path.join(folder, name), encoding="utf-8") as f:
-            got = json.load(f)
+    for name in sorted(os.listdir(os.path.join(VANILLA, "recipe"))):
+        got = vanilla(os.path.join("recipe", name))
         if got["type"] != "minecraft:crafting_shapeless":
             raise ValueError(f"{name}: recipe type {got['type']} not read")
         cells = list(got["ingredients"])
@@ -477,7 +476,7 @@ def critical_hp(state) -> float:
     return CRITICAL_HP_END if state.get("dimension") == "minecraft:the_end" else CRITICAL_HP
 
 # published durability (uses) per material
-TOOL_USES = {"wooden": 59, "stone": 131, "iron": 250, "diamond": 1561, "netherite": 2031, "golden": 32}
+TOOL_USES = {m: MINECRAFT_DATA["durability"][f"{m}_pickaxe"] for m in ("wooden", "stone", "iron", "diamond", "netherite", "golden")}
 
 
 # finished goods the world already holds (village beds, furnaces…), so "take that one" competes with "craft one"; no theft price — the game has none
