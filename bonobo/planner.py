@@ -654,12 +654,9 @@ class Search:
         """The least what is left (above `floor`) can cost:"""
         units, tool = 0.0, 0.0
         inv = node.inv
-        kept = self.kept()
-
-        def held(token):          # what a container holds is credited like the bag's: a withdraw is unpriced here
-            return inv.available(token) + sum(kept.get(m, 0) for m in _MEMBERS.get(token) or members(token))
+        held = self.holding(inv)
         memo: dict = {"held": {k for k, v in inv.counts.items() if v > 0} | {k for k, v in inv.produced.items() if v > 0}
-                      | set(kept)}
+                      | set(self.kept())}
         asked = {mid(t[1]) for t in node.stack[floor:] if t[0] == "need"}
 
         def fixed(item):          # a tool or station still to be had: its least, unless asked itself or stored
@@ -815,9 +812,15 @@ class Search:
                tuple(sorted((k, v) for k, v in inv.produced.items() if v > 0 and k in relevant)))
         key = (token, n, had)
         if key not in self.least_c:
-            held = {k for k, _v in had[0]} | {k for k, _v in had[1]}
-            self.least_c[key] = self.lb.least(token, n, inv.available, {"held": held})
+            held = {k for k, _v in had[0]} | {k for k, _v in had[1]} | set(self.kept())
+            self.least_c[key] = self.lb.least(token, n, self.holding(inv), {"held": held})
         return self.least_c[key]
+
+    def holding(self, inv):
+        """token → count had without making it: the bag's, and what the remembered containers hold (a withdraw is
+        unpriced at the least)."""
+        kept = self.kept()
+        return lambda token: inv.available(token) + sum(kept.get(m, 0) for m in _MEMBERS.get(token) or members(token))
 
     def kept(self):
         """{item id: count} the remembered containers here hold (memory), once a search."""
@@ -1195,9 +1198,6 @@ class Search:
             new = TOOL_USES[TOOL_MATERIAL_FOR_TIER[t]]
             if t != tier and (self.kinds is not None or making):
                 continue                # a tool made to make one of its own kind: the tier asked, no better
-            if opts and not self.exact and self.saves_at_most(node, kind, opts[0][0][0], t, None) \
-                    <= self.tool_price(node, kind, t) - self.tool_price(node, kind, opts[0][0][0]):
-                continue                # a better tier than the least that serves, dearer than all it can save
             opts.append(((t, use_rank(kind), 0),
                          [("need", tool_item(kind, t), 1, depth + 1, True), ("addtool", kind, t, spare_uses(new))]))
         if not opts:
@@ -1821,7 +1821,7 @@ def fed_in_time(steps, left_s) -> bool:
 class _After:
     """The bag as a plan's steps leave it: their outputs in, their inputs out, the tools they make carried."""
 
-    def __init__(self, inv, steps):
+    def __init__(self, inv, steps, eaten=()):
         self.equipment = getattr(inv, "equipment", {})
         counts = Counter()
         for slot in inv.slots:
@@ -1840,6 +1840,8 @@ class _After:
                 self._tools[kind].append((tier, TOOL_USES[material], item))
             elif st.kind not in ("seek", "look", "reach", "portal", "enter", "activate", "slay", "sleep", "wait"):
                 counts[item] += int(st.count)
+        for item in eaten:
+            counts[item] -= 1
         self.slots = [{"id": i, "count": n} for i, n in counts.items() if n > 0]
 
     def tools(self, kind):
@@ -1962,7 +1964,8 @@ def plan_round(inv, targets, cost, pending=None, jobs=None, held=None, chosen=No
         shared = set().union(*map(_ids_used, fed)) & set().union(*map(_ids_used, steps), *map(_ids_made, steps))
         if exact or shared:
             # the rest from what the meal leaves: the ways settled, the plan just made its first bar
-            steps = fed + _cheapest_order(_After(inv, fed), settled, cost, pending, jobs, steps, exact)
+            meal = [mid(st.token) for st in fed if mid(st.token) in FOOD_IDS and st.kind in MAKES_FOOD][:1]
+            steps = fed + _cheapest_order(_After(inv, fed, eaten=meal), settled, cost, pending, jobs, steps, exact)
         else:
             steps = fed + steps         # the meal takes nothing the plan takes or makes: the plan stands after it
         if not fed_in_time(steps, left):
