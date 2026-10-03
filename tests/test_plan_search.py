@@ -305,6 +305,14 @@ class AHeldPlanIsReplayedHonestly(unittest.TestCase):
         # must fail: a 60-tick incumbent from an empty bag (its step names no inputs: the recipe's were not read)
         self.assertIsNone(search.replay(root, [("tool", "pickaxe", 2)], held))
 
+    def test_a_fact_asked_is_replayed_by_the_steps_that_make_it(self):
+        search = planner.Search(NullCost())
+        root = planner.Node(planner.from_bag(bag(inventory()), facts=NullCost().facts()), [], [])
+        held = [planner.Step("build", "nether_portal", 1, {})]
+        # must fail: a held plan for a fact never replayed (searched again from nothing each round)
+        self.assertIsNotNone(search.replay(root, [("fact", "portal", True)], held))
+        self.assertIsNone(search.replay(root, [("fact", "covered", True)], held))   # must fail: a fact it never makes
+
     def test_takes_from_one_container_are_one_trip(self):
         def took(a, b):
             steps = [planner.Step("withdraw", "minecraft:stick", 2, {"pos": a}),

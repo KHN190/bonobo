@@ -694,10 +694,11 @@ class Search:
 
     def replay(self, root, needs, steps):
         """The held plan priced on today's world as the incumbent — (ticks, tie, steps) when it still runs from this…"""
-        if any(n[0] in ("fact", "do") for n in needs):
+        if any(n[0] == "do" for n in needs):
             return None
         inv = root.inv.clone()
         entries = []
+        facts = dict(inv.facts)
         for st in steps:
             st = Step(st.kind, st.token, st.count, dict(st.detail))
             for tok, c in (st.detail.get("inputs") or self.recipe_inputs(st)).items():
@@ -711,6 +712,7 @@ class Search:
                 if dim.startswith("tool:") and not inv.has_tool(dim.split(":")[1], int(dim.split(":")[2]), 0):
                     return None
             entries.append((st, inv.held(), len(entries)))
+            facts.update(self.sets(st))
             material, _, kind = bare(st.token).rpartition("_")
             if st.kind == "craft" and kind in TOOL_KINDS and material in TOOL_USES:
                 tier = next(t for t, m in TOOL_MATERIAL_FOR_TIER.items() if m == material)
@@ -718,7 +720,10 @@ class Search:
             else:
                 inv.add(st.token, st.count)
         for n in needs:
-            if n[0] == "tool" and not inv.has_tool(n[1], int(n[2]), 0) or n[0] != "tool" and inv.available(n[0]) < int(n[1]):
+            if n[0] == "fact":
+                if facts.get(n[1]) != n[2]:
+                    return None             # a fact asked that its steps do not make
+            elif n[0] == "tool" and not inv.has_tool(n[1], int(n[2]), 0) or n[0] != "tool" and inv.available(n[0]) < int(n[1]):
                 return None
         out, ticks = forward(entries, self.cost, self.start_tools)
         return ticks, (), out
@@ -1617,7 +1622,7 @@ def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False, cap
     return best[1] if best else []
 
 
-def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False):
+def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False, settled=None):
     """The steps of the targets with every one-of target settled to its cheapest way (ways that cannot be had left o…"""
     choices = [t for t in targets if t.options]
     fixed = [t for t in targets if not t.options]
@@ -1647,11 +1652,13 @@ def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False):
             continue
         key = (sum(s.est for s in steps) / TICKS_PER_S + sum(opt[2] for opt in combo), [o[0] for o in combo])
         if best is None or key < best[0]:
-            best = (key, steps, {t.name: opt[0] for t, opt in zip(choices, combo)})
+            best = (key, steps, {t.name: opt[0] for t, opt in zip(choices, combo)}, fixed + picked)
     if best is None:
         raise Unplannable("; ".join(why) or "no way of a one-of target")
     if chosen is not None:
         chosen.update(best[2])
+    if settled is not None:
+        settled[:] = best[3]            # the targets with each one-of settled to its way
     return best[1]
 
 
@@ -1659,11 +1666,17 @@ def plan_round(inv, targets, cost, pending=None, jobs=None, held=None, chosen=No
                exact=False) -> tuple[Step | None, list, float]:
     """The round's one plan over every target (the queue's goals and upkeep's):"""
     jobs = dict(pending or {}) if jobs is None else jobs
-    steps = _one_of(inv, targets, cost, pending, jobs, held, chosen, exact)
+    settled: list = []
+    steps = _one_of(inv, targets, cost, pending, jobs, held, chosen, exact, settled)
     left = food_left_s(cost)
     if not fed_in_time(steps, left):
         fed = plan_needs(inv, [("food", 1)], cost, pending, jobs, exact=exact)
-        steps = fed + _cheapest_order(_After(inv, fed), targets, cost, pending, jobs, exact=exact)   # the rest from what the meal leaves
+        shared = set().union(*map(_ids_used, fed)) & set().union(*map(_ids_used, steps), *map(_ids_made, steps))
+        if exact or shared:
+            # the rest from what the meal leaves: the ways settled, the plan just made its first bar
+            steps = fed + _cheapest_order(_After(inv, fed), settled, cost, pending, jobs, steps, exact)
+        else:
+            steps = fed + steps         # the meal takes nothing the plan takes or makes: the plan stands after it
         if not fed_in_time(steps, left):
             raise Unplannable(f"the bar runs out in {left:.0f} s before any food the plan can make")
     tools = list(from_bag(inv, pending, jobs, cost.reserved, cost.facts()).tools)
