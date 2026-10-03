@@ -363,7 +363,7 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
     def test_the_body_as_facts(self):
         for name, state, want in self.BODIES:
             with self.subTest(name):
-                self.assertEqual(knowledge.body_facts(state), want)
+                self.assertEqual(knowledge.body_facts(state), {**want, "night": False, "covered": False})
 
     def test_every_step_that_touches_the_world_says_what_body_it_needs(self):
         for name, (step, needs) in self.STEPS.items():
@@ -377,7 +377,7 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
         from bonobo.planner import NullCost
         for name, state, _facts in self.BODIES:
             facts = knowledge.body_facts(state)
-            if not all(facts.values()) and not (state or {}).get("control") and not (state or {}).get("fallDistance"):
+            if not (facts["footing"] and facts["hands_free"]) and not (state or {}).get("control") and not (state or {}).get("fallDistance"):
                 with self.subTest(name):
                     cost = NullCost()
                     cost.facts = lambda f=facts: {"dimension": "minecraft:overworld", **f}
@@ -390,6 +390,63 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
     def test_the_mends_are_alternatives_and_the_cheapest_is_taken(self):
         """More than one way back to footing (swim to the shore, or put a block underfoot): both are offered."""
         self.assertEqual(sorted(knowledge.fact_steps("footing", True)), [("reach", "footing"), ("reach", "land")])
+
+
+class TheNightIsAFact(unittest.TestCase):
+    """The night is in the plan (S4, R3): surface work waits for the day, other work goes under cover first — the
+    plan prices the shelter or the sleep like any other step. Within one plan the night does not pass (no clock)."""
+
+    # (the body's readings) → (night, covered)
+    BODIES = [("midnight", {"timeOfDay": 18000}, (True, False)),
+              ("must fail: noon", {"timeOfDay": 6000}, (False, False)),
+              ("midnight in the Nether", {"timeOfDay": 18000, "dimension": data.NETHER}, (False, False)),
+              ("under rock", {"skyLight": 0}, (False, True)),
+              ("must fail: open sky", {"skyLight": 15}, (False, False))]
+
+    def test_the_night_and_the_cover_as_facts(self):
+        for name, state, want in self.BODIES:
+            with self.subTest(name):
+                got = knowledge.body_facts(state)
+                self.assertEqual((got["night"], got["covered"]), want)
+
+    # (situation, step, at night?) → what it asks of the night
+    STEPS = [("chop", "gather", True, ("night", False)), ("hunt", "hunt", True, ("night", False)),
+             ("take", "take", True, ("night", False)), ("mine", "mine", True, ("covered", True)),
+             ("craft", "craft", True, ("covered", True)), ("smelt", "smelt", True, ("covered", True)),
+             ("must fail: mine by day", "mine", False, None), ("chop by day", "gather", False, None)]
+
+    def test_what_work_asks_of_the_night(self):
+        steps = TheBodyIsAStateLikeAnyOther.STEPS
+        for name, kind, night, want in self.STEPS:
+            with self.subTest(name):
+                asked = dict(knowledge.step_when(steps[kind][0], {"night": night}))
+                got = next(((f, asked[f]) for f in ("night", "covered") if f in asked), None)
+                self.assertEqual(got, want)
+
+    def test_the_ways_through_the_night(self):
+        self.assertTrue({("sleep", "bed"), ("wait", "day")} <= set(knowledge.fact_steps("night", False)))
+        self.assertTrue({("shelter", "dig in"), ("shelter", "wall in"), ("shelter", "hut")}
+                        <= set(knowledge.fact_steps("covered", True)))
+
+    # (night, covered, need) → the step the plan starts with
+    PLANS = [("must fail: night in the open, stone: under cover first", True, False, "minecraft:cobblestone", "shelter"),
+             ("night under rock, stone: mined", True, True, "minecraft:cobblestone", "mine"),
+             ("day in the open, stone: mined", False, False, "minecraft:cobblestone", "mine"),
+             ("must fail: night, logs: the night over first", True, True, "log", None),
+             ("day, logs: chopped", False, False, "log", "gather")]
+
+    def test_the_night_in_the_plan(self):
+        from bonobo.planner import NullCost
+        for name, night, covered, need, first in self.PLANS:
+            with self.subTest(name):
+                cost = NullCost()
+                facts = {**knowledge.body_facts(None), "night": night, "covered": covered}
+                cost.facts = lambda f=facts: {"dimension": "minecraft:overworld", **f}
+                steps = plan_needs(bag(inventory(("stone_pickaxe", 1))), [(need, 1)], cost)
+                if first is None:
+                    self.assertIn((steps[0].kind, steps[0].token), {("sleep", "bed"), ("wait", "day")})
+                else:
+                    self.assertEqual(steps[0].kind, first)
 
 
 if __name__ == "__main__":

@@ -264,7 +264,7 @@ def burrow_commands(state, args=()):
 
 @skill(gives=["state:sheltered"], needs={"tool:pickaxe:0": 1}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), budget=90, stall=40, commands=lambda st, a: burrow_commands(st, a),
        provides={"state:sheltered": lambda ctx, s: () if _burrow_here(ctx) else None,
-                 "shelter:burrow": lambda ctx, s: ()})
+                 "shelter:burrow": lambda ctx, s: ()}, sets={"*": {"covered": True}})
 def burrow(ctx):
     """Night shelter in a hillside: tunnel 2 in, step to the end, seal the entrance (both faces visible from inside), one chain."""
 
@@ -508,7 +508,7 @@ def _day_now():
 
 DAY_WAIT_TICKS = 200      # one wait while sitting the night out
 
-@skill(gives=["state:day"], remaining=_k.daytime, needs={}, done=lambda c: _day_now(), budget=600, stall=60, provides={"wait:day": lambda ctx, s: ()})
+@skill(gives=["state:day"], remaining=_k.daytime, needs={}, done=lambda c: _day_now(), budget=600, stall=60, provides={"wait:day": lambda ctx, s: ()}, sets={"*": {"night": False}})
 def wait_for_day(ctx):
     """Sit the night out where we are, in ten-second waits, until the sun is up."""
     t = int(api.get("/state")["timeOfDay"]) % DAY_TICKS
@@ -522,7 +522,7 @@ def wait_for_day(ctx):
 
 # needs: none the bag can state — a bed carried or one standing nearby
 @skill(gives=["state:day"], remaining=_k.daytime, needs={}, verify=lambda c: _k.daytime({"state": api.get("/state")}, c) == {}, budget=240, stall=60,
-       provides={"sleep": lambda ctx, s: (_night_policy(ctx),)})
+       provides={"sleep": lambda ctx, s: (_night_policy(ctx),)}, sets={"bed": {"night": False}})
 def sleep(ctx, night_policy):
     """Sleep through the night: the home's bed when it is within reach of the night (HOME_BED_R), else a carried bed
     (placed next to us, picked up after), else a nearby site bed."""
@@ -694,7 +694,7 @@ def night_ground():
 @skill(gives=["state:sheltered"], needs={}, remaining=lambda st, c: dug_in_left(st, c), start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
        provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None,
                  "shelter:dig in": lambda ctx, s: ()}, prefer=1,
-       budget=60, stall=30)
+       budget=60, stall=30, sets={"*": {"covered": True}})
 def dig_in(ctx):
     """On the surface at night without a bed: dig up to 3 down under the feet and seal the opening overhead."""
 
@@ -822,7 +822,7 @@ def pod_commands(state, args=()) -> "list[Task]":
     return tasks
 
 @skill(gives=["state:sheltered"], needs={"building": POD_BLOCKS}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40,
-       provides={"state:sheltered": lambda ctx, s: (), "shelter:wall in": lambda ctx, s: ()}, prefer=-1)
+       provides={"state:sheltered": lambda ctx, s: (), "shelter:wall in": lambda ctx, s: ()}, prefer=-1, sets={"*": {"covered": True}})
 def pod(ctx):
     """Night fallback where digging in is unsafe (water/caves below): wall in the body — four sides at feet and head, a roof."""
 

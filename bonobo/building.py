@@ -499,7 +499,7 @@ def build_blueprint(ctx, name, near):
        verify=lambda c: c.result is not None and _shelter_built(c.args[0], c.result),
        commands=_shelter_commands_for, budget=360, stall=90,
        provides={"build:shelter": lambda ctx, s: (), "state:sheltered": lambda ctx, s: (),
-                 "shelter:hut": lambda ctx, s: ()})
+                 "shelter:hut": lambda ctx, s: ()}, sets={"*": {"covered": True}})
 def build_shelter(ctx):
     """Put up the SHELTER hut near here and register it as a shelter site."""
 
