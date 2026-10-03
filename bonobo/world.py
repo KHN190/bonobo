@@ -112,7 +112,7 @@ def cell_add(p, d) -> Cell:
     return p[0] + d[0], p[1] + d[1], p[2] + d[2]
 
 
-def is_enclosed(region, inside):
+def is_enclosed(region, inside) -> bool:
     """Pure: no 2-high opening on any side and a solid roof."""
 
     return not openings(region, inside)
@@ -462,7 +462,7 @@ def connected(region, seed: Cell, ids) -> set[Cell]:
         todo.extend(cell_add(p, d) for d in NEIGHBOURS6)
     return out
 
-def job_ready(job, tick=None, now=None):
+def job_ready(job, tick=None, now=None) -> bool:
     """Pure given `tick`/`now`: is a background job done?"""
 
     if job.get("ready_tick") is not None and tick is not None:

@@ -30,7 +30,7 @@ def execute(ctx, step, night):
     if not (isinstance(out, dict) and "ordered" in out):
         ctx.mem.record_outcome(key, True)   # a furnace loaded is not a step done: that is when it is held
 
-def runner_for(ctx, step):
+def runner_for(ctx, step) -> tuple | None:
     """(runner, args) of the skill that carries out `step` here, or None when no registered skill can."""
     if step.kind == "skill":
         contract = skillkit.REGISTRY.get(step.token)

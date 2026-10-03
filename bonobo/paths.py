@@ -115,7 +115,7 @@ def session(name, factory):
     return obj
 
 
-def renew_session():
+def renew_session() -> None:
     """Every registered session state back to its factory's contents (in place)."""
     for obj, factory in _SESSION.values():
         fresh = factory()

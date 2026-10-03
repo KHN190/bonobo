@@ -12,13 +12,13 @@ FILE = paths.data("tasks.json", env="MC_TASKS")
 STATES = ("pending", "running", "done", "failed", "cancelled")
 LIVE = ("pending", "running")
 
-def load(path=None):
+def load(path=None) -> list:
     return paths.read_json(path or FILE, {}).get("tasks", [])
 
 def save(items, path=None):
     paths.save_json(path or FILE, {"tasks": items})
 
-def add(goal, expires_s=None, front=False, source="cerebrum", path=None, now=None):
+def add(goal, expires_s=None, front=False, source="cerebrum", path=None, now=None) -> dict:
     """Queue a goal (goals.make / goals.have). Returns the task. An identical live goal is not queued twice."""
     now = time.time() if now is None else now
     items = load(path)
@@ -46,7 +46,7 @@ def head(items):
     """Pure: the first live task, or None."""
     return next((t for t in items if t["state"] in LIVE), None)
 
-def update(task_id, path=None, **fields):
+def update(task_id, path=None, **fields) -> dict | None:
     """Change one task's fields in the file (state, reason, plan). Returns the task, or None when it is gone."""
     items = load(path)
     for t in items:
@@ -77,7 +77,7 @@ def drop_done(path=None):
     """Drop everything that is no longer live."""
     save([t for t in load(path) if t["state"] in LIVE], path)
 
-def goal_of(task):
+def goal_of(task) -> dict:
     return {"goal": task["goal"], "args": task.get("args", {})}
 
 def describe_task(task):

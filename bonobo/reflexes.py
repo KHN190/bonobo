@@ -140,7 +140,7 @@ def nether_retreat(snap):
         return "bag full"
     return None
 
-def ground(reads=None):
+def ground(reads=None) -> tuple[Any, Any, Any]:
     """The two ground readings needs and reflexes ask, each read once when first asked: enclosed, and hand-diggable ground."""
 
     both = _once(None, "night_ground", survive.night_ground)          # one region read answers the two below

@@ -51,7 +51,7 @@ class FightState(lifecycle.State):
 STATE = lifecycle.owns(__name__, FightState())
 
 
-def held():
+def held() -> Any:
     """The threat layer's held decision (kernel.Held), or None."""
     return STATE.held
 
@@ -301,7 +301,7 @@ def active():
 
     return engaged() is not None or bool(arbiter.BODY.engaged)
 
-def threat_state(state, rows, work_s=None, ids=()):
+def threat_state(state, rows, work_s=None, ids=()) -> dict:
     """The threat model's state vector, read off a player state and the rows the watcher last saw."""
 
     st = {"here": (state["x"], state["y"], state["z"]), "hp": float(state.get("health", 20)),
@@ -356,7 +356,7 @@ def unanswered_now(now):
                                           refused=refused_now))
 
 
-def bid(state, rows, price, work_s=None, now=None, ids=()):
+def bid(state, rows, price, work_s=None, now=None, ids=()) -> tuple[Any, float] | None:
     """(the answer, seconds it saves) the held decision stands behind now, or None when nothing pays."""
     if not rows:
         return None

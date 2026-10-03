@@ -70,7 +70,7 @@ def survivors(model, state):
             rejected.append((action.name, why))
     return allowed, rejected
 
-def choose(model, state, floor=0.0):
+def choose(model, state, floor=0.0) -> Choice:
     """The action with the best score, or the model's default when nothing beats `floor`."""
 
     fault = list(model.fault(state)) if hasattr(model, "fault") else []

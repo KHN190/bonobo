@@ -180,7 +180,7 @@ def signature(tasks, seen=None):
     return tuple(out)
 
 
-def from_bag(inv, extra=None, pending=None, reserved=(), facts=None):
+def from_bag(inv, extra=None, pending=None, reserved=(), facts=None) -> VirtualInventory:
     """A virtual inventory from the bag:"""
     counts = Counter()
     for item, n in (extra or {}).items():
@@ -213,7 +213,7 @@ def use_rank(kind):
 
 # -- the ways one source makes `n` of a token: (step, the needs before it, what its run adds back)
 
-def way(src, token, n, ripe=0):
+def way(src, token, n, ripe=0) -> tuple[Step, list, Any, list] | None:
     """(step, [(input token, amount)] in the order they are needed, station or None, [(token, amount)] added after)…"""
     kind = src[0]
     if kind == "craft":
@@ -1227,7 +1227,7 @@ def forward(entries, cost, tools=None):
     return out, sum(ests)
 
 
-def price_as_run(steps, tools, cost, held=None):
+def price_as_run(steps, tools, cost, held=None) -> list:
     """Pure given the cost:"""
     out, at = [], None
     have: list[tuple] = list(tools or ())
@@ -1339,7 +1339,7 @@ SPENT = {"steps": 0, "budget": 0}      # search steps advanced, searches a budge
 lifecycle.in_place(__name__, "SPENT")
 
 
-def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact=False, held=None):
+def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact=False, held=None) -> list:
     """The plans the search priced for `needs` from this bag, cheapest first:"""
     if not needs:
         return [(plan_name([]), 0.0, [])]
@@ -1383,7 +1383,7 @@ class Target:
     rank: int = 0
     options: tuple = ()     # one of: ((way, its needs, seconds it adds beyond its steps), …) — the cheapest whole plan's
 
-def food_left_s(cost):
+def food_left_s(cost) -> float | None:
     """Seconds the body's bar lasts with nothing eaten (beliefs risk.food_drain_s a point), None when food is carrie…"""
     from . import beliefs
     from .knowledge import food_count
@@ -1395,7 +1395,7 @@ def food_left_s(cost):
     return float(state["food"]) * float(beliefs.value("risk.food_drain_s"))
 
 
-def fed_in_time(steps, left_s):
+def fed_in_time(steps, left_s) -> bool:
     """Pure: the plan puts food in the bag before the bar runs out (`left_s`), or never needs to."""
     if left_s is None:
         return True
@@ -1490,7 +1490,7 @@ def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False):
     return best[1]
 
 
-def plan_round(inv, targets, cost, pending=None, jobs=None, held=None, chosen=None, exact=False):
+def plan_round(inv, targets, cost, pending=None, jobs=None, held=None, chosen=None, exact=False) -> tuple[Any, list, float]:
     """The round's one plan over every target (the queue's goals and upkeep's):"""
     jobs = dict(pending or {}) if jobs is None else jobs
     steps = _one_of(inv, targets, cost, pending, jobs, held, chosen, exact)

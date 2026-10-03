@@ -127,7 +127,7 @@ def _row_dps(row):
     """A threat row's damage rate: its own (`threat.row` puts it at [5]) where it carries one, else the table's."""
     return float(row[5]) if len(row) > 5 and row[5] is not None else float(beliefs.MOBS[row[3]]["dps"])
 
-def melee_reachable(here, hazard, ground=None):
+def melee_reachable(here, hazard, ground=None) -> bool:
     """Pure: a sword fight with it is on from where we stand — its feet within reach of our eyes, and the shape we
     stand in now (a pillar, a hole: Field.shape_now) not keeping it off us: we don't step down to trade blows."""
     mob = beliefs.MOBS.get(hazard[3], {})

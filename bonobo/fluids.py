@@ -52,7 +52,7 @@ def clear_line(region, eye, target_cell, target_point, margin=0.2):
                 return False
     return True
 
-def lava_within(region, p, r):
+def lava_within(region, p, r) -> bool:
     """Lava in the box of half-size r around p (feet, head and the floor layers)."""
     for dx in range(-r, r + 1):
         for dy in range(-1, 2 + 1):
