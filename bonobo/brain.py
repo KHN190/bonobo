@@ -156,10 +156,8 @@ def thrown_s(now=None):
     return 0.0 if left is None else cur.commit_s - left
 
 def act_on_surface(act):
-    """Pure: does this act's step walk the surface (arbiter.on_surface)? An act with no step (a chain, a whole
-    skill) is judged by what it runs elsewhere: not flagged."""
-    step = getattr(act, "step", None)
-    return step is not None and arbiter.on_surface(step.kind)
+    """Pure: does this plan act's step (craft_act always names one) walk the surface (arbiter.on_surface)?"""
+    return arbiter.on_surface(act.step.kind)
 
 def craft_run(steps, first, inv=None):
     """Pure: `first` and the crafts straight after it: one table sitting, not one per round — up to the first craft
@@ -489,7 +487,7 @@ class Brain:
         self._mark("inv")
         tape.begin()
         nav.forget_routes()
-        snap = Snapshot.read(_k.SOURCE_BLOCKS)
+        snap = Snapshot.read(_k.SOURCE_BLOCKS, survive.ROUND_GROUND)
         self._mark("snap")
         events.milestones(_bag_counts(snap))
         self.mem.clock = snap.state.get("gameTime")      # None on a jar before 0.1.39: notes then never expire
@@ -581,7 +579,8 @@ class Brain:
                 out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
             unanswered = fight_loop.unanswered_now(time.time())
             afloat = self.reflexes.afloat
-            k = hazard.rescue_due(snap.state, unanswered=unanswered, afloat=afloat)
+            k = hazard.rescue_due(snap.state, buried=skillcore.head_buried_in(snap.region, snap.state),
+                                  unanswered=unanswered, afloat=afloat)
             if k is not None and self.ready(f"rescue {k}"):
                 out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
                     ctx, snap.state, self.attempt, self.ready, threatened=bool(threat.threats_seen()[0]),
@@ -620,7 +619,7 @@ class Brain:
             # S1: a hazard mid-plan: survival on a fresh read
             api.consume_interrupt()
             api.detail(f"   planning stopped: {e}")
-            snap = Snapshot.from_readings(api.get("/state"), Inventory())
+            snap = Snapshot.read(_k.SOURCE_BLOCKS, survive.ROUND_GROUND)
             intents, facts = arbiter.first_live((timed("fast", fast),), facts_of)
         self.decided_on = snap
         chosen = arbiter.arbitrate(intents, facts=facts)
@@ -843,7 +842,7 @@ class Brain:
         found = dispatch.runner_for(ctx, step)
         if found is not None and not fight_line_holds(found[0].contract, (ctx,) + tuple(found[1]), snap.state, snap.inv)[0]:
             return False
-        return dispatch.can_start(ctx, step)
+        return dispatch.can_start(ctx, step, snap.inv)
 
     def after_step(self, act, outcome):
         """The held plan after a step's outcome; returns the task fields to write."""
@@ -911,7 +910,7 @@ class Brain:
     def price_table(self, snap=None):
         """{item: seconds to get one another way}, for skills that ask what a thing is worth."""
         try:
-            snap = snap or Snapshot.read(_k.SOURCE_BLOCKS)
+            snap = snap or Snapshot.read(_k.SOURCE_BLOCKS, survive.ROUND_GROUND)
         except McError as e:
             api.swallowed("brain.price_table", e)
             return {}
@@ -1003,7 +1002,7 @@ def outcome_of(err) -> "tuple[Outcome, Source | None]":
 
 def met(step, snap):
     """Pure: the world already holds what a walk makes."""
-    if step.kind == "goto" and step.detail.get("pos") is not None:
+    if step.kind == "goto":
         return math.dist(snap.feet, tuple(step.detail["pos"])) <= float(step.detail.get("range", 2))
     return False
 

@@ -177,7 +177,7 @@ class Needs:
         """This round's needs into `needs_now` (PLAN proposals), computed from the snapshot alone."""
 
         b, inv, over = self.brain, snap.inv, snap.dimension == "minecraft:overworld"
-        enclosed, _soft_ground, _dig_site = ground(reads)
+        enclosed, _soft_ground, _dig_site = ground(reads, snap)
         blocked = b.reflexes.blocked_here(b.place)
         self.night_facts(snap, reads)
         # a bed from what is carried skips the night: before any shelter and the night's work
@@ -321,7 +321,7 @@ class Needs:
             return self._facts[1]
         from .reflexes import home_walk_s
         b = self.brain
-        _enclosed, soft_ground, dig_site = ground(reads)
+        _enclosed, soft_ground, dig_site = ground(reads, snap)
         left = night_left_s(snap)
         left = None if left is None else math.ceil(left / PLAN_S_TTL) * PLAN_S_TTL
         facts = night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), home_walk_s(b, snap), left,

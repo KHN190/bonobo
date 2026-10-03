@@ -65,6 +65,8 @@ class Oracle(unittest.TestCase):
         ("S5", of(), dec(name="food stock"), {"step_kind": "hunt"}, False),     # the line holds (or no fight)
         ("R5", of(), dec(layer="tactic", token="fight"), {}, True),
         ("R5", of(threat=True), dec(layer="tactic", token="fight"), {}, False),
+        ("K10", of(), dec(), {"decide_calls": [("GET", "/blocks")]}, True),      # must fail: the ground read in decide
+        ("K10", of(), dec(), {"decide_calls": []}, False),
     ]
 
     def test_rows(self):
@@ -74,7 +76,7 @@ class Oracle(unittest.TestCase):
                 self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), fires, got)
 
     def test_every_invariant_has_a_function(self):
-        ids = {f"{p}{n}" for p, top in (("S", 8), ("D", 8), ("E", 3), ("R", 5), ("P", 5)) for n in range(1, top + 1)} | {"M1"}
+        ids = {f"{p}{n}" for p, top in (("S", 8), ("D", 8), ("E", 3), ("R", 5), ("P", 5)) for n in range(1, top + 1)} | {"M1", "K10"}
         self.assertEqual(set(oracle.CHECKS), ids)
 
     def test_unchecked_ones_are_named(self):

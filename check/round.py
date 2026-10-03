@@ -65,7 +65,8 @@ def fact_ages(b, round_snap):
     look = world._SIGHT
     ages = {"the look (world.nearest)": (snap.read_at - look["t"] if look.get("key") else 0.0, FACT_TTL_S["look"]),
             "the ground (perception)": (snap.read_at - perception.STATE.grid_at if perception.STATE.grid_at else 0.0,
-                                        FACT_TTL_S["ground"])}
+                                        FACT_TTL_S["ground"]),
+            "the ground (the round's)": (snap.read_at - snap.region_at, FACT_TTL_S["ground"])}
     return (snap.read_seq, round_snap.read_seq), ages
 
 
@@ -174,6 +175,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
     from bonobo.data import home_box_of
     from bonobo.memory import Memory
     from bonobo.knowledge import SOURCE_BLOCKS
+    from bonobo.survive import ROUND_GROUND
     from bonobo.world import Inventory, Snapshot
     from .facts import alpha
     from .gamma import gamma
@@ -221,7 +223,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
         for dim in DIMS:
             if hasattr(dim, "prepare"):
                 dim.prepare(b, facts)
-        snap = Snapshot.read(SOURCE_BLOCKS)
+        snap = Snapshot.read(SOURCE_BLOCKS, ROUND_GROUND)
         b.place = None
         b.policy_cache = b.policy(snap, snap.night)
         bctx = b.context(snap.dimension)
@@ -248,10 +250,17 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
         live_before = {t["id"] for t in tasklist.load() if t["state"] in tasklist.LIVE}     # D1: what this round finishes
         from bonobo.planner import SPENT
         began, cut = SPENT["steps"], SPENT["budget"]
+        calls, transport = [], api.api
+
+        def counted(method, path, *rest, **kw):
+            calls.append((method, path.split("?")[0]))
+            return transport(method, path, *rest, **kw)
         with contextlib.ExitStack() as stack:
             if hazard:
                 stack.enter_context(mock.patch.object(planner.Search, "advance", _hazard_at(ctx, world)))
+            stack.enter_context(mock.patch.object(api, "api", counted))
             act = b.decide(snap, bctx)
+        ctx["decide_calls"] = calls                              # K10: every jar call the decision made itself
         ctx["search_steps"] = SPENT["steps"] - began            # the round's own thinking, the checker's readings apart
         ctx["budget_spent"] = SPENT["budget"] > cut              # a search stopped by its budget this round
         ctx["body_read"], ctx["fact_ages"] = fact_ages(b, snap)
@@ -263,7 +272,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
             d = Decision(layer="tactic", kind="threat", token=option.kind, target=getattr(option, "target", None),
                          writes=tuple(p for p, _b in world.posts), reason=None, name=f"threat:{option.kind}",
                          alternatives=(("tactic", option.kind, worth),))
-            return d, got, {"step_kind": "threat", "switches": weighed, "holds": held_log}
+            return d, got, {"step_kind": "threat", "switches": weighed, "holds": held_log, "decide_calls": calls}
         d = _decision(act, seen.get("chosen"), seen.get("intents", ()), world)
         if act is None:
             # D1: why nothing was proposed, where production records it — on the task (brain.finish: tasks.marked),
@@ -295,7 +304,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
         if snap.night:
             # asked only of an unsheltered body, as the shelter row asks it
             from bonobo.reflexes import ground
-            enclosed, _soft, _site = ground(None)
+            enclosed, _soft, _site = ground(None, snap)
             if not b.reflexes.sheltered(snap, enclosed):
                 way, _s, steps = b.needs.overnight(snap, bed_too=False)     # the round's own table, not priced again
                 ctx["night_way"], ctx["night_steps"] = way, [st.key() for st in steps]

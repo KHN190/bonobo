@@ -5,8 +5,8 @@ import time
 from typing import Any, Callable
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, building, craft, nav, nether, skillcore, store, survive, tape, world, jobs
-from .api import McError, NotAvailable, log, swallowed
+from . import api, building, craft, nav, nether, skillcore, store, survive, world, jobs
+from .api import McError, NotAvailable, log
 from .data import STATION_R, BASE_MARKERS, FULL_BAR, MAX_HP, WALK_BLOCKS_PER_S
 from .game import OPEN_SKY
 from .estimate import eat_due
@@ -141,14 +141,15 @@ def nether_retreat(snap):
         return "bag full"
     return None
 
-def ground(reads=None) -> tuple[Callable, Callable, Callable]:
-    """The two ground readings needs and reflexes ask, each read once when first asked: enclosed, and hand-diggable ground."""
+def ground(reads, snap) -> tuple[Callable, Callable, Callable]:
+    """The ground readings needs and reflexes ask, over the round's ground (snap.region): enclosed, hand-diggable
+    ground, a dig-in site — no read of their own (K10)."""
 
-    both = _once(None, "night_ground", survive.night_ground)          # one region read answers the two below
+    both = _once(None, "night_ground", lambda: survive.night_ground(snap.region, snap.feet))
     soft = _once(reads, "soft_ground", lambda: both()[0])
     # given readings without the dig-in site say nothing against it (a test's round reads no world)
     site = (lambda: reads.get("dig_in_site", True)) if reads is not None else (lambda: both()[1])
-    return _once(reads, "enclosed", survive.enclosed), soft, site
+    return _once(reads, "enclosed", lambda: survive.is_enclosed(snap.region, snap.feet)), soft, site
 
 def _once(reads, key, read):
     """A zero-argument reader: `reads[key]` when given, else `read()` on first use, kept for the round."""
@@ -206,7 +207,7 @@ class Maintain:
 
         b, s, inv = self.brain, snap.state, snap.inv
         blocked = self.blocked_here(b.place)
-        enclosed, _soft_ground, _dig_site = ground(reads)
+        enclosed, _soft_ground, _dig_site = ground(reads, snap)
 
         def night_way():
             facts = b.needs.night_facts(snap, reads)
@@ -234,7 +235,7 @@ class Maintain:
             "stuck": lambda: self.stuck_in_place(snap, enclosed),
             # a hole open to the sky, deeper than a jump (travel's shaft, a dug pit): read only under open sky
             "in_pit": lambda: s.get("skyLight", 0) >= OPEN_SKY and not _k.swimming(s)
-            and _once(reads, "in_pit", lambda: self.in_pit(snap.feet))(),
+            and _once(reads, "in_pit", lambda: nav.in_pit(snap.region, snap.feet))(),
         }, snap=snap, ctx=ctx, food=s.get("food", 20), hp=s.get("health", MAX_HP), night=snap.night,
             bed_carried=inv.count("bed") > 0, used_slots=inv.used_slots(), blocked=blocked is not None,
             blocked_at=blocked, building=inv.count("building"), feet=snap.feet)
@@ -293,12 +294,7 @@ class Maintain:
 
     def sheltered(self, snap, enclosed=None):
         """knowledge.sheltered over this round: under rock, walled in, or inside a site's interior."""
-        def walled():
-            try:
-                return (enclosed or survive.enclosed)()
-            except (tape.ReplayMiss, McError) as e:
-                swallowed("reflexes.walled", e)
-                return False
+        walled = enclosed or (lambda: survive.is_enclosed(snap.region, snap.feet))
         return _k.sheltered(snap.get("skyLight", 15), walled, lambda: self.in_site(snap.feet, snap.dimension))
 
     def nearest_interior(self, feet, dimension):
@@ -348,15 +344,6 @@ class Maintain:
         return min(math.dist(s["pos"], snap.feet) for s in sites) / WALK_BLOCKS_PER_S
 
     # -- stuck
-    def in_pit(self, feet):
-        """nav.in_pit over the cells round the feet (one small read)."""
-        x, y, z = feet
-        try:
-            return nav.in_pit(Region((x - 1, y, z - 1), (x + 1, y + 2, z + 1)), feet)
-        except McError as e:
-            swallowed("reflexes.in_pit", e)
-            return False
-
     def leave_pit(self, snap, ctx):
         """One level up out of a pit (nav.pit_exit_tasks): a pillar with a carried block, else a step dug in the side."""
         x, y, z = snap.feet
@@ -378,13 +365,8 @@ class Maintain:
         return all(math.dist(h[1], ref[1]) < 2 and h[2] == ref[2] for h in self.history if h[0] >= ref[0])
 
     def situation(self, snap):
-        """Where we are stuck (stuck_situation), from one small read round the feet; "open" when unread."""
-        x, y, z = snap.feet
-        try:
-            region = Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1))
-        except McError as e:
-            swallowed("reflexes.situation", e)
-            return "open"
+        """Where we are stuck (stuck_situation), over the round's ground."""
+        region = snap.region
         return stuck_situation(survive.is_enclosed(region, snap.feet), nav.in_pit(region, snap.feet),
                                on_column(region, snap.feet), _k.under_rock(snap.state.get("skyLight", 15)))
 

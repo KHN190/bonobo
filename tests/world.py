@@ -124,20 +124,25 @@ def bag(data):
     return Inventory(data)
 
 
-def snapshot(st=None, inv=None, **seen):
+def snapshot(st=None, inv=None, region=None, **seen):
     """The real `world.Snapshot`, from readings: `seen` {name: distance} is the round's look (blocks in sight along +x,
-    living entities there too), no world read."""
+    living entities there too), `region` its ground (default: flat stone under the feet over the box the round reads,
+    survive.ROUND_GROUND), no world read."""
     from bonobo.data import bare, mid
-    from bonobo.world import Snapshot
+    from bonobo.survive import ROUND_GROUND
+    from bonobo.world import Snapshot, cell_add
     st = st if st is not None else state()
     fx, fy, fz = st["blockX"], st["blockY"], st["blockZ"]
+    if region is None:
+        lo, hi = (cell_add((fx, fy, fz), d) for d in ROUND_GROUND[0])
+        region = flat(lo, hi, floor_y=fy - 1)
     hits, mobs = {}, []
     for i, (name, d) in enumerate(seen.items()):
         cell = (fx + int(round(float(d))), fy, fz)
         hits.setdefault(bare(name), []).append({"x": cell[0], "y": cell[1], "z": cell[2], "block": mid(name),
                                                 "distance": float(d)})
         mobs.append({"type": mid(name), "id": i + 1, "x": cell[0], "y": cell[1], "z": cell[2], "distance": float(d)})
-    return Snapshot.from_readings(st, inv if inv is not None else inventory(), hits, mobs)
+    return Snapshot.from_readings(st, inv if inv is not None else inventory(), hits, mobs, region)
 
 
 def memory():

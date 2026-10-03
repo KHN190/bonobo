@@ -136,13 +136,14 @@ def _achieve(ctx, needs, done, rounds=12):
     from .. import api
     from ..world import Inventory, Snapshot
     from ..knowledge import SOURCE_BLOCKS
+    from .. import survive
     from .. import jobs as _jobs
     brain = BRAIN
     assert brain is not None, "set_brain first: plan-driven rows run the brain's own path"
     for _ in range(rounds * 4):
         if done():
             return True
-        snap = Snapshot.read(SOURCE_BLOCKS)
+        snap = Snapshot.read(SOURCE_BLOCKS, survive.ROUND_GROUND)
         pending = brain.mem.jobs(snap.dimension)
         from .. import world as _world
         ready = [j for j in pending if _world.job_ready(j, snap.state.get("gameTime"))]
@@ -166,12 +167,12 @@ def _achieve(ctx, needs, done, rounds=12):
 def one_step(ctx, kind, token, count=1, detail=None):
     """One plan step priced by the cost model and run as the brain runs it, its price line written (E4): through
     dispatch when a skill provides it, else a shelter step through the shelter reflex's own runner."""
-    from .. import dispatch, reflexes
+    from .. import dispatch, reflexes, survive
     from ..cost import Cost
     from ..knowledge import SOURCE_BLOCKS
     from ..planner import Step
     from ..world import Snapshot
-    snap = Snapshot.read(SOURCE_BLOCKS)
+    snap = Snapshot.read(SOURCE_BLOCKS, survive.ROUND_GROUND)
     step = Step(kind, token, count, dict(detail or {}))
     step.est = int(Cost(snap, BRAIN.mem).estimate(step))
     if dispatch.runner_for(ctx, step) is not None:

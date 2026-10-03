@@ -355,7 +355,7 @@ class CanStart(unittest.TestCase):
                 b.retry, b.place = retry.Retry(), ("here", False)
                 ctx = type("Ctx", (), {"policy": None, "mem": None})()
                 self.assertEqual(b.valid(step, snapshot(inv=bag_), ctx), want)
-                self.assertEqual(dispatch.can_start(ctx, step), all(_passes(p) for p in pre))
+                self.assertEqual(dispatch.can_start(ctx, step, bag_), all(_passes(p) for p in pre))
 
     def test_a_failed_step_cools_for_every_goal(self):
         """A plan step that failed cools under its own key (brain.step_key), so the next goal that plans the same
@@ -402,7 +402,7 @@ class CanStart(unittest.TestCase):
                 for sname, (effect, args, pre) in fakes.items():
                     skillkit.skill(needs={}, gives={}, remaining=NOTHING_LEFT, name=sname, pre=pre, provides={effect: lambda ctx, s, _a=args: _a})(
                         lambda ctx, *a: None)
-                self.assertIs(dispatch.can_start(None, step), want)
+                self.assertIs(dispatch.can_start(None, step, inventory()), want)
 
 
 # -------------------------------------------------------------------------------------------------- the cost model
