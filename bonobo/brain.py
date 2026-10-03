@@ -19,7 +19,6 @@ api.ANOMALY = events.anomaly      # a swallowed or unexpected error is an event 
 # every module that registers skills: a new one is added here only
 from . import brewing, combat, dragon, end, farming, fluids, gather, loot, store, ui, wood  # noqa: F401,E402
 from .api import GameUnreachable, McError, NotAvailable, PlayerTookControl, log
-from . import cost as costmod
 from .cost import Cost, Prices
 from .data import HAND_MINEABLE_SUFFIX, bare
 from .game import EYE_HEIGHT
@@ -211,7 +210,7 @@ class Brain:
         nav.DOORS = mechanisms.doors_on_way   # taught doors: pressed on the way, never dug
         mechanisms.WALK_TO = nav.go_to
         nav.HOME_DOOR = mechanisms.home_exit
-        nav.DOOR_ROUTE = costmod.DOOR_ROUTE = mechanisms.taught_route_s     # and priced through, not as rock
+        nav.DOOR_ROUTE = mechanisms.taught_route_s     # and walked through, not as rock (the cost reads Memory.taught)
         nav.ROAD_MEM = self.mem       # travelled legs become a road network (roads.py) for later trips
         self.retry = retry.Retry()
         self.planning = True                    # False for a round without the plan layer (Brain.round(plan=False))
