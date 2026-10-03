@@ -230,6 +230,7 @@ class Brain:
         perception.COVER = self.reflexes.nearest_interior
         perception.NIGHTS_MISSED = lambda: self.mem.nights_missed()
         reflexes.STEP_RUN = dispatch.execute
+        reflexes.PRICED_RUN = dispatch.run_priced
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.place = None  # what causes are cooled against
         self.idle_since = None

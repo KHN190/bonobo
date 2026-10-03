@@ -166,7 +166,7 @@ def _achieve(ctx, needs, done, rounds=12):
 def one_step(ctx, kind, token, count=1, detail=None):
     """One plan step priced by the cost model and run as the brain runs it, its price line written (E4): through
     dispatch when a skill provides it, else a shelter step through the shelter reflex's own runner."""
-    from .. import api, dispatch, reflexes
+    from .. import dispatch, reflexes
     from ..cost import Cost
     from ..knowledge import SOURCE_BLOCKS
     from ..planner import Step
@@ -176,14 +176,13 @@ def one_step(ctx, kind, token, count=1, detail=None):
     step.est = int(Cost(snap, BRAIN.mem).estimate(step))
     if dispatch.runner_for(ctx, step) is not None:
         return dispatch.execute(ctx, step, snap.night)
-    t0 = time.time()
-    try:
-        out = reflexes.SHELTER_RUN[token](ctx)
-    except api.McError as e:
-        dispatch.trace(step, snap.night, snap.dimension, t0, f"failed: {type(e).__name__}")
-        raise
-    dispatch.trace(step, snap.night, snap.dimension, t0)
-    return out
+    return dispatch.run_priced(snap.dimension, step, snap.night, lambda: reflexes.SHELTER_RUN[token](ctx))
+
+
+def clock_ahead(ctx, ticks):
+    """The game's clock run ahead `ticks` (/tick sprint, not waited on): a growth inside a row's limit, the step after
+    it judged in the game's own seconds (dispatch reads gameTime on a bench row)."""
+    _chat(f"tick sprint {int(ticks)}")
 
 
 def chest_known(ctx, chest, items):

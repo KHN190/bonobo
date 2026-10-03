@@ -270,8 +270,14 @@ class Cost:
         """Ticks this step takes: its work (`work`) plus the walk to where it happens — from `at` (the plan's place
         before it) when that and the step's site are known, else from here; a withdrawal by the chance its container
         still holds the thing (a miss costs the walk)."""
-        ticks = self.work(step, held) + self._walk(step, at, held)
-        return round(ticks / step.detail["p"]) if step.kind == "withdraw" and step.detail.get("p") else ticks
+        work = self.work(step, held)
+        parts = {"work": work, **self._walk_parts(step, at, held)}
+        if step.kind in ("seek", "wait"):
+            parts[step.kind], parts["work"] = work, 0
+        ticks = sum(parts.values())
+        total = round(ticks / step.detail["p"]) if step.kind == "withdraw" and step.detail.get("p") else ticks
+        step.parts = {**parts, "chance": total - ticks}      # E4: each part measured and fitted apart
+        return total
 
     def work(self, step, held=None):
         """Ticks of the step's own work: measured when there is enough of it, else the prior less what the tools
@@ -279,7 +285,7 @@ class Cost:
         measured = self.measured(step)
         if measured is not None:
             return measured
-        if step.kind == "seek":
+        if step.kind in ("seek", "wait"):
             kinds = list(step.detail.get("kinds") or [step.token])
             return round(self.seek_s(kinds) / max(MIN_FIND_P, self.find_p(kinds)) * TICKS_PER_S)
         if step.kind == "wait":
@@ -329,7 +335,7 @@ class Cost:
     def known_source(self, step):
         """Is where this step goes known (in sight or remembered)?"""
 
-        if step.kind == "seek":
+        if step.kind in ("seek", "wait"):
             return False
         return step.kind not in self.SOURCED or self._source(step) is not None
 
@@ -384,26 +390,35 @@ class Cost:
         return self.cache["points"]
 
     def _walk(self, step, at=None, held=None, dig=True):
+        return sum(self._walk_parts(step, at, held, dig).values())
+
+    def _walk_parts(self, step, at=None, held=None, dig=True):
+        """{"walk", "dig", "surface", "seek"} ticks of getting to where the step happens (seek: the walk to a thing
+        nowhere known, priced by the prior)."""
         k = step.kind
+        out = {"walk": 0, "dig": 0, "surface": 0, "seek": 0}
         site = self.site(step) if at is not None else None
         if at is not None and site is not None:
-            ticks = walk_ticks(math.dist(at, site))
+            out["walk"] = walk_ticks(math.dist(at, site))
             if k in ("goto", "withdraw", "look"):
                 through = self.door_s(site, at)
-                ticks = round(through * TICKS_PER_S) if through is not None else ticks
-            return ticks + (self.dig_to(step, held) if k == "mine" and dig else 0)
-        if k in self.SOURCED:
+                out["walk"] = round(through * TICKS_PER_S) if through is not None else out["walk"]
+            out["dig"] = self.dig_to(step, held) if k == "mine" and dig else 0
+        elif k in self.SOURCED:
             d = self._source(step)
-            return (walk_ticks(d) if d is not None else UNKNOWN_WALK_TICKS) \
-                + (self._surface_trip() if k != "mine" else self.dig_to(step, held) if dig else 0)
-        if k == "fill":
+            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else UNKNOWN_WALK_TICKS
+            if k != "mine":
+                out["surface"] = self._surface_trip()
+            elif dig:
+                out["dig"] = self.dig_to(step, held)
+        elif k == "fill":
             d = self._known(["water"])
-            return walk_ticks(d) if d is not None else PRIOR_TICKS["unknown_water"]
-        if k in ("goto", "withdraw", "look"):
+            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else PRIOR_TICKS["unknown_water"]
+        elif k in ("goto", "withdraw", "look"):
             through = self.door_s(tuple(step.detail["pos"]))
-            return round(through * TICKS_PER_S) if through is not None else \
+            out["walk"] = round(through * TICKS_PER_S) if through is not None else \
                 walk_ticks(math.dist(self.snap.feet, tuple(step.detail["pos"])))
-        return 0
+        return out
 
     def dig_to(self, step, held=None):
         """Ticks the digging to the nearest one in sight takes (work_of's breaks beyond the step's own), each break

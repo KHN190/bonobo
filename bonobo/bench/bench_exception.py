@@ -270,6 +270,71 @@ ROWS = [
          est=('plan', [('minecraft:wooden_pickaxe', 1)]),
          skills=['craft_chain'], tier_fixed='exception', tags={'base': 'craft'})
 ]
+# E4's rows: each runs its step as the brain does (bench.core.one_step), so its price line is judged
+E4_ROWS = [dict(r, module=r.get('module', 'skills'), point='C', stochastic=False,
+          before=[('start', r['name'])] + r.get('before', []), tags={'base': 'e4'}) for r in [
+    dict(name='withdraw_chest', doc='a chest 3 off with 8 sticks, seen open → 4 sticks withdrawn (the withdraw price)',
+         scene=[('floor', 'stone', 8, 4), ('chest', ('@', 3, 0, 0), 'stick 8'), ('stand',), ('cmd', 'clear @p')],
+         before=[('do', 'chest_known', ['$ctx', ('@', 3, 0, 0), [('minecraft:stick', 8)]], {})],
+         run=('do', 'one_step', ['$ctx', 'withdraw', 'minecraft:stick', 4, {'pos': ('@', 3, 0, 0)}], {}),
+         check=[('gain', 'minecraft:stick', 4)],
+         est=('step', 'withdraw', 'minecraft:stick', 4, {'pos': ('@', 3, 0, 0)}), skills=['withdraw']),
+    dict(name='look_chest', doc='a home chest never opened, 24 iron in it → looked into, then the iron withdrawn',
+         scene=[('floor', 'stone', 8, 4), ('chest', ('@', 2, 0, 2), 'iron_ingot 24'), ('stand',), ('cmd', 'clear @p')],
+         before=[('do', 'home_with_chest', ['$ctx', ('@', 2, 0, 2)], {})],
+         run=('seq', None, ('!do', 'one_step', ['$ctx', 'look', 'container', 1, {'pos': ('@', 2, 0, 2)}], {}),
+              ('!do', 'one_step', ['$ctx', 'withdraw', 'minecraft:iron_ingot', 24, {'pos': ('@', 2, 0, 2)}], {})),
+         check=[('gain', 'minecraft:iron_ingot', 24)],
+         est=('sum', ('step', 'look', 'container', 1, {'pos': ('@', 2, 0, 2)}),
+              ('step', 'withdraw', 'minecraft:iron_ingot', 24, {'pos': ('@', 2, 0, 2)})), skills=['look', 'withdraw']),
+    dict(name='shelter_pod', module='survive', doc='night on stone, blocks carried → walled in a pod',
+         scene=[('floor', 'stone', 8, 4), ('stand',), ('cmd', 'clear @p'), ('give', 'cobblestone', 16), ('time', 18000)],
+         run=('do', 'one_step', ['$ctx', 'shelter', 'pod', 1, {}], {}), check=[('call', 'enclosed', [])],
+         est=('step', 'shelter', 'pod', 1, {}), skills=['pod']),
+    dict(name='shelter_hut', module='building', doc="night on stone, the hut's parts carried → the hut standing",
+         scene=[('floor', 'stone', 8, 4), ('stand',), ('cmd', 'clear @p'), ('give', 'cobblestone', 16),
+                ('give', 'oak_door'), ('give', 'torch'), ('time', 18000)],
+         run=('do', 'one_step', ['$ctx', 'shelter', 'hut', 1, {}], {}),
+         check=[('blocks', ('@', -8, 0, -8), ('@', 8, 4, 8), ('oak_door',), 1)],
+         est=('step', 'shelter', 'hut', 1, {}), skills=['build_shelter']),
+    dict(name='store_home', module='store', doc='a full bag at a home with a chest → the bag emptied into it',
+         scene=[('floor', 'stone', 8, 4), ('setblock', ('@', 2, 0, 0), 'chest'), ('stand',), ('cmd', 'clear @p'),
+                ('give', 'cobblestone', 640), ('give', 'dirt', 640), ('give', 'gravel', 320), ('give', 'chest')],
+         before=[('do', 'home_with_chest', ['$ctx', ('@', 2, 0, 0)], {})],
+         run=('do', 'one_step', ['$ctx', 'room', 'deposit', 1, {}], {}), check=[('bag', 'used_slots', [], '<', 12)],
+         est=('step', 'room', 'deposit', 1, {}), skills=['deposit']),
+    dict(name='trade_villager', module='ui', doc='a villager selling bread for an emerald, emeralds carried → bread',
+         scene=[('floor', 'stone', 8, 4), ('stand',), ('cmd', 'clear @p'), ('give', 'emerald', 4),
+                ('at', 'summon villager {0} {{NoAI:1b,VillagerData:{{profession:"minecraft:farmer",level:2,'
+                       'type:"minecraft:plains"}},Offers:{{Recipes:[{{buy:{{id:"minecraft:emerald",count:1}},'
+                       'sell:{{id:"minecraft:bread",count:1}},maxUses:12}}]}}}}', ('@', 3, 0, 0))],
+         run=('do', 'one_step', ['$ctx', 'trade', 'minecraft:bread', 1, {}], {}),
+         check=[('gain', 'minecraft:bread', 1)], est=('step', 'trade', 'minecraft:bread', 1, {}), skills=['trade']),
+    dict(name='farm_wheat', module='farming', doc='seeds, a water bucket and a hoe on grass → a plot sown, its wheat '
+                                                  'grown under a sprinted clock and reaped (the farm and growth prices, '
+                                                  'the growth in game seconds)',
+         scene=[('floor', 'grass_block', 8, 4), ('stand',), ('cmd', 'clear @p'), ('give', 'wheat_seeds', 9),
+                ('give', 'water_bucket'), ('give', 'wooden_hoe'), ('cmd', 'gamerule random_tick_speed 3')],
+         run=('seq', None, ('!do', 'one_step', ['$ctx', 'farm', 'minecraft:wheat', 1, {}], {}),
+              ('!do', 'clock_ahead', ['$ctx', 36000], {}),
+              ('!do', 'one_step', ['$ctx', 'await', 'minecraft:wheat', 1, {}], {})),
+         check=[('gain', 'minecraft:wheat', 1)],
+         est=('step', 'farm', 'minecraft:wheat', 1, {}), skills=['plant_farm', 'await_job']),
+    dict(name='nav_far', module='nav', doc='a straight stone road 60 blocks east → there (the walk price)',
+         scene=[('floor', 'stone', 4, 2), ('fill', ('@', -2, -1, -2), ('@', 62, -1, 2), 'stone'), ('stand',)],
+         run=('do', 'one_step', ['$ctx', 'goto', '', 1, {'pos': ('@', 60, 0, 0), 'range': 1.5}], {}),
+         check=[('arrived', ('@', 60, 0, 0), 1.5)], est=('step', 'goto', '', 1, {'pos': ('@', 60, 0, 0)}),
+         skills=['goto']),
+    dict(name='nav_hills', module='nav', doc='steps up and down and a wall to go round, 18 blocks on → there (the '
+                                             'route factor)',
+         scene=[('floor', 'stone', 9, 3), ('fill', ('@', 3, 0, -9), ('@', 5, 0, 9), 'stone'),
+                ('fill', ('@', 6, 0, -9), ('@', 8, 1, 9), 'stone'), ('fill', ('@', 9, 0, -9), ('@', 10, 0, 9), 'stone'),
+                ('fill', ('@', 13, 0, -6), ('@', 13, 3, 5), 'stone'), ('stand',)],
+         run=('do', 'one_step', ['$ctx', 'goto', '', 1, {'pos': ('@', 17, 0, 0), 'range': 1.5}], {}),
+         check=[('arrived', ('@', 17, 0, 0), 1.5)], est=('step', 'goto', '', 1, {'pos': ('@', 17, 0, 0)}),
+         skills=['goto']),
+]]
+ROWS += E4_ROWS
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 import threading as _threading
 import time

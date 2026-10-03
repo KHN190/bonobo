@@ -618,6 +618,24 @@ def landing(region, here, spot, max_drop=None, least=2):
 
 def go_to(pos, policy, range_=ARRIVE_RANGE, attempts=3, min_hp: float | None = MIN_WALK_HP, avoid_hazards=True, purpose="work",
           y_guess=False):
+    """`_go_to`, its seconds added to WALKED (the outermost walk only: a leg inside a trip is the trip's)."""
+    WALKED["depth"] += 1
+    t0 = time.time()
+    try:
+        return _go_to(pos, policy, range_, attempts, min_hp, avoid_hazards, purpose, y_guess)
+    finally:
+        WALKED["depth"] -= 1
+        if not WALKED["depth"]:
+            WALKED["s"] += time.time() - t0
+            WALKED["arrived"] = WALKED["arrived"] or time.time()
+
+
+WALKED = {"s": 0.0, "arrived": None, "depth": 0}     # the walking a step did (dispatch's price line reads and resets it)
+lifecycle.in_place(__name__, "WALKED")
+
+
+def _go_to(pos, policy, range_=ARRIVE_RANGE, attempts=3, min_hp: float | None = MIN_WALK_HP, avoid_hazards=True, purpose="work",
+          y_guess=False):
     """Walk; when the walker can't get there, build/dig a route toward the target. `y_guess`: the target's y is not
     known (a waypoint) — only then is a "no route" retried on the column's ground."""
 

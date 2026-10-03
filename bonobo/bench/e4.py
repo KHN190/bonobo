@@ -13,14 +13,43 @@ ITEM_SPREAD = (0.25, 4.0)
 KEEP = (0.2, 5.0)
 
 
+def _scale(line):
+    """Pure: game seconds per wall second of the line's run (cond.tick_rate: a bench row's fast clock)."""
+    return float((line.get("cond") or {}).get("tick_rate") or TICKS_PER_S) / TICKS_PER_S
+
+
 def ratio(line):
-    """Pure: actual seconds / estimated seconds of one price line, or None (no estimate, or not ok); a step run
-    under a faster clock (cond.tick_rate) counted in game seconds."""
+    """Pure: actual seconds / estimated seconds of one price line, or None (no estimate, or not ok); in game seconds
+    (the game's own clock when the line read it, else the wall clock × the row's tick rate)."""
     est = float(line.get("est") or 0) / TICKS_PER_S
     if not line.get("ok") or est <= 0:
         return None
-    rate = float((line.get("cond") or {}).get("tick_rate") or TICKS_PER_S)
-    return float(line["actual_s"]) * rate / TICKS_PER_S / est
+    actual = line["game_s"] if line.get("game_s") is not None else float(line["actual_s"]) * _scale(line)
+    return float(actual) / est
+
+
+def part_ratios(line):
+    """Pure: {price item: actual / estimate} by part — the work (and its digging) against the phase after the
+    walking, the walk or the seek against the walking — when the line was measured by phase; else the whole step
+    against its work's item."""
+    whole = ratio(line)
+    if whole is None:
+        return {}
+    price = {p: s.partition(":")[0] for p, s in (line.get("price") or {}).items()}
+    est, act = line.get("est_parts") or {}, line.get("actual_parts")
+    if not act or not est or line.get("game_s") is not None:
+        return {price.get("work", ""): whole}
+    out, k = {}, _scale(line)
+    work = (est.get("work", 0) + est.get("dig", 0)) / TICKS_PER_S
+    if work > 0:
+        out[price["work"]] = act["work"] * k / work
+    walk, seek = (est.get("walk", 0) + est.get("surface", 0)) / TICKS_PER_S, est.get("seek", 0) / TICKS_PER_S
+    moved = (act["walk"] + act["seek"]) * k
+    if walk > 0 and not seek and "walk" in price:
+        out[price["walk"]] = moved / walk
+    elif seek > 0 and not walk and "seek" in price:
+        out[price["seek"]] = moved / seek
+    return out
 
 
 def inside(r, band):
@@ -56,22 +85,14 @@ def row_verdict(lines):
     return not misses, misses
 
 
-def item_of(line):
-    """Pure: the price item a line's work came from ("PRIOR_TICKS.gather_each") and its source tag."""
-    item, _, tag = str(line.get("price", {}).get("work", "")).partition(":")
-    return item, tag
-
-
 def item_verdicts(lines):
-    """Pure: {item: {"tag", "n", "gmean", "holds", "dropped"}} over the ok lines naming it."""
+    """Pure: {item: {"tag", "n", "gmean", "holds", "dropped"}} over the ok lines' part ratios naming it."""
     by = {}
     for ln in lines:
-        r = ratio(ln)
-        if r is None:
-            continue
-        item, tag = item_of(ln)
-        d = by.setdefault(item, {"tag": tag, "kept": [], "dropped": []})
-        (d["kept"] if inside(r, KEEP) else d["dropped"]).append(round(r, 3))
+        tags = {s.partition(":")[0]: s.partition(":")[2] for s in (ln.get("price") or {}).values()}
+        for item, r in part_ratios(ln).items():
+            d = by.setdefault(item, {"tag": tags.get(item, "prior"), "kept": [], "dropped": []})
+            (d["kept"] if inside(r, KEEP) else d["dropped"]).append(round(r, 3))
     out = {}
     for item, d in by.items():
         kept = d["kept"]

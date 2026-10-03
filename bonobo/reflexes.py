@@ -16,6 +16,7 @@ from .skillcore import gained
 from .world import BAG_SLOTS, Inventory, Region, nearest
 from .bag import FREE_SLOTS_TARGET, bag_signature, empty_how
 from .decompose import way_key
+from .planner import Step
 
 
 def in_sight(snap, kinds, radius):
@@ -163,6 +164,8 @@ def _once(reads, key, read):
 
 # a shelter step's token → the skill that makes it
 STEP_RUN: Any = None     # dispatch.execute, set by Brain
+PRICED_RUN: Any = None   # dispatch.run_priced, set by Brain: a shelter run here is priced like any step
+REFLEX_STEP = {"eat": ("eat", "food"), "sleep": ("sleep", "bed"), "empty the bag": ("room", "deposit")}     # priced rows
 SHELTER_RUN = {"dig_in": lambda ctx: survive.dig_in(ctx), "pod": lambda ctx: survive.pod(ctx),
                "hut": lambda ctx: building.build_shelter(ctx), "home": lambda ctx: survive.sleep_at_home(ctx)}
 
@@ -246,7 +249,11 @@ class Maintain:
 
         def run(name):
             self.last_run = (name, progress_of(name, view))
-            return rows[name](self, view)
+            if name not in REFLEX_STEP or PRICED_RUN is None:
+                return rows[name](self, view)
+            step = Step(*REFLEX_STEP[name], 1)
+            step.est = int(b.needs.cost(snap).estimate(step))
+            return PRICED_RUN(snap.dimension, step, snap.night, lambda: rows[name](self, view))
         return [(seq, name, (lambda name=name: run(name))) for seq, name in fired if b.ready(name)]
 
     # -- path blocked
@@ -274,7 +281,8 @@ class Maintain:
         try:
             if len(steps) > 1:
                 return STEP_RUN(ctx, steps[0], True)
-            return SHELTER_RUN[steps[-1].token](ctx)
+            run = lambda: SHELTER_RUN[steps[-1].token](ctx)     # noqa: E731
+            return PRICED_RUN(snap.dimension, steps[-1], True, run) if PRICED_RUN is not None else run()
         except McError as e:
             if api.interrupted(e):
                 raise

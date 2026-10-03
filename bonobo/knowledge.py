@@ -808,7 +808,7 @@ PRICE_SOURCE = {
     "data.TOOL_SPEED": "game", "data.BREAK_DIVISOR": "game", "data.PASSIVE_WEIGHT": "game", "data.SEARCH_LEGS": "prior",
     "data.SEARCH_LOOK_R": "prior", "game.EAT_TICKS": "game", "game.PLAYER_SPRINT": "game",
 }
-PRIOR_ORIGIN = {}     # a fitted PRIOR_TICKS key → its first prior (tools.fit_prices bounds every fit by it)
+PRIOR_ORIGIN = {}     # a fitted price item → its first value (tools.fit_prices bounds every fit by it)
 
 
 def dawn_s(state):

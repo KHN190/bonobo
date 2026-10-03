@@ -1,41 +1,55 @@
-"""Fit the step priors (knowledge.PRIOR_TICKS) from the price lines (prices.jsonl), bounded, and say E4 per item.
-Offline: reads files, never the game. A game or policy item is never fitted (a miss there is a model bug, said); an
-item is changed only from MIN_N kept samples and by at least MIN_CHANGE, one fit moving it at most ×FIT_STEP and
-never past ×MEASURED_BAND of its first prior (knowledge.PRIOR_ORIGIN keeps it). Usage: fit_prices [--write]"""
+"""Fit the priors from the price lines (prices.jsonl), bounded, and say E4 per item. Offline: reads files, never the
+game. A game or policy item is never fitted (a miss there is a model bug, said); an item is changed only from MIN_N
+kept samples and by at least MIN_CHANGE, one fit moving it at most ×FIT_STEP and never past ×MEASURED_BAND of its first
+prior (knowledge.PRIOR_ORIGIN keeps it). Fitted: the step works (PRIOR_TICKS), a crop's or an animal's growth
+(GROW_S), the walk (WALK_BLOCKS_PER_TICK: a speed, fitted inversely), a search's prior (play.toml seek_prior_s).
+Usage: fit_prices [--write]"""
 import os
 import re
 import sys
 
-from .. import dispatch, knowledge
+from .. import beliefs, data, dispatch, knowledge
 from ..bench import e4
 from ..data import MEASURED_BAND
 
 MIN_N = 3
 MIN_CHANGE = 0.10
 FIT_STEP = 2.0
-KNOWLEDGE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "knowledge.py")
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+KNOWLEDGE, DATA, PLAY = (os.path.join(HERE, f) for f in ("knowledge.py", "data.py", "play.toml"))
 
 
-def fitted(current, origin, gmean, n, tag):
-    """Pure: the new prior of one item, or None (not fitted: game/policy, too few samples, too small a change)."""
-    if tag not in ("prior", "measured") or gmean is None or n < MIN_N:
+def fitted(current, origin, gmean, n, tag, inverse=False):
+    """Pure: the new value of one item, or None (not fitted: game/policy, too few samples, too small a change); a
+    speed (`inverse`) moves against the time it took."""
+    if tag not in ("prior", "measured") or gmean is None or n < MIN_N or current <= 0:
         return None
-    new = current * min(max(gmean, 1.0 / FIT_STEP), FIT_STEP)
+    step = min(max(gmean, 1.0 / FIT_STEP), FIT_STEP)
+    new = current / step if inverse else current * step
     new = min(max(new, origin / MEASURED_BAND), origin * MEASURED_BAND)
-    new = int(round(new))
-    return new if current > 0 and abs(new - current) / current >= MIN_CHANGE else None
+    new = round(new) if isinstance(current, int) else round(new, 3)
+    return new if abs(new - current) / current >= MIN_CHANGE else None
 
 
-def fit_plan(report, priors, origin):
-    """Pure: {PRIOR_TICKS key: new ticks} from an e4.items report."""
+def current_values():
+    """{item: (value now, inverse)} of every fittable item."""
+    out = {f"PRIOR_TICKS.{k}": (v, False) for k, v in knowledge.PRIOR_TICKS.items() if isinstance(v, (int, float))}
+    out.update({f"knowledge.GROW_S.{k}": (v, False) for k, v in knowledge.GROW_S.items()})
+    out["data.WALK_BLOCKS_PER_TICK"] = (data.WALK_BLOCKS_PER_TICK, True)
+    out["plan.seek_prior_s"] = (float(beliefs.CONFIG["plan"]["seek_prior_s"]), False)
+    return out
+
+
+def fit_plan(report, values, origin):
+    """Pure: {item: new value} from an e4.item_verdicts report over `values` ({item: (value, inverse)})."""
     out = {}
     for item, d in report.items():
-        table, _, key = item.partition(".")
-        if table != "PRIOR_TICKS" or key not in priors:
+        if item not in values:
             continue
-        new = fitted(priors[key], origin.get(key, priors[key]), d["gmean"], d["n"], d["tag"])
+        value, inverse = values[item]
+        new = fitted(value, origin.get(item, value), d["gmean"], d["n"], d["tag"], inverse)
         if new is not None:
-            out[key] = new
+            out[item] = new
     return out
 
 
@@ -58,33 +72,69 @@ def _sub_in(src, start, key, value):
     return src[:b] + part + src[e:]
 
 
-def fitted_source(src, changes, priors):
-    """Pure: knowledge.py's source with each fitted prior written, its tag "measured", its first prior kept."""
-    for key, new in changes.items():
-        src = _sub_in(src, "PRIOR_TICKS = {", key, str(new))
-        src = _sub_in(src, '"knowledge.PRIOR_TICKS": {', key, '"measured"')
+def _scalar(src, name, value):
+    out, n = re.subn(rf"^({re.escape(name)}\s*=\s*)[0-9.]+", lambda m: m.group(1) + value, src, count=1, flags=re.M)
+    if not n:
+        raise KeyError(name)
+    return out
+
+
+def fitted_knowledge(src, changes, first):
+    """Pure: knowledge.py's source with the fitted PRIOR_TICKS / GROW_S values, their tags (and WALK's) "measured",
+    each item's first value kept in PRIOR_ORIGIN."""
+    for item, new in changes.items():
+        if item.startswith("PRIOR_TICKS."):
+            key = item.split(".", 1)[1]
+            src = _sub_in(src, "PRIOR_TICKS = {", key, str(new))
+            src = _sub_in(src, '"knowledge.PRIOR_TICKS": {', key, '"measured"')
+        elif item.startswith("knowledge.GROW_S."):
+            key = item.rsplit(".", 1)[1]
+            src = _sub_in(src, "GROW_S = {", key, str(new))
+            src = _sub_in(src, '"knowledge.GROW_S": {', key, '"measured"')
+        elif item == "data.WALK_BLOCKS_PER_TICK":
+            src = src.replace('"data.WALK_BLOCKS_PER_TICK": "prior"', '"data.WALK_BLOCKS_PER_TICK": "measured"')
         b, e = _block(src, "PRIOR_ORIGIN = {")
-        if f'"{key}"' not in src[b:e]:
-            src = src[:e - 1] + ("" if e - b == 2 else ", ") + f'"{key}": {priors[key]}' + src[e - 1:]
+        if f'"{item}"' not in src[b:e]:
+            src = src[:e - 1] + ("" if e - b == 2 else ", ") + f'"{item}": {first[item]}' + src[e - 1:]
     return src
 
 
+def fitted_data(src, changes):
+    """Pure: data.py's source with the fitted walk speed."""
+    new = changes.get("data.WALK_BLOCKS_PER_TICK")
+    return src if new is None else _scalar(src, "WALK_BLOCKS_PER_TICK", str(new))
+
+
+def fitted_play(src, changes):
+    """Pure: play.toml with the fitted search prior, its tag "[measured]"."""
+    new = changes.get("plan.seek_prior_s")
+    if new is None:
+        return src
+    src = _scalar(src, "seek_prior_s", str(new))
+    return re.sub(r"^(seek_prior_s\s*=\s*\S+\s*#\s*)\[prior\]", r"\1[measured]", src, count=1, flags=re.M)
+
+
 def main(argv):
-    lines = e4.read_lines(dispatch.PRICES)
-    report = e4.item_verdicts(lines)
+    report = e4.item_verdicts(e4.read_lines(dispatch.PRICES))
     for item, d in sorted(report.items()):
         g = "-" if d["gmean"] is None else f"{d['gmean']:.2f}"
         print(f"{item:32} {d['tag']:9} n={d['n']:<3} gmean {g:>5} E4 {'in' if d['holds'] else 'OUT'}"
               + (f"  dropped {d['dropped']}" if d["dropped"] else "")
               + ("  (game: a model bug, not fitted)" if d["tag"] == "game" and not d["holds"] else ""))
-    changes = fit_plan(report, knowledge.PRIOR_TICKS, knowledge.PRIOR_ORIGIN)
-    for key, new in sorted(changes.items()):
-        print(f"fit PRIOR_TICKS.{key}: {knowledge.PRIOR_TICKS[key]} → {new}")
+    values = current_values()
+    changes = fit_plan(report, values, knowledge.PRIOR_ORIGIN)
+    for item, new in sorted(changes.items()):
+        print(f"fit {item}: {values[item][0]} → {new}")
     if changes and "--write" in argv:
-        with open(KNOWLEDGE) as fh:
-            src = fh.read()
-        with open(KNOWLEDGE, "w") as fh:
-            fh.write(fitted_source(src, changes, knowledge.PRIOR_TICKS))
+        first = {item: values[item][0] for item in changes}
+        for path, rewrite in ((KNOWLEDGE, lambda s: fitted_knowledge(s, changes, first)),
+                              (DATA, lambda s: fitted_data(s, changes)), (PLAY, lambda s: fitted_play(s, changes))):
+            with open(path) as fh:
+                src = fh.read()
+            out = rewrite(src)
+            if out != src:
+                with open(path, "w") as fh:
+                    fh.write(out)
         print("written: run P3, D6 and the golden plans before merging")
     return 0 if all(d["holds"] for d in report.values()) else 1
 

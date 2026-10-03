@@ -60,37 +60,100 @@ class Items(unittest.TestCase):
 
 class Fit(unittest.TestCase):
     def test_fitted(self):
-        # (situation, current, origin, gmean, n, tag) → the new prior or None
-        rows = [("half again as long: raised", 60, 60, 1.5, 3, "prior", 90),
-                ("one fit moves at most ×2", 60, 60, 3.0, 5, "prior", 120),
-                ("never past ×4 of the first prior", 200, 60, 2.0, 5, "measured", 240),
-                ("must fail: a game price is never fitted", 200, 200, 1.5, 9, "game", None),
-                ("must fail: a policy is never fitted", 0, 0, 2.0, 9, "policy", None),
-                ("must fail: two samples are too few", 60, 60, 1.5, 2, "prior", None),
-                ("must fail: under a tenth off: left", 60, 60, 1.05, 9, "prior", None)]
-        for name, cur, origin, g, n, tag, want in rows:
+        # (situation, current, origin, gmean, n, tag, a speed) → the new value or None
+        rows = [("half again as long: raised", 60, 60, 1.5, 3, "prior", False, 90),
+                ("one fit moves at most ×2", 60, 60, 3.0, 5, "prior", False, 120),
+                ("never past ×4 of the first prior", 200, 60, 2.0, 5, "measured", False, 240),
+                ("a speed: walks took longer, the speed falls", 0.12, 0.12, 1.5, 4, "prior", True, 0.08),
+                ("must fail: a game price is never fitted", 200, 200, 1.5, 9, "game", False, None),
+                ("must fail: a policy is never fitted", 0, 0, 2.0, 9, "policy", False, None),
+                ("must fail: two samples are too few", 60, 60, 1.5, 2, "prior", False, None),
+                ("must fail: under a tenth off: left", 60, 60, 1.05, 9, "prior", False, None)]
+        for name, cur, origin, g, n, tag, inverse, want in rows:
             with self.subTest(name):
-                self.assertEqual(fit_prices.fitted(cur, origin, g, n, tag), want)
+                self.assertEqual(fit_prices.fitted(cur, origin, g, n, tag, inverse), want)
 
-    def test_written_into_the_source(self):
+    def test_written_into_the_sources(self):
         src = ('PRIOR_TICKS = {"craft": 60, "smelt_each": 200,\n               "gather_each": 60}\n'
+               'GROW_S = {"crop": 900, "animal": 1200}\n'
                'PRICE_SOURCE = {\n    "knowledge.PRIOR_TICKS": {\n        "craft": "prior", "smelt_each": "game", '
-               '"gather_each": "prior"},\n}\nPRIOR_ORIGIN = {}     # first priors\n')
-        priors = {"craft": 60, "smelt_each": 200, "gather_each": 60}
+               '"gather_each": "prior"},\n    "knowledge.GROW_S": {"crop": "prior", "animal": "game"},\n'
+               '    "data.WALK_BLOCKS_PER_TICK": "prior",\n}\nPRIOR_ORIGIN = {}     # first priors\n')
+        values = {"PRIOR_TICKS.gather_each": (60, False), "PRIOR_TICKS.smelt_each": (200, False),
+                  "knowledge.GROW_S.crop": (900, False), "data.WALK_BLOCKS_PER_TICK": (0.12, True)}
         report = {"PRIOR_TICKS.gather_each": {"tag": "prior", "n": 4, "gmean": 1.5},
-                  "PRIOR_TICKS.smelt_each": {"tag": "game", "n": 9, "gmean": 1.6}}
-        changes = fit_prices.fit_plan(report, priors, {})
-        self.assertEqual(changes, {"gather_each": 90})                    # must fail: the game price moved
-        out = fit_prices.fitted_source(src, changes, priors)
+                  "PRIOR_TICKS.smelt_each": {"tag": "game", "n": 9, "gmean": 1.6},
+                  "knowledge.GROW_S.crop": {"tag": "prior", "n": 3, "gmean": 0.8},
+                  "data.WALK_BLOCKS_PER_TICK": {"tag": "prior", "n": 5, "gmean": 1.2}}
+        changes = fit_prices.fit_plan(report, values, {})
+        self.assertEqual(changes, {"PRIOR_TICKS.gather_each": 90, "knowledge.GROW_S.crop": 720,
+                                   "data.WALK_BLOCKS_PER_TICK": 0.1})          # must fail: the game price moved
+        first = {k: values[k][0] for k in changes}
         ns = {}
-        exec(out, ns)
-        self.assertEqual((ns["PRIOR_TICKS"], ns["PRICE_SOURCE"]["knowledge.PRIOR_TICKS"]["gather_each"],
+        exec(fit_prices.fitted_knowledge(src, changes, first), ns)
+        self.assertEqual((ns["PRIOR_TICKS"]["gather_each"], ns["GROW_S"]["crop"],
+                          ns["PRICE_SOURCE"]["knowledge.PRIOR_TICKS"]["gather_each"],
+                          ns["PRICE_SOURCE"]["knowledge.GROW_S"]["crop"], ns["PRICE_SOURCE"]["data.WALK_BLOCKS_PER_TICK"],
                           ns["PRIOR_ORIGIN"]),
-                         ({"craft": 60, "smelt_each": 200, "gather_each": 90}, "measured", {"gather_each": 60}))
-        again = fit_prices.fitted_source(out, {"gather_each": 120}, ns["PRIOR_TICKS"])
+                         (90, 720, "measured", "measured", "measured", first))
+        again = fit_prices.fitted_knowledge(fit_prices.fitted_knowledge(src, changes, first),
+                                            {"PRIOR_TICKS.gather_each": 120}, {"PRIOR_TICKS.gather_each": 90})
         ns2 = {}
         exec(again, ns2)
-        self.assertEqual(ns2["PRIOR_ORIGIN"], {"gather_each": 60})       # the first prior kept, not the fitted one
+        self.assertEqual(ns2["PRIOR_ORIGIN"]["PRIOR_TICKS.gather_each"], 60)    # the first prior kept, not the fitted one
+        self.assertIn("WALK_BLOCKS_PER_TICK = 0.1   #",
+                      fit_prices.fitted_data("WALK_BLOCKS_PER_TICK = 0.12   # walk\n", changes))
+        toml = 'seek_prior_s = 300.0       # [prior] seconds to find one\n'
+        self.assertEqual(fit_prices.fitted_play(toml, {"plan.seek_prior_s": 450.0}),
+                         'seek_prior_s = 450.0       # [measured] seconds to find one\n')
+        self.assertEqual(fit_prices.fitted_play(toml, {}), toml)                 # must fail: rewritten unasked
+
+
+class ByPart(unittest.TestCase):
+    """A step measured by phase: each part against its own price item."""
+
+    def measured(self, est_parts, actual_parts, actual_s):
+        ln = line(est=sum(est_parts.values()), actual=actual_s)
+        ln.update(est_parts=est_parts, actual_parts=actual_parts,
+                  price={"work": "PRIOR_TICKS.gather_each:prior", "walk": "data.WALK_BLOCKS_PER_TICK:prior",
+                         "seek": "PRIOR_TICKS.unknown_walk:prior"})
+        return ln
+
+    def test_rows(self):
+        # (situation, line) → {item: ratio}
+        rows = [("work and a known walk apart",
+                 self.measured({"work": 200, "walk": 100}, {"work": 20.0, "walk": 2.5, "seek": 0.0}, 22.5),
+                 {"PRIOR_TICKS.gather_each": 2.0, "data.WALK_BLOCKS_PER_TICK": 0.5}),
+                ("a thing nowhere known: the walk is the seek's",
+                 self.measured({"work": 200, "seek": 400}, {"work": 10.0, "walk": 15.0, "seek": 5.0}, 30.0),
+                 {"PRIOR_TICKS.gather_each": 1.0, "PRIOR_TICKS.unknown_walk": 1.0}),
+                ("must fail: no phases: the whole step is the work's", line(actual=20.0),
+                 {"PRIOR_TICKS.gather_each": 2.0})]
+        for name, ln, want in rows:
+            with self.subTest(name):
+                self.assertEqual({k: round(v, 6) for k, v in e4.part_ratios(ln).items()}, want)
+
+    def test_the_games_own_clock(self):
+        ln = line(est=18000, actual=12.0, kind="await", token="minecraft:wheat", item="knowledge.GROW_S.crop")
+        ln["game_s"] = 900.0                   # a sprinted clock: 12 s of wall, 900 s of the game's
+        self.assertEqual(round(e4.ratio(ln), 6), 1.0)                                # must fail: 12 / 900
+        self.assertEqual(e4.part_ratios(ln), {"knowledge.GROW_S.crop": 1.0})
+
+
+class ThePriceLineByPart(unittest.TestCase):
+    def test_rows(self):
+        from bonobo import dispatch
+        from bonobo.planner import Step
+        st = Step("gather", "log", 2, {})
+        st.est, st.parts = 1300, {"work": 900, "walk": 200, "seek": 0, "chance": 0}
+        ln = dispatch.price_line(st, False, "minecraft:overworld", 70.0, None, "chop__base",
+                                 {"walk": 12.0, "seek": 0.0, "arrived_s": 12.5})
+        self.assertEqual(ln["est_parts"], {"work": 900, "walk": 200, "hunger": 200})      # the rest: hunger's share
+        self.assertEqual(ln["actual_parts"], {"walk": 12.0, "seek": 0.0, "work": 58.0})
+        self.assertEqual((ln["price"]["work"], ln["price"]["walk"], ln["price"]["hunger"], ln["arrived_s"]),
+                         ("PRIOR_TICKS.gather_each:prior", "data.WALK_BLOCKS_PER_TICK:prior", "risk.food_drain_s:prior",
+                          12.5))
+        self.assertNotIn("seek", ln["price"])                     # must fail: a zero part priced
 
 
 class BenchColumn(unittest.TestCase):

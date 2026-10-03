@@ -42,6 +42,7 @@ class Step:
     count: int           # units of `token` to end up with (craft: output items)
     detail: dict[str, Any] = field(default_factory=dict)    # the call's arguments: pos, types, blocks, args, ...
     est: int = 0         # estimated ticks
+    parts: dict[str, int] = field(default_factory=dict, compare=False, repr=False)    # est by part (Cost.estimate: E4)
 
     def key(self):
         return (self.kind, self.token, tuple(self.detail.get("pos", ()))) if self.kind == "withdraw" else (self.kind, self.token)
