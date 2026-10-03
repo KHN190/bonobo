@@ -15,7 +15,7 @@ from .data import GROUPS, MINE_YIELD, PLACEABLE_AS
 from .game import JUMP_BLOCKS
 from .bag import mineable, opener, pickup_whitelist, refused
 from .world import Inventory, Region, cell_add, connected, entities, find, region_around, ripe_near
-from .skillcore import ToolMissing, mine_cell, gained, settle
+from .skillcore import ToolMissing, mine_cell, gained, settle, ban_state
 from .world import feet
 from .explore import surface_first, explore_for, approach_policy, seek_blocks
 from .fluids import CAVE_AIR, fluid_faces, seal_plan
@@ -25,6 +25,10 @@ from .data import MINE_YIELD, TAKEABLE
 
 if TYPE_CHECKING:
     from .shapes import Cell
+
+def _nav_ban_state():
+    """E5: the state a nav refusal's ban holds in — lifts on a changed way (ban_state: way kinds), not just the clock."""
+    return ban_state(feet(), frozenset(s["id"] for s in Inventory().slots if s.get("count")))
 
 def require_pickaxe(tier, min_left=K.TOOL_WORKING):
     if tier is None:
@@ -323,13 +327,13 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             faces = sorted((p for p in vein if p in open_set), key=lambda p: nav.least_way_s(p, start))
             if _go_way(ctx, region, start, near, faces, drop):
                 continue
-            ctx.ban(near)
+            ctx.ban(near, state=_nav_ban_state())
             unreachable += 1
             _reach_budget(unreachable, blocks, f"no way to the {blocks[0]} vein at {seed}")
             continue
         walked = nav.arrived_near(near, ctx.policy, range_=3.5, attempts=1) if "travel" in nav.mod_features() else False
         if not walked and not nav.way_to(ctx, vein):
-            ctx.ban(near)
+            ctx.ban(near, state=_nav_ban_state())
             # the next vein is another target, not a retry: failing the step over one vein cooled the goal
             unreachable += 1
             _reach_budget(unreachable, blocks, f"no way and no tunnel to the {blocks[0]} vein at {seed}")
@@ -340,14 +344,14 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         if not in_reach:
             near_cell = min(vein, key=lambda p: math.dist(p, here_now))
             if not nav.arrived_near(near_cell, ctx.policy, range_=2.0, attempts=1) and not nav.way_to(ctx, {near_cell}):
-                ctx.ban(near_cell)
+                ctx.ban(near_cell, state=_nav_ban_state())
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"{blocks[0]} at {near_cell}: no way there and no tunnel")
                 continue
             here_now = feet()
             in_reach = reach_cells(vein, here_now)
             if not in_reach and not nav.way_to(ctx, vein):
-                ctx.ban(near_cell)
+                ctx.ban(near_cell, state=_nav_ban_state())
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"got near {near_cell} but no way in to the {blocks[0]}")
                 continue
@@ -358,7 +362,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         if not open_faced:
             buried = in_reach[0]
             if not nav.arrived_near(buried, ctx.policy, range_=BESIDE, attempts=1):
-                ctx.ban(buried)
+                ctx.ban(buried, state=_nav_ban_state())
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"{blocks[0]} at {buried}: buried, and no way dug to it")
             continue
@@ -369,7 +373,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             if e is not None:
                 log(f"   {len(wet)} {blocks[0]} cells not mined: {e}")
                 for p in wet:
-                    ctx.ban(p)
+                    ctx.ban(p, state=_nav_ban_state())
                 vein -= wet
                 if not vein:
                     continue
@@ -408,14 +412,14 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 _reach_budget(unreachable + 1, blocks, str(out))    # one more try than a plain refusal gets
                 continue
             for p in (out.cells or vein):
-                ctx.ban(p)
+                ctx.ban(p, state=_nav_ban_state())
             unreachable += 1
             _reach_budget(unreachable, blocks, str(out))
             continue
         except api.TaskStuck as out:
             # the jar circled this batch (approach ↔ mine): refuse it, charge the budget, try the next vein
             for p in vein:
-                ctx.ban(p)
+                ctx.ban(p, state=_nav_ban_state())
             unreachable += 1
             _reach_budget(unreachable, blocks, str(out))
             continue
@@ -431,7 +435,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 if again and ctx.policy.allow_dig and nav.way_to(ctx, again):
                     continue           # a face is open now: the same blocks, asked again — once
                 for p in bad:
-                    ctx.ban(p)      # only the blocks the mod named as unreachable, and only with no way in
+                    ctx.ban(p, state=_nav_ban_state())      # only the blocks the mod named as unreachable, and only with no way in
                 if bad:
                     # each mod refusal costs a full path search: charged to the same budget
                     unreachable += 1
@@ -457,7 +461,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             if again and ctx.policy.allow_dig and nav.way_to(ctx, again):
                 continue               # nothing broke because nothing could be stood next to: now it can, once
             for p in vein:
-                ctx.ban(p)             # refused: dropped, never the same batch again
+                ctx.ban(p, state=_nav_ban_state())             # refused: dropped, never the same batch again
             # ban this batch and try the next: one unmineable batch is not a dead seam
             empty_batches += 1
             if empty_batches >= 3:
@@ -683,7 +687,7 @@ def take(ctx, token, count, blocks):
             raise NotAvailable(f"no {bare(blocks[0])} within reach to take")
         cell = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
         if not nav.arrived_near(cell, ctx.policy, range_=3, attempts=2):
-            ctx.ban(cell)
+            ctx.ban(cell, state=_nav_ban_state())
             continue
         mine_cell(ctx.policy, cell, wanted=[token], require_drops=False, wait=60)
         api.run({"type": "collect", "radius": 4}, wait=20, awaits="the drops the break left, counted after")

@@ -12,7 +12,7 @@ from bonobo.data import SOIL_DEPTH, STAIR_CELLS  # noqa: E402
 from bonobo.knowledge import FIND_AT, MINE, break_overhead  # noqa: E402
 from bonobo.planner import Step  # noqa: E402
 from tests.world import FakeRegion, bag, inventory, memory, state  # noqa: E402
-from bonobo.skillcore import Ban  # noqa: E402
+from bonobo.skillcore import Ban, banned  # noqa: E402
 
 FEET = (0, 64, 0)
 SOIL = 3                    # blocks of soil over the stone in every scene
@@ -157,6 +157,27 @@ class NoWayBansTheCell(unittest.TestCase):
             next(run)                   # no way to its cell; the next pass's top
         # must fail: every cell of the vein banned over the one no way reached
         self.assertEqual(len(ctx.blacklist), 1)
+
+
+class NavBanLiftsOnWayKindsOnly(unittest.TestCase):
+    """E5: gather's nav-refusal bans (ctx.ban(..., state=_nav_ban_state())) hold while the way blocks/tools carried
+    don't change — gaining unrelated loot never lifts one; gaining a building block does."""
+
+    def test_rows(self):
+        from bonobo.skillcore import banned
+        made = {"id": "minecraft:cobblestone", "count": 1, "damage": 0, "maxDamage": 0}
+        unrelated = {"id": "minecraft:rotten_flesh", "count": 1, "damage": 0, "maxDamage": 0}
+        # (bag at ban time, bag read later) -> still banned?
+        rows = [("nothing carried, still nothing: still banned", (), (), True),
+                ("an unrelated item gained: must fail, still banned (not a way kind)", (), (unrelated,), True),
+                ("a building block gained: lifts (E5, a changed way)", (), (made,), False),
+                ("the same building block count: still banned", (made,), (made,), True)]
+        for name, before, after, want in rows:
+            with self.subTest(name):
+                made_state = gather.ban_state(FEET, frozenset(s["id"] for s in before))
+                now_state = gather.ban_state(FEET, frozenset(s["id"] for s in after))
+                blacklist = {"k": Ban(time.time() + 600, made_state)}
+                self.assertEqual(banned(blacklist, "k", time.time(), now_state), want)
 
 
 PICK = {"id": "minecraft:diamond_pickaxe", "count": 1, "damage": 0, "maxDamage": 1561}

@@ -6,7 +6,7 @@ import time
 from . import api, beliefs, knowledge as _know, lifecycle, tape
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
-from .data import BAN_FIRST_S, BAN_MAX_S, REACH, bare, place_signature, state_signature
+from .data import BAN_MAX_S, REACH, bare, place_signature, state_signature
 from .game import EYE_HEIGHT, SUFFOCATION
 from .world import BAG_SLOTS, Inventory, Region, Versioned, cell_add, inventory_now, box, screen_slot
 from typing import TYPE_CHECKING, NamedTuple, cast
@@ -114,13 +114,15 @@ class Context:
     def blocked(self, pos):
         return banned(self.blacklist, pos, state=ban_state(api.STATE.feet_seen, api.STATE.kinds_seen))
 
-    def ban(self, pos, seconds=BAN_FIRST_S):
-        """Ban a cell after a failure (never an interruption); repeats escalate, capped at BAN_MAX_S because the world changes."""
+    def ban(self, pos, seconds=BAN_MAX_S, state=None):
+        """Ban a cell after a failure (never an interruption); repeats escalate, capped at BAN_MAX_S because the world
+        changes. `state`: what it holds in (E5) — a nav refusal's caller passes ban_state(feet, way kinds) so it lifts
+        on a changed way, not just the clock; the round's own state (feet, every kind carried) when None."""
         key = tuple(pos)
         count = self.ban_counts.get(key, 0) + 1
         self.ban_counts[key] = count
         self.blacklist[key] = Ban(time.time() + min(seconds * (2 ** (count - 1)), BAN_MAX_S),
-                                  ban_state(api.STATE.feet_seen, api.STATE.kinds_seen))
+                                  state if state is not None else ban_state(api.STATE.feet_seen, api.STATE.kinds_seen))
         api.detail(f"   ban {key} ×{count} by {ban_caller()}")       # who banned it (a row starting banned: its writer)
 
 
