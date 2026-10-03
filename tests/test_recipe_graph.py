@@ -1,5 +1,5 @@
-"""The recipe data has no cycle: no item is, through its recipes and smelts, an ingredient of itself. The planners'
-depth guards (planner.MAX_DEPTH, solve.EXPAND_MAX_DEPTH) stand in for this invariant; held here on the data instead."""
+"""The recipe data's cycles are only the game's storage round trips (a block from its ingots and back), and none makes
+more than it took: a cycle never pays, so the planner's search (positive costs) never chooses one (D7)."""
 import os
 import sys
 import unittest
@@ -63,8 +63,20 @@ class RecipeGraph(unittest.TestCase):
             with self.subTest(why):
                 self.assertIs(cycle(edges(recipes, smelts, groups)) is not None, has)
 
-    def test_the_game_data_has_none(self):
-        self.assertIsNone(cycle(edges(RECIPES, SMELTS, GROUPS)))
+    def test_the_game_data_only_round_trips_that_gain_nothing(self):
+        trips = round_trips(RECIPES)
+        for a, b in trips:
+            with self.subTest(f"{a} ↔ {b}"):
+                ins = RECIPES[a][0].count(b) * RECIPES[b][0].count(a)
+                self.assertLessEqual(RECIPES[a][1] * RECIPES[b][1], ins)     # must fail: a round trip that gains
+        self.assertIsNone(cycle(edges({k: v for k, v in RECIPES.items() if not any(k in t for t in trips)},
+                                      SMELTS, GROUPS)))
+
+
+def round_trips(recipes):
+    """Pure: {(a, b)}: a is made from b alone and b from a alone."""
+    only = {k: {t for t in p if t} for k, (p, _n) in recipes.items()}
+    return {(a, b) for a, ins in only.items() if len(ins) == 1 for b in ins if only.get(b) == {a}}
 
 
 if __name__ == "__main__":

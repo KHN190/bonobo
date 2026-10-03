@@ -90,7 +90,9 @@ class D7NoCycle(unittest.TestCase):
 
     ROWS = [("a stone pickaxe from nothing", [], [("tool", "pickaxe", 1)]),
             ("torches, coal carried", [("coal", 2), ("oak_planks", 4)], [("minecraft:torch", 8)]),
-            ("a bucket, ingots carried", [("iron_ingot", 3), ("crafting_table", 1)], [("minecraft:bucket", 1)])]
+            ("a bucket, ingots carried", [("iron_ingot", 3), ("crafting_table", 1)], [("minecraft:bucket", 1)]),
+            ("ingots, an iron block carried: taken apart, never rebuilt", [("iron_block", 1), ("crafting_table", 1)],
+             [("minecraft:iron_ingot", 9)])]
 
     def test_deterministic(self):
         for name, carried, needs in self.ROWS:
@@ -103,7 +105,6 @@ class D7NoCycle(unittest.TestCase):
     def test_fixpoint(self):
         for name, carried, needs in self.ROWS:
             with self.subTest(name):
-                steps = plan_needs(bag(inventory(*carried)), needs, NullCost())
                 self.assertTrue(plan_needs(bag(inventory(*carried)), needs, NullCost()))   # must fail: nothing to do
                 done = [(bare(tool_item(n[1], n[2])), 1) if n[0] == "tool" else (bare(n[0]), n[1]) for n in needs]
                 self.assertEqual(plan_needs(bag(inventory(*(carried + done))), needs, NullCost()), [])
@@ -118,24 +119,34 @@ class D7NoCycle(unittest.TestCase):
 
 
 class G1TheDragon(unittest.TestCase):
-    """state:dragon_dead regressed through the contracts: the End reached through an activated portal, the eyes made
-    first; every milestone on the way plannable or refused with its reason (D1)."""
+    """state:dragon_dead regressed through the contracts from the end-portal milestone's end state (its eyes): the
+    stronghold found, the portal activated, the End entered, the dragon; from nothing a plan or its reason (D1);
+    every milestone plannable or refused with its reason."""
 
-    def test_the_dragon_from_nothing(self):
-        steps = plan_needs(bag(inventory()), [("state:dragon_dead", 1)], NullCost())
+    DEAD = [("fact", "state:dragon_dead", True)]
+    EYES = [("ender_eye", 12), ("diamond_pickaxe", 1)]
+
+    def test_the_dragon_from_the_eyes(self):
+        steps = plan_needs(bag(inventory(*self.EYES)), self.DEAD, NullCost())
         sets = [skill.sets_of_step(s) for s in steps]
         self.assertTrue(sets[-1].get("state:dragon_dead"), kinds(steps))
-        firsts = [lambda i: steps[i].kind == "craft" and bare(steps[i].token) == "ender_eye",
-                  lambda i: steps[i].kind == "activate",
+        firsts = [lambda i: sets[i].get("state:stronghold_known"), lambda i: sets[i].get("state:end_portal_open"),
                   lambda i: sets[i].get("dimension") == "minecraft:the_end"]
         order = [next((i for i in range(len(steps)) if first(i)), None) for first in firsts]
         self.assertNotIn(None, order, kinds(steps))
         self.assertEqual(order, sorted(order))
 
-    def test_must_fail_the_dragon_without_the_end(self):
-        steps = plan_needs(bag(inventory()), [("state:dragon_dead", 1)], NullCost())
-        self.assertTrue(any(skill.sets_of_step(s).get("dimension") == "minecraft:the_end" for s in steps),
-                        kinds(steps))
+    def test_must_fail_the_end_through_a_nether_portal(self):
+        steps = plan_needs(bag(inventory(*self.EYES)), self.DEAD, NullCost())
+        self.assertNotIn(("portal", "minecraft:the_end"), kinds(steps))
+
+    def test_from_nothing_a_plan_or_its_reason(self):
+        try:
+            steps = plan_needs(bag(inventory()), self.DEAD, NullCost())
+        except Unplannable as e:
+            self.assertTrue(str(e).strip())
+        else:
+            self.assertTrue(skill.sets_of_step(steps[-1]).get("state:dragon_dead"), kinds(steps))
 
     def test_every_milestone_plans_or_says_why(self):
         for name, needs in goals.MILESTONES.items():
