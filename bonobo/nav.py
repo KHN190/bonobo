@@ -1465,18 +1465,19 @@ class Reached:
     seconds: float = 0.0
 
 
-def reach(region, feet, site, act, inv, protected=(), down=False, tries=None):
+def reach(region, feet, site, act, inv, protected=(), down=False, tries=None, walks=None):
     """Pure: can `act` (stands_for's kinds; a mob act on its cell now, K7) on `site` be done after travelling from
     `feet` with `inv` — the run's own loop (gate → reach_stand) over `region`: the stand test, else plan_way's way,
     its steps taken over the read (After), again up to `tries` (ways_for(act)); the tries spent or a way changing
     nothing, the last way's why, else the site (reach_stand's NavFailed there). Plan and run ask this one question
-    (P2/K1)."""
+    (P2/K1). `walks`: the game's walks from `feet` (plan_way's), offered to the first way."""
     here, ground, spent, secs, why = tuple(feet), After(region), 0, 0.0, None
     site = tuple(site)
     for _ in range(ways_for(act, region.name(site)) if tries is None else tries):
         if stands_for(act, ground, here, site, down):
             return Reached(here, None, spent, secs)
-        steps, why, s = plan_way(ground, here, site, act, less_way_blocks(inv, spent), protected)
+        steps, why, s = plan_way(ground, here, site, act, less_way_blocks(inv, spent), protected, walks)
+        walks = None                    # the game's walks were asked from the feet: the first way's only
         if steps is None:
             return Reached(None, why, spent, secs)
         before = here
