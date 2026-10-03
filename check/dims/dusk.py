@@ -3,7 +3,7 @@ needs.overnight's seconds × needs.LEAD (the one margin). Read only by day in th
 from bonobo.data import DAY_END, DAY_TICKS, NIGHT_END
 
 NAME = "dusk"
-VALUES = (False, True, "dawn")      # dawn: the day's last ticks after NIGHT_END, before the clock wraps
+VALUES = ("day", "dusk", "dawn")      # dawn: the day's last ticks after NIGHT_END, before the clock wraps
 # a carried bed is the 0 s way (the sleep row): nothing is ever due before it, so no dusk with one
 DEPENDS = (lambda f: not f["night"] and f["dimension"] == "minecraft:overworld" and f["bed"] != "carried",
            {"night": False})
@@ -21,11 +21,11 @@ def _no_way(f):
 
 def valid(value, f):
     # every shelter cooling (the bed alone): no way's prep fits a day, so never not-dusk — unless no way exists at all
-    return not DEPENDS[0](f) or not f["cooled"] or value is not _no_way(f)
+    return value == "dawn" or not DEPENDS[0](f) or not f["cooled"] or (value == "dusk") is not _no_way(f)
 
 
 def instead(f):
-    return not _no_way(f)
+    return "day" if _no_way(f) else "dusk"
 
 
 def domain():
@@ -37,23 +37,23 @@ def alpha(a):
     from bonobo.needs import LEAD, dusk_s, overnight
     snap = a.snap
     if snap.night or snap.dimension != "minecraft:overworld":
-        return False
+        return "day"
     if int(snap.time) % DAY_TICKS > NIGHT_END:
         return "dawn"
     if a.brain is not None:
         a.brain.needs.night_facts(snap)
         prep = a.brain.needs.night_prep_s(snap)
-        return prep is not None and dusk_s(snap) < prep * LEAD
+        return "dusk" if prep is not None and dusk_s(snap) < prep * LEAD else "day"
     way, seconds, _steps = overnight(snap.inv, Cost(snap, a.mem))
-    return way is not None and dusk_s(snap) < seconds * LEAD
+    return "dusk" if way is not None and dusk_s(snap) < seconds * LEAD else "day"
 
 
 def gamma(value, facts, g):
     if facts["dimension"] == "minecraft:overworld" and not facts["night"]:
-        g.state["timeOfDay"] = DAYBREAK_T if value == "dawn" else DUSK_T if value else DAWN_T
+        g.state["timeOfDay"] = {"dawn": DAYBREAK_T, "dusk": DUSK_T}.get(value, DAWN_T)
 
 
 def step(facts, d, ctx):
     """A night slept or waited through ends in the next morning: not dusk."""
     name = (d.name or "").lower()
-    return {"dusk": False} if facts["dusk"] and ("sleep" in name or "wait for day" in name) else {}
+    return {"dusk": "day"} if facts["dusk"] != "day" and ("sleep" in name or "wait for day" in name) else {}

@@ -7,7 +7,7 @@
  "cooking": "none",
  "cooled": true,
  "dimension": "minecraft:overworld",
- "dusk": true,
+ "dusk": "dusk",
  "failure": "nav",
  "fluid": "none",
  "food": false,

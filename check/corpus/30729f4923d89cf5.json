@@ -7,7 +7,7 @@
  "cooking": "iron",
  "cooled": true,
  "dimension": "minecraft:overworld",
- "dusk": true,
+ "dusk": "dusk",
  "failure": "error",
  "fluid": "lava",
  "food": false,

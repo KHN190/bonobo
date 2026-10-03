@@ -10,7 +10,7 @@
  "cooled": true,
  "death": "near",
  "dimension": "minecraft:overworld",
- "dusk": false,
+ "dusk": "day",
  "failure": "stuck",
  "fluid": "lava",
  "food": false,

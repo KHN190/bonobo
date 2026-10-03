@@ -7,7 +7,7 @@
  "cooking": "none",
  "cooled": true,
  "dimension": "minecraft:the_nether",
- "dusk": false,
+ "dusk": "day",
  "failure": "nav",
  "fluid": "none",
  "food": true,

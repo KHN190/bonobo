@@ -11,7 +11,7 @@
  "death": "far",
  "dimension": "minecraft:the_nether",
  "dps": "read",
- "dusk": false,
+ "dusk": "day",
  "failure": "nav",
  "fluid": "swimming",
  "food": false,
