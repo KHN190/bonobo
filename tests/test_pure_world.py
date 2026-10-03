@@ -778,6 +778,63 @@ class RetryAndSkill(unittest.TestCase):
                 self.assertEqual(c.provides, {})
 
 
+class ARepeatIsNotANewSource(unittest.TestCase):
+    """E5/K5 (merged from test_accept3_idle.py): three failures at the same target are one source tried; the task
+    is reported upward only after SOURCES_TRIED distinct ones (the run dropped "stone tools" after one log, three
+    times)."""
+
+    def test_table(self):
+        sig = lambda p: retry.state_signature(("target", p), frozenset({"minecraft:oak_log"}), True)   # noqa: E731
+        log_cell = (12986, 77, 12999)        # the one log the run failed to stand for, three times (21:21:27-21:21:53)
+        others = [(12990, 75, 13004), (12979, 76, 12992)]
+        rows = [("must fail: the same log thrice is one source, not exhausted", [log_cell] * retry.SOURCES_TRIED,
+                 None),
+                ("as many different logs: exhausted", [log_cell, *others][:retry.SOURCES_TRIED], "nav")]
+        for name, cells, want in rows:
+            with self.subTest(name):
+                r, now = retry.Retry(), 1000.0
+                for i, c in enumerate(cells):
+                    r.failed("task t1", "nav", f"no stand for mine {c}", now + i, ("target", c), state=sig(c),
+                             target=c)
+                got = r.exhausted("task t1")
+                self.assertEqual(got and got[0], want)
+
+    def test_a_changed_state_lifts_the_cooling(self):
+        r, now = retry.Retry(), 1000.0
+        place = retry.place_signature((12987, 74, 12999), False)
+        made = retry.state_signature(place, frozenset({"minecraft:oak_log"}), True)
+        r.failed("task t2", "error", "craft_chain: finished without reaching its goal", now, place, state=made)
+        moved = retry.state_signature(place, frozenset({"minecraft:oak_log", "minecraft:wooden_pickaxe"}), True)
+        # must fail: a pure clock wait, the state changed
+        self.assertTrue(r.ready("task t2", now + 1, place, state=moved))
+        self.assertFalse(r.ready("task t2", now + 1, place, state=made))
+
+
+class ACraftIsNoStateChange(unittest.TestCase):
+    """E5/K5 (merged from test_accept3_idle.py; knowledge.failure_kinds): a way not found (nav) holds in the kinds
+    that change a way, as a ban does — planks or sticks crafted lift it, a block to place or a tool does; any other
+    failure lifts on any bag change."""
+
+    def test_table(self):
+        from types import SimpleNamespace
+        from bonobo import brain
+        from tests.world import inventory, snapshot, state
+        place = retry.place_signature((12987, 74, 12999), False)
+
+        def sig(cause, *carried):
+            me = SimpleNamespace(round_snap=snapshot(state(), inventory(*carried)))
+            return brain.Brain.state_of(me, place, None, cause=cause)
+        rows = [("must fail: nav, planks crafted lift the cooling", "nav", [("oak_planks", 4)], True),
+                ("nav, sticks crafted: the same state", "nav", [("stick", 4)], True),
+                ("nav, a pickaxe made: a new state", "nav", [("wooden_pickaxe", 1)], False),
+                ("nav, blocks to place: a new state", "nav", [("cobblestone", 8)], False),
+                ("must fail: a craft's failure, sticks arriving: a new state", "error", [("stick", 4)], False),
+                ("unavailable, planks crafted: a new state", "unavailable", [("oak_planks", 4)], False)]
+        for name, cause, more, same in rows:
+            with self.subTest(name):
+                self.assertEqual(sig(cause, ("oak_log", 1), *more) == sig(cause, ("oak_log", 1)), same)
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -110,5 +110,22 @@ class AStandThatHoldsForNoWayFailsAtItsTarget(unittest.TestCase):
                 self.assertEqual(got.exception.pos, want)
 
 
+class EveryStepCooledSeeks(unittest.TestCase):
+    """D1/E5 (merged from test_accept3_idle.py): when every step of the plan cools here, the round seeks the plan's
+    first source elsewhere (a state change lifts the coolings), never "nothing to do; waiting" (21:22:21 on, trees
+    in sight)."""
+
+    def test_table(self):
+        from bonobo import dispatch
+        from bonobo.planner import Step
+        plan = [Step("mine", "minecraft:cobblestone", 11, {"blocks": ["stone"]}), Step("craft", "minecraft:stick", 4),
+                Step("gather", "log", 1)]
+        rows = [("the run's plan: the cobblestone's stone sought", plan, plan[0]),
+                ("crafts only: nothing to seek (the craft's own retry)", [Step("craft", "minecraft:stick", 4)], None)]
+        for name, steps, want in rows:
+            with self.subTest(name):
+                self.assertIs(dispatch.first_sought(steps), want)
+
+
 if __name__ == "__main__":
     unittest.main()
