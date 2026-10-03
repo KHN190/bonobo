@@ -101,6 +101,16 @@ class Cost:
         self.policy = policy
         self._ripe = ripe            # offline: {token: ripe cells} standing in for memory and the world
 
+    def plans(self):
+        """The round's plan memo, shared by every cost model built on this snapshot with the same readings (memory,
+        bans, reservation, ground): {} of this model alone when it reads offline stand-ins, None with no snapshot."""
+        if self.snap is None or not hasattr(self.snap, "__dict__"):
+            return self.cache
+        if self._known_fn is not None or self._finds is not None or self._ripe is not None:
+            return self.cache
+        shared = self.snap.__dict__.setdefault("_plans", {})
+        return shared.setdefault((id(self.mem), tuple(sorted(self.blacklist)), self.reserved, id(self.region)), {})
+
     # -- where things are
     def protected(self):
         """The cells never broken (memory.protected_cells: sites, a home's box): never a source to gather from; None

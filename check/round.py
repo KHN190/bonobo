@@ -1,6 +1,7 @@
 """The PRODUCTION round on γ(facts): brain.decide with the transport stubbed (check/stub.py). It calls; it never
 re-decides. Decision = (layer, kind, token, target, writes, reason) plus the intents the arbiter ranked."""
 import os
+import time
 import shutil
 from collections import namedtuple
 from unittest import mock
@@ -180,7 +181,9 @@ def _decide(facts, fail_then_again):
         ctx["pressed"] = any(pressed(fight_loop.threat_state(s, rows, ids=ids)) for s, rows, ids in bids)
         from bonobo import tasks as tasklist
         live_before = {t["id"] for t in tasklist.load() if t["state"] in tasklist.LIVE}     # D1: what this round finishes
+        began = time.perf_counter()
         act = b.decide(snap, bctx)
+        ctx["decide_s"] = time.perf_counter() - began          # the round's own decision, the checker's readings apart
         if offered:
             option, worth = offered[-1]
             d = Decision(layer="tactic", kind="threat", token=option.kind, target=getattr(option, "target", None),

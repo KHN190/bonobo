@@ -12,6 +12,7 @@ asked them). check/round.py puts them in ctx:
   switches   [(fresh, staying, lost, noise, switched)] every switch the kernel weighed this round
   holds      [(held name, chosen name, because)] every kernel.Held decision this round
   plan_hand_made  the held plan is check/dims/plan_held's hand-made one (P2 does not judge it)
+  decide_s   seconds brain.decide took this round (P4: at most ROUND_S)
   bound      check.round.plan_bound of the task's needs from this bag (P3: at most the plan's price)
 An invariant whose ctx is missing is Unchecked, said why."""
 import math
@@ -256,4 +257,16 @@ def P3(b, d, a, ctx):
     return None
 
 
-CHECKS = {"D4": D4, "D6": D6, "P2": P2, "P3": P3, "R1": R1, "R2": R2, "R4": R4}
+ROUND_S = 0.5            # one round's decision, planning included: the speedrun's budget for thinking
+
+
+def P4(b, d, a, ctx):
+    """A round decides within ROUND_S: planning answers or refuses, never searches on unbounded (D1: a step or a
+    reason every round, in time)."""
+    took = ctx.get("decide_s")
+    if took is None:
+        return Unchecked("no timed decision this round")
+    return None if took <= ROUND_S else f"the round took {took:.2f} s to decide (budget {ROUND_S} s)"
+
+
+CHECKS = {"D4": D4, "D6": D6, "P2": P2, "P3": P3, "P4": P4, "R1": R1, "R2": R2, "R4": R4}
