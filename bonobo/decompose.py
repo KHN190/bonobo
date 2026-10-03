@@ -56,11 +56,6 @@ def _offline(provide, probe):
     except (AttributeError, TypeError, McError) as e:
         return ("world", type(e).__name__)
 
-def _pod_needs(snap):
-    """The wall-in's needs on this snapshot (survive.pod_needs: its own plan's blocks)."""
-    from .survive import pod_needs
-    return pod_needs(snap)
-
 SOURCES = {
     # A night without a bed (needs.overnight): the default is the bed's plan; these are the other ways through it.
     # A night with a bed (needs.overnight asks these first: a shelter is only for a night no bed can end): the home's
@@ -82,8 +77,9 @@ SOURCES = {
                    "needs": sorted(blueprints.materials(blueprints.SHELTER).items()), "extra_s": ("wait_s",)}],
 }
 
-# a night way whose needs read the snapshot (the wall-in: its own plan's blocks over the read ground)
-NEEDS_OF = {"wall in": _pod_needs}
+# a night way whose needs read the snapshot (the wall-in: its own plan's blocks over the read ground), wired from
+# the top (brain: survive.pod_needs) — these facts import no behaviour
+NEEDS_OF = {}
 
 NIGHT_ITSELF = ("wait_s",)        # spent in the night, not before it
 
