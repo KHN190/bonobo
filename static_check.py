@@ -7,8 +7,8 @@ R5 game data only in data.py and game.py (ticks<->seconds by the tick rate, a li
 R6 no dead code (a module-level def or constant production never names); R7 no swallowed exception (a handler that
 only passes, continues or returns a value); R8 no module-level container changed in a function unless its module
 registers its reset (lifecycle.in_place / on_reset covers); R9 a "Pure" function reaches no api call, HTTP or
-module-state write; R10 no bench budget or estimate written as a number; R11 (E5) every skill bounded and never left
-hanging: its `budget` declared, its `abandon` one of skill.ABANDON_WAYS, "cover" only for a fight's soft skill;
+module-state write; R10 no bench budget or estimate written as a number; R11 (E5) a skill declares its budget, abandon
+only one of skill.ABANDON_WAYS, cover only for a soft or fight skill;
 R12 (K9, over check/) a checker function that prices (its name says a price, a cost, an estimate, seconds or ticks)
 calls production for it, never a model of its own; R13 a bonobo function check/ calls declares its return type
 (a tuple's element count included)."""
@@ -567,14 +567,12 @@ def r10(trees):
     return sorted(out)
 
 
-# -- R11 (E5) every action bounded, and a next step after it is given up ---------------------------------------------
-ABANDON_WAYS = ("cover", "replan")      # skill.ABANDON_WAYS, read without importing the package's skills
+# -- R11 (E5) ---------------------------------------------------------------------------------------------------------
+ABANDON_WAYS = ("cover", "replan")      # skill.ABANDON_WAYS
 
 
 def r11(trees):
-    """[(path:line, what)]: a `@skill(...)` with no `budget=` (no time limit declared), an `abandon=` that is not a
-    string of ABANDON_WAYS (no next step), or "cover" for a skill neither soft nor fighting (seconds spent for no
-    danger; a shelter's would be its own way back)."""
+    """[(path:line, what)] of skills with no budget, an unknown abandon, or cover without danger."""
     out = []
     for path, (tree, _src) in trees.items():
         for fn in ast.walk(tree):

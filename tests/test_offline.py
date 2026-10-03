@@ -195,12 +195,10 @@ class PlanningAndBag(unittest.TestCase):
         worn = {"id": "minecraft:stone_pickaxe", "count": 1, "slot": 4, "damage": 100, "maxDamage": 131}
 
         def reserved(for_the_farm, then):
-            BG.RESERVED = BG.reserved_ids(farm, [("minecraft:stone_hoe", 1)]) if for_the_farm else \
+            held = BG.reserved_ids(farm, [("minecraft:stone_hoe", 1)]) if for_the_farm else \
                 {"minecraft:wheat_seeds", "minecraft:cobblestone"}
-            try:
+            with mock.patch.object(BG, "RESERVED", held):
                 return then()
-            finally:
-                BG.RESERVED = set()
 
         def left(bag, gone):
             return {s["id"] for s in bag if s not in gone}

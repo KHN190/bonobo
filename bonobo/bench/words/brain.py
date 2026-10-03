@@ -531,7 +531,7 @@ WALK = {}
 from ... import lifecycle as _lifecycle  # noqa: E402
 _lifecycle.in_place(__name__, "BRAIN_LOG", "FINDS", "WALK", "FIRST_WATCH")     # a row's own records
 
-BITE_S = EAT_TICKS / TICKS_PER_S        # one bite: the window before the bar rises in which the body must keep moving
+BITE_S = EAT_TICKS / TICKS_PER_S
 
 def ate_on_the_way(frames):
     """Pure over trace frames: food rose during the walk, no frame ran "eat", and x grew through the bite (autoeat while walking)."""

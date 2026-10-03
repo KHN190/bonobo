@@ -88,8 +88,7 @@ def world_signature():
     return ((s["blockX"], s["blockY"], s["blockZ"]),
             tuple(sorted((x["id"], x.get("count", 1), x.get("damage", 0)) for x in inv.slots)))
 
-# E5: what follows work given up — "cover" (needs.cover, the cheapest shelter that runs here) or "replan" (the next
-# round plans again from the world); by its cause (brain.abandon_after), a skill's `abandon` overriding it
+# E5: what follows work given up
 ABANDON_WAYS = ("cover", "replan")
 
 @dataclasses.dataclass(frozen=True)
@@ -103,7 +102,7 @@ class Spec:
     verify: Callable[[Call], bool] | None = None
     budget: float = 300
     stall: float = 45
-    abandon: str | None = None      # E5: what follows a give-up, overriding the cause's (brain.abandon_after)
+    abandon: str | None = None      # E5: overrides brain.abandon_after
     units: Callable[[Call], int] | None = None
     key: Callable[[Call], str] | None = None
     soft: bool = False

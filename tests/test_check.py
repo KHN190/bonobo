@@ -101,7 +101,9 @@ class RoundReselection(unittest.TestCase):
             with self.subTest(name), contextlib.redirect_stdout(io.StringIO()), \
                     mock.patch.object(brain, "line_raisers", lambda *a, **k: kit):
                 d, _got, ctx = rnd.decide(f)
-                self.assertTrue((d.name or "").startswith("fight line"), d.name)
+                plan = [(s.kind, s.token) for s in ctx.get("plan") or []]
+                self.assertEqual((d.layer, d.name), ("plan", "task t1"))         # the kit is the task plan's own steps
+                self.assertIn(("craft", "minecraft:iron_chestplate"), plan, plan)
                 self.assertEqual(ctx["reselected"], want)            # must fail when only the intent key is asked
 
 
@@ -171,6 +173,24 @@ class KnownViolations(unittest.TestCase):
         for inv, facts, d, ctx, why in self.ROWS:
             with self.subTest(inv=inv, why=why):
                 self.assertIn(inv, [k for k, _m in oracle.violations(facts, d, facts, ctx)], d.name)
+
+
+class ACrashIsAStatesOwn(unittest.TestCase):
+    """explore.judged: a state whose round raises is a CRASH violation with its trace's ends; the run goes on."""
+
+    def test_rows(self):
+        from unittest import mock
+        from check import round as rnd
+
+        def boom(f, fail_then_again=True):
+            raise ValueError("too many values to unpack")
+        with mock.patch.object(rnd, "decide", boom):
+            k, after, d, _progress, found, _mismatch, _got = explore.judged(of())
+        self.assertEqual((after, d.layer, [inv for inv, _why in found]), (None, "crash", ["CRASH"]))
+        self.assertIn("ValueError", found[0][1])
+        # must fail: judge itself still raises (only judged isolates)
+        with mock.patch.object(rnd, "decide", boom), self.assertRaises(ValueError):
+            explore.judge(of())
 
 
 class FinishedRound(unittest.TestCase):

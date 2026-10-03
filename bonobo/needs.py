@@ -72,9 +72,7 @@ def cover(ctx, state):
     runner(ctx, *args)
 
 def night_options(inv, cost, facts=None, bed_too=True):
-    """[(way, its needs, the seconds it adds beyond its needs' steps, of them the ones spent before dark, its own
-    steps)] every way through a night — a bed (carried: the sleep row's; else made), the home's bed a walk reaches,
-    a shelter waited in. Its own steps (the shelter row runs them) are priced, never planned."""
+    """[(way, needs, extra seconds, of them before dark, own steps)]: the night's ways; own steps priced, not planned."""
     out = [("bed", [] if inv.count("bed") > 0 else [("bed", 1)], 0.0, 0.0, [])] if bed_too else []
     for key in ("overnight bed", "overnight"):
         sources, why = decompose.offered_sources(key, cost, facts)
@@ -88,17 +86,13 @@ def night_options(inv, cost, facts=None, bed_too=True):
     return out
 
 def overnight(inv, cost, facts=None, bed_too=True) -> tuple[str | None, float, list]:
-    """How to get through a night, by price: (choice, seconds, steps); (None, inf, []) when there is none — the night
-    a one-of target (night_options) of one plan_round: the bed ways (a carried bed — the sleep row's: a room, light,
-    the gate, taken back — or the home's bed a walk reaches, its open walk priced with the night's risk) against
-    making a bed or a shelter waited in (the night ahead and a sheltered night's risk: night_facts): the cheapest
-    whole plan. A shelter is never paired with a sleep. `seconds`: what it takes before dark."""
+    """(way, seconds before dark, steps) of the cheapest way through the night (one-of target); (None, inf, []): none."""
 
     options = night_options(inv, cost, facts, bed_too)
     if not options:
         return None, math.inf, []
     chosen, dusk = {}, copy.copy(cost)
-    dusk.facts = lambda: {**cost.facts(), "night": False}      # the preparation runs before dark (the dusk lead)
+    dusk.facts = lambda: {**cost.facts(), "night": False}      # prepared before dark
     try:
         night = Target("night", [], 0, options=tuple(o[:3] for o in options))
         _first, steps, seconds = plan_round(inv, [night], dusk, chosen=chosen)
@@ -218,8 +212,7 @@ class Needs:
         return self.needs_now
 
     def dusk_due(self, snap):
-        """(way, steps) of the night's cheapest way when dusk comes before its preparation could be had (night_prep_s,
-        due_now), else None."""
+        """(way, steps) of the night's way when its preparation is due by dusk, else None."""
         left, prep = dusk_s(snap), self.night_prep_s(snap)
         if prep is None:
             return None
@@ -314,9 +307,7 @@ class Needs:
                         price, time.time())
 
     def overnight(self, snap, facts=None, bed_too=True):
-        """`overnight` priced once for these facts and this bag (kept PLAN_S_TTL: the bed's and the shelter's choices,
-        the reflex's and the checker's, read the same); `facts`: the round's night facts once read (night_facts),
-        else none (offline: no place read)."""
+        """`overnight`, kept PLAN_S_TTL per (facts, bag); facts default to the round's."""
 
         if facts is None and self._facts is not None and self._facts[0] is snap:
             facts = self._facts[1]
@@ -326,15 +317,14 @@ class Needs:
                         lambda: overnight(snap.inv, self.cost(snap), facts, bed_too=bed_too), time.time())
 
     def night_facts(self, snap, reads=None):
-        """The round's night facts (decompose.night_facts), read once a snapshot: soft ground, ways cooling, a dig-in
-        site, the home bed's walk, the night left."""
+        """The round's night facts (decompose.night_facts), read once a snapshot."""
         if self._facts is not None and self._facts[0] is snap:
             return self._facts[1]
         from .reflexes import home_walk_s
         b = self.brain
         _enclosed, soft_ground, dig_site = ground(reads)
         left = night_left_s(snap)
-        left = None if left is None else math.ceil(left / PLAN_S_TTL) * PLAN_S_TTL     # as fine as the memo keeps it
+        left = None if left is None else math.ceil(left / PLAN_S_TTL) * PLAN_S_TTL
         facts = night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), home_walk_s(b, snap), left,
                             covered_work_s=self.route_covered_s(snap))
         self._facts = (snap, facts)

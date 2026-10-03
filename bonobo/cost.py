@@ -66,8 +66,7 @@ def dug_way(feet, target, block, soil, ore, inv, protected=()):
     return out
 
 def planned_bag(inv, held):
-    """Pure: the bag as a plan has it when a step runs — its tools those the plan holds by then ({kind: tier}, each
-    fresh), everything else the bag's."""
+    """Pure: the bag with the plan's tools ({kind: tier}, fresh) in place of its own."""
     from .data import TOOL_MATERIAL_FOR_TIER, TOOL_USES
     from .knowledge import tool_item
     from .world import Inventory

@@ -117,6 +117,18 @@ def judge(f):
     return key(f), key(after), d, progress, oracle.violations(f, d, after, ctx), dict(got) != dict(f), dict(got)
 
 
+def judged(f):
+    """`judge`, a state whose round raises judged a CRASH (its trace's first and last lines), the run going on."""
+    import traceback
+    try:
+        return judge(f)
+    except Exception as e:  # guard: one state's crash is its own violation, never the whole run's end
+        lines = [ln.strip() for ln in traceback.format_exc().strip().splitlines() if ln.strip()]
+        why = f"{type(e).__name__}: {e} ({lines[1] if len(lines) > 1 else ''} … {lines[-2] if len(lines) > 2 else ''})"
+        d = rnd.Decision("crash", "crash", None, None, (), why, "crash", ())
+        return key(f), None, d, False, [("CRASH", why)], False, dict(f)
+
+
 def explore(limit, on_edge):
     """BFS from starts() over at most `limit` states; on_edge(before, d, after, ctx, violations) per decision."""
     seen, queue, graph, roundtrip = set(), deque(starts()), {}, []

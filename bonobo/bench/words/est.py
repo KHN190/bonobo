@@ -1,5 +1,4 @@
-"""Estimate words: a row's budget is production's own price of its goal from the scene's start (F1's planner and cost
-model over the scene read offline) × the bench's slack — never a typed number (V10).
+"""Estimate words: a row's budget is production's price of its goal over its scene × the slack (V10).
   ("plan", needs)                       the planner's cheapest plan for `needs` from the scene's bag and blocks
   ("step", kind, token, count, detail)  the cost model's price of one step (detail positions '@'-relative)
   ("way", target)                       nav.plan_way's seconds to stand at `target` over the scene's blocks
@@ -19,8 +18,7 @@ UNIT_BLOCKS = ("air", "cave_air", "void_air")
 
 
 def scene_world(setup):
-    """Pure: what a scene's commands leave — {cell: block}, the feet, the bag's slots, the mobs, the clock, the
-    dimension as given — the commands replayed over an empty world (scene.scene_expect's replay)."""
+    """Pure: blocks, feet, slots, mobs and clock a scene's commands leave."""
     from .scene import _placed
     blocks, slots, mobs, feet, clock = {}, [], [], None, None
     for cmd in setup:
@@ -50,7 +48,7 @@ def scene_world(setup):
 
 
 def scene_cost(world, dimension="minecraft:overworld"):
-    """The production cost model over the scene: its bag and clock, what is in sight at what distance from the feet."""
+    """The production cost model over the scene."""
     from ...cost import Cost
     from ...world import Snapshot
     fx, fy, fz = world["feet"]

@@ -283,7 +283,8 @@ class OneDecisionPoint(unittest.TestCase):
         from unittest import mock
         from bonobo import api, brain, retry, tasks
         from bonobo.world import Snapshot
-        snap = Snapshot.from_readings({"dimension": "minecraft:overworld", "timeOfDay": 2000},
+        snap = Snapshot.from_readings({"dimension": "minecraft:overworld", "timeOfDay": 2000, "blockX": 0,
+                                       "blockY": 64, "blockZ": 0},
                                       {"slots": [], "equipment": {}})
         for busy, want_asked, want_taker in rows:
             asked = []

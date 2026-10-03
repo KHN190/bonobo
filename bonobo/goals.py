@@ -8,7 +8,7 @@ from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held_coun
 
 TEMPLATES = ("have", "craft", "milestone", "goto", "road", "build", "sleep", "skill", "effect")
 ITEM_GOALS = ("have", "craft", "milestone")
-# Goals whose own last step, accepted by its contract on the world, ends them (no world state names a skill run).
+# Goals ended by their own step's contract (no world state names a skill run).
 RUN_ONCE = ("skill", "effect")
 # Milestones whose plan goes on past holding things (decompose.THEN): done when that plan has run.
 RUN_AFTER = ("end portal",)
@@ -140,7 +140,7 @@ def _road_remainder(goal, snap, mem):
 
 @desired(*RUN_ONCE)
 def _ran(goal, snap, mem):
-    return None                           # a skill's own step accepted by its contract ends it (brain._after_step)
+    return None
 
 def _registered():
     missing = [t for t in TEMPLATES if t not in DESIRED]
