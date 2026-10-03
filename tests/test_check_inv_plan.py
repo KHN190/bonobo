@@ -59,6 +59,11 @@ def price(s):
     return PRICE.get(s.kind, 20)
 
 
+def run(steps):
+    """The plan priced as it runs, each step by the table above (no tools, walks or hunger in these rows)."""
+    return [price(s) for s in steps]
+
+
 def fires(got):
     return got is not None and not isinstance(got, oracle.Unchecked)
 
@@ -76,9 +81,9 @@ IRON_PICK = step("mine", "minecraft:raw_iron", 60, blocks=["iron_ore"], tier=2, 
 class Plan(unittest.TestCase):
     # (invariant, ctx, fires?)
     ROWS = [
-        ("D6", {"plan": [step("craft", "minecraft:stick", 60)], "price": price}, False),
-        ("D6", {"plan": [step("craft", "minecraft:stick", 0)], "price": price}, True),     # must fail: free work
-        ("D6", {"plan": [step("craft", "minecraft:stick", 30)], "price": price}, True),    # must fail: priced apart
+        ("D6", {"plan": [step("craft", "minecraft:stick", 60)], "price_run": run}, False),
+        ("D6", {"plan": [step("craft", "minecraft:stick", 0)], "price_run": run}, True),     # must fail: free work
+        ("D6", {"plan": [step("craft", "minecraft:stick", 30)], "price_run": run}, True),    # must fail: priced apart
         ("R1", {"plan": [step("craft", "minecraft:stone_pickaxe", 60)], "inv": Bag(), "task_goal": None}, False),
         # must fail: a stone pickaxe crafted while an iron one works
         ("R1", {"plan": [step("craft", "minecraft:stone_pickaxe", 60)], "inv": Bag([("pickaxe", 2, 200)]),
@@ -114,9 +119,9 @@ class Plan(unittest.TestCase):
         ("R2", {"candidates": [("iron", 5.0, [IRON_PICK]), ("stone", 3.0, [STONE_PICK])]}, True),   # must fail: dearer
         ("R4", {"candidates": [("iron", 3.0, [IRON_PICK]), ("stone", 3.0, [STONE_PICK])]}, True),   # must fail: tie, higher tier
         ("R1", {"candidates": [("stone", 3.0, [STONE_PICK]), ("iron", 3.0, [IRON_PICK])]}, False),
-        ("D6", {"candidates": [("stick", 3.0, [step("craft", "minecraft:stick", 60)])], "price": price}, False),
+        ("D6", {"candidates": [("stick", 3.0, [step("craft", "minecraft:stick", 60)])], "price_run": run}, False),
         # must fail: the chosen plan's seconds are not its steps' prices
-        ("D6", {"candidates": [("stick", 1.0, [step("craft", "minecraft:stick", 60)])], "price": price}, True),
+        ("D6", {"candidates": [("stick", 1.0, [step("craft", "minecraft:stick", 60)])], "price_run": run}, True),
         ("R4", {"way": (3.0, 5.0, 3.0)}, False),
         ("R4", {"way": (6.0, 5.0, 3.0)}, True),          # must fail: a dug way taken over a cheaper walk
         ("R4", {"way": (None, 5.0, None)}, True),        # must fail: a way exists, none taken
@@ -160,6 +165,10 @@ class Plan(unittest.TestCase):
         # only the home's bed: a known station all the same (must fail before memory.known_stations)
         ("P2", {"plan": [step("sleep", "bed", 400)], "inv": Bag(), "mem": Mem(home_beds=[(5, 64, 5)]),
                 "dimension": "minecraft:overworld"}, False),
+        # a barter's token names the trader: the pearls it gives feed the eyes (the table's yield credited)
+        ("P2", {"plan": [step("barter", "piglin", 50, 12, types=["minecraft:piglin"]),
+                         step("craft", "minecraft:ender_eye", 3, 12, inputs={"minecraft:ender_pearl": 12})],
+                "inv": Bag(), "mem": Mem(), "dimension": "minecraft:overworld"}, False),
         # must fail: a smelt with no furnace held, made or remembered
         ("P2", {"plan": BEEF_IN_ORDER[:1], "inv": Bag(items=TWO_BEEF), "mem": Mem(),
                 "dimension": "minecraft:overworld"}, True),
