@@ -28,6 +28,19 @@ class ThePriceLine(unittest.TestCase):
                 self.assertEqual((line["ok"], line["price"]["work"]), (ok, price))
                 self.assertEqual((line["est"], line["actual_s"], line["row"], line["cond"]["p"]), (60, 4.2, row, 0.9))
 
+    def test_the_tasks_ticks_ride_along(self):
+        from bonobo import api
+        mine = {"type": "mine", "startTick": 100, "endTick": 120, "result": {"block": "minecraft:stone", "brokeTick": 117}}
+        rows = [("must fail: a mine's break apart from its collect", mine, ["mine", 100, 117, 120, 3]),
+                ("a walk breaks nothing", {"type": "goto", "startTick": 90, "endTick": 99, "result": None},
+                 ["goto", 90, None, 99, 3])]
+        for name, rec, want in rows:
+            with self.subTest(name):
+                self.assertEqual(api.task_ticks(rec, 3), want)
+        line = dispatch.price_line(Step("mine", "minecraft:cobblestone", 1, {"breaks": 1}), False, "o", 1.0,
+                                   phases={"ticks": [want]})
+        self.assertEqual(line["ticks"], [want])          # must fail: the split left out of the price line
+
     def test_a_per_unit_kind_names_its_unit_price(self):
         line = dispatch.price_line(Step("mine", "minecraft:cobblestone", 3, {"breaks": 3}), True, "o", 9.0)
         self.assertEqual(line["price"]["work"], "PRIOR_TICKS.mine_each:prior")     # must fail: "skill" (the catch-all)

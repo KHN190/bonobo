@@ -52,6 +52,7 @@ class ApiState(lifecycle.State):
     # first posted since the round began (perf_counter seconds; None when not yet)
     clock: dict = field(default_factory=lambda: {"ended": None, "first_post": None, "ended_id": -1})
     ended_ids: set = field(default_factory=set)       # tasks whose end is already stamped
+    ticks: dict = field(default_factory=dict)         # task id → task_ticks, since the priced step began (E4's split)
     # world reads allowed to fail, never invisibly: every quiet handler reports here (mc.py prints the tally)
     swallowed: dict = field(default_factory=dict)
     lock: Any = field(default_factory=threading.RLock, repr=False, compare=False)
@@ -421,6 +422,13 @@ def get(path) -> dict:
 TASK_STATUSES: "tuple[TaskStatus, ...]" = ("running", "succeeded", "failed", "cancelled")     # the jar's Task.Status (Task.java), lowercased
 
 
+def task_ticks(r, segment):
+    """Pure: [type, startTick, brokeTick (a mine's; None), endTick, segment] of a jar task record: where a chain's
+    ticks go (`segment`: the POST it came in, STATE.posts)."""
+    res = r.get("result") if isinstance(r.get("result"), dict) else {}
+    return [r.get("type"), r.get("startTick"), res.get("brokeTick"), r.get("endTick"), segment]
+
+
 def task_result(task_id) -> "TaskResult":
     """GET /task?id=: the jar's record of one task as a TaskResult, its fields read one by one (a record without a
     status, or with one the jar never sends, is the jar's error, raised)."""
@@ -429,6 +437,7 @@ def task_result(task_id) -> "TaskResult":
         status = r["status"]
         if status not in TASK_STATUSES:
             raise McError(f"/task?id={task_id}: status {status!r}")
+        STATE.ticks[int(r.get("id", task_id))] = task_ticks(r, STATE.posts)
         return {"id": int(r.get("id", task_id)), "type": str(r.get("type") or ""), "status": status,
                 "message": str(r.get("message") or ""),
                 "seconds": float(r.get("seconds") or 0.0), "doing": str(r.get("doing") or ""), "result": r.get("result")}
@@ -633,6 +642,7 @@ def await_task(task_id, wait, exempt=("wait",)):
         check_interrupt(began, STATE.soft)
         if r["status"] != "running":
             trail_end(r)
+            STATE.ticks[task_id] = task_ticks(r, STATE.posts)
             return r
         if time.time() - said >= FROZEN_S / 2:
             said = time.time()
