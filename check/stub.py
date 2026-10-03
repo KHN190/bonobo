@@ -56,6 +56,10 @@ class StubWorld:
     def _status(self, q):
         return {"version": VERSION}
 
+    def _biomes(self, q):
+        """The state's biome facts as the jar's /biomes answers them: none known unless the state names some."""
+        return {"chunks": [{"cx": cx, "cz": cz, "biome": b} for cx, cz, b in self.state.get("biomes", [])]}
+
     def _state(self, q):
         return dict(self.state)
 
