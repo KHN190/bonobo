@@ -6,6 +6,7 @@ from typing import Any
 from . import beliefs, estimate, kernel, lifecycle
 from . import formulas, game
 from .beliefs import MOBS, protection
+from .data import is_night
 from .estimate import row
 from .game import ARROWS
 
@@ -46,8 +47,8 @@ def aggro(e, context=None) -> bool:
 
 def context_of(state, kit) -> dict:
     """Pure: what `aggro` reads from our side — daylight (the overworld's day half) and gold worn (the kit)."""
-    day = (state.get("dimension", "minecraft:overworld") == "minecraft:overworld"
-           and int(state.get("timeOfDay", 6000)) % 24000 < 12000)
+    dim = state.get("dimension", "minecraft:overworld")
+    day = dim == "minecraft:overworld" and not is_night(int(state.get("timeOfDay", 6000)), dim)
     return {"day": day, "gold_worn": bool((kit or {}).get("gold_worn"))}
 
 def awareness(e, here, context=None) -> float:

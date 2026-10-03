@@ -12,6 +12,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import threat as sv  # noqa: E402  (the price of health lives in threat now)
 from bonobo import beliefs, estimate, threat  # noqa: E402
+from bonobo.data import DAY_END, DAY_TICKS  # noqa: E402
 
 HERE = (0.0, 64.0, 0.0)      # fixture: where we stand
 STILL = (0.0, 0.0, 0.0)      # fixture: a mob at rest
@@ -1044,6 +1045,9 @@ class WhoIsAfterUs(unittest.TestCase):
     def test_context_of(self):
         rows = [("overworld noon", {"dimension": "minecraft:overworld", "timeOfDay": 6000}, {}, True, False),
                 ("overworld midnight", {"dimension": "minecraft:overworld", "timeOfDay": 18000}, {}, False, False),
+                # must fail: the day half was a literal 12 000; dusk is data.DAY_END, day 2 an absolute clock
+                ("just before dusk", {"dimension": "minecraft:overworld", "timeOfDay": DAY_END - 300}, {}, True, False),
+                ("day 3 noon, absolute", {"dimension": "minecraft:overworld", "timeOfDay": 2 * DAY_TICKS + 6000}, {}, True, False),
                 ("the nether: no sun", {"dimension": "minecraft:the_nether", "timeOfDay": 6000}, {}, False, False),
                 ("gold on", {"dimension": "minecraft:overworld", "timeOfDay": 6000}, {"gold_worn": True}, True, True)]
         for name, state, kit, day, gold in rows:

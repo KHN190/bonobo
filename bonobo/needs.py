@@ -16,7 +16,7 @@ from .cost import Cost
 from .decompose import cooled_ways, night_facts, night_left_s, way_key  # noqa: F401
 if TYPE_CHECKING:
     from .shapes import BagState, CraftTask
-from .data import DAY_END, NIGHT_WORK, TOOL_KINDS, memo_ttl, DAY_TICKS, TICKS_PER_S, REPAIR_BONUS_PARTS
+from .data import NIGHT_WORK, TOOL_KINDS, memo_ttl, TICKS_PER_S, REPAIR_BONUS_PARTS
 from .knowledge import FIND_AT
 from .planner import Target, Unplannable, craftable_tier, plan_round
 from .skill import skill
@@ -40,10 +40,9 @@ FALL_RISK = {("portal", None), ("seek", "fortress"), ("seek", "stronghold"), ("s
 DEEP_Y = 40                # a mine step whose ore is richest below this is reached by digging down
 
 def dusk_s(snap) -> float:
-    """Seconds until dusk (data.DAY_END, the one dusk: LEAD is the only margin): (DAY_END − timeOfDay) / TICKS_PER_S, 0 once
-    it is dark."""
-    t = int(snap.time) % DAY_TICKS
-    return max(0.0, (DAY_END - t) / TICKS_PER_S) if t < DAY_END else 0.0
+    """Seconds until the next dusk (world.ticks_until_dusk: data.DAY_END, the one dusk; LEAD is the only margin), 0 while
+    it is dark; from dawn (NIGHT_END) a whole day ahead."""
+    return world.ticks_until_dusk(int(snap.time)) / TICKS_PER_S
 
 def cover(ctx, state):
     """The cheapest shelter that can run here now — every skill providing a "shelter:" way, priced by the one cost

@@ -3,7 +3,7 @@ import functools
 import math
 
 from .game import COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
-from .data import ANIMAL_HP, BASE_MARKERS, DAY_END, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, DEEPSLATE_ORE_HARDNESS, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
+from .data import ANIMAL_HP, BASE_MARKERS, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, DEEPSLATE_ORE_HARDNESS, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
 from .data import TAKEABLE
 from .data import COLORS, WOODS, ATTACKS_PER_S, HAND_ATTACKS_PER_S, HAND_DAMAGE, NETHER, OVERWORLD, PIGLIN_BARTER, is_night
 
@@ -523,9 +523,9 @@ def breathing(st, c):
     return left(int(s.get("air", AIR_FULL)) >= AIR_FULL, "state:air", AIR_FULL - int(s.get("air", 0)))
 
 def daytime(st, c):
-    """The day wanted: {} while the clock's time of day (absolute ticks, taken mod a day) is before dusk."""
+    """The day wanted: {} while it is not night (data.is_night: the one day cycle, absolute ticks taken mod a day)."""
     t = body(st).get("timeOfDay")
-    return left(t is not None and int(t) % DAY_TICKS < DAY_END, "state:day")
+    return left(t is not None and not is_night(int(t)), "state:day")
 
 def fed(st, c):
     food = int(body(st).get("food", 0))
@@ -767,7 +767,7 @@ def under_rock(sky_light) -> bool:
 def dark_here(s):
     """Pure over /state: standing where mobs spawn — block light 0, and not under open sky by day."""
     return "blockLight" in s and s["blockLight"] <= SPAWN_BLOCK_LIGHT and \
-        not (s["skyLight"] > DAYLIT_SKY and 0 < s["timeOfDay"] < DAY_END)
+        not (s["skyLight"] > DAYLIT_SKY and not is_night(int(s["timeOfDay"])))
 
 
 def sheltered(sky_light, enclosed, in_site=lambda: False):
