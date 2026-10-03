@@ -88,10 +88,14 @@ def line_raisers(kinds, state, inv, material=LINE_ARMOR):
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
     sword, armor = _k.attack_weapon(inv, beliefs.COMMON_FOE_HP), float(state.get("armor", 0))
 
-    def inside(item, points):
-        mean, hit = estimate.melee_loss(kinds, item, beliefs.protection(points, shield, hit=beliefs.hardest_hit(kinds)))
+    def inside(item, points, shapes=()):
+        mean, hit = estimate.melee_loss(kinds, item, beliefs.protection(points, shield, hit=beliefs.hardest_hit(kinds)),
+                                        shapes=shapes)
         return estimate.fight_line_ok(hp, floor, mean, hit)
 
+    # the lid fight_line_holds stands under when the blocks are carried: those blocks are kit too
+    roof = [[("building", threat.ROOF_BLOCKS)]] if inv.count("building") < threat.ROOF_BLOCKS \
+        and inside(sword, armor, (("roof", threat.ROOF_BLOCKS),)) else []
     sets, rows, points = [], [], armor
     for piece in sorted(ARMOR_POINTS[material], key=lambda p: -ARMOR_POINTS[material][p]):
         worn_mat, _, worn_piece = bare(inv.worn(ARMOR_SLOTS[piece]) or "air").rpartition("_")
@@ -107,7 +111,7 @@ def line_raisers(kinds, state, inv, material=LINE_ARMOR):
     for rows_, points_ in sets:
         out += [rows_] if inside(sword, points_) else []
         out += [[("tool", "sword", t)] + rows_ for t, item in swords if inside(item, points_)]
-    return out
+    return out + roof
 
 
 def line_kit(contract, args, state, inv):
