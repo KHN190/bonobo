@@ -384,8 +384,10 @@ class Brain:
             here, place = None, ("target", tuple(int(v) for v in target))
         else:
             here, place = self.place_now(), self.place
+        # where the failure happened is a second place only for a cause cooled by place: any other cools once,
+        # everywhere, in the state of the round's place (a second write put the feet's place in it: lifted at once)
         verdict = self.retry.failed(name, cause, str(err), time.time(), place,
-                                    also_at=(here,) if here is not None else (),
+                                    also_at=(here,) if here is not None and cause in retry.BY_PLACE else (),
                                     state=self.state_of(place, self.fail_target[name], kinds))
         if verdict is not None and verdict.worth_logging and not quiet:
             log(f"{'~~' if isinstance(err, NotAvailable) else '!!'} {name}: {err} "
