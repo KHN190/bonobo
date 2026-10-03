@@ -15,5 +15,5 @@ ROWS = [
                {'goal': 'milestone', 'args': {'name': 'iron pickaxe'}}],
               60),
          check=[('slice_check', ('!now', ('!count', 'minecraft:iron_pickaxe', '>=', 1)), 60)],
-         detail=('&slice_detail',), budget=1800, raw=True, release=True, point='D', tags={'base': 'acceptance'}),
+         detail=('&slice_detail',), est=('plan', [('tool', 'pickaxe', 2)]), raw=True, release=True, point='D', tags={'base': 'acceptance'}),
 ]

@@ -2,7 +2,7 @@
 import functools
 import math
 
-from .game import COVERED_SKY, DAYLIT_SKY, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
+from .game import COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
 from .data import ANIMAL_HP, BASE_MARKERS, DAY_END, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, DEEPSLATE_ORE_HARDNESS, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
 from .data import TAKEABLE
 from .data import COLORS, WOODS, ATTACKS_PER_S, HAND_ATTACKS_PER_S, HAND_DAMAGE, NETHER, PIGLIN_BARTER
@@ -782,7 +782,7 @@ PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 
                "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
                "withdraw": 100, "look": 40, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
                "farm": 1200, "trade": 600,         # farm: without the growth (GROW_S)
-               "reach": 200, "breed": 400,
+               "reach": 200, "breed": 400, "eat": EAT_TICKS,
                "shelter:dig_in": 500, "shelter:pod": 800, "shelter:hut": 2400,
                "room:tidy": 300, "room:deposit": 1200}
 GROW_S = {"crop": 900, "animal": 1200}     # seconds (jobs.DURATION)

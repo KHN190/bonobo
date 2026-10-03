@@ -184,7 +184,7 @@ class TheCoverIsWhole(unittest.TestCase):
         for name, row in sorted(sc.SCENARIOS.items()):
             if bench_bases.CONDITIONS.get(row.get("tags", {}).get("timing"), {}).get("interrupt"):
                 with self.subTest(name):
-                    self.assertEqual(row["budget"], bench_bases.BASES[row["tags"]["base"]]["budget"],
+                    self.assertEqual(row["budget"], sc.SCENARIOS[f"{row['tags']['base']}__base"]["budget"],
                                      "an interrupted run keeps the base's time: the base is small enough to resume")
 
     def test_every_timing_row_runs(self):
