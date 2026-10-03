@@ -119,6 +119,11 @@ class Plan(unittest.TestCase):
         ("D6", {"candidates": [("stick", 3.0, [step("craft", "minecraft:stick", 60)])], "price": price}, False),
         # must fail: the chosen plan's seconds are not its steps' prices
         ("D6", {"candidates": [("stick", 1.0, [step("craft", "minecraft:stick", 60)])], "price": price}, True),
+        # S8: the bar against the plan's clock (est ticks)
+        ("S8", {"plan": [step("mine", "minecraft:cobblestone", 400)], "food_left_s": 10.0}, True),   # must fail: starves
+        ("S8", {"plan": [step("smelt", "minecraft:cooked_beef", 100), step("mine", "minecraft:cobblestone", 400)],
+                "food_left_s": 10.0}, False),
+        ("S8", {"plan": [step("mine", "minecraft:cobblestone", 400)], "food_left_s": None}, False),   # food carried
         ("R4", {"way": (3.0, 5.0, 3.0)}, False),
         ("R4", {"way": (6.0, 5.0, 3.0)}, True),          # must fail: a dug way taken over a cheaper walk
         ("R4", {"way": (None, 5.0, None)}, True),        # must fail: a way exists, none taken
