@@ -1,4 +1,4 @@
-"""accept_fresh_iron_pickaxe (accept4, 21:49): a crafting table accept3 left standing ~17 blocks off was in sight; the plan
+"""accept_fresh_iron_pickaxe: a crafting table left standing ~17 blocks off was in sight; the plan
 took it, but the walk order put "take crafting_table" after "craft wooden_pickaxe" (a craft's station was no dependency
 of the order: only what it consumes was), so the craft ran with no table near ("no crafting_table nearby or carried")."""
 import os
@@ -36,14 +36,14 @@ def plan(table_at, logs_at):
 
 
 class AStationComesBeforeItsUse(unittest.TestCase):
-    """P2: the held plan runs in order — every step whose recipe works at a station, or that needs a tool, runs after
+    """The held plan runs in order — every step whose recipe works at a station, or that needs a tool, runs after
     the step that brings it, however it is brought (craft, take, withdraw) and wherever the walk order puts sites."""
 
     def test_plans(self):
         # (situation, table distance or None, logs distance): a table in sight near, far or none; logs near or far
         rows = [("no table: one crafted", None, 5),
                 ("a table in use reach", 6, 5),
-                ("must fail: a table ~17 off with logs far (accept4: taken, ordered after its first use)", 17, 25),
+                ("must fail: a table ~17 off with logs far (taken, ordered after its first use)", 17, 25),
                 ("a table ~17 off with logs near", 17, 5),
                 ("a table out of a take's worth", 30, 25)]
         for name, table_at, logs_at in rows:

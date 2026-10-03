@@ -22,7 +22,7 @@ class TheReportReadsWhereTheBodyStopped(unittest.TestCase):
 
 
 class EveryRunWritesItsOwnReportOrNone(unittest.TestCase):
-    """K10 (accept3): a run cut before its verdict wrote nothing, and the newest report was accept2's. A row's folder
+    """A run cut before its verdict wrote nothing, and the newest report was from an earlier run. A row's folder
     is made as it starts, saying it was cut; a failure's report replaces it, a pass removes it."""
 
     def test_rows(self):

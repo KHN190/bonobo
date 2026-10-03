@@ -50,7 +50,7 @@ class StepBudget(unittest.TestCase):
             nav.reach_stand({"type": "mine", "x": TARGET[0], "y": TARGET[1], "z": TARGET[2]}, nav.Policy())
 
     def test_refused_before_digging(self):
-        """accept7: a way priced 104 s against a 61 s step (> 1.5×): refused, nothing dug, not a NavFailed (no ban)."""
+        """A way priced 104 s against a 61 s step (> 1.5×): refused, nothing dug, not a NavFailed (no ban)."""
         with api.step_budget(61 * TICKS_PER_S), self.assertRaises(api.Overrun) as e:
             self.way(104.3)
         self.assertNotIsInstance(e.exception, api.NavFailed)      # must fail: the target banned for a price miss

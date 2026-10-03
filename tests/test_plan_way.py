@@ -376,7 +376,7 @@ class TheChopChainHasAStand(unittest.TestCase):
             for want in (2, len(self._LOGS)):
                 with self.subTest(feet=feet, want=want):
                     chain = wood.trunk_batch(self._LOGS[0], self._LOGS[1:], want, region, feet, Inventory(inventory()))
-                    # must fail (accept3): y77 sent before y76 from inside the column, no stand reached
+                    # must fail: y77 sent before y76 from inside the column, no stand reached
                     self.assertIsNone(nav.unstandable(nav.standable_order(chain, region, feet), region, feet))
 
 

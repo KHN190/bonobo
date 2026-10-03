@@ -32,7 +32,7 @@ def geometry(name, kind):
     b = ground()
     if name == "flat":
         t = (2, FEET[1], 0)
-    elif name == "slope":            # high on a column, no tread beside it (accept2's slope tree)
+    elif name == "slope":            # high on a column, no tread beside it
         t = (3, FEET[1] + 5, 0)
         b.update({(3, y, 0): "dirt" for y in range(FEET[1], t[1])})
     elif name == "overhang":         # under a ledge, nothing under it
@@ -77,7 +77,7 @@ class ThePlanRefusesByTheDoorsPredicate(unittest.TestCase):
                         got = nav.reach(region, feet, t, sk, c.snap.inv, set())     # the door's loop (gate)
                         why = got.why
                         door_fails = got.stand is None and getattr(why, "cell", None) is not None
-                        # must fail (accept2): the plan prices a source the door then finds no tread to
+                        # must fail: the plan prices a source the door then finds no tread to
                         self.assertEqual(c.refused(t, sk) is not None, door_fails, why)
 
     def test_unknown_is_possible(self):

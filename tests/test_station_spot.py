@@ -36,7 +36,7 @@ def _flat():
 def _sealed_box():
     """Walled and capped on every side but the body's own 2-high cell, the walls undiggable (`protected`): no
     cell in reach has an approach the gate accepts, dig or no dig -- yet free_spots' own geometry (floor, open
-    air, clear of the body) still finds one outside the box, same as the accept7 remembered-ore gap (fix-b/S5)."""
+    air, clear of the body) still finds one outside the box, the same gap a remembered ore outside a sealed vein shows."""
     blocks, lo, hi = _floor()
     walls = set()
     for x in range(-1, 2):

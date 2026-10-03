@@ -19,7 +19,7 @@ BROKEN = [(12989, 99, 13084), (12989, 98, 13084), (12988, 99, 13084), (12988, 98
 CELLS = [(12987, 98, 13084), (12989, 98, 13082), (12988, 99, 13081)]
 
 
-def accept9_ground():
+def broken_head_room_ground():
     """The hill, broken: stone to y97, dirt to y99, the broken cells open."""
     lo, hi = (12980, 90, 13075), (12996, 106, 13092)
     blocks = {(x, y, z): "stone" if y <= 97 else "dirt" for x in range(lo[0], hi[0] + 1)
@@ -36,17 +36,17 @@ class AStepIsTwoHigh(unittest.TestCase):
         state = {"inv": Inventory(inventory()), "feet": FEET, "region": region}
         return gather.mine_segment_commands(state, (CELLS, "minecraft:cobblestone", 0))
 
-    def test_accept9(self):
-        region = accept9_ground()
+    def test_stone_head_above_stepped_cell_blocks_third_mine(self):
+        region = broken_head_room_ground()
         chain = nav.standable_order(self.chain(region), region, FEET)
         stands = [s for _t, s in nav.task_stands(chain, FEET)]
         self.assertIn((12989, 98, 13082), stands, "fixture: the batch steps into the mined cell")
-        # must fail (accept9): the stepped-into cell's head in stone, the 3rd mine refused at the gate
+        # must fail: the stepped-into cell's head in stone, the 3rd mine refused at the gate
         self.assertIsNone(nav.unstandable(chain, region, FEET))
 
     def test_head_room_only_where_it_is_solid(self):
         """A head already open is not mined (a mine on air fails the chain: "nothing to mine (air)")."""
-        region = accept9_ground()
+        region = broken_head_room_ground()
         region.blocks.pop((12989, 99, 13082), None)
         mines = [(t["x"], t["y"], t["z"]) for t in self.chain(region) if t["type"] == "mine"]
         self.assertNotIn((12989, 99, 13082), mines)
@@ -54,7 +54,7 @@ class AStepIsTwoHigh(unittest.TestCase):
 
     def test_the_head_before_the_cell(self):
         """Top down: the head room broken before the cell under it is stepped into."""
-        tasks = [(t["type"], (t.get("x"), t.get("y"), t.get("z"))) for t in self.chain(accept9_ground())]
+        tasks = [(t["type"], (t.get("x"), t.get("y"), t.get("z"))) for t in self.chain(broken_head_room_ground())]
         head, cell = ("mine", (12989, 99, 13082)), ("goto", (12989, 98, 13082))
         self.assertLess(tasks.index(head), tasks.index(cell))
 

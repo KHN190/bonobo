@@ -1,4 +1,4 @@
-"""D1: a held plan with no runnable step still names why (brain.step_reason), never a guessed reason — `skip` names
+"""A held plan with no runnable step still names why (brain.step_reason), never a guessed reason — `skip` names
 its own (a str), and only a plain bool falls back to the bare "skipped by <predicate>" text — and never the bare
 "no step of the plan can run from here" while steps exist (the one case it's actually right: no steps at all)."""
 import os
@@ -28,7 +28,7 @@ class StepReasonNamesTheStep(unittest.TestCase):
             ("cooling, no seek found a way (the same source failed before)",
              [mine_stone], (lambda st: None), (lambda st, inv: True), (lambda name: False),
              f"{brainmod.step_key(mine_stone)}: cooling, no seek alternative found it a way"),
-            ("accept5: every step skipped, named in the skip check's own words (not a guess)",
+            ("every step skipped, named in the skip check's own words (not a guess)",
              [gather_wood], skip_night, (lambda st, inv: True), (lambda name: True),
              f"{brainmod.step_key(gather_wood)}: a surface step, and it's night"),
             ("must fail: a skip check that only says yes/no (no reason) falls back to naming itself, not a guess",

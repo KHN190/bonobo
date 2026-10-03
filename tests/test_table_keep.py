@@ -3,7 +3,7 @@ priced by the real dig path (_next_use_at's Cost replay), not the straight line 
 it, carrying it, and placing it again there (craft.station_kept); the one decision point brain.craft_act reads
 (craft.next_furnace_use), not a bare "needs one again" bool. A crafting table is never priced this way: ours (just
 placed, or already standing where memory says we put it) is always taken back (craft.take_table / craft_commands),
-never another's or the world's. Rows: next use here / near (accept5) / far (another area) × hand / axe / pickaxe
+never another's or the world's. Rows: next use here / near / far (another area) × hand / axe / pickaxe
 × table / furnace."""
 import math
 import os
@@ -23,8 +23,8 @@ from tests.world import FakeRegion, bag, cost, inventory, memory, slot, snapshot
 TABLE = "minecraft:crafting_table"
 FURNACE = "minecraft:furnace"
 OVER = "minecraft:overworld"
-POS = (12984, 74, 12997)            # accept5's table
-IRON = (12984 + 10, 69, 12997 + 11)  # accept5's iron: ~15.7 blocks off, a floor below
+POS = (12984, 74, 12997)            # the table
+IRON = (12984 + 10, 69, 12997 + 11)  # the iron: ~15.7 blocks off, a floor below
 
 TOOLS = {
     "hand": bag(inventory()),
@@ -34,7 +34,7 @@ TOOLS = {
 
 DISTANCES = {
     "here": (POS[0], POS[1], POS[2] + 2),
-    "near (accept5)": IRON,
+    "near": IRON,
     "far (another area)": (POS[0], POS[1], POS[2] + 200),
 }
 
@@ -72,14 +72,14 @@ class StationKeptPricesTheCheaperChoice(unittest.TestCase):
 
     def test_a_furnace_still_cooking_counts_toward_keeping_it(self):
         # the same gap in tool speed, with wait added on the carry side: cooking can only make keeping it cheaper
-        near = flat_next_use(DISTANCES["near (accept5)"])
+        near = flat_next_use(DISTANCES["near"])
         cold = craft.station_kept(FURNACE, POS, near, TOOLS["pickaxe"], extra_s=0.0)
         hot = craft.station_kept(FURNACE, POS, near, TOOLS["pickaxe"], extra_s=50.0)
         self.assertFalse(cold)        # a pickaxe breaks the furnace fast enough that carrying still pays cold
         self.assertTrue(hot)          # ...but not once the wait for it to finish is added to the carry side
 
-    def test_accept5_keeps_the_table_for_the_iron_15_blocks_off(self):
-        """accept5's own scene: the table at (12984,74,12997), the iron ~15.7 blocks off at y69 — a hand or a
+    def test_keeps_the_table_for_the_iron_15_blocks_off(self):
+        """The scene: the table at (12984,74,12997), the iron ~15.7 blocks off at y69 — a hand or a
         pickaxe walks back for it; an axe (the table's own fast tool) breaks it and carries it on instead. (Only
         station_kept's own pure price, same whatever block is asked — a table is never run through it any more,
         see OwnTableReusedIsAlwaysTakenBack.)"""
