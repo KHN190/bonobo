@@ -291,6 +291,7 @@ class OneDecisionPoint(unittest.TestCase):
                     return result if name in busy else None
                 return ask
             b = brain.Brain.__new__(brain.Brain)
+            b.unplannable = {}
             b.retry, b.place, b.planning = retry.Retry(), None, planning
             ask_upkeep = layer("upkeep", [(0, "u", None)])
             b.needs = type("Needs", (), {"working": {}, "needs_now": [], "round": {},
