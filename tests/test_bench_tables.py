@@ -667,7 +667,8 @@ class WordModules(unittest.TestCase):
         root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo", "bench", "words")
         for i, name in enumerate(self.ORDER):
             with self.subTest(name):
-                tree = ast.parse(open(os.path.join(root, f"{name}.py"), encoding="utf-8").read())
+                with open(os.path.join(root, f"{name}.py"), encoding="utf-8") as f:
+                    tree = ast.parse(f.read())
                 first_def = next(n.lineno for n in tree.body if isinstance(n, (ast.FunctionDef, ast.Assign)))
                 for n in tree.body:
                     if not isinstance(n, ast.ImportFrom):
@@ -934,7 +935,7 @@ class FreshRow(unittest.TestCase):
                 mock.patch.object(core, "reset_brain") as reset:
             for name in fresh.WORLD_SCOPED:
                 if "." in name:
-                    open(paths.data(name), "w").write("[]")
+                    with open(paths.data(name), "w") as f: f.write("[]")
                 else:
                     os.makedirs(paths.data(name))
             lesson = paths.data("mechanisms.json")

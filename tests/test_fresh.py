@@ -60,7 +60,7 @@ class Check(unittest.TestCase):
                     os.makedirs(paths.data())
                     for name, seed in played:
                         for n in self.STORES:
-                            open(paths.data(n), "w").write("[]")
+                            with open(paths.data(n), "w") as f: f.write("[]")
                         save(instance, name, seed)
                         gone, kept = self.start(instance)
                     self.assertEqual(sorted(gone), sorted(self.STORES) if dropped else [])

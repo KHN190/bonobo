@@ -43,7 +43,10 @@ class EveryRunWritesItsOwnReportOrNone(unittest.TestCase):
                         runner._report(folder, end)
                         runner.report_written()
                 path = os.path.join(folder, "report.json")
-                got = json.load(open(path))["note"] if os.path.exists(path) else None
+                got = None
+                if os.path.exists(path): 
+                    with open(path) as f:
+                        got = json.load(f)["note"]
                 self.assertEqual(got, want)
 
 
