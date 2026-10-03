@@ -104,12 +104,6 @@ def stand_kind(kinds):
     return "use_item" if any(n in HAZARD for n in names) else "mine"
 
 
-def refuted_key(step, target):
-    """Pure: what a refuted price is kept under (Memory.refute): the step's kind and token, its target (None: the
-    step anywhere)."""
-    return step.kind, step.token, None if target is None else tuple(int(v) for v in target)
-
-
 def route_refused(routes, where):
     """Pure: the game's route to `where` was asked and not found (`routes`: the answers the snapshot was read with)."""
     return routes.get(route_key(where, 2.0, NAV_NODES), (None, None))[0] is False
@@ -497,7 +491,7 @@ class Cost:
             return None                     # a memory with no refutations (a test's stand-in)
         state = ban_state(self.step_state(at)[0], frozenset(s["id"] for s in self.snap.inv.slots if s.get("count")))
         for t in (target, None):
-            got = read(refuted_key(step, t), state)
+            got = read(step, t, state)
             if got is not None:
                 return round(got * TICKS_PER_S)
         return None

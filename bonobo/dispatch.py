@@ -6,7 +6,6 @@ import os
 import time
 
 from . import api, explore, gather, lifecycle, nav, paths, retry, skillcore
-from .cost import refuted_key
 from . import world
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, log, swallowed
@@ -166,7 +165,7 @@ def execute(ctx, step, night):
     except api.Overrun as e:
         # the one writer of a refuted price (Cost reads it): the step's measured rest at its target, while the
         # state it was measured in holds (E5); no outcome counted — an interruption, re-planned, nothing failed
-        ctx.mem.refute(refuted_key(step, e.pos), e.remaining_s,
+        ctx.mem.refute(step, e.pos, e.remaining_s,
                        skillcore.ban_state(api.STATE.feet_seen, api.STATE.kinds_seen))
         raise
     except api.INTERRUPTIONS:

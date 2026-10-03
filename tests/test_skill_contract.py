@@ -321,6 +321,7 @@ OUTCOMES = [
     (api.NightFell("night"), "interrupt", "interrupted"),
     (api.DimensionChanged("mine: now in the Nether"), "interrupt", "interrupted"),
     (api.CommitmentExpired("a faster layer took the body"), "replan", "interrupted"),
+    (api.Overrun("the step ran 20s > its 15s", pos=(1, 64, 1), remaining_s=20.0), "replan", "interrupted"),
     (api.GameUnreachable("game not reachable (connection refused)"), "game", "waits"),
     (api.ToolMissing("pickaxe", 1), "tool", "failure"),
     (skillcore.NeedMissing({"tool:pickaxe": 2}), "tool", "failure"),
@@ -628,7 +629,8 @@ class Outcomes(unittest.TestCase):
         special = {api.PlayerTookControl: ("interrupted", "player"), api.GameUnreachable: ("interrupted", "game lost"),
                    api.BodyContested: ("interrupted", "manual"), api.FightHolds: ("interrupted", "layer:tactic"),
                    api.Died: ("interrupted", "death"), api.DimensionChanged: ("interrupted", "dimension change"),
-                   api.CommitmentExpired: ("interrupted", "layer:plan"), api.Interrupted: ("interrupted", "layer:safety"),
+                   api.CommitmentExpired: ("interrupted", "layer:plan"), api.Overrun: ("interrupted", "layer:plan"),
+                   api.Interrupted: ("interrupted", "layer:safety"),
                    api.NightFell: ("interrupted", "night")}
         rows = [(err, special.get(type(err), ("failed", "stuck"))) for err, _cause, cls in OUTCOMES]
         rows += [(None, ("ok", None)), (ValueError("a bug of ours"), ("failed", "crash"))]

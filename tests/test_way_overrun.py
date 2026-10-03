@@ -127,9 +127,8 @@ class RefutedPrice(unittest.TestCase):
     state holds, never under its own lower bound (P3)."""
 
     def _refute(self, mem, step, target, seconds, bag):
-        from bonobo import cost as costmod
         from bonobo.skillcore import ban_state
-        mem.refute(costmod.refuted_key(step, target), seconds,
+        mem.refute(step, target, seconds,
                    ban_state((0.5, 64, 0.5), frozenset(s["id"] for s in bag.slots if s.get("count"))))
 
     def test_a_rest_below_its_bound_is_priced_at_the_bound(self):

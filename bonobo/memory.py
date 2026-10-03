@@ -503,15 +503,19 @@ class Memory:
         return cells
 
     # -- skill outcomes (DEPS-style selector: plans through steps that keep failing get dearer)
-    def refute(self, key, seconds, state):
-        """A step's price the run refuted (api.Overrun): the measured rest, `seconds`, of `key` (step kind, token,
-        target or None) while `state` (skillcore.ban_state) holds — in process, never saved (K4); one writer
-        (dispatch.execute), one reader (Cost)."""
-        self.refuted[tuple(key)] = (float(seconds), state)
+    @staticmethod
+    def _refuted_key(step, target):
+        return step.kind, step.token, None if target is None else tuple(int(v) for v in target)
 
-    def refuted_s(self, key, state):
-        """The refuted seconds of `key` in `state`, None when none or the state changed (it lifted)."""
-        got = self.refuted.get(tuple(key))
+    def refute(self, step, target, seconds, state):
+        """A step's price the run refuted (api.Overrun): the measured rest, `seconds`, of `step` at `target` (None:
+        the step anywhere) while `state` (skillcore.ban_state) holds — in process, never saved (K4); one writer
+        (dispatch.execute), one reader (Cost)."""
+        self.refuted[self._refuted_key(step, target)] = (float(seconds), state)
+
+    def refuted_s(self, step, target, state):
+        """The refuted seconds of `step` at `target` in `state`, None when none or the state changed (it lifted)."""
+        got = self.refuted.get(self._refuted_key(step, target))
         return got[0] if got is not None and got[1] == state else None
 
     def record_outcome(self, key, ok):
