@@ -253,7 +253,12 @@ def plan_ctx(b, act, snap, mem, world):
     out = {"plan": list(held["steps"]) if held is not None else None, "price": cost.estimate, "inv": snap.inv,
            "mem": mem, "dimension": snap.dimension, "feet": snap.feet,
            "task_goal": task.get("goal") and {"goal": task["goal"], "args": task.get("args", {})} if task else None,
-           "way": None, "plan_hand_made": bool(held is not None and held.get("hand_made"))}
+           "way": None, "plan_hand_made": bool(held is not None and held.get("hand_made")), "bound": None}
+    goal = out["task_goal"]
+    from bonobo import goals
+    if held is not None and goal and goal["goal"] in goals.ITEM_GOALS:
+        from bonobo.planner import plan_bound
+        out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost)
     step = getattr(act, "step", None)
     pos = step.detail.get("pos") if step is not None and step.kind == "mine" else None
     if pos is not None:

@@ -10,6 +10,7 @@ asked them). check/round.py puts them in ctx:
   switches   [(fresh, staying, lost, noise, switched)] every switch the kernel weighed this round
   holds      [(held name, chosen name, because)] every kernel.Held decision this round
   plan_hand_made  the held plan is check/dims/plan_held's hand-made one (P2 does not judge it)
+  bound      planner.plan_bound of the task's needs from this bag (P3: at most the plan's price)
 An invariant whose ctx is missing is Unchecked, said why."""
 import math
 
@@ -196,4 +197,16 @@ def P2(b, d, a, ctx):
     return None
 
 
-CHECKS = {"D4": D4, "D6": D6, "P2": P2, "R1": R1, "R2": R2, "R4": R4}
+def P3(b, d, a, ctx):
+    """The search's bound never overprices: what it says no plan can cost less than is at most the price of the plan
+    the planner chose (an overpricing bound prunes the cheapest)."""
+    plan, bound = _plan(ctx), ctx.get("bound")
+    if plan is None or bound is None or ctx.get("plan_hand_made"):
+        return Unchecked("no planner plan with its bound this round")
+    paid = sum(int(getattr(st, "est", 0) or 0) for st in plan)
+    if bound > paid + TOL_TICKS:
+        return f"the bound {bound:.0f} ticks is above the plan's own price {paid} ({len(plan)} steps)"
+    return None
+
+
+CHECKS = {"D4": D4, "D6": D6, "P2": P2, "P3": P3, "R1": R1, "R2": R2, "R4": R4}

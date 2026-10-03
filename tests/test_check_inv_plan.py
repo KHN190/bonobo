@@ -106,6 +106,10 @@ class Plan(unittest.TestCase):
         ("D4", {"switches": [(4.0, 2.0, 3.0, 1.0, True)], "holds": [("a", "b", "better")]}, True),   # must fail
         ("D4", {"switches": [], "holds": [("a", "b", "better")]}, True),     # must fail: changed without weighing
         ("D4", {"switches": [], "holds": [("a", "b", "assumption")]}, False),
+        ("P3", {"plan": BEEF_IN_ORDER, "bound": 150}, False),
+        ("P3", {"plan": BEEF_IN_ORDER, "bound": 155}, False),            # boundary: the plan's own price
+        ("P3", {"plan": BEEF_IN_ORDER, "bound": 400}, True),             # must fail: the bound above what is paid
+        ("P3", {"plan": BEEF_IN_ORDER, "bound": 400, "plan_hand_made": True}, False),   # a hand-made plan: not judged
         ("P2", {"plan": BEEF_IN_ORDER, "inv": Bag(items=TWO_BEEF), "mem": Mem(stations=["furnace"]),
                 "dimension": "minecraft:overworld"}, False),
         # must fail: the two smelts merged before the hunt that feeds them (night_first__low 055858)

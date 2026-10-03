@@ -249,6 +249,7 @@ class Bound:
     def __init__(self, cost):
         from .knowledge import producers
         self.ways = {}      # asked token → [(ticks per unit, {input: per unit}, {tool kind: tier})]
+        self.shapes = {}    # asked token → [(its unit step, the station it works at or None, {input: per unit})]
         tokens = {t for g in producers() for t in g.keys()} | set(GROUPS) | {"food"}
         for asked in sorted(tokens):
             for token, src in sources(asked) if asked != "food" else [(f, s) for f in ALL_FOOD for _m, s in
@@ -271,6 +272,7 @@ class Bound:
                         need[kind] = max(need.get(kind, 0), int(tier))
                 ins = {t: c / out for t, c in inputs if step.kind != "farm"}
                 self.ways.setdefault(asked, []).append((self.per_run(cost, step) / out, ins, need))
+                self.shapes.setdefault(asked, []).append((step, _station, ins))
         scratch = {}
         for _ in range(len(self.ways) + 1):
             changed = False
@@ -311,6 +313,20 @@ class Bound:
             if not changed:
                 break
         self.tools = tools
+        stations: dict = {}  # token → the stations every way to make it works at (through its inputs)
+        for _ in range(len(self.shapes) + 1):
+            changed = False
+            for asked, shapes in self.shapes.items():
+                got = None
+                for _step, station, ins in shapes:
+                    here = ({station} if station else set()).union(*(self.tools_of(stations, t) or set() for t in ins))
+                    got = here if got is None else got & here
+                if got and got != stations.get(asked):
+                    stations[asked] = got
+                    changed = True
+            if not changed:
+                break
+        self.stations = stations
 
     @staticmethod
     def per_run(cost, step):
@@ -445,7 +461,32 @@ class Search:
                 _op, kind, tier, uses, _depth = task
                 if not inv.has_tool(kind, tier, uses):
                     tool = max(tool, self.lb.least(tool_item(kind, tier), 1, held, memo))
-        return max(units, tool)
+        station, walk = 0.0, 0.0
+        for task in node.stack[floor:]:
+            if task[0] != "need" or held(task[1]) >= task[2]:
+                continue
+            for s in self.lb.tools_of(self.lb.stations, task[1]) or ():
+                if held(s) <= 0 and not self.cost.station_near(s) and not getattr(self.cost, "stored", lambda t: [])(s):
+                    station = max(station, self.lb.least(s, 1, held, memo))
+            walk = max(walk, self.reach_lb(task[1], held, set()))
+        return max(units + walk, tool, station)
+
+    def reach_lb(self, token, held, seen):
+        """Ticks no plan for `token` can walk less than: over its every way, the straight walk to the nearest known
+        source of what that way's work or its inputs take from the world (0 where none is known, where some is
+        held or stored, or where a way needs no walk) — the least over its ways."""
+        if token in seen or held(token) > 0 or getattr(self.cost, "stored", lambda t: [])(token):
+            return 0.0
+        seen = seen | {token}
+        best = math.inf
+        for step, _station, ins in self.lb.shapes.get(token, self.lb.shapes.get(mid(token), ())):
+            own = 0.0
+            if step.kind in ("mine", "gather", "hunt", "take") and getattr(self.cost, "site", lambda s: None)(step):
+                own = float(self.cost.walk_lb(step))
+            best = min(best, max([own] + [self.reach_lb(t, held, seen) for t in ins]))
+            if best <= 0:
+                return 0.0
+        return 0.0 if best == math.inf else best
 
     # -- one node to its next choice: resolved in place; returns children, [] when it died, None when complete
     def advance(self, node, floor=0):
@@ -1001,6 +1042,14 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None):
         cache[key] = [(name, seconds, [Step(s.kind, s.token, s.count, dict(s.detail), s.est) for s in steps])
                       for name, seconds, steps in got]
     return got
+
+
+def plan_bound(inv, needs, cost, pending=None, jobs=None):
+    """Ticks no plan for `needs` from this bag can cost less than: the search's own bound at its root."""
+    root = Node(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()), [], [])
+    root.stack = [("tool", n[1], int(n[2]), 1, 0) if n[0] == "tool" else ("need", n[0], int(n[1]), 0, False)
+                  for n in reversed(list(needs)) if n[0] not in ("fact", "do")]
+    return Search(cost).h(root)
 
 
 def plan_needs(inv, needs, cost, pending=None, jobs=None, kinds=None):
