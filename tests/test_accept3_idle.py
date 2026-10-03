@@ -27,7 +27,8 @@ class ARepeatIsNotANewSource(unittest.TestCase):
             with self.subTest(name):
                 r, now = retry.Retry(), 1000.0
                 for i, c in enumerate(cells):
-                    r.failed("task t1", "nav", f"no stand for mine {c}", now + i, ("target", c), state=sig(c))
+                    r.failed("task t1", "nav", f"no stand for mine {c}", now + i, ("target", c), state=sig(c),
+                             target=c)
                 got = r.exhausted("task t1")
                 self.assertEqual(got and got[0], want)
 
@@ -43,25 +44,26 @@ class ARepeatIsNotANewSource(unittest.TestCase):
 
 
 class ACraftIsNoStateChange(unittest.TestCase):
-    """E5/K5: a cooling holds in the state of the kinds that change a way (knowledge.way_kinds), the same signature as
-    a ban's: planks or sticks crafted lift neither; a block to place or a tool does."""
+    """E5/K5 (knowledge.failure_kinds): a way not found (nav) holds in the kinds that change a way, as a ban does —
+    planks or sticks crafted lift it, a block to place or a tool does; any other failure lifts on any bag change."""
 
     def test_table(self):
         from types import SimpleNamespace
         from tests.world import snapshot, state
         place = retry.place_signature((12987, 74, 12999), False)
 
-        def sig(*carried):
+        def sig(cause, *carried):
             me = SimpleNamespace(round_snap=snapshot(state(), inventory(*carried)))
-            return brain.Brain.state_of(me, place, None)
-        base = sig(("oak_log", 1))
-        rows = [("must fail: planks crafted lift the cooling", sig(("oak_log", 1), ("oak_planks", 4)), True),
-                ("sticks crafted: the same state", sig(("oak_log", 1), ("stick", 4)), True),
-                ("a pickaxe made: a new state", sig(("oak_log", 1), ("wooden_pickaxe", 1)), False),
-                ("blocks to place: a new state", sig(("oak_log", 1), ("cobblestone", 8)), False)]
-        for name, got, same in rows:
+            return brain.Brain.state_of(me, place, None, cause=cause)
+        rows = [("must fail: nav, planks crafted lift the cooling", "nav", [("oak_planks", 4)], True),
+                ("nav, sticks crafted: the same state", "nav", [("stick", 4)], True),
+                ("nav, a pickaxe made: a new state", "nav", [("wooden_pickaxe", 1)], False),
+                ("nav, blocks to place: a new state", "nav", [("cobblestone", 8)], False),
+                ("must fail: a craft's failure, sticks arriving: a new state", "error", [("stick", 4)], False),
+                ("unavailable, planks crafted: a new state", "unavailable", [("oak_planks", 4)], False)]
+        for name, cause, more, same in rows:
             with self.subTest(name):
-                self.assertEqual(got == base, same)
+                self.assertEqual(sig(cause, ("oak_log", 1), *more) == sig(cause, ("oak_log", 1)), same)
 
 
 class EveryStepCooledSeeks(unittest.TestCase):

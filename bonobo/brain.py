@@ -377,7 +377,8 @@ class Brain:
         # everywhere, in the state of the round's place (a second write put the feet's place in it: lifted at once)
         verdict = self.retry.failed(name, cause, str(err), time.time(), place,
                                     also_at=(here,) if here is not None and cause in retry.BY_PLACE else (),
-                                    state=self.state_of(place, self.fail_target[name], kinds))
+                                    state=self.state_of(place, self.fail_target[name], kinds, cause),
+                                    target=self.fail_target[name])
         if verdict is not None and verdict.worth_logging and not quiet:
             log(f"{'~~' if isinstance(err, NotAvailable) else '!!'} {name}: {err} "
                 f"({cause}, ×{verdict.n}; {cause} cools here for {verdict.wait}s; at {api.feet_seen()}, "
@@ -393,14 +394,14 @@ class Brain:
 
     def ready(self, name, cause=None):
         return self.retry.ready(name, time.time(), self.place, cause,
-                                state=self.state_of(self.place, self.fail_target.get(name)))
+                                state=lambda c: self.state_of(self.place, self.fail_target.get(name), cause=c))
 
-    def state_of(self, place, target, kinds=None):
+    def state_of(self, place, target, kinds=None, cause=None):
         """The state a failure holds in (retry.state_signature) from the round's snapshot; None before any round."""
         snap = self.round_snap
         if snap is None:
             return None
-        return retry.state_signature(place, _k.way_kinds(bag_kinds(snap.inv) if kinds is None else kinds),
+        return retry.state_signature(place, _k.failure_kinds(cause, bag_kinds(snap.inv) if kinds is None else kinds),
                                      target_present(snap, target))
 
     def attempt(self, name, fn, also=(), site=None):
