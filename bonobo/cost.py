@@ -356,12 +356,13 @@ class Cost:
         prior = prior_ticks(step)          # a measurement is trusted within MEASURED_BAND of the prior it replaces
         return int(min(max(per * max(1, units) * TICKS_PER_S, prior / MEASURED_BAND), prior * MEASURED_BAND))
 
-    def estimate(self, step, held=None, at=None, table_back=True):
+    def estimate(self, step, held=None, at=None, table_back=True, spent=0):
         """Ticks this step takes: its work (`work`) plus the walk to where it happens — from `at` (the plan's place
-        before it) when that and the step's site are known, else from here; a withdrawal by the chance its container
-        still holds the thing (a miss costs the walk)."""
+        before it) when that and the step's site are known, else from here, with the way blocks the plan spent before
+        it gone (`spent`, D6); a withdrawal by the chance its container still holds the thing (a miss costs the
+        walk)."""
         work = self.work(step, held, table_back)
-        parts = {"work": work, **self._walk_parts(step, at, held)}
+        parts = {"work": work, **self._walk_parts(step, at, held, spent=spent)}
         if step.kind in ("seek", "wait"):
             parts[step.kind], parts["work"] = work, 0
         ticks = sum(parts.values())
@@ -498,13 +499,27 @@ class Cost:
     def _walk(self, step, at=None, held=None, dig=True):
         return sum(self._walk_parts(step, at, held, dig).values())
 
-    def _walk_parts(self, step, at=None, held=None, dig=True):
+    def way_kind(self, step):
+        """The door's act at a sourced step's site (stand_kind), None for a step that walks to no source."""
+        return stand_kind(step_kinds(step)) if step.kind in ("gather", "mine", "take") else None
+
+    def way_spent(self, step, at=None, spent=0):
+        """Way blocks the door's way to the step's site spends (reach from `at` with `spent` gone): what the next
+        step's bag is short of (D6); 0 with no site, off the read or refused."""
+        kind, site = self.way_kind(step), self.site(step)
+        got = self.reach(site, kind, at, spent) if kind is not None and site is not None else None
+        return got.spent if got is not None and got.stand is not None else 0
+
+    def _walk_parts(self, step, at=None, held=None, dig=True, spent=0):
         """{"walk", "dig", "surface", "seek"} ticks of getting to where the step happens (seek: the walk to a thing
-        nowhere known, priced by the prior)."""
+        nowhere known, priced by the prior; also a site the door refuses from `at` with `spent` way blocks gone, D6)."""
         k = step.kind
         out = {"walk": 0, "dig": 0, "surface": 0, "seek": 0}
         site = self.site(step) if at is not None else None
-        if at is not None and site is not None:
+        kind = self.way_kind(step)
+        if site is not None and kind is not None and self.refused(site, kind, at, spent) is not None:
+            out["seek"] = self.find_ticks(step_kinds(step), held, at)
+        elif at is not None and site is not None:
             out["walk"] = walk_ticks(math.dist(at, site))
             if k in ("goto", "withdraw", "look"):
                 through = self.door_s(site, at)
