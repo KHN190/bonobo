@@ -178,18 +178,15 @@ def craft_run(steps, first, inv=None):
         run.append(st)
     return run
 
-def keeps_table(steps, run):
-    """Pure: a craft later in the plan than `run` needs a table — the one placed now is left standing."""
-    return any(st.kind == "craft" and craft.recipe_needs_table(st.token) for st in steps[steps.index(run[-1]) + 1:])
-
-def craft_act(layer, name, ctx, steps, step, night, task=None, inv=None):
-    """The act for `step`: a craft runs on through the crafts after it at one sitting (craft_run), the table left
-    standing when the plan crafts at one again (keeps_table); anything else as it is."""
+def craft_act(layer, name, ctx, steps, step, night, cost, task=None, inv=None):
+    """The act for `step`: a craft runs on through the crafts after it at one sitting (craft_run); the table left
+    standing only where that prices cheaper (craft.station_kept) than breaking and placing it again at the plan's
+    own place (D6) for the next craft that needs it (craft.next_table_use) — the one decision point."""
     run = craft_run(steps, step, inv)
-    keep = step.kind == "craft" and keeps_table(steps, run)
-    if len(run) > 1 or keep:
+    next_use = craft.next_table_use(cost, steps, run[-1]) if step.kind == "craft" else None
+    if len(run) > 1 or next_use is not None:
         recipes = [(s.token, s.detail.get("times", s.count)) for s in run]
-        return Act(layer, name, lambda: craft.craft_chain(ctx, recipes, keep), task=task, step=step, steps=run)
+        return Act(layer, name, lambda: craft.craft_chain(ctx, recipes, next_use), task=task, step=step, steps=run)
     return Act(layer, name, lambda: dispatch.execute(ctx, step, night), task=task, step=step)
 
 class Act:
@@ -713,7 +710,7 @@ class Brain:
                     kind = "queue"
                     break
             if act is None and not queued:
-                act, kind = self.round_act(held["steps"], snap, ctx), "round"
+                act, kind = self.round_act(held["steps"], snap, ctx, cost), "round"
             if act is not None:
                 picked = arbiter.Intent("plan", act, kind=kind, key=act.name,
                                         surface=act_on_surface(act) or (closed and self.under_sky(snap)))
@@ -783,12 +780,12 @@ class Brain:
                 self.unplannable[name] = why
                 self.failed(name, NotAvailable(why))
 
-    def round_act(self, steps, snap, ctx):
+    def round_act(self, steps, snap, ctx, cost):
         """The act for the round plan's first runnable step, or None."""
         open_air = snap.night and self.under_sky(snap)
         st = self.next_step(steps, snap, ctx, lambda s: met(s, snap) or (snap.night and arbiter.on_surface(s.kind))
                             or open_air)
-        return None if st is None else craft_act("plan", f"round: {step_key(st)}", ctx, steps, st, snap.night,
+        return None if st is None else craft_act("plan", f"round: {step_key(st)}", ctx, steps, st, snap.night, cost,
                                                  inv=snap.inv)
 
     def next_step(self, steps, snap, ctx, skip=lambda st: False):
@@ -839,7 +836,7 @@ class Brain:
         step = self.next_step(steps, snap, ctx, lambda st: (closed and arbiter.on_surface(st.kind)) or open_air)
         if step is None:
             return None
-        act = craft_act("upkeep", name, ctx, steps, step, snap.night, inv=snap.inv)
+        act = craft_act("upkeep", name, ctx, steps, step, snap.night, cost, inv=snap.inv)
         act.plan = steps
         return act
 
@@ -886,7 +883,7 @@ class Brain:
             | bag.reserved_ids([], goals.needs(goal, snap.inv))
         bag.RESERVED.clear()
         bag.RESERVED.update(reserved)
-        act = craft_act("task", f"task {task['id']}", ctx, held["steps"], step, snap.night, task=task, inv=snap.inv)
+        act = craft_act("task", f"task {task['id']}", ctx, held["steps"], step, snap.night, cost, task=task, inv=snap.inv)
         act.site = cost.site(step)
         if finished is None:          # a run-once goal: its own step ends it once its contract takes the world
             own = [n[1] for n in decompose.round_needs(goal, snap.inv, cost) if n[0] == "do"]
