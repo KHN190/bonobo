@@ -1,8 +1,9 @@
-"""The plan's invariants over the current planner's own output (no F1 candidates): the steps the round holds for its
+"""The plan's invariants over the planner's own output: the candidates it priced, the steps the round holds for its
 task (brain.held), each step's price (cost.Cost.estimate, the production model), the ways to a mine target
 (nav.plan_way against the game's walks), and the threat layer's switches (kernel.switches, recorded as the round
 asked them). check/round.py puts them in ctx:
   plan       [Step] the task's held plan this round (None: the act is not the queue's)
+  candidates [(name, seconds, steps)] planner.plan_candidates for the task's needs, the chosen first
   price      Step -> ticks: the production cost model on this state (Cost.estimate)
   inv, mem, dimension, feet    the round's bag and memory
   task_goal  the task's goal (a tool it asks for is wanted, not a detour)
@@ -26,10 +27,36 @@ def _plan(ctx):
     return None if plan is None else list(plan)
 
 
+def _tier(steps):
+    """The highest tool tier a plan's steps call for (-1: none)."""
+    from bonobo.knowledge import step_call
+    return max((int(n.split(":")[2]) for st in steps for n in step_call(st) if n.startswith("tool:")), default=-1)
+
+
+def _cheapest(ctx):
+    """The plan chosen is the fewest seconds of the candidates the search priced, a tie the lowest tier — or why
+    not; None without candidates."""
+    found = ctx.get("candidates")
+    if not found:
+        return None
+    name, seconds, steps = found[0]
+    for other, s, st in found[1:]:
+        if s + TOL_S < seconds or (abs(s - seconds) <= TOL_S and _tier(st) < _tier(steps)):
+            return f"chose {name} ({seconds:.2f} s, tier {_tier(steps)}) over {other} ({s:.2f} s, tier {_tier(st)})"
+    return None
+
+
 def D6(b, d, a, ctx):
-    """The estimate is the planned steps: each step's est is what the cost model prices that step at now, and no
-    step that works is free (an unpriced step is hidden work)."""
+    """The estimate is the planned steps: the chosen candidate's seconds are its steps' prices summed, each step's
+    est is what the cost model prices that step at now, and no step that works is free (an unpriced step is hidden
+    work)."""
     plan, price = _plan(ctx), ctx.get("price")
+    if ctx.get("candidates") and price is not None:
+        from bonobo.beliefs import TICKS_PER_S
+        name, seconds, steps = ctx["candidates"][0]
+        summed = sum(price(st) for st in steps) / TICKS_PER_S
+        if abs(seconds - summed) > TOL_S + TOL_TICKS * len(steps) / TICKS_PER_S:
+            return f"chose {name} at {seconds:.2f} s, its steps priced {summed:.2f} s"
     if plan is None or price is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
     for st in plan:
@@ -51,7 +78,11 @@ def _tool_wanted(goal, kind, inv):
 
 def R1(b, d, a, ctx):
     """Tool material: a tool carried that works is used — a plan does not craft a tool of a kind the bag already
-    holds working at that tier or better, unless the goal asks for it."""
+    holds working at that tier or better, unless the goal asks for it; the plan chosen is the cheapest candidate
+    (_cheapest)."""
+    why = _cheapest(ctx)
+    if why:
+        return why
     plan, inv = _plan(ctx), ctx.get("inv")
     if plan is None or inv is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
@@ -84,7 +115,10 @@ def _breaks(plan, kind):
 
 def R2(b, d, a, ctx):
     """Materials by seconds: a material the plan makes (gather, mine, hunt) while a container here holds it is made
-    only when making it is not slower than taking it (the walk to the container and the take, priced by the model)."""
+    only when making it is not slower than taking it (the walk to the container and the take, priced by the model); the plan chosen is the cheapest candidate."""
+    why = _cheapest(ctx)
+    if why:
+        return why
     plan, price, mem = _plan(ctx), ctx.get("price"), ctx.get("mem")
     if plan is None or price is None or mem is None:
         return Unchecked("no held plan this round (the act is not the queue's)")
@@ -111,8 +145,11 @@ def R2(b, d, a, ctx):
 
 
 def R4(b, d, a, ctx):
-    """The way to a target by seconds: the way taken is no slower than the cheapest of the dug ways and the game's
-    walks."""
+    """The way to a target by seconds: the plan chosen is the cheapest candidate, and the way taken is no slower than
+    the cheapest of the dug ways and the game's walks."""
+    why = _cheapest(ctx)
+    if why:
+        return why
     way = ctx.get("way")
     if way is None:
         return Unchecked("no mine target this round")

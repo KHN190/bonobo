@@ -254,11 +254,24 @@ def plan_ctx(b, act, snap, mem, world):
            "mem": mem, "dimension": snap.dimension, "feet": snap.feet,
            "task_goal": task.get("goal") and {"goal": task["goal"], "args": task.get("args", {})} if task else None,
            "way": None, "plan_hand_made": bool(held is not None and held.get("hand_made"))}
+    out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
     step = getattr(act, "step", None)
     pos = step.detail.get("pos") if step is not None and step.kind == "mine" else None
     if pos is not None:
         out["way"] = ways(snap, world, tuple(pos))
     return out
+
+
+def candidates(task, snap, mem, cost):
+    """planner.plan_candidates for the task's needs from this bag (the chosen first), or None when they cannot be
+    planned."""
+    from bonobo import goals, tasks
+    from bonobo.planner import Unplannable, plan_candidates
+    try:
+        return plan_candidates(snap.inv, goals.needs(tasks.goal_of(task), snap.inv), cost,
+                               mem.pending_outputs(snap.dimension))
+    except Unplannable:
+        return None
 
 
 def ways(snap, world, target):

@@ -61,6 +61,8 @@ BEEF_IN_ORDER = [step("smelt", "minecraft:cooked_beef", 35, 2, inputs={"minecraf
                  step("smelt", "minecraft:cooked_beef", 75, 6, inputs={"minecraft:beef": 6, "coal": 1})]
 BEEF_MERGED = [step("smelt", "minecraft:cooked_beef", 95, 8, inputs={"minecraft:beef": 8, "coal": 2}),
                step("hunt", "minecraft:beef", 45, 6, types=["minecraft:cow"])]
+STONE_PICK = step("mine", "minecraft:cobblestone", 60, blocks=["stone"], tier=1, breaks=1)
+IRON_PICK = step("mine", "minecraft:raw_iron", 60, blocks=["iron_ore"], tier=2, breaks=1)
 
 
 class Plan(unittest.TestCase):
@@ -99,6 +101,14 @@ class Plan(unittest.TestCase):
                          step("gather", "minecraft:oak_log", 80, 4)], "price": price,
                 "mem": Mem([((3, 64, 3), "minecraft:oak_log", 8)]), "dimension": "minecraft:overworld",
                 "feet": (0, 64, 0)}, True),
+        # the candidates the search priced, the chosen first: the fewest seconds, a tie the lowest tier
+        ("R1", {"candidates": [("stone", 3.0, [STONE_PICK]), ("iron", 5.0, [IRON_PICK])]}, False),
+        ("R2", {"candidates": [("iron", 5.0, [IRON_PICK]), ("stone", 3.0, [STONE_PICK])]}, True),   # must fail: dearer
+        ("R4", {"candidates": [("iron", 3.0, [IRON_PICK]), ("stone", 3.0, [STONE_PICK])]}, True),   # must fail: tie, higher tier
+        ("R1", {"candidates": [("stone", 3.0, [STONE_PICK]), ("iron", 3.0, [IRON_PICK])]}, False),
+        ("D6", {"candidates": [("stick", 3.0, [step("craft", "minecraft:stick", 60)])], "price": price}, False),
+        # must fail: the chosen plan's seconds are not its steps' prices
+        ("D6", {"candidates": [("stick", 1.0, [step("craft", "minecraft:stick", 60)])], "price": price}, True),
         ("R4", {"way": (3.0, 5.0, 3.0)}, False),
         ("R4", {"way": (6.0, 5.0, 3.0)}, True),          # must fail: a dug way taken over a cheaper walk
         ("R4", {"way": (None, 5.0, None)}, True),        # must fail: a way exists, none taken
