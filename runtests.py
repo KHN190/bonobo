@@ -23,7 +23,7 @@ import time
 
 # Replay-driven files: they answer "is the model still right", not "does this code run". The start-up gate skips
 # them (see supervise.sh); the check-in runs everything.
-SLOW = {"tests.test_acceptance", "tests.test_offline", "tests.test_incidents", "tests.test_playthrough"}
+SLOW = {"tests.test_acceptance", "tests.test_offline", "tests.test_incident_replays", "tests.test_playthrough"}
 
 
 WORKERS = 6          # processes at once: the CPU rule (≤ 6 cores)

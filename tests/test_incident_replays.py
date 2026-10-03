@@ -10,19 +10,10 @@ import os
 import unittest
 
 from bonobo import fight_plan as fp
+from bonobo.tools.incidents import thaw  # the tool owns it; the test only replays with it
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURES = sorted(glob.glob(os.path.join(HERE, "incidents", "*.json")))
-
-
-def thaw(state):
-    """JSON has lists where the planner wants tuples."""
-    s = json.loads(json.dumps(state))
-    s["self"]["pos"] = tuple(s["self"]["pos"])
-    if s["self"].get("cover") is not None:
-        s["self"]["cover"] = tuple(s["self"]["cover"])
-    s["threats"] = [(tuple(t[0]), t[1], tuple(t[2]), t[3]) for t in s["threats"]]
-    return s
 
 
 class Incidents(unittest.TestCase):
