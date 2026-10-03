@@ -424,7 +424,7 @@ def bound(cost):
             _BOUNDS.clear()
             _BOUNDS[key] = Bound(cost)
         return _BOUNDS[key]
-    cache = getattr(cost, "cache", None)
+    cache = cost.plans() if hasattr(cost, "plans") else getattr(cost, "cache", None)     # once a round's readings
     if cache is not None and "bound" in cache:
         return cache["bound"]
     got = Bound(cost)
@@ -543,6 +543,35 @@ class Search:
             known = step.kind in ("mine", "gather", "hunt", "take") and getattr(self.cost, "site", lambda s: None)(step)
             self.walks[key] = float(self.cost.walk_lb(step)) if known else 0.0
         return self.walks[key]
+
+    def replay(self, root, needs, steps):
+        """The held plan priced on today's world as the incumbent — (ticks, tie, steps) when it still runs from this
+        bag in its order (each step's inputs and tools had by then) and leaves every need held; else None."""
+        if any(n[0] in ("fact", "do") for n in needs):
+            return None
+        inv = root.inv.clone()
+        entries = []
+        for st in steps:
+            st = Step(st.kind, st.token, st.count, dict(st.detail))
+            for tok, c in st.detail.get("inputs", {}).items():
+                if inv.available(tok) < c:
+                    return None
+                inv.consume(tok, c, awaits=False)
+            for dim in self.call(st):
+                if dim.startswith("tool:") and not inv.has_tool(dim.split(":")[1], int(dim.split(":")[2]), 0):
+                    return None
+            entries.append((st, inv.held(), len(entries)))
+            material, _, kind = bare(st.token).rpartition("_")
+            if st.kind == "craft" and kind in TOOL_KINDS and material in TOOL_USES:
+                tier = next(t for t, m in TOOL_MATERIAL_FOR_TIER.items() if m == material)
+                inv.tools.append([kind, tier, spare_uses(TOOL_USES[material])])
+            else:
+                inv.add(st.token, st.count)
+        for n in needs:
+            if n[0] == "tool" and not inv.has_tool(n[1], int(n[2]), 0) or n[0] != "tool" and inv.available(n[0]) < int(n[1]):
+                return None
+        out, ticks = forward(entries, self.cost)
+        return ticks, (), out
 
     def no_bound(self, root):
         """Why the bound says no plan exists: the needs nothing in the tables makes from this bag."""
@@ -924,8 +953,8 @@ class Search:
         to its horizon the same way, cheapest bound first, one that cannot beat the best so far given up; the same
         question from the same bag answered once): the node, or None when it died."""
         while len(node.stack) > floor:
-            if node.g + self.h(node, floor) > cap:
-                return None
+            if cap < math.inf and node.g + self.h(node, floor) > cap:
+                return None                   # no cap yet: nothing to prune against, the bound not asked
             got = self.advance(node, floor)
             if got is None:
                 return node
@@ -974,7 +1003,7 @@ class Search:
             self.greedy = False
         return None if node is None else self.finish(node)
 
-    def plan(self, root, needs):
+    def plan(self, root, needs, incumbent=None):
         held, after, run = [], [], []       # run order: what is had, then counted back as held, then what is done
         for need in needs:
             if need[0] == "tool":
@@ -994,7 +1023,8 @@ class Search:
         root.stack.extend(reversed(run + held + after))
         if self.h(root) == math.inf:
             raise Unplannable(self.no_bound(root))      # nothing in the tables makes it from here: no search at all
-        best = self.dive(root.child())
+        replayed = self.replay(root, needs, incumbent) if incumbent else None
+        best = replayed if replayed is not None else self.dive(root.child())   # the held plan, priced today: the bar
         first_reason = self.reasons[-1] if self.reasons else None
         heap: list[tuple[float, tuple, int]] = []
         open_ = {}                          # seq → (node, or None for a complete plan, its steps)
@@ -1006,6 +1036,7 @@ class Search:
 
         push(self.h(root), (), root)
         nodes = 0
+        visited: dict = {}                  # the transposition table: (what is left, the bag, what is open) → least g
         while heap and (nodes <= MAX_NODES or self.exact):
             if self.stop():
                 raise api.Interrupted("a hazard while planning")
@@ -1016,6 +1047,10 @@ class Search:
             if steps is not None:
                 best = (f, tie, steps)
                 break
+            seen = (signature(node.stack), node.inv.signature(), node.open)
+            if visited.get(seen, math.inf) <= node.g:
+                continue                      # the same state reached as cheaply before: nothing new below it
+            visited[seen] = node.g
             nodes += 1
             got = self.advance(node)
             if got is None:
@@ -1132,7 +1167,7 @@ SPENT = {"steps": 0}      # search steps advanced since the round began (what a 
 lifecycle.in_place(__name__, "SPENT")
 
 
-def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact=False):
+def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact=False, held=None):
     """The plans the search priced for `needs` from this bag, cheapest first: [(name, seconds, steps)] — the one
     chosen first, the alternatives it beat after (what a check of the choice reads). `pending`: counted as held
     (planned sources' and jobs' outputs); `jobs`: of it, what running jobs make (awaited when used); `kinds`: the
@@ -1143,7 +1178,7 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact
     # one plan per question a round asks (the same needs from the same bag: needs, upkeep, queue, night)
     cache = cost.plans() if hasattr(cost, "plans") else getattr(cost, "cache", None)
     key = ("plan", tuple(repr(tuple(n)) for n in needs), root.inv.signature(), tuple(sorted(kinds)) if kinds else None,
-           exact)
+           exact, tuple((s.kind, s.token, s.count) for s in held) if held else None)
     if cache is not None and key in cache:
         if isinstance(cache[key], str):
             raise Unplannable(cache[key])           # the same question failed this round already
@@ -1151,7 +1186,7 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact
                 for name, seconds, steps in cache[key]]
     search = Search(cost, kinds, exact)
     try:
-        chosen = search.plan(root, list(needs))
+        chosen = search.plan(root, list(needs), None if exact else held)
     except Unplannable as e:
         if cache is not None:
             cache[key] = str(e)
@@ -1166,9 +1201,10 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact
     return got
 
 
-def plan_needs(inv, needs, cost, pending=None, jobs=None, kinds=None):
-    """The cheapest steps that make `needs` held from this bag (`plan_candidates`' first)."""
-    return plan_candidates(inv, needs, cost, pending, jobs, kinds)[0][2]
+def plan_needs(inv, needs, cost, pending=None, jobs=None, kinds=None, held=None):
+    """The cheapest steps that make `needs` held from this bag (`plan_candidates`' first); `held`: the plan held from
+    an earlier round, priced today as the bar a new one must beat."""
+    return plan_candidates(inv, needs, cost, pending, jobs, kinds, held=held)[0][2]
 
 
 @dataclass
@@ -1252,15 +1288,16 @@ class _After:
         return sum(s["count"] for s in self.slots if s["id"] == mid(item))
 
 
-def _in_levels(inv, targets, cost, pending, jobs):
-    """The targets' steps, level by level (`levels`), each level from the bag the ones before it leave."""
-    steps = []
-    for group in levels(targets):
-        steps += _cheapest_order(_After(inv, steps), group, cost, pending, jobs)
+def _in_levels(inv, targets, cost, pending, jobs, held=None):
+    """The targets' steps, level by level (`levels`), each level from the bag the ones before it leave; `held` (the
+    round before's plan) the bar of a single level."""
+    steps, groups = [], levels(targets)
+    for group in groups:
+        steps += _cheapest_order(_After(inv, steps), group, cost, pending, jobs, held if len(groups) == 1 else None)
     return steps
 
 
-def _cheapest_order(inv, group, cost, pending, jobs):
+def _cheapest_order(inv, group, cost, pending, jobs, held=None):
     """One level's steps in the order of its targets whose whole plan takes fewest seconds (forward's price: the
     walks, a tool made first speeding the rest) — every order weighed up to ORDER_MAX targets, queue rank only at
     equal seconds (and the order beyond that)."""
@@ -1268,19 +1305,19 @@ def _cheapest_order(inv, group, cost, pending, jobs):
     best = None
     for order in orders:
         needs = [n for t in order for n in t.needs]
-        steps = plan_needs(inv, needs, cost, pending, jobs) if needs else []
+        steps = plan_needs(inv, needs, cost, pending, jobs, held=held) if needs else []
         key = (sum(s.est for s in steps), tuple(t.rank for t in order))
         if best is None or key < best[0]:
             best = (key, steps)
     return best[1] if best else []
 
 
-def plan_round(inv, targets, cost, pending=None, jobs=None):
+def plan_round(inv, targets, cost, pending=None, jobs=None, held=None):
     """The round's one plan over every target (the queue's goals and upkeep's): (its first step, the steps, seconds).
     Targets with no wait between them are planned together, cheapest first, queue rank breaking ties; one that waits
     on others after them, from the bag they leave. Hard: the bar never runs out along the plan's clock (S-class) —
     a plan that would starve is planned again with food first."""
-    steps = _in_levels(inv, targets, cost, pending, jobs)
+    steps = _in_levels(inv, targets, cost, pending, jobs, held)
     left = food_left_s(cost)
     if not fed_in_time(steps, left):
         fed = plan_needs(inv, [("food", 1)], cost, pending, jobs)
