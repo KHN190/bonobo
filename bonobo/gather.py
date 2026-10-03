@@ -545,6 +545,16 @@ def _hunt_seen(types):
     """The prey in sight as a detail line: id and distance each."""
     return ", ".join(f"{n['id']}@{n['distance']:.1f}" for n in entities(64, types)) or "none"
 
+HUNT_REACH = 6          # an animal this near after the walk is attacked where it stands
+
+def after_approach(seen, target_id, reach):
+    """Pure: after the walk to a moving animal — ("attack", it) within `reach`, ("chase", it) still in sight but
+    gone on (the next round walks to where it is now), ("next", None) out of sight (the nearest other one next)."""
+    e = next((n for n in seen if n["id"] == target_id), None)
+    if e is None:
+        return "next", None
+    return ("attack" if e["distance"] <= reach else "chase"), e
+
 def _hunt_progress(token, types):
     near = entities(64, types)
     # closing in (4-block bins) or collecting drops is progress; circling is not
@@ -582,10 +592,11 @@ def hunt(ctx, token, count, types, night):
             # walk and bridge to animals, never tunnel
             nav.arrived_near((math.floor(e["x"]), math.floor(e["y"]), math.floor(e["z"])), approach_policy(ctx.policy),
                       range_=3, attempts=2)
-            e = next((n for n in entities(64, types) if n["id"] == e["id"]), None)
-            if e is None or e["distance"] > 6:
-                ctx.ban((prey[0]["id"], 0, 0), 300)
-                raise api.NavFailed(f"could not get to the {bare(types[0])}", pos=(prey[0]["id"], 0, 0))
+            step, near = after_approach(entities(64, types), e["id"], HUNT_REACH)
+            if step != "attack":
+                api.detail(f"   hunt: prey {e['id']} {'moved on' if step == 'chase' else 'lost'}: the nearest again")
+                continue
+            e = near
         api.detail(f"   hunt: prey {e['id']} at {(round(e['x'], 1), round(e['y'], 1), round(e['z'], 1))} "
                    f"{e['distance']:.1f} off; {_hunt_seen(types)}")
         try:

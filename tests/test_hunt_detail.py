@@ -45,5 +45,22 @@ class HuntDetail(unittest.TestCase):
             self.assertIn(want, text)
 
 
+class AfterApproach(unittest.TestCase):
+    """gather.after_approach: a moving animal is chased to where it is now, or the nearest other taken; never banned
+    for walking off (acceptance 19:44:45: travel arrived, the pig 31 off, banned 300 s)."""
+
+    def test_table(self):
+        reach = gather.HUNT_REACH
+        near = dict(COW, distance=reach)
+        far = dict(COW, distance=reach + 1.0)
+        other = dict(COW, id=8, distance=1.0)
+        rows = [("within reach: attack it", [near], ("attack", near)),
+                ("must fail: walked on but in sight: chase it, not a ban", [far, other], ("chase", far)),
+                ("out of sight: the next nearest", [other], ("next", None))]
+        for name, seen, want in rows:
+            with self.subTest(name):
+                self.assertEqual(gather.after_approach(seen, COW["id"], reach), want)
+
+
 if __name__ == "__main__":
     unittest.main()
