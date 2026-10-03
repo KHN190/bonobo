@@ -90,15 +90,24 @@ class TheRoundsOnePlan(unittest.TestCase):
     def test_the_bar_never_runs_out(self):
         from tests.world import cost, state
         from bonobo.planner import Target, plan_round
+        import math
+        from bonobo import beliefs
+
+        def first_and_secs(food):
+            m = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
+            m.add_station("minecraft:furnace", (1, 64, 1), OVER)
+            snap = snapshot(state(food=food), inventory(("beef", 2), ("coal", 4)))
+            first, _steps, secs = plan_round(snap.inv, [Target("iron", [("tool", "pickaxe", 2)], 0)], cost(snap, mem=m))
+            return first, secs
+
+        _first, plan_s = first_and_secs(20)
+        short = max(1, math.ceil(plan_s / float(beliefs.value("risk.food_drain_s"))) - 1)     # runs out before the plan ends
         # (situation, the bar) → the first step is food (carried beef, coal, a furnace standing)
         rows = [("a full bar: the task first", 20, False),
-                ("must fail: a bar of 6 and a long task: food before it runs out", 6, True)]
+                ("must fail: a bar that runs out before the plan ends: food before it runs out", short, True)]
         for name, food, first_food in rows:
             with self.subTest(name):
-                m = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
-                m.add_station("minecraft:furnace", (1, 64, 1), OVER)
-                snap = snapshot(state(food=food), inventory(("beef", 2), ("coal", 4)))
-                first, _steps, _secs = plan_round(snap.inv, [Target("iron", [("tool", "pickaxe", 2)], 0)], cost(snap, mem=m))
+                first, _secs = first_and_secs(food)
                 self.assertEqual(first.token == "minecraft:cooked_beef", first_food)
 
 
