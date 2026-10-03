@@ -7,7 +7,7 @@ from . import api
 from .api import Interrupted, McError
 from .data import SEARCH_LOOK_R
 from .data import MEASURED_BAND, MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, GROUPS, HARDNESS, HAZARD, NAV_NODES, bare, mid
-from .knowledge import SURFACE_Y, sources, step_station, work_s, food_count, soil_depth, dawn_s, body_facts, expected_find_s, step_kinds, walk_ticks, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS, walk_ticks: re-exported)
+from .knowledge import SURFACE_Y, find_class, sources, step_station, work_s, food_count, soil_depth, dawn_s, body_facts, expected_find_s, step_kinds, walk_ticks, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS, walk_ticks: re-exported)
 from .skillcore import ban_state, banned
 from .world import Region, Versioned, job_ready, route_key
 from .skill import MIN_SAMPLES
@@ -419,18 +419,22 @@ class Cost:
         return breaks, kills
 
     def _dug(self, step, at=None):
-        """The blocks the way to the nearest in sight breaks (dug_way), [] when none is in sight or no way is found."""
+        """The blocks the way to the step's one target breaks — the cell site() picks, remembered or in sight — from
+        its place (`at`): dug_way over the read ground, unread cells as _Ground expects them; [] with no target."""
         blocks = step.detail.get("blocks") or ()
-        feet = tuple(int(c) for c in self.step_state(at)[0])
-        hit = self.seen(blocks, self.not_there(True))
-        if hit is None:
+        target = self.site(step)
+        if target is None:
             return []
-        target = hit[1]
-        key = ("dug", feet, tuple(target), tuple(blocks))
+        return self._way_breaks(self.step_state(at)[0], target, blocks[0] if blocks else "stone",
+                                FIND_AT.get(step.token) is not None)
+
+    def _way_breaks(self, feet, target, block, ore):
+        """The block names dug_way breaks from `feet` to `target` (`ore`: below the soil it is stone), once a round."""
+        feet = tuple(int(c) for c in feet)
+        key = ("dug", feet, tuple(target), block, ore)
         if key not in self.cache:
-            got = dug_way(feet, target, blocks[0] if blocks else "stone", self.soil(),
-                          FIND_AT.get(step.token) is not None, self.snap.inv, self.protected(), self.region)
-            self.cache[key] = got or []
+            self.cache[key] = dug_way(feet, target, block, self.soil(), ore, self.snap.inv, self.protected(),
+                                      self.region) or []
         return list(self.cache[key])
 
     SOURCED = ("gather", "mine", "take", "hunt", "trade")      # step kinds that walk to where their thing is found
@@ -588,20 +592,30 @@ class Cost:
         return not spots or not route_refused(self.snap.routes, min(spots, key=lambda p: math.dist(p, self.snap.feet)))
 
     def where(self, kinds):
-        """The position of the nearest known one, or None: what "on the way" is judged by."""
+        """The position of the nearest known one — remembered, else in the round's look, as site() picks — or None:
+        what "on the way" is judged by."""
         hit = self._nearest(kinds)
-        return hit[0] if hit else None
+        if hit is not None:
+            return hit[0]
+        seen = self.seen(kinds, self.not_there(True))
+        return seen[1] if seen is not None else None
 
     def seek_s(self, kinds, held=None, at=None):
-        """Seconds to reach one of these: the game's route, else the known distance walked, else the prior."""
+        """Seconds to reach one of these: the game's route, else to the known one (where) the way dug_way digs — its
+        walk and its breaks with the tools `held` (no walk-only price for a target with no known walk) — else the
+        prior."""
 
         seconds = self.route_s(kinds)
         if seconds is not None:
             return max(1.0, round(float(seconds), 1))
-        known = self._known(kinds)
-        if known is None:
+        target = self.where(kinds)
+        if target is None:
             return self.find_ticks(kinds, held, at) / TICKS_PER_S
-        return max(1.0, round(walk_ticks(known) / TICKS_PER_S + 2.0, 1))
+        feet = self.step_state(at)[0]
+        ore = any(find_class(k)[0] == "ore" for k in kinds)
+        dug = self._way_breaks(feet, target, kinds[0], ore)
+        dig = work_s(dug, [], self.step_state(None, held)[1], TICKS_PER_S) if dug else 0.0
+        return max(1.0, round(walk_ticks(math.dist(feet, target)) / TICKS_PER_S + dig + 2.0, 1))
 
     def route_s(self, kinds):
         """The game's own walk estimate when it was asked before the snapshot was read (snap.routes); through a taught
