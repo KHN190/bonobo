@@ -877,12 +877,7 @@ def standable_in(pos, r=6):
         region = Region((x - r, y - 1, z - r), (x + r, y + 2, z + r))
     except McError as e:
         return api.swallowed("nav.standable_in", e)
-    return lambda p: standable_at(region.solid, p)
-
-def standable_at(solid, p):
-    """Pure: floor under `p`, feet and head clear."""
-    x, y, z = (int(math.floor(v)) for v in p)
-    return solid((x, y - 1, z)) and not solid((x, y, z)) and not solid((x, y + 1, z))
+    return lambda p: combat_model.standable_at(region.solid, p)
 
 def _clear_of_hazards(pos):
     """The target, or the nearest spot outside every hazard (combat_model.hazards); None when there is none."""

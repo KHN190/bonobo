@@ -193,6 +193,12 @@ def safest(frame, options=None, speed=4.3, horizon=HORIZON, dps=None, margin=0.3
             best, best_key = (opt, slack), key
     return best
 
+def standable_at(solid, p):
+    """Pure: floor under `p`, feet and head clear — where a body can stand: the one test a retreat cell passes, planned
+    (fight_plan) or walked (nav.safe_destination)."""
+    x, y, z = (int(math.floor(v)) for v in p)
+    return solid((x, y - 1, z)) and not solid((x, y, z)) and not solid((x, y + 1, z))
+
 def best_step(here, hazards, speed=4.3, horizon=HORIZON, margin=0.3, cover=None, standable=None) -> tuple[Any, float]:
     """Pure: (spot, slack): each option's slack is `min_tti - travel_time - margin`; best wins, distance from hazards
     breaks ties. `standable(spot)`: only spots a body can stand on (never inside a wall)."""

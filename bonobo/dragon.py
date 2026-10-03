@@ -67,9 +67,10 @@ def phase_clock(clock, phase, now):
     return phase, now
 
 
-def fight_state(me, near, inv, pit, clock, now):
+def fight_state(me, near, inv, pit, clock, now, ground=None):
     """Pure: fight_plan's state from the readings — `me` the /state, `near` the /entities, `inv` the bag's
-    counts {token: n}, `pit` (pit_geometry or {}), `clock` (phase_clock's), `now` the time."""
+    counts {token: n}, `pit` (pit_geometry or {}), `clock` (phase_clock's), `now` the time, `ground` the blocks
+    perception last read round the body (its retreat cells' standability; None: unread)."""
     d = dragon_entry(near) or {}
     here = (math.floor(me["x"]), math.floor(me["y"]), math.floor(me["z"]))
     covered = pit_holds(here, pit)
@@ -82,6 +83,7 @@ def fight_state(me, near, inv, pit, clock, now):
         "boss": {"phase": d.get("phase"), "phase_elapsed_s": min(max(0.0, now - clock.get("since", now)), ELAPSED_MAX_S),
                  "hp": float(d.get("health", 0.0))},
         "threats": threats,
+        "ground": ground,
         "resources": {"beds": inv.get("bed", 0), "obsidian": inv.get("minecraft:obsidian", 0),
                       "water": inv.get("minecraft:water_bucket", 0), "bow": inv.get("minecraft:bow", 0),
                       "arrows": inv.get("minecraft:arrow", 0)},
@@ -251,7 +253,8 @@ def _round_state():
     d = dragon_entry(entities(SEEN_R, [DRAGON])) or {}
     now = time.time()
     CLOCK["phase"], CLOCK["since"] = phase_clock(CLOCK, d.get("phase"), now)
-    return fight_state(s, entities(SEEN_R), _carried(), PIT, CLOCK, now)
+    from . import perception
+    return fight_state(s, entities(SEEN_R), _carried(), PIT, CLOCK, now, perception.STATE.region)
 
 
 def dragon_dead(near, portal_open):
