@@ -11,7 +11,7 @@ from .api import McError, NotAvailable, log
 from .data import DOOR_NEAR, ENTITY_REACH, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .game import EYE_HEIGHT, PLAYER_SPRINT
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
-from .knowledge import WAY_BLOCKS, dig_ticks
+from .knowledge import WAY_BLOCKS, dig_ticks, find_class
 from .bag import holds_up
 from .beliefs import TICKS_PER_S
 from collections.abc import Mapping
@@ -311,11 +311,13 @@ ENTITY_ACTS = ("attack", "interact")     # acts on a mob: judged where it is now
 WAY_TRIES = 3            # ways plan_way is asked for one stand (a staircase comes a segment at a time)
 MINE_PASSES = 10         # passes gather.mine makes at a vein, a way (_go_way) each before its gate's own
 
-def ways_for(act):
-    """Pure: the ways the run spends getting to a stand for `act` — a mine: as many as mine's passes and its gate's
-    (a log chopped through the gate alone gets them too); any other: WAY_TRIES. reach_stand spends it and reach is
-    given it: one count per act, a plan refuses only what the run gives up on (P2)."""
-    return MINE_PASSES + WAY_TRIES if act == "mine" else WAY_TRIES
+def ways_for(act, block=None):
+    """Pure: the ways the run spends getting to a stand for `act` on `block` — an ore mined (knowledge.find_class:
+    rare, mine's passes are for it): MINE_PASSES + WAY_TRIES; a common block (log, stone, dirt, sand: another is near)
+    or any other act: WAY_TRIES. reach_stand spends it and reach is given it: one count, a plan refuses only what the
+    run gives up on (P2), and no run spends ways past what a nearer other costs (G3)."""
+    ore = act == "mine" and block is not None and find_class(block)[0] == "ore"
+    return MINE_PASSES + WAY_TRIES if ore else WAY_TRIES
 
 def use_holds(region, feet_at, cell, reach=REACH):
     """Pure: the jar's UseBlockTask sight — the block's centre or a face centre the first hit from the eye, in reach."""
@@ -564,9 +566,14 @@ def reach_stand(task, policy, faces=None, at=None):
     the stand holds; plan_way's None → NavFailed with its why. The live twin of reach's loop."""
     kind = "stand" if task.get("type") == "goto" else act_of(task) or task["type"]
     target = tuple(at) if at is not None else _cell_of(task)
-    for _ in range(ways_for(kind)):
+    tried, tries = 0, 1
+    while tried < tries:
         here = feet()
         region = _read_box([here, target])
+        if not tried:
+            # the count by what the target is, as read at the first try (reach is given the same)
+            tries = ways_for(kind, region.name(target) if region is not None else None)
+        tried += 1
         if kind != "stand" and stands_for(kind, region, here, target, task.get("down", False)):
             return
         cands = faces if faces is not None else stand_candidates(region, target, kind)
@@ -582,7 +589,7 @@ def reach_stand(task, policy, faces=None, at=None):
             api.run_chain(steps, stop_on_failure=True)
         finally:
             _IN_WAY[0] -= 1
-    raise api.NavFailed(f"no stand for {kind} {target} after {ways_for(kind)} ways", pos=target)
+    raise api.NavFailed(f"no stand for {kind} {target} after {tries} ways", pos=target)
 
 ARRIVE_RANGE = 1.5       # a walk arrives this near its target (go_to's own margin): what "came to us" means
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
@@ -1466,7 +1473,7 @@ def reach(region, feet, site, act, inv, protected=(), down=False, tries=None):
     (P2/K1)."""
     here, ground, spent, secs, why = tuple(feet), After(region), 0, 0.0, None
     site = tuple(site)
-    for _ in range(ways_for(act) if tries is None else tries):
+    for _ in range(ways_for(act, region.name(site)) if tries is None else tries):
         if stands_for(act, ground, here, site, down):
             return Reached(here, None, spent, secs)
         steps, why, s = plan_way(ground, here, site, act, less_way_blocks(inv, spent), protected)
