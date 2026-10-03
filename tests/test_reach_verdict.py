@@ -48,7 +48,7 @@ class NotThere(unittest.TestCase):
                 for c in (near, far)]
         # (banned) → the distance priced
         for name, banned, want in [("nothing banned: the near one", {}, 3.0),
-                                   ("must fail: the near one banned (no way): the far one", {near: time.time() + 60},
+                                   ("must fail: the near one banned (no way): the far one", {near: skillcore.Ban(time.time() + 60)},
                                     20.0)]:
             with self.subTest(name):
                 c = Cost(world.Snapshot.from_readings(snap.state, snap.inv, {ORE: hits}), memory(), blacklist=banned)
@@ -57,7 +57,7 @@ class NotThere(unittest.TestCase):
     def test_remembered(self):
         snap, near, far = self.rows()
         for name, banned, want in [("nothing banned: the near note", {}, near),
-                                   ("must fail: the near note banned: the far one", {near: time.time() + 60}, far)]:
+                                   ("must fail: the near note banned: the far one", {near: skillcore.Ban(time.time() + 60)}, far)]:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 m = Memory(os.path.join(tmp, "notes.json"))
                 for c in (near, far):
