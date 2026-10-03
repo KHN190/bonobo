@@ -33,7 +33,6 @@ ALLOW = {
     ("bonobo.fight_loop", "BATCH"): "import-time registry (skills lend their batches)",
     ("bonobo.fight_loop", "REGION"): "import-time registry (skills lend their regions)",
     ("bonobo.goals", "DESIRED"): "import-time registry",
-    ("bonobo.planner", "_BOUNDS"): "the offline bound, keyed by the registry it was read from: the key is the whole input",
     ("bonobo.skill", "REGISTRY"): "import-time registry",
     ("bonobo.skill", "CALLS"): "the live call stack: popped by each call's own finally; clearing it mid-call breaks it",
     ("bonobo.skill", "LAST_S"): "measured skill durations (like LAST_SEGMENT_S), not world state",
@@ -66,9 +65,12 @@ def runtime_globals(sources):
     return found
 
 
-CTORS = {"dict", "list", "set", "defaultdict", "deque", "Counter", "OrderedDict"}
+CTORS = {"dict", "list", "set", "defaultdict", "deque", "Counter", "OrderedDict", "Versioned"}
 MUTATORS = {"append", "add", "update", "pop", "clear", "setdefault", "extend", "remove", "discard", "insert",
             "popleft", "appendleft", "popitem"}
+
+
+EMPTY = {"dict": {}, "list": [], "set": set(), "Versioned": {}}     # a constructor called empty: the literal it equals
 
 
 def _is_container(v):
@@ -165,7 +167,10 @@ def initial_values(src):
                     try:
                         out[name.id] = ast.literal_eval(value)
                     except ValueError:
-                        pass
+                        ctor = getattr(value.func, "id", getattr(value.func, "attr", None)) \
+                            if isinstance(value, ast.Call) and not value.args and not value.keywords else None
+                        if ctor in EMPTY:
+                            out[name.id] = EMPTY[ctor]
     return out
 
 
