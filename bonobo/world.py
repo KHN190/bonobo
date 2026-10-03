@@ -204,26 +204,32 @@ class Snapshot:
     inv: Inventory
     hits: dict           # the round's look: {block: [hit]}
     mobs: list           # the living entities around
+    region: "Region | None"     # the ground round the feet, read with the round (None: not read: nothing known of it)
     read_seq: int
     read_at: float
 
     @classmethod
     def from_readings(cls, state: Mapping[str, Any], inventory: "Mapping[str, Any] | Inventory", hits=None,
-                      mobs=None) -> "Snapshot":
-        """A snapshot of recorded readings (/state, /inventory, the look's `hits` and `mobs`): no world read."""
+                      mobs=None, region=None) -> "Snapshot":
+        """A snapshot of recorded readings (/state, /inventory, the look's `hits` and `mobs`, the ground `region`): no
+        world read."""
         snap = cls.__new__(cls)
         snap.state = cast("StateReading", dict(state))
         snap.inv = inventory if isinstance(inventory, Inventory) else Inventory(inventory)
         snap.read_seq, snap.read_at = api.STATE.state_reads, api.STATE.state_read_at      # the last /state read then
-        snap.hits, snap.mobs = dict(hits or {}), list(mobs or [])
+        snap.hits, snap.mobs, snap.region = dict(hits or {}), list(mobs or []), region
         return snap
 
     @classmethod
-    def read(cls, kinds) -> "Snapshot":
-        """The round's read: /state, the bag, and the look at `kinds` around the feet (look_around)."""
+    def read(cls, kinds, ground) -> "Snapshot":
+        """The round's read: /state, the bag, the look at `kinds` around the feet (look_around), and the ground in the
+        box `ground` ((lo, hi) offsets from the feet): every reading the round's decision makes (K10)."""
         state = api.get("/state")
-        hits, mobs = look_around((state["blockX"], state["blockY"], state["blockZ"]), state.get("dimension"), kinds)
-        return cls.from_readings(state, Inventory(), hits, mobs)
+        feet = (state["blockX"], state["blockY"], state["blockZ"])
+        hits, mobs = look_around(feet, state.get("dimension"), kinds)
+        lo, hi = ground
+        region = Region(cell_add(feet, lo), cell_add(feet, hi))
+        return cls.from_readings(state, Inventory(), hits, mobs, region)
 
     @property
     def feet(self) -> Cell:

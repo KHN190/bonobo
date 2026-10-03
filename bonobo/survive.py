@@ -681,14 +681,18 @@ def dig_in_site(region, feet_at, protected=()):
     start = dig_in_start(region, tuple(feet_at))
     return nav.safe_depth(region, start, DIG_IN_DEPTH, protected, dug_to=feet_at[1]) >= DIG_IN_DEPTH
 
-def night_ground():
-    """One region read around the feet for the night's pricing: (seconds' walk to hand-diggable ground or None,
-    whether a dig-in can finish right here)."""
+# the ground the round reads with its snapshot (world.Snapshot.read): the night's soft ground and dig-in column, the
+# cells round the body (enclosed, a pit, a buried head) inside it
+ROUND_GROUND = ((-SOFT_RADIUS, -DIG_IN_DEPTH - 2, -SOFT_RADIUS), (SOFT_RADIUS, 3, SOFT_RADIUS))
 
-    x, y, z = feet()
-    region = Region((x - SOFT_RADIUS, y - DIG_IN_DEPTH - 2, z - SOFT_RADIUS), (x + SOFT_RADIUS, y + 3, z + SOFT_RADIUS))
-    spot = nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
-    return (None if spot is None else spot[1] / WALK_BLOCKS_PER_S), dig_in_site(region, (x, y, z))
+
+def night_ground(region, at):
+    """Pure over the round's ground: (seconds' walk to hand-diggable ground or None, whether a dig-in can finish right
+    here); a ground not read is none of either (priced as no soft ground, no dig-in: never taken as safe)."""
+    if region is None:
+        return None, False
+    spot = nearest_soft(region, tuple(at), DIG_IN_DEPTH)
+    return (None if spot is None else spot[1] / WALK_BLOCKS_PER_S), dig_in_site(region, tuple(at))
 
 @skill(gives=["state:sheltered"], needs={}, remaining=lambda st, c: dug_in_left(st, c), start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
        provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None,

@@ -184,10 +184,20 @@ def head_underwater(s=None):
     return Region(eye, eye).name(eye) == "water"
 
 def head_buried(s=None):
-    """The eyes are inside a solid block (falling sand/gravel, a placed block): suffocating."""
+    """The eyes are inside a solid block (falling sand/gravel, a placed block): suffocating — read now (a skill's
+    check); a round asks `head_buried_in` over its own ground."""
     s = s or api.get("/state")
-    eye = (s["blockX"], math.floor(s["y"] + EYE_HEIGHT), s["blockZ"])
-    return Region(eye, eye, props=True).buries(eye)
+    eye = eye_cell(s)
+    return head_buried_in(Region(eye, eye, props=True), s)
+
+
+def eye_cell(s):
+    return s["blockX"], math.floor(s["y"] + EYE_HEIGHT), s["blockZ"]
+
+
+def head_buried_in(region, s):
+    """Pure: the eyes are inside a solid block of `region` (the round's ground)."""
+    return region.buries(eye_cell(s))
 
 def hold_clicks(slots, selected, item, price=None):
     """Pure (I2): the /click bodies that put `item` in the main hand (the stack in hotbar slot `selected`): its stack

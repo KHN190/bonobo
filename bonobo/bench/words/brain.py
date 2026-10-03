@@ -472,8 +472,10 @@ def tight_dusk_time(plan_s):
 def _tight_dusk(ctx):
     """`before` hook: the clock set inside the lead of the night this bag prices (the brain's own needs.overnight)."""
     from ... import api
+    from ...knowledge import SOURCE_BLOCKS
+    from ...survive import ROUND_GROUND
     from ...world import Snapshot
-    _way, secs, _steps = core.BRAIN.needs.overnight(Snapshot.from_readings(api.get("/state"), bag_now()))
+    _way, secs, _steps = core.BRAIN.needs.overnight(Snapshot.read(SOURCE_BLOCKS, ROUND_GROUND))
     if not math.isfinite(secs):
         raise SetupInvalid("no way through the night priced from this bag: no dusk is tight")
     _chat(f"time set {tight_dusk_time(secs)}")

@@ -69,14 +69,15 @@ def runner_for(ctx, step) -> tuple | None:
         return None if contract is None else (contract.runner, tuple(step.detail.get("args", ())))
     return skillkit.provider(ctx, step)
 
-def can_start(ctx, step):
-    """Would the skill for `step` pass its own preconditions now? Asked before the step is offered."""
+def can_start(ctx, step, bag):
+    """Would the skill for `step` pass its own preconditions now, its needs held in `bag` (the round's)? Asked before
+    the step is offered."""
 
     found = runner_for(ctx, step)
     if found is None:
         return False
     runner, args = found
-    return skillkit.can_run(runner, ctx, *args)[0]
+    return skillkit.can_run(runner, ctx, *args, held_bag=bag)[0]
 
 def still_there(blocks, spot):
     """Is one of `blocks` at the noted `spot`?"""

@@ -158,8 +158,9 @@ STATS = None
 LAST_S = {}     # skill name → seconds its last verified run took, preconditions and planning excluded
 MIN_SAMPLES = 3
 
-def can_run(fn, *args, **kwargs):
-    """(ok, why not) of the runner's own checks, asked before the work is offered, not learned by failing."""
+def can_run(fn, *args, held_bag=None, **kwargs):
+    """(ok, why not) of the runner's own checks, asked before the work is offered, not learned by failing; its needs
+    against `held_bag` (a round's bag), else the bag read now."""
     contract = getattr(fn, "contract", None)
     if contract is None:
         return True, None
@@ -169,7 +170,7 @@ def can_run(fn, *args, **kwargs):
             check(c)
         except McError as e:
             return False, str(e) or type(e).__name__
-    missing = unmet(contract, args, skillcore.Inventory)
+    missing = unmet(contract, args, skillcore.Inventory if held_bag is None else (lambda: held_bag))
     if missing:
         return False, f"{contract.name}: {skillcore.NeedMissing(missing)}"
     return True, None

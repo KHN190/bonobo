@@ -44,8 +44,19 @@ def P1(b, d, a, ctx):
     return None
 
 
+def K10(b, d, a, ctx):
+    """The round decides on its own reading (world.Snapshot.read: /state, the bag, the look, the ground): the decision
+    itself calls the jar not once."""
+    calls = ctx.get("decide_calls")
+    if calls is None:
+        return Unchecked("no round decided")
+    if calls:
+        return f"the decision called the jar {len(calls)}× beyond its snapshot: {sorted(set(calls))[:4]}"
+    return None
+
+
 def live(_b, _d, _a, _ctx):
     return Unchecked("live only: the world must change between two reads (a skill's effect, a re-read)")
 
 
-CHECKS = {"E1": E1, "E3": E3, "E2": live, "P1": P1}
+CHECKS = {"E1": E1, "E3": E3, "E2": live, "P1": P1, "K10": K10}

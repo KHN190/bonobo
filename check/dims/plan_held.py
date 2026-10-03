@@ -92,12 +92,13 @@ def prepare(brain, facts):
         return
     from bonobo import tasks
     from bonobo.knowledge import SOURCE_BLOCKS
+    from bonobo.survive import ROUND_GROUND
     from bonobo.world import Snapshot
     from bonobo.brain import round_key
     tid = task_id()
     live = [t for t in tasks.load() if t["state"] in tasks.LIVE]
     seq, task = next((i, t) for i, t in enumerate(live) if t["id"] == tid)
-    snap = Snapshot.read(SOURCE_BLOCKS)          # the round's own reading and look (check/round.py reads the same)
+    snap = Snapshot.read(SOURCE_BLOCKS, ROUND_GROUND)    # the round's own reading (check/round.py reads the same)
     brain.held[tid] = held_for(facts["plan_held"], tasks.goal_of(task), snap, brain.mem,
                                round_key([(f"task {tid}", tasks.goal_of(task), seq)], snap, brain.mem), brain.blacklist)
 
