@@ -55,6 +55,33 @@ class HuntAboveTheLine(unittest.TestCase):
                     self.assertEqual(tuple(got[-len(want):]) if isinstance(want, tuple) else got, want)
 
 
+class TheLineHoldsWhenTheRoundIsSpent(unittest.TestCase):
+    """The round's steps spent (planner.ROUND_STEPS): a choice takes its first way that holds, never its first way."""
+
+    def test_rows(self):
+        # (situation, health, carried, the steps' kinds and tokens; None: unplannable on the fight line)
+        rows = [("must fail: the first way (hunt as carried) under the line taken: the next, an iron sword made first",
+                 SPLIT, [("stone_sword", 1), ("iron_ingot", 2)] + TABLE,
+                 [("craft", "minecraft:iron_sword"), ("hunt", "minecraft:string")]),
+                ("must fail: no way holds: a plan anyway, not refused with the line's reason", 5, [("stone_sword", 1)],
+                 None)]
+        saved = dict(planner.SPENT)
+        try:
+            for name, hp, carried, want in rows:
+                with self.subTest(name):
+                    planner.SPENT.update(round=0, steps=planner.ROUND_STEPS)
+                    inv = inventory(*carried)
+                    c = cost(snapshot(state(health=float(hp)), inv), spider=10)
+                    if want is None:
+                        with self.assertRaisesRegex(Unplannable, "fight line"):
+                            planner.plan_needs(bag(inv), [("minecraft:string", 1)], c)
+                    else:
+                        got = planner.plan_needs(bag(inv), [("minecraft:string", 1)], c)
+                        self.assertEqual([(s.kind, s.token) for s in got], want)
+        finally:
+            planner.SPENT.update(saved)
+
+
 class PlannedBag(unittest.TestCase):
     """cost.planned_bag: the plan's tools replace the bag's, the rest stays (what the judge reads)."""
 
