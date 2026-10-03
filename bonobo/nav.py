@@ -12,6 +12,7 @@ from .data import DOOR_NEAR, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of,
 from .game import EYE_HEIGHT, PLAYER_SPRINT
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
 from .knowledge import dig_ticks
+from .bag import holds_up
 from .beliefs import TICKS_PER_S
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
@@ -1067,10 +1068,12 @@ def dig_cells(region, cells, start):
         want.update(falling_above(region, c))
     return [c for c in mine_order(want, start) if region.solid(c)]
 
-def _path_blocked(region, cells, protected, placed=()):
+def _path_blocked(region, cells, protected, placed=(), at=None, down=False):
     """Pure: why these cells may not be opened — a fluid in or beside one (but a floor the step places: a bridge
-    fills it), a protected or unbreakable one — or None."""
+    fills it), a protected or unbreakable one, one holding up the body standing `at` (bag.holds_up) — or None."""
     for c in cells:
+        if at is not None and holds_up(at, c, down):
+            return f"support at {c}"
         if region.hazard(c) or any(region.hazard(cell_add(c, n)) and cell_add(c, n) not in placed for n in NEIGHBOURS6):
             return f"fluid at {c}"
         if c in protected:
@@ -1079,13 +1082,13 @@ def _path_blocked(region, cells, protected, placed=()):
             return f"unbreakable at {c}"
     return None
 
-def open_tasks(region, cells, floors, start, protected, places):
+def open_tasks(region, cells, floors, start, protected, places, at=None, down=False):
     """Pure: (tasks, why) that leave `cells` open with a floor under each of `floors`: the cells opened top down with
     what falls on them (dig_cells), a missing floor placed from `places` (popped); None and why when a fluid, the home,
-    an unbreakable block or a floor with nothing to place stands in the way."""
+    an unbreakable block, a support of the body standing `at` or a floor with nothing to place stands in the way."""
     opened = dig_cells(region, cells, start)
     missing = [f for f in floors if not region.solid(f)]       # a gap or a fluid: bridged by a placed block
-    why = _path_blocked(region, set(cells) | set(opened), protected, placed=set(missing))
+    why = _path_blocked(region, set(cells) | set(opened), protected, placed=set(missing), at=at, down=down)
     if why:
         return None, why
     tasks = [mine_task(c) for c in opened]
@@ -1097,9 +1100,10 @@ def open_tasks(region, cells, floors, start, protected, places):
         tasks.append({"type": "place", "item": places.pop(), "x": f[0], "y": f[1], "z": f[2]})
     return tasks, None
 
-def _step_tasks(region, step_cells, tread, stand, start, protected, places):
-    """Pure: (tasks, why) for one step of a dug way: its cells opened (open_tasks), then the walk onto `stand`."""
-    tasks, why = open_tasks(region, step_cells, [tread], start, protected, places)
+def _step_tasks(region, step_cells, tread, stand, start, protected, places, at=None, down=False):
+    """Pure: (tasks, why) for one step of a dug way dug from `at`: its cells opened (open_tasks), then the walk onto
+    `stand`."""
+    tasks, why = open_tasks(region, step_cells, [tread], start, protected, places, at, down)
     if tasks is None:
         return None, why
     return tasks + [{"type": "goto", "x": stand[0], "y": stand[1], "z": stand[2], "range": 0.5}], None
@@ -1124,7 +1128,7 @@ def stair_steps(region, feet, target, protected=(), places=(), max_steps=STAIR_S
         tread = cell_add(stand, (0, -1, 0))
         if not all(region.inside(c) for c in cells + [tread]):
             return tasks, None, end
-        step, why = _step_tasks(region, cells, tread, stand, feet, protected, left)
+        step, why = _step_tasks(region, cells, tread, stand, feet, protected, left, end, dy < 0)
         if step is None:
             return tasks, why, end
         tasks, end = tasks + step, stand
@@ -1147,7 +1151,7 @@ def tunnel_steps(region, feet, target, protected=(), places=(), done=None):
             # off the read, or back where it was (over the target: no level stand holds it)
             return tasks, f"no stand reaches {tuple(target)} within the read"
         been.add(stand)
-        step, why = _step_tasks(region, cells, tread, stand, feet, protected, left)
+        step, why = _step_tasks(region, cells, tread, stand, feet, protected, left, here)
         if step is None:
             return tasks, why
         tasks += step

@@ -179,6 +179,13 @@ def under(feet, cell):
 
     return cell[0] == feet[0] and cell[2] == feet[2] and cell[1] < feet[1]
 
+def holds_up(feet, cell, down=False):
+    """Pure: breaking `cell` could drop the body standing at `feet` — its floor (supports) or its own column below;
+    `down`: a staircase digging down on purpose, where only the own column counts."""
+
+    feet, cell = tuple(feet), tuple(cell)
+    return under(feet, cell) or (not down and cell in supports(feet))
+
 FACES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0))
 
 def floored(region, cell, drop):
@@ -247,9 +254,8 @@ def opener(region, cell, feet, drop, forced=False):
     # `forced`: the jar refused every stand it tried (NO_STAND) though a face looked standable — a side face then
     # (the one above would put the body on the cell's own column, which the jar's mine never stands on)
     eye = (feet[0], feet[1] + 1, feet[2])
-    floor = supports(feet)
     options = [f for f in (cell_add(cell, d) for d in FACES)
-               if region.inside(f) and region.solid(f) and f not in floor and not under(feet, f)
+               if region.inside(f) and region.solid(f) and not holds_up(feet, f)
                and not (forced and f[1] != cell[1])
                and not getattr(region, "unbreakable", lambda p: False)(f)]
     return min(options, key=lambda f: (sum((a - b) ** 2 for a, b in zip(f, eye)), f), default=None)
@@ -258,8 +264,7 @@ def mineable(cells, feet, region=None, drop=None):
     """Pure: the cells breakable from `feet`, in order — never the floor, our own column below, or a face only over a deep drop."""
 
     feet = tuple(feet)
-    floor = supports(feet)
-    ok = [tuple(c) for c in cells if tuple(c) not in floor and not under(feet, tuple(c))
+    ok = [tuple(c) for c in cells if not holds_up(feet, c)
           and (region is None or stand_spot(region, tuple(c), drop))]
     if region is None:
         return ok
