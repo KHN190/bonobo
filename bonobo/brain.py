@@ -19,6 +19,7 @@ api.ANOMALY = events.anomaly      # a swallowed or unexpected error is an event 
 # every module that registers skills: a new one is added here only
 from . import brewing, combat, dragon, end, farming, fluids, gather, loot, store, ui, wood  # noqa: F401,E402
 from .api import GameUnreachable, McError, NotAvailable, PlayerTookControl, log
+from . import cost as costmod
 from .cost import Cost, Prices
 from .data import HAND_MINEABLE_SUFFIX, bare
 from .game import EYE_HEIGHT
@@ -210,7 +211,8 @@ class Brain:
         nav.DOORS = mechanisms.doors_on_way   # taught doors: pressed on the way, never dug
         mechanisms.WALK_TO = nav.go_to
         nav.HOME_DOOR = mechanisms.home_exit
-        nav.DOOR_ROUTE = mechanisms.taught_route_s     # and walked through, not as rock (the cost reads Memory.taught)
+        nav.DOOR_ROUTE = mechanisms.taught_route_s     # and walked through, not as rock
+        costmod.DOOR_ROUTE = mechanisms.door_route_s   # priced through over Memory.taught (pure: no file read)
         nav.ROAD_MEM = self.mem       # travelled legs become a road network (roads.py) for later trips
         self.retry = retry.Retry()
         self.planning = True                    # False for a round without the plan layer (Brain.round(plan=False))
@@ -486,6 +488,7 @@ class Brain:
         self._mark("inv")
         tape.begin()
         nav.forget_routes()
+        self.mem.reload_taught()          # a lesson taught since the last round (the bench, the CLI) is priced in this one
         snap = Snapshot.read(_k.SOURCE_BLOCKS, survive.ROUND_GROUND)
         self._mark("snap")
         events.milestones(_bag_counts(snap))
