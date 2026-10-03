@@ -283,9 +283,7 @@ class Needs:
 
         facts = self.night_facts(snap) if facts is None else facts
         filters = {k: v for k, v in facts.items() if not k.endswith("_s")}     # what offers a way; its seconds apart
-        # by day only the dusk lead asks (a margin of LEAD): a price PLAN_S_TTL old does; by night the bag's own
-        key = ("night ways", json.dumps(filters, sort_keys=True, default=str),
-               bag_signature(snap.inv) if snap.night else snap.inv.count("bed") > 0, snap.dimension)
+        key = ("night ways", json.dumps(filters, sort_keys=True, default=str), bag_signature(snap.inv), snap.dimension)
         cost = self.cost(snap)
         ways = memo_ttl(self.plan_s_cache, key, PLAN_S_TTL, lambda: night_ways(snap.inv, cost, facts), time.time())
         return overnight(snap.inv, cost, facts, bed_too=bed_too, ways=ways)

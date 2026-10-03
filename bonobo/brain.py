@@ -671,7 +671,8 @@ class Brain:
                 and old.get("want") == key and old["dim"] == snap.dimension:
             return old
         same = old is not None and not old.get("ran") and old.get("want") == key and old["dim"] == snap.dimension
-        held, why = replan(entries, snap, cost, self.mem.pending_outputs(snap.dimension))
+        held, why = replan(entries, snap, cost, self.mem.pending_outputs(snap.dimension),
+                           held=old["steps"] if old is not None and old.get("want") == key else None)
         if held is None:
             self.__dict__.setdefault("unplannable", {})["round"] = why
             return None
@@ -994,12 +995,13 @@ def round_key(entries):
     """Pure: what a round plans for — each target's name and goal; a held plan is reused only for the same."""
     return tuple((name, json.dumps(goal, sort_keys=True)) for name, goal, _rank in entries)
 
-def replan(entries, snap, cost, pending=None):
+def replan(entries, snap, cost, pending=None, held=None):
     """Pure given the cost: the round's one plan (planner.plan_round) over `entries` [(name, goal, queue place)] —
-    (held, None), or (None, why) when they cannot be planned together."""
+    (held, None), or (None, why) when they cannot be planned together. `held`: the steps held for the same targets,
+    the search's first bound."""
     try:
         targets = [planner.Target(name, decompose.round_needs(goal, snap.inv, cost), rank) for name, goal, rank in entries]
-        _first, steps, _secs = planner.plan_round(snap.inv, targets, cost, pending)
+        _first, steps, _secs = planner.plan_round(snap.inv, targets, cost, pending, held=held)
     except Unplannable as e:
         return None, f"unplannable: {e}"
     return {"steps": steps, "sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension,
