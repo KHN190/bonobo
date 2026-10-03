@@ -191,7 +191,8 @@ def night_facts(soft, cooled=(), dig_site=True, home_walk_s=None, night_left_s=N
     here (`dig_site`, survive.dig_in_site: False → dig in is not offered), the home bed's walk (`home_walk_s`) and the
     night still ahead (`night_left_s`, a whole night when the clock is not read). Priced in seconds with the night's
     death risk (beliefs risk.*, time.death_cost_s): a walk in the open costs its seconds plus their share of an open
-    night's risk; a shelter costs the night `covered_work_s` does not fill plus a sheltered night's risk."""
+    night's risk; a shelter costs the night waited in it — the part no work under cover fills (`covered_work_s`:
+    the plan's night work, F1i) — plus a sheltered night's risk."""
 
     out: dict = {"soft_ground": False} if soft is None or soft is False else \
         {"soft_ground": True, "soft_walk_s": 0.0 if soft is True else float(soft)}

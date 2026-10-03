@@ -496,7 +496,7 @@ class TheSoilIsWhatPerceptionRead(unittest.TestCase):
                 ("seven dirt over rock, read", column(7), 7)]
         for name, region, want in rows:
             with self.subTest(name), mock.patch.object(perception.STATE, "region", region):
-                ground = perception.price_inputs(dict(Snap.state, timeOfDay=0))["ground"]
+                ground = perception.price_inputs(dict(Snap.state, timeOfDay=0, blockX=0, blockY=64, blockZ=0))["ground"]
                 self.assertEqual(Cost(Snap(), mem(), finds={}, region=ground).soil(), want)
             with self.subTest(f"{name}: priced from its input alone"), \
                     mock.patch.object(perception.STATE, "region", column(5)):
