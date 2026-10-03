@@ -253,8 +253,7 @@ def _round_state():
     d = dragon_entry(entities(SEEN_R, [DRAGON])) or {}
     now = time.time()
     CLOCK["phase"], CLOCK["since"] = phase_clock(CLOCK, d.get("phase"), now)
-    from . import perception
-    return fight_state(s, entities(SEEN_R), _carried(), PIT, CLOCK, now, perception.STATE.region)
+    return fight_state(s, entities(SEEN_R), _carried(), PIT, CLOCK, now, api.STATE.ground_seen)
 
 
 def dragon_dead(near, portal_open):

@@ -50,6 +50,7 @@ class ApiState(lifecycle.State):
     moved_m: float = 0.0                 # blocks the body moved, summed over successive /state reads (E4: the path)
     bar_seen: "tuple[float, float] | None" = None      # (food, saturation) in the last /state read (E4: the drain)
     kinds_seen: "frozenset | None" = None    # the item kinds in the last /inventory read (E5: a ban's state)
+    ground_seen: Any = None              # the blocks perception last read round the body (its field): a fight's cells
     home_break: "str | None" = None      # a rescue's reason while it may break a home block (home_break_allowed)
     # the body's clock for the round log (brain._round's gap): when a task's end was first seen, when a task was
     # first posted since the round began (perf_counter seconds; None when not yet)

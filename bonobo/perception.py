@@ -574,6 +574,7 @@ def field_around(state, now=None, radius=GRID_R, region_of=None):
         return api.unexpected("perception: ground", e, "the last field is kept") or STATE.grid
     with STATE.lock:
         STATE.grid, STATE.region = grid, region
+        api.STATE.ground_seen = region        # the fight state reads it (dragon.fight_state): no import of perception
         STATE.grid_at, STATE.grid_at_pos = cache.get((here, api.STATE.world_writes), (now,))[0], here
     return grid
 

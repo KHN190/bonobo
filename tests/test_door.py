@@ -191,9 +191,10 @@ class NoRoute(unittest.TestCase):
             if way_raises:
                 raise way_raises
         column = FakeRegion((10, 32, 0), (10, 96, 0), {(10, y, 0): "stone" for y in range(32, 60)})
+        empty = nav.Inventory({"slots": [], "equipment": {}})       # a bag read as the walk reads it (way_bag: its slots)
 
         with mock.patch.object(nav, "feet", lambda: (0, 64, 0)), \
-                mock.patch.object(nav, "Inventory", lambda *a: mock.Mock(count=lambda k: 0)), \
+                mock.patch.object(nav, "Inventory", lambda *a: empty), \
                 mock.patch.object(nav, "Region", lambda *a, **k: column), \
                 mock.patch.object(nav, "DOORS", None), mock.patch.object(nav, "_doorways_between", lambda *a: {}), \
                 mock.patch.object(nav, "_plan_reply", lambda *a, **k: {"found": walk}), \
