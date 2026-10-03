@@ -41,13 +41,13 @@ stochastic=False, expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'stone', 169, 169
          check=[('slice_check', ('&has_stone_pickaxe',))], detail=('&slice_detail',),
          expect=[(('@', 1, 0, 1), ('@', 1, 0, 1), 'crafting_table', 1, 1)], point='C', chain=0),
     dict(name='enroute', module='brain',
-         doc=('En-route (G3/K4): raw iron asked, the ore 40 east; an unopened chest 1 off the way holding diamond (the '
+         doc=('En-route (G3/K4): raw iron asked, the ore 18 east; an unopened chest 1 off the way holding diamond (the '
               'diamond tools want it) and logs, 64 logs in the bag → the chest opened, the diamond taken, the logs left; '
               'the iron and the diamond in fewer seconds than the planner prices the three apart'),
-         scene=[('fill', ('@', -4, -3, -4), ('@', 44, -1, 4), 'stone'), ('fill', ('@', -4, -1, -4), ('@', 44, -1, 4),
+         scene=[('fill', ('@', -4, -3, -4), ('@', 20, -1, 4), 'stone'), ('fill', ('@', -4, -1, -4), ('@', 20, -1, 4),
                                                                            'grass_block'),
-                ('fill', ('@', 40, 0, -1), ('@', 41, 2, 1), 'stone'), ('setblock', ('@', 40, 0, 0), 'iron_ore'),
-                ('chest', ('@', 20, 0, 1), 'diamond 2', 'oak_log 10'),
+                ('fill', ('@', 18, 0, -1), ('@', 19, 2, 1), 'stone'), ('setblock', ('@', 18, 0, 0), 'iron_ore'),
+                ('chest', ('@', 9, 0, 1), 'diamond 2', 'oak_log 10'),
                 ('stand',), ('cmd', 'clear @p'), ('time', 1000), ('give', 'stone_pickaxe'),
                 ('give', 'stone_sword'), ('give', 'stone_axe'), ('give', 'crafting_table'), ('give', 'furnace'),
                 ('give', 'bread', 8), ('give', 'oak_log', 64)],
@@ -58,8 +58,8 @@ stochastic=False, expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'stone', 169, 169
                 ('count', 'minecraft:oak_log', '==', 64),
                 ('slice_check', ('!now', ('!count', 'minecraft:raw_iron', '>=', 1)))],
          detail=('&slice_detail',),
-         est=('sum', ('plan', [('minecraft:raw_iron', 1)]), ('step', 'look', 'container', 1, {'pos': ('@', 20, 0, 1)}),
-              ('step', 'withdraw', 'minecraft:diamond', 2, {'pos': ('@', 20, 0, 1)})), point='C',
+         est=('sum', ('plan', [('minecraft:raw_iron', 1)]), ('step', 'look', 'container', 1, {'pos': ('@', 9, 0, 1)}),
+              ('step', 'withdraw', 'minecraft:diamond', 2, {'pos': ('@', 9, 0, 1)})), point='C',
          tags={'base': 'brain', 'family': 'enroute'}),
     dict(name='lava_edge_walk', module='nav',
          doc='A 1-wide stone path between two lava pools to a target 12 blocks on → there, not burnt',
