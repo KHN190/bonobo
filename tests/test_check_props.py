@@ -49,7 +49,29 @@ class DuskByThePrep(unittest.TestCase):
                 self.assertAlmostEqual(got, want)
 
 
-class Generated(unittest.TestCase):
+class ColdIsWarm(unittest.TestCase):
+    """D8: a decision is the inputs' pure function: the cold round's and the warm round's (the declared caches filled by
+    another state) agree."""
+
+    def test_rows(self):
+        from check.inv import purity
+        d = rnd.Decision("plan", "task", None, None, (), None, "task t1", ())
+        # (situation, ctx) → flagged
+        rows = [("the same decision", {"warm": "task t1"}, False),
+                ("must fail: the warm round chose otherwise", {"warm": "wait for day"}, True)]
+        for name, ctx, flagged in rows:
+            with self.subTest(name):
+                got = purity.D8(of(), d, of(), ctx)
+                self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), flagged)
+        self.assertIsInstance(purity.D8(of(), d, of(), {}), oracle.Unchecked)
+
+    def test_warm_is_cold(self):
+        from bonobo import lifecycle
+        from check import explore
+        f = of()
+        self.assertEqual(rnd.warm_name(f, explore.POLLUTE), rnd.decide(f, fail_then_again=False)[0].name)
+        self.assertIn(("bonobo.planner", ("_BOUNDS",)), lifecycle.CACHES)      # what the warm round keeps
+
     @settings(max_examples=EXAMPLES, deadline=None, derandomize=True, database=None, suppress_health_check=[HealthCheck.too_slow])
     @given(states)
     def test_any_state(self, f):

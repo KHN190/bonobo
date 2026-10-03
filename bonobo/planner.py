@@ -58,7 +58,7 @@ class Step:
 
 
 _MEMBERS: dict = {}     # token → the item ids it counts (knowledge.members), read once: the tables are fixed
-lifecycle.in_place(__name__, "_MEMBERS")
+lifecycle.cache(__name__, "_MEMBERS")
 
 
 class VirtualInventory:
@@ -467,7 +467,7 @@ class Bound:
 
 _BOUNDS = {}      # Bound by (producers, hooks, measured durations): reused across rounds
 BOUNDS_KEPT = 4   # the offline one, the live one and a change or two in between
-lifecycle.in_place(__name__, "_BOUNDS")
+lifecycle.cache(__name__, "_BOUNDS")
 
 
 def bound(cost):

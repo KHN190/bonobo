@@ -24,12 +24,17 @@ def fresh_round():
     """The round's one restore point: every runtime data dir emptied, every life's state (lifecycle.reset_all) and the
     session's (paths.renew_session) back to their start."""
     from bonobo import lifecycle, paths
+    clear_inputs()
+    lifecycle.reset_all()
+    paths.renew_session()
+
+
+def clear_inputs():
+    """Every runtime data dir emptied (memory, tasks, tape: a round's inputs), the process's caches kept."""
     for d in data_dirs():
         for name in os.listdir(d) if os.path.isdir(d) else ():
             p = os.path.join(d, name)
             shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
-    lifecycle.reset_all()
-    paths.renew_session()
 
 
 def _decision(act, chosen, intents, world):
@@ -104,7 +109,21 @@ def decide(facts, fail_then_again=True):
         fresh_round()        # the round's life leaves nothing behind for the next caller in this process
 
 
-def _decide(facts, fail_then_again):
+def warm_name(facts, other):
+    """D8: the decision's name on `facts` after a round on `other` filled the process's declared caches (lifecycle.cache;
+    every other life's state and the inputs cleared between)."""
+    from bonobo import lifecycle, paths
+    try:
+        _decide(other, False)
+        clear_inputs()
+        lifecycle.reset_all(caches=False)
+        paths.renew_session()
+        return _decide(facts, False, fresh=False)[0].name
+    finally:
+        fresh_round()
+
+
+def _decide(facts, fail_then_again, fresh=True):
     from bonobo import api, arbiter, brain, fight_loop, perception, tape
     from bonobo.api import NotAvailable
     from bonobo import dispatch
@@ -113,7 +132,8 @@ def _decide(facts, fail_then_again):
     from bonobo.world import Inventory, Snapshot
     from .facts import alpha
     from .gamma import gamma
-    fresh_round()
+    if fresh:
+        fresh_round()
     seen = {}
     real_arbitrate = arbiter.arbitrate
 
