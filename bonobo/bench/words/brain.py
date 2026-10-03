@@ -450,10 +450,14 @@ def _seen_rule(cell):
                 "noted: straight there without a scan (must not scan), the note retired")
     return _gain("minecraft:diamond", 1), "not noted: found anyway, by scanning"
 
-# a family's rule that is an order in the bag is decided once either item shows (cell → the order's items, or None:
-# decided at the queue's end)
-DECIDED = {"night_first": lambda c: ("bed", "log") if c["dusk"] == "tight" and c["food"] == "full" else None,
-           "night_under": lambda c: ("bed", "minecraft:raw_iron") if c["dusk"] == "tight" and c["head"] == "surface"
+# cell → the orders (each decided once one of its items shows) that end the slice, or None: the queue's end
+def _night_first_decided(c):
+    if c["food"] == "low":
+        return [("log",), ("furnace_beef", "minecraft:cooked_beef")]
+    return [("bed", "log")] if c["dusk"] == "tight" else None
+
+DECIDED = {"night_first": _night_first_decided,
+           "night_under": lambda c: [("bed", "minecraft:raw_iron")] if c["dusk"] == "tight" and c["head"] == "surface"
            else None}
 
 # one value off the base at a time: which combination wins is tested offline; a row confirms the decision is carried out
@@ -709,10 +713,10 @@ def cell_row(name, *key):
     cell, fams = entry["cell"], entry["families"]
     judged = [BRAIN_FAMILIES[f][2](cell) for f in fams]
     orders = [DECIDED.get(f, lambda c: None)(cell) for f in fams]
-    decided = ("!first_seen", *[list(o) for o in orders]) if all(orders) else None
+    decided = ("!first_seen", *[list(o) for os_ in orders for o in os_]) if all(orders) else None
     row = _row(name, f"{'+'.join(fams)}: " + ", ".join(f"{d} {cell[d]}" for d in BRAIN_DIMS) + " → "
                + "; ".join(why for _c, why in judged), "brain", [("sheet", "BRAIN_WORLD"), ("brain_dims",) + key],
-               ("slice", decided, 0.4, None, list(entry["queue"])),
+               ("slice", decided, 0.4, None, list(entry["queue"]), 15, decided is not None),
                [("brain_rule", f) + key for f in fams] + [("slice_check", None)], point="C", skills=[],
                tier_fixed="brain", combat=False, queue=list(entry["queue"]),
                tags={"base": "brain", "family": "+".join(fams), **{d: cell[d] for d in BRAIN_DIMS}},

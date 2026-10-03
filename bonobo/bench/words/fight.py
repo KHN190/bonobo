@@ -676,16 +676,38 @@ def _record_bids(ctx):
 
 STARE_WAIT_S = 3.0
 
-def _provoke_by_stare(ctx):
-    """`before` hook: the player's eyes turned on the enderman's (the game's stare: it takes the player as its target),
-    held until the jar reads it angry — a console hit sets no target (fight_enderman_provoked 175231: quiet, 0 bids)."""
+ANGER_TICKS = 1200
+
+def uuid_ints(lines):
+    """Pure: the four ints of '/data get entity @p UUID' ('… entity data: [I; 1, -2, 3, 4]'), or None."""
+    for line in lines:
+        m = re.search(r"\[I;\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\]", line)
+        if m:
+            return [int(v) for v in m.groups()]
+    return None
+
+def anger_nbt(uuid, now):
+    """Pure: the enderman's anger at the player as saved data (1.21.11 angry_at/anger_end_time; the older keys too)."""
+    ints = "[I;" + ",".join(str(v) for v in uuid) + "]"
+    return (f"{{angry_at:{ints},anger_end_time:{now + ANGER_TICKS}L,"
+            f"AngryAt:{ints},AngerTime:{ANGER_TICKS}}}")
+
+def _provoke_by_nbt(ctx):
+    """`before` hook: the enderman's saved anger set at the player (the game then takes the player as its target),
+    held until the jar reads it angry — a console hit and a stare set none (175231, 181404)."""
     from ... import api
+    from ..core import _command
+    uuid = uuid_ints(_command("data get entity @p UUID", []))
+    now = game_time(_command("time query gametime", []))
+    if uuid is None or now is None:
+        raise SetupInvalid(f"the player's UUID or the game time unread: {uuid} {now}")
+    _chat(f"data merge entity @e[type=minecraft:enderman,limit=1,sort=nearest] {anger_nbt(uuid, now)}")
     end = time.time() + STARE_WAIT_S
     while time.time() < end:
-        _chat("execute as @p at @s run tp @s ~ ~ ~ facing entity @e[type=minecraft:enderman,limit=1,sort=nearest] eyes")
         if any(e.get("angry") for e in api.get("/entities?radius=16")["entities"] if e.get("type") == "minecraft:enderman"):
             return
-    raise SetupInvalid(f"the enderman not angry after {STARE_WAIT_S} s of stare")
+        time.sleep(0.2)
+    raise SetupInvalid(f"the enderman not angry {STARE_WAIT_S} s after its anger was set")
 
 def _sample_alive(kinds, stop):
     """The kill's evidence at the trace's cadence, off the round loop (FIGHT_LOG["alive"]: id, health, distance of
@@ -1528,4 +1550,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name,
          "deflect": lambda name, *p: name, "line": lambda name, *p: name}
 
-__all__ = ['SPOTS', 'STARE_WAIT_S', '_provoke_by_stare', 'fight_est_s', '_fight_recorded', '_sample_alive', 'IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', 'ENGAGED_INTENT', 'WINDOW_PROBE', 'answered_by_time', 'perception_probe', 'missing_columns', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', 'escaped', '_escaped', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', 'game_time', 'provoked', '_endermen_calm', 'ENDERMEN', 'positions', 'covered_in_time', '_took_cover', '_kept_health', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'heading', 'moves', 'FIREBALL', 'SHOTS', 'SHOT_DIST', 'CORRIDOR', 'CORRIDOR_LEN', 'VOLLEY_WATCH_S', 'corridor', 'shot_at', 'tag_shots', 'next_shot_due', 'VOLLEY_READS', 'volley_read', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row', 'LINE', 'UNSEEN_DRAW_S', 'LINE_SAMPLE_S', 'ARCHER', 'line_wall', 'unblocked', 'line_draw', '_line_watch', 'no_reflex', 'line_row', 'reflex_read', 'shield_ticks']
+__all__ = ['SPOTS', 'ANGER_TICKS', 'STARE_WAIT_S', '_provoke_by_nbt', 'anger_nbt', 'uuid_ints', 'fight_est_s', '_fight_recorded', '_sample_alive', 'IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', 'ENGAGED_INTENT', 'WINDOW_PROBE', 'answered_by_time', 'perception_probe', 'missing_columns', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', 'escaped', '_escaped', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', 'game_time', 'provoked', '_endermen_calm', 'ENDERMEN', 'positions', 'covered_in_time', '_took_cover', '_kept_health', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'heading', 'moves', 'FIREBALL', 'SHOTS', 'SHOT_DIST', 'CORRIDOR', 'CORRIDOR_LEN', 'VOLLEY_WATCH_S', 'corridor', 'shot_at', 'tag_shots', 'next_shot_due', 'VOLLEY_READS', 'volley_read', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row', 'LINE', 'UNSEEN_DRAW_S', 'LINE_SAMPLE_S', 'ARCHER', 'line_wall', 'unblocked', 'line_draw', '_line_watch', 'no_reflex', 'line_row', 'reflex_read', 'shield_ticks']
