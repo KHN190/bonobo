@@ -112,14 +112,13 @@ class ThePickedCCostsLessThanItsValue(unittest.TestCase):
         for name, mobs in rows:
             with self.subTest(name):
                 got, b = proposals(mobs)
-                # must fail on the base: there is no round-held record of (A seconds, C seconds, P, value) at all
-                # yet -- this is the one place that record is read, by name, once Opus's rework lands
+                # must fail on the base: there is no round-held record (brain.EnrouteChoice: A_s, C_s, P, value) at
+                # all yet -- this is the one place that record is read, by field name, once Opus's rework lands
                 choice = getattr(b, "enroute_choice", None)
                 if not provides(b, "wool"):
                     continue      # A held: nothing was swapped in, nothing to check against its own price
                 self.assertIsNotNone(choice, "C held: the round must still record what it was weighed against")
-                a_s, c_s, p, value = choice
-                self.assertLess(c_s - a_s, p * value)
+                self.assertLess(choice.C_s - choice.A_s, choice.P * choice.value)
                 self.assertEqual(len(got), 1, "one held plan a round, never two priced")
 
 
