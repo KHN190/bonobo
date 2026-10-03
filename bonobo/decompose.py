@@ -1,6 +1,5 @@
 """L2: a goal and a bag in, an ordered list of steps out. The brain calls only this. decompose(inv, goal, cost, pending=None) -> [Step]. Item goals (have, craft, milestone) go to the one planner (planner.plan_needs); the rest become action steps, after whatever materials they need (build). Pure apart from what the cost model reads (one cached /find per kind)."""
 
-import math
 import time
 
 from . import beliefs, blueprints, goals, knowledge, skill
@@ -57,55 +56,26 @@ def _offline(provide, probe):
     except (AttributeError, TypeError, McError) as e:
         return ("world", type(e).__name__)
 
-# things found in one place: (kind, token) → the steps to get there first, unless already there
-LIVES_IN = {("hunt", "minecraft:blaze_rod"): [("portal", "minecraft:the_nether", {}), ("seek", "fortress", {})],
-            ("barter", "piglin"): [("portal", "minecraft:the_nether", {})]}
-
-# other ways to get or build a thing beside the solver's: each run's steps, yield, needs and what must be known; priced, never ranked here
 SOURCES = {
-    # Trade gold with piglins in the Nether (nether.barter_piglin) instead of hunting endermen.
-    "minecraft:ender_pearl": [{"name": "barter", "steps": [("barter", "piglin", {"ingots": 8})], "yields": 1,
-                               "needs": [("minecraft:gold_ingot", 8), ("minecraft:golden_helmet", 1)]}],
-    # Cast the frame where it stands (building.cast_portal): no obsidian carried, no diamond pickaxe.
-    "build:nether_portal": [{"name": "cast", "steps": [("cast", "nether_portal", {})], "yields": 1,
-                             "needs": [("minecraft:water_bucket", 1), ("minecraft:bucket", 1),
-                                       ("minecraft:flint_and_steel", 1), ("building", 16)],
-                             "known": ("lava", "no lava known and no lava bucket", "minecraft:lava_bucket"),
-                             "not_in": ("minecraft:the_nether", "water cannot be poured in the Nether")}],
-    # Blocks to build with, dug by hand where dirt or grass is in sight: no pickaxe, no tree for one.
-    "building": [{"name": "dig by hand", "steps": [("mine", "minecraft:dirt",
-                                                    {"blocks": ["dirt", "grass_block"], "tier": None, "breaks": 1})],
-                  "yields": 1, "needs": [], "near": (["dirt", "grass_block"], "no dirt or grass in sight"),
-                  "gives": "minecraft:dirt"}],
     # A night without a bed (needs.overnight): the default is the bed's plan; these are the other ways through it.
     # A night with a bed (needs.overnight asks these first: a shelter is only for a night no bed can end): the home's
     # bed when a walk reaches it (bed_reach: night_facts home_bed / home_walk_s), priced by that walk; a carried bed
     # (or one the default plans) is the default's — the sleep skill gives it a room, light, the gate and takes it back.
-    "overnight bed": [{"name": "home", "steps": [("shelter", "home", {})], "yields": 1, "needs": [],
+    "overnight bed": [{"name": "home", "steps": [("shelter", "home", {})], "needs": [],
                        "when": ("home_bed", "no home bed a walk reaches"), "extra_s": ("home_walk_s",)}],
     # A night no bed can end: a shelter to wait in (no sleep is paired with it).
-    "overnight": [{"name": "dig in", "steps": [("shelter", "dig_in", {})], "yields": 1,
+    "overnight": [{"name": "dig in", "steps": [("shelter", "dig_in", {})],
                    "needs": [("tool", "pickaxe", 0)],
                    "unless": ("no_dig_site", "the ground here takes no lid below the ground line"), "extra_s": ("wait_s",)},
-                  {"name": "dig in by hand", "steps": [("shelter", "dig_in", {})], "yields": 1, "needs": [],
+                  {"name": "dig in by hand", "steps": [("shelter", "dig_in", {})], "needs": [],
                    "when": ("soft_ground", "no ground near digs by hand: it needs a pickaxe"),
                    "extra_s": ("soft_walk_s", "wait_s")},   # the walk to that ground (survive.soft_spot), the night
-                  {"name": "wall in", "steps": [("shelter", "pod", {})], "yields": 1, "needs": [("building", POD_BLOCKS)],
+                  {"name": "wall in", "steps": [("shelter", "pod", {})], "needs": [("building", POD_BLOCKS)],
                    "extra_s": ("wait_s",)},
                   # the hut's needs are read from its blueprint (a hand copy named the wrong stone)
-                  {"name": "hut", "steps": [("shelter", "hut", {})], "yields": 1,
+                  {"name": "hut", "steps": [("shelter", "hut", {})],
                    "needs": sorted(blueprints.materials(blueprints.SHELTER).items()), "extra_s": ("wait_s",)}],
 }
-
-def cheapest(key, amount, default, inv, cost, extra=None, facts=None, priced=False):
-    """The cheapest way to `key` × amount: the solver's steps, or a SOURCES[key] source's runs plus their needs;
-    (steps, name), with its seconds (extras included) when `priced`."""
-    ways, why = priced_ways(key, amount, default, inv, cost, extra, facts)
-    if not ways:
-        raise Unplannable(f"no way to {key}: " + "; ".join(why))
-    name, best, steps = min(((n, s + extra_s(x, facts), st) for n, s, st, x in ways), key=lambda w: w[1])
-    steps = None if name == "default" else steps
-    return (steps, name, best) if priced else (steps, name)
 
 NIGHT_ITSELF = ("wait_s",)        # an extra spent in the night, never in the light before it
 
@@ -119,37 +89,16 @@ def day_extra_s(keys, facts):
     """Pure: a source's extra seconds spent before dark (a walk), the night itself left out."""
     return extra_s(tuple(k for k in keys if k not in NIGHT_ITSELF), facts)
 
-def priced_ways(key, amount, default, inv, cost, extra=None, facts=None, free_only=False):
-    """Every way to `key` × amount priced once: ([(name, its plan's seconds, steps, the facts its extra seconds are
-    read from)], why the others are not offered) — the default (`default()`'s steps) and each SOURCES[key] source
-    that can finish here. `free_only`: only the sources that need nothing (priced without planning)."""
+def free_ways(key, cost, facts=None):
+    """[(name, its own steps' seconds, its steps, the facts its extra seconds are read from)] of the SOURCES[key] ways
+    offered here that need nothing first (priced without planning)."""
+    return [(src["name"], cost.plan_s(own), own, tuple(src.get("extra_s", ())))
+            for src, needs, own in offered_sources(key, cost, facts)[0] if not needs]
 
-    why, out = [], []
-    try:
-        if free_only:
-            raise Unplannable("not asked")
-        steps = default()
-        out.append(("default", cost.plan_s(steps), steps, ()))
-    except Unplannable as e:
-        why.append(f"default: {e}")
-    sources, why_not = offered_sources(key, amount, inv, cost, facts)
-    why += why_not
-    for src, needs, own in sources:
-        if free_only and needs:
-            continue
-        try:
-            pre = solve_needs(inv, needs, cost, extra) if needs else []
-        except Unplannable as e:
-            why.append(f"{src['name']}: {e}")
-            continue
-        out.append((src["name"], cost.plan_s(pre + own), pre + own, tuple(src.get("extra_s", ()))))
-    return out, why
+def offered_sources(key, cost, facts=None):
+    """The SOURCES[key] ways offered here: ([(source, its needs, its own steps, each priced)], why each other is
+    not) — no planning."""
 
-def offered_sources(key, amount, inv, cost, facts=None):
-    """The SOURCES[key] sources that can finish here: ([(source, its needs for `amount`, its own steps, each priced)],
-    why each other is not offered) — no planning."""
-
-    mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
     why, out = [], []
     for src in SOURCES.get(key, ()):
         if src["name"] in (facts or {}).get("cooled", ()):
@@ -163,29 +112,12 @@ def offered_sources(key, amount, inv, cost, facts=None):
         if when and not (facts or {}).get(when[0]):
             why.append(f"{src['name']}: {when[1]}")
             continue
-        away = src.get("not_in")
-        if away and snap is not None and getattr(snap, "dimension", None) == away[0]:
-            why.append(f"{src['name']}: {away[1]}")
-            continue
-        near = src.get("near")
-        if near and cost.distance(near[0]) is None:
-            why.append(f"{src['name']}: {near[1]}")
-            continue
-        known = src.get("known")
-        if known and not ((mem is not None and snap is not None and mem.seen(known[0], snap.dimension))
-                          or (len(known) > 2 and inv.count(known[2]))):
-            why.append(f"{src['name']}: {known[1]}")
-            continue
-        runs = math.ceil(amount / src["yields"])
-        needs = [n if n[0] == "tool" or n[0].endswith("_helmet") else (n[0], n[1] * runs) for n in src["needs"]]
         own = []
         for kind, tok, detail in src["steps"]:
-            # priced one run at a time; the step does every run
-            step = Step(kind, tok, runs, {**detail, **({"breaks": detail["breaks"] * runs} if "breaks" in detail
-                                                       else {})})
-            step.est = cost.estimate(Step(kind, tok, 1, dict(detail))) * runs
+            step = Step(kind, tok, 1, dict(detail))
+            step.est = cost.estimate(Step(kind, tok, 1, dict(detail)))
             own.append(step)
-        out.append((src, needs, own))
+        out.append((src, list(src["needs"]), own))
     return out, why
 
 def _action(kind, token, cost, **detail):
