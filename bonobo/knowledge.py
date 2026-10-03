@@ -780,7 +780,8 @@ def sheltered(sky_light, enclosed, in_site=lambda: False):
 # -- a step's prior work in ticks: the one table (cost.Cost before anything is measured, and planner.NullCost)
 PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 60,
                "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
-               "withdraw": 100, "look": 40, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
+               "withdraw": 40, "look": 40, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
+               # withdraw: open the chest, shift-click out (game; not measured yet — E4 on the bench)
                "farm": 1200, "trade": 600,         # farm: without the growth (GROW_S)
                "reach": 200, "breed": 400, "eat": EAT_TICKS,
                "shelter:dig_in": 500, "shelter:pod": 800, "shelter:hut": 2400,
