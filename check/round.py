@@ -265,6 +265,8 @@ def plan_ctx(b, act, snap, mem, world):
             out["exact_s"] = exact_s(snap.inv, goals.needs(goal, snap.inv), cost)
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
     out["plan_switch"] = getattr(b, "plan_switch", None)
+    from bonobo.planner import food_left_s
+    out["food_left_s"] = food_left_s(cost)
     step = getattr(act, "step", None)
     pos = step.detail.get("pos") if step is not None and step.kind == "mine" else None
     if pos is not None:
