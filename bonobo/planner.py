@@ -1449,7 +1449,21 @@ def _one_of(inv, targets, cost, pending, jobs, held, chosen):
     choices = [t for t in targets if t.options]
     fixed = [t for t in targets if not t.options]
     best, why = None, []
-    for combo in itertools.product(*[t.options for t in choices]):
+    combos = list(itertools.product(*[t.options for t in choices]))
+    if len(combos) > 1:              # the least each could cost first: one that cannot beat the best is never planned
+        search = Search(cost)
+        floor = {}
+        for combo in combos:
+            root = Node(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()), [], [])
+            needs = [n for t in fixed for n in t.needs] + [n for opt in combo for n in opt[1]]
+            root.stack = [("tool", n[1], int(n[2]), 1, 0) if n[0] == "tool" else ("need", n[0], int(n[1]), 0, False)
+                          for n in reversed(needs) if n[0] not in ("fact", "do")]
+            floor[id(combo)] = search.h(root) / TICKS_PER_S + sum(opt[2] for opt in combo)
+        combos.sort(key=lambda c: floor[id(c)])
+    for combo in combos:
+        if best is not None and len(combos) > 1 and floor[id(combo)] >= best[0][0]:
+            why.append(" + ".join(opt[0] for opt in combo) + ": dearer at the least than the way taken")
+            continue
         picked = [Target(t.name, list(opt[1]), t.rank, t.after) for t, opt in zip(choices, combo)]
         try:
             steps = _in_levels(inv, fixed + picked, cost, pending, jobs, held)
