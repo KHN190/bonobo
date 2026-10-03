@@ -6,7 +6,7 @@ import tempfile
 import time
 import unittest
 
-from bonobo import cost as cost_mod, decompose, goals
+from bonobo import cost as cost_mod, decompose, goals, planner
 from bonobo.memory import Memory, merge_double
 from tests.world import cost, inventory, snapshot, state
 
@@ -30,7 +30,7 @@ class Chance(unittest.TestCase):
         # (opened k holding / n opened) → P (the rule of succession)
         for k, n, want in [(0, 0, 0.5), (0, 8, 0.1), (3, 4, 4 / 6)]:
             with self.subTest(k=k, n=n):
-                self.assertAlmostEqual(decompose.p_unknown(k, n), want)
+                self.assertAlmostEqual(planner.p_unknown(k, n), want)
 
     def test_double_chest_once(self):
         rows = [("a double chest: one container", [(0, 64, 0), (1, 64, 0)], 1),

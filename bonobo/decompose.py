@@ -8,61 +8,13 @@ from .api import McError
 from .cost import TICKS_PER_S
 from .data import DAY_TICKS, NIGHT_END, POD_BLOCKS, is_night, mid
 from .planner import Step, Unplannable, plan_needs
+from .planner import look_first as planner_look_first
 from .knowledge import members
 
 def solve_needs(inv, needs, cost, pending=None, jobs=None):
     """Steps that make `needs` held (the one planner). `pending`: counted as held (planned sources' and jobs'
     outputs); `jobs`: of it, what running jobs make (awaited when used)."""
     return plan_needs(inv, needs, cost, pending, jobs)
-
-def p_unknown(k, n):
-    """Pure: the chance an unopened container holds the item, from what the opened ones held: k of n (the rule of
-    succession: 1/2 before any is opened)."""
-    return (k + 1) / (n + 2)
-
-def look_first(inv, needs, cost, pending=None):
-    """Before planning a need the containers seen cannot cover: the look into the unopened home container whose
-    expected saving pays its walk and open best (p_unknown × the make it saves − the look) — what it holds decides
-    the rest, planned again once it is seen; [] when none pays."""
-
-    mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
-    if mem is None or snap is None or not hasattr(mem, "home_containers"):
-        return []
-    if all(mem.container_record(c) is not None for c in mem.home_containers(snap.dimension)):
-        return []                     # no unopened container to look into: nothing to price a make against
-    for need in needs:
-        if need[0] in ("tool", "fact"):
-            continue
-        token, n = need[0], int(need[1])
-        held = {token: sum(have for _p, _i, have, _pr in cost.stored(token))}
-        short = goals.have_remainder(inv, [[token, n]], {**(pending or {}), **held}).get(token, 0)
-        if short <= 0:
-            continue
-        try:
-            make = cost.plan_s(solve_needs(inv, [(token, short)], cost, pending)) * TICKS_PER_S
-        except Unplannable:
-            make = math.inf
-        look = _best_look(mem, set(members(token)), snap, cost, make)
-        if look is not None:
-            return [look]
-    return []
-
-def _best_look(mem, ids, snap, cost, make_ticks):
-    """The look into an unopened home container that pays best (p_unknown from the opened ones × the make it saves −
-    the look's own est), or None when none pays."""
-    homes = mem.home_containers(snap.dimension)
-    opened = [c for c in homes if mem.container_record(c) is not None]
-    k = sum(1 for c in opened if any(mem.container_record(c)["items"].get(i, 0) > 0 for i in ids))
-    p = p_unknown(k, len(opened))
-    best = None
-    for c in homes:
-        if mem.container_record(c) is not None:
-            continue
-        step = _action("look", "container", cost, pos=list(c))
-        worth = p * make_ticks - step.est
-        if worth > 0 and (best is None or worth > best[0]):
-            best = (worth, step)
-    return best[1] if best else None
 
 def effect_detail(kind, token, count):
     """What an effect step's skill reads from `detail`, filled where the tables know it."""
@@ -238,7 +190,7 @@ def _decompose(inv, goal, cost, pending) -> list[Step]:
     template, args = goal["goal"], goal.get("args", {})
     jobs = dict(pending or {})           # what the caller passed: running jobs' outputs (memory.pending_outputs)
     if template in goals.ITEM_GOALS:
-        look = look_first(inv, goals.needs(goal, inv), cost, pending)
+        look = planner_look_first(inv, goals.needs(goal, inv), cost, pending)
         if look:
             return look
     if template in ("goto", "road"):

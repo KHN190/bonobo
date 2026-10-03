@@ -1412,6 +1412,52 @@ def plan_round(inv, targets, cost, pending=None, jobs=None, held=None, chosen=No
     return (steps[0] if steps else None), steps, sum(s.est for s in steps) / TICKS_PER_S
 
 
+def p_unknown(k, n):
+    """Pure: the chance an unopened container holds the item, from what the opened ones held: k of n (the rule of
+    succession: 1/2 before any is opened)."""
+    return (k + 1) / (n + 2)
+
+
+def look_first(inv, needs, cost, pending=None):
+    """[the look into an unopened home container] when its expected seconds beat making what is short — the look,
+    then with p_unknown the take from it, else the make anyway: look + p·take + (1 − p)·make < make — what it holds
+    decides the rest, planned again once seen; [] when no look pays (or nothing is unopened)."""
+    from . import goals
+    mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
+    if mem is None or snap is None or not hasattr(mem, "home_containers"):
+        return []
+    unopened = [c for c in mem.home_containers(snap.dimension) if mem.container_record(c) is None]
+    if not unopened:
+        return []
+    opened = [c for c in mem.home_containers(snap.dimension) if mem.container_record(c) is not None]
+    for need in needs:
+        if need[0] in ("tool", "fact", "do"):
+            continue
+        token, n = need[0], int(need[1])
+        held = {token: sum(have for _p, _i, have, _pr in cost.stored(token))}
+        short = goals.have_remainder(inv, [[token, n]], {**(pending or {}), **held}).get(token, 0)
+        if short <= 0:
+            continue
+        try:
+            make = sum(s.est for s in plan_needs(inv, [(token, short)], cost, pending))
+        except Unplannable:
+            make = math.inf
+        ids = set(members(token))
+        p = p_unknown(sum(1 for c in opened if any(mem.container_record(c)["items"].get(i, 0) > 0 for i in ids)),
+                      len(opened))
+        best = None
+        for c in unopened:
+            look = Step("look", "container", 1, {"pos": list(c)})
+            look.est = cost.estimate(look)
+            take = Step("withdraw", mid(token), short, {"pos": list(c)})
+            saved = make - (look.est + p * cost.estimate(take, at=tuple(c)) + (1 - p) * make)
+            if saved > 0 and (best is None or saved > best[0]):
+                best = (saved, look)
+        if best is not None:
+            return [best[1]]
+    return []
+
+
 def craftable_tier(inv, kind, reserved=()):
     """The best tier of `kind` this bag crafts with crafting steps only (`reserved`, what the held plans will consume,
     left out), or 0."""

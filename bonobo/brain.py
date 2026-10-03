@@ -1003,9 +1003,9 @@ def replan(entries, snap, cost, pending=None, held=None):
     the search's first bound."""
     try:
         # an unopened home container the planner cannot price (memory holds no record of it): looked into first when
-        # its expected saving pays the look (decompose.look_first) — what it holds decides the rest
+        # its expected saving pays the look (planner.look_first) — what it holds decides the rest
         steps = next((look for name, goal, _rank in entries if name.startswith("task ") and goal["goal"] in goals.ITEM_GOALS
-                      for look in [decompose.look_first(snap.inv, goals.needs(goal, snap.inv), cost, pending)] if look),
+                      for look in [planner.look_first(snap.inv, goals.needs(goal, snap.inv), cost, pending)] if look),
                      None)
         if steps is None:
             targets = [planner.Target(name, decompose.round_needs(goal, snap.inv, cost), rank)
