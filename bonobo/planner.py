@@ -485,7 +485,7 @@ def step_value(step):
 
 def _hook_memo(memo, name, fn, facts=False):
     """`fn(step[, facts])`, kept in `memo` by the step's value (and the facts it is asked against)."""
-    def ask(step, *rest):
+    def ask(step, *rest) -> Any:
         key = (name, step_value(step)) + ((tuple(sorted(rest[0].items())),) if facts else ())
         if key not in memo:
             memo[key] = fn(step, *rest)
