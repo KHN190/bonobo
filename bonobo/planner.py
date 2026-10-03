@@ -62,63 +62,98 @@ lifecycle.in_place(__name__, "_MEMBERS")
 
 
 class VirtualInventory:
-    """Counts what we'd hold after the planned steps run."""
+    """Counts what we'd hold after the planned steps run. Copy-on-write: a clone shares its parent's tables until one
+    of them changes (most children change few), and the signature is kept until the next change."""
+
+    _TABLES = ("counts", "produced", "pending", "awaited", "facts", "tools")
 
     def __init__(self, counts, tools, pending=None, facts=None):
         self.facts = dict(facts or {})      # what is true of the world for the plan (dimension, a portal here, …)
-        self.counts = Counter(counts)       # item id -> count (held, and `pending` on its way)
-        self.produced = Counter()           # group token -> count produced by planned steps
-        self.tools = [list(t) for t in tools]   # [kind, tier, uses left]
-        self.pending = Counter(pending or {})   # item id -> of `counts`, what a job is still making (not in the bag)
-        self.awaited = Counter()            # item id -> pending the plan uses: to be collected before it is used
+        self.counts = {k: v for k, v in Counter(counts).items()}   # item id -> count (held, and `pending` on its way)
+        self.produced: dict = {}            # group token -> count produced by planned steps
+        self.tools = [tuple(t) for t in tools]   # (kind, tier, uses left)
+        self.pending = dict(Counter(pending or {}))   # item id -> of `counts`, what a job is still making (not in the bag)
+        self.awaited: dict = {}             # item id -> pending the plan uses: to be collected before it is used
+        self._shared: set = set()           # tables still shared with a clone: copied before the first change
+        self._sig = None
 
     def clone(self):
         out = VirtualInventory.__new__(VirtualInventory)
-        out.counts, out.produced, out.pending, out.awaited = (Counter(self.counts), Counter(self.produced),
-                                                              Counter(self.pending), Counter(self.awaited))
-        out.tools = [list(t) for t in self.tools]
-        out.facts = dict(self.facts)
+        out.counts, out.produced, out.pending, out.awaited = self.counts, self.produced, self.pending, self.awaited
+        out.facts, out.tools = self.facts, self.tools
+        out._shared = set(self._TABLES)
+        self._shared = set(self._TABLES)
+        out._sig = self._sig
         return out
+
+    def _own(self, name):
+        """The table `name` for writing: this inventory's own copy."""
+        self._sig = None
+        if name in self._shared:
+            self._shared.discard(name)
+            setattr(self, name, list(getattr(self, name)) if name == "tools" else dict(getattr(self, name)))
+        return getattr(self, name)
 
     def available(self, token):
         ids = _MEMBERS.get(token)
         if ids is None:
             ids = _MEMBERS[token] = tuple(members(token))
         counts = self.counts
-        return sum(counts[m] for m in ids) + self.produced[token]
+        return sum(counts.get(m, 0) for m in ids) + self.produced.get(token, 0)
 
     def consume(self, token, n, awaits=True):
         """Use `n` of token: what the plan makes first, then the bag, then what a job is still making — that last
         noted as awaited (`awaits`: a step uses it; a top-level need met by an output on its way awaits nothing)."""
-        take = min(n, self.produced[token])
-        self.produced[token] -= take
-        n -= take
+        take = min(n, self.produced.get(token, 0))
+        if take:
+            produced = self._own("produced")
+            produced[token] -= take
+            n -= take
         for m in members(token):
             if n <= 0:
                 break
-            take = min(n, self.counts[m])
-            held = self.counts[m] - self.pending[m]
+            take = min(n, self.counts.get(m, 0))
+            if take <= 0:
+                continue
+            held = self.counts.get(m, 0) - self.pending.get(m, 0)
             if take > held:                  # the rest comes from a job not yet collected
                 late = take - max(0, held)
-                self.pending[m] -= late
+                pending = self._own("pending")
+                pending[m] = pending.get(m, 0) - late
                 if awaits:
-                    self.awaited[m] += late
-            self.counts[m] -= take
+                    awaited = self._own("awaited")
+                    awaited[m] = awaited.get(m, 0) + late
+            counts = self._own("counts")
+            counts[m] -= take
             n -= take
 
     def add(self, token, n):
         if token in GROUPS or token == "food":
-            self.produced[token] += n
+            produced = self._own("produced")
+            produced[token] = produced.get(token, 0) + n
         else:
-            self.counts[mid(token)] += n
+            counts = self._own("counts")
+            counts[mid(token)] = counts.get(mid(token), 0) + n
+
+    def set_fact(self, fact, value):
+        self._own("facts")[fact] = value
+
+    def add_tool(self, kind, tier, uses):
+        self._own("tools").append((kind, tier, uses))
+
+    def clear_awaited(self):
+        if self.awaited:
+            self._own("awaited").clear()
 
     def signature(self):
-        return (tuple(sorted((k, v) for k, v in self.counts.items() if v)),
-                tuple(sorted((k, v) for k, v in self.produced.items() if v)),
-                tuple(sorted(tuple(t) for t in self.tools)),
-                tuple(sorted((k, v) for k, v in self.pending.items() if v)),
-                tuple(sorted((k, v) for k, v in self.awaited.items() if v)),
-                tuple(sorted(self.facts.items())))
+        if self._sig is None:
+            self._sig = (tuple(sorted((k, v) for k, v in self.counts.items() if v)),
+                         tuple(sorted((k, v) for k, v in self.produced.items() if v)),
+                         tuple(sorted(self.tools)),
+                         tuple(sorted((k, v) for k, v in self.pending.items() if v)),
+                         tuple(sorted((k, v) for k, v in self.awaited.items() if v)),
+                         tuple(sorted(self.facts.items())))
+        return self._sig
 
     def has_tool(self, kind, tier, uses=1):
         return any(k == kind and t >= tier and u >= uses for k, t, u in self.tools)
@@ -133,18 +168,30 @@ class VirtualInventory:
 
     def wear(self, kind, tier, n):
         """`n` uses off the best tool of `kind` at `tier` or above that has them (the one the work holds)."""
-        fit = [t for t in self.tools if t[0] == kind and t[1] >= tier and t[2] >= n]
+        fit = [i for i, t in enumerate(self.tools) if t[0] == kind and t[1] >= tier and t[2] >= n]
         if fit:
-            max(fit, key=lambda t: (t[1], -t[2]))[2] -= n
+            i = max(fit, key=lambda j: (self.tools[j][1], -self.tools[j][2]))
+            tools = self._own("tools")
+            k, t, u = tools[i]
+            tools[i] = (k, t, u - n)
 
 
-def signature(tasks):
-    """The tasks as a key: steps by what they are, not by which object."""
+def signature(tasks, seen=None):
+    """The tasks as a key: steps by what they are, not by which object (`seen`: {id(task): (task, its key)}, a
+    search's own — a task object is keyed once)."""
     def part(x):
         if isinstance(x, Step):
             return (x.kind, x.token, x.count, repr(sorted(x.detail.items())))
         return x
-    return tuple(tuple(part(x) for x in t) for t in tasks)
+    if seen is None:
+        return tuple(tuple(part(x) for x in t) for t in tasks)
+    out = []
+    for t in tasks:
+        hit = seen.get(id(t))
+        if hit is None or hit[0] is not t:
+            hit = seen[id(t)] = (t, tuple(part(x) for x in t))
+        out.append(hit[1])
+    return tuple(out)
 
 
 def from_bag(inv, extra=None, pending=None, reserved=(), facts=None):
@@ -510,6 +557,8 @@ class Search:
         self.spent = 0                  # nodes advanced (the dive's budget: DIVE_NODES)
         self.stored_c, self.near_c, self.reach_c, self.least_c = (shared.setdefault(k, {}) for k in
                                                                    ("stored", "near", "reach", "least"))
+        self.task_keys: dict = {}       # id(task) → (task, its key): signature, once a task
+        self.h_memo: dict = {}          # (what is left, the bag) → its bound
         self.greedy = False             # settle: every option weighed, or (the dive) the few least-bound ways inside a choice
         self.stop = getattr(cost, "stop", None) or (lambda: False)     # injected: true ends the search (Interrupted)
         self.cost = cost
@@ -540,6 +589,14 @@ class Search:
 
     # -- what is left: its bound
     def h(self, node, floor=0):
+        """`bound` of the node, once a search per what is left and the bag it is asked from."""
+        key = (signature(node.stack[floor:], self.task_keys), node.inv.signature())
+        got = self.h_memo.get(key)
+        if got is None:
+            got = self.h_memo[key] = self.bound_of(node, floor)
+        return got
+
+    def bound_of(self, node, floor=0):
         """The least what is left (above `floor`) can cost: its needs' least (what is held credited) and the walk to
         their nearest known source, plus the dearest tool or station still to be had (not itself asked, not stored)."""
         units, tool = 0.0, 0.0
@@ -635,7 +692,7 @@ class Search:
             material, _, kind = bare(st.token).rpartition("_")
             if st.kind == "craft" and kind in TOOL_KINDS and material in TOOL_USES:
                 tier = next(t for t, m in TOOL_MATERIAL_FOR_TIER.items() if m == material)
-                inv.tools.append([kind, tier, spare_uses(TOOL_USES[material])])
+                inv.add_tool(kind, tier, spare_uses(TOOL_USES[material]))
             else:
                 inv.add(st.token, st.count)
         for n in needs:
@@ -697,14 +754,14 @@ class Search:
                 node.inv.consume(task[1], task[2])
                 got = None
             elif op == "taken":
-                node.inv.facts[task[1]] = node.inv.facts.get(task[1], 0) + task[2]
+                node.inv.set_fact(task[1], node.inv.facts.get(task[1], 0) + task[2])
                 got = None
             elif op == "close":
                 at = len(node.open) - 1 - node.open[::-1].index(task[1])
                 node.open = node.open[:at] + node.open[at + 1:]
                 got = None
             elif op == "addtool":
-                node.inv.tools.append([task[1], task[2], task[3]])
+                node.inv.add_tool(task[1], task[2], task[3])
                 got = None
             else:
                 raise AssertionError(op)
@@ -750,7 +807,7 @@ class Search:
                 step.est = self.cost.estimate(step)
                 node.steps.append((step, node.inv.held(), len(node.steps)))
                 node.g += step.est
-        node.inv.awaited.clear()
+        node.inv.clear_awaited()
 
     def need(self, node, token, n, depth, fresh):
         if depth > self.lb.depth:
@@ -1009,9 +1066,10 @@ class Search:
         ticks = self.cost.work(step, held) + self.cost.dig_to(step, held) + self.cost.walk_lb(step)
         if self.hungry and not node.inv.facts.get("fed"):
             ticks += round(ticks * self.hungry)         # F1l: hunger's seconds until a step makes food
-            node.inv.facts["fed"] = mid(step.token) in FOOD_IDS and step.kind in MAKES_FOOD
+            node.inv.set_fact("fed", mid(step.token) in FOOD_IDS and step.kind in MAKES_FOOD)
         node.g += ticks
-        node.inv.facts.update(self.sets(step))
+        for fact, value in self.sets(step).items():
+            node.inv.set_fact(fact, value)
         node.steps.append((step, held, start))      # start: where the steps it needs begin
         return None
 
@@ -1048,7 +1106,7 @@ class Search:
 
     def settled(self, node, cap):
         """`settle` of a node down to its horizon, memoised on what is asked and the bag it is asked from."""
-        key = (signature(node.stack[node.horizon:]), node.inv.signature(), node.open)
+        key = (signature(node.stack[node.horizon:], self.task_keys), node.inv.signature(), node.open)
         hit = self.memo.get(key)
         if hit is not None:
             ok, inv, steps, g, tie = hit
@@ -1120,7 +1178,7 @@ class Search:
             if steps is not None:
                 best = (f, tie, steps)
                 break
-            seen = (signature(node.stack), node.inv.signature(), node.open)
+            seen = (signature(node.stack, self.task_keys), node.inv.signature(), node.open)
             if visited.get(seen, math.inf) <= node.g:
                 continue                      # the same state reached as cheaply before: nothing new below it
             visited[seen] = node.g
