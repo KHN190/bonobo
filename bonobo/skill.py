@@ -16,7 +16,7 @@ from .knowledge import have_remainder, needs_rows
 from .bag import has_room
 from .world import Versioned
 
-REGISTRY: "Versioned[str, Contract]" = Versioned()      # versioned: what is read off it is kept until it changes
+REGISTRY: "Versioned[str, Contract]" = Versioned()
 Needs = dict[str, int]         # {dimension: minimum}: "tool:pickaxe:2", "item:minecraft:bucket", ... (knowledge.needs_rows)
 Bag = dict[str, int]           # {item or group token: count}: a wanted bag, what is left of it
 VERIFY_SETTLE_S = 3.0      # how long a finished skill's effect may take to show up in the world
@@ -117,7 +117,7 @@ class Spec:
     when: Callable[[Any, dict], "list | str"] | None = None
     sets: dict | None = None
     uses: "Needs | Callable[[tuple], Needs] | None" = None      # of its needs, what a run uses up (a fn of its args)
-    station: str | None = None      # a block it works at, carried or standing (never used up): the planner's station
+    station: str | None = None      # a block it works at, carried or standing
 
 class Contract:
     # set by the `skill` decorator once built
@@ -262,7 +262,7 @@ def when_of_step(step, facts):
     else:
         found = next((providers(e) for e in step_keys(step) if providers(e)), [])
     if not found:
-        return f"no skill carries out {step.kind} {step.token}"      # nothing can run it: never planned
+        return f"no skill carries out {step.kind} {step.token}"
     asks, reasons = [], []
     for c in found:
         got = [] if c.when is None else c.when(step, facts)

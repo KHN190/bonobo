@@ -1,6 +1,4 @@
-"""D8: a decision is a pure function of its inputs (snapshot, memory, statistics): the round decided cold and the same
-round decided with the process's caches already filled by another state agree. check/explore.judge puts in ctx:
-  warm       the decision's name with the caches warm (check.round.warm_name)"""
+"""D8: the cold round and the warm round (ctx warm: check.round.warm_name) decide alike."""
 from ..oracle import Unchecked
 
 

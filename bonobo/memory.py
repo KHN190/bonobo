@@ -559,8 +559,7 @@ class Memory:
         return out
 
     def known_stations(self, block, dimension, near=None, within=None):
-        """Cells of the placed stations of `block` (a group: any member) known here — ours and the homes' parts, the
-        one reading of a known station."""
+        """Cells of placed `block` stations (any group member) known here: ours and the homes'."""
         names = {bare(m) for m in GROUPS.get(block, GROUPS.get(bare(block), []))} | {bare(block)}
         kinds = {home_part_kind(n) for n in names}
         cells = [tuple(s["pos"]) for s in self.stations(dimension) if bare(s.get("block") or "") in names]

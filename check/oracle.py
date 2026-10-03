@@ -55,7 +55,7 @@ def S4(b, d, a, ctx):
         return None
     if d.kind is None:
         return "idle in the open at night (nothing proposed)"
-    # no way through the night can be had here (the round's own night table) and the wait says why (D1): not wandering
+    # no night way here and the wait says why (D1)
     if _name(d) == "wait for day" and "night_way" in ctx and ctx["night_way"] is None and d.reason:
         return None
     return f"open-air at night: {d.name} ({ctx.get('step_kind')})"

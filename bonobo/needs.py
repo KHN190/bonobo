@@ -221,17 +221,14 @@ class Needs:
         return None
 
     def night_prep_s(self, snap):
-        """Seconds of light the night's way needs before dark (dusk's one reading): the least of a way needing nothing
-        and the cheapest way's preparation, what the round's plan makes anyway counted at the margin; None: no way."""
+        """Light seconds the night's way needs before dark (dusk's reading), at the margin; None: no way."""
         free = self.night_free_s(snap)
         way, seconds, steps = self.overnight(snap)
         got = [s for s in (free, self.marginal_s(seconds, steps) if way is not None else None) if s is not None]
         return min(got) if got else None
 
     def route_covered_s(self, snap):
-        """Seconds of work under cover the run's route still asks (goals.MILESTONES not met, priced by the planner's
-        bound: each short item's cheapest derivation, its mine/craft/smelt part) — what a night underground is spent
-        on; it runs out as the route's digging is done."""
+        """Seconds of work under cover the unmet milestones still ask (the planner bound's covered part)."""
         from .planner import bound
         lb, inv, ticks = bound(self.cost(snap)), snap.inv, 0.0
         for name in goals.MILESTONES:
@@ -260,8 +257,7 @@ class Needs:
         return max(0.0, seconds - less)
 
     def night_free_s(self, snap):
-        """Seconds of light the cheapest way through the night that needs nothing got first takes (a walk home,
-        digging in by hand), the night itself left out, priced without planning; None when none is offered."""
+        """Light seconds of the cheapest night way needing nothing got first (the night itself out); None: none."""
         facts = self._facts[1] if self._facts is not None and self._facts[0] is snap else None
         cost = self.cost(snap)
         free = [secs + decompose.day_extra_s(extra, facts) for key in ("overnight bed", "overnight")

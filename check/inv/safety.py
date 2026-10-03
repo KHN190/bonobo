@@ -1,9 +1,7 @@
-"""S7: a danger seen while the round plans is answered in that round — the search stops within one stop check and
-the round's decision is a danger layer's. check/explore.judge puts in ctx:
-  hazard     check.round.hazard_round: (the layer chosen, search steps after the hazard), None when nothing is planned"""
+"""S7: a hazard mid-plan stops the search at once and the round answers it (ctx hazard: check.round.hazard_round)."""
 from ..oracle import DANGER_LAYERS, Unchecked
 
-STOP_EVERY = 1       # search steps between two reads of the stop (planner: before each step)
+STOP_EVERY = 1       # search steps between two reads of the stop
 
 
 def S7(b, d, a, ctx):
