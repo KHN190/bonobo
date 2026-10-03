@@ -9,12 +9,13 @@ FAR = [40, 64, 0]    # a place to go: off the γ floor's cells, a walk away
 VALUES = ("none", "milestone", "tool", "build", "portal", "goto", "road", "skill", "effect", "end", "expired",
           "cooling", "solver", "food", "bed", "torches", "blocks", "blaze", "pearls", "second",
           "effect_hunt", "effect_mine", "effect_take", "effect_craft", "effect_bare", "build_unknown",
-          "logs", "iron", "fill", "farm")
+          "logs", "iron", "fill", "farm", "effect_none")
 # effect goals of each kind decompose fills a detail for (decompose.effect_detail: hunt, mine, take, craft) and one
-# whose step lacks the detail its provider reads (missing_detail: refused, Unplannable)
+# whose step lacks the detail its provider reads (missing_detail: refused, Unplannable); one no skill carries out (the
+# planner refuses it: skill.when_of_step)
 EFFECTS = {"effect": "light", "effect_hunt": "hunt:minecraft:beef", "effect_mine": "mine:minecraft:coal",
            "effect_take": "take:minecraft:crafting_table", "effect_craft": "craft:minecraft:stick",
-           "effect_bare": "goto"}
+           "effect_bare": "goto", "effect_none": "check-none"}
 # one-item `have`s outside the base `queued` fact: a material a container may hold (logs, iron: from_containers, B1),
 # a bucket of water (a fill column), wheat (a farm column)
 HAVE = {"logs": ("minecraft:oak_log", 16), "iron": ("minecraft:iron_ingot", 3),

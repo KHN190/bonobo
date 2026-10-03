@@ -777,9 +777,9 @@ class Brain:
         return craft_act("upkeep", name, ctx, steps, step, snap.night, inv=snap.inv)
 
     # -- the queue: hold a plan, check it cheaply, repair it on events
-    def task_act(self, task, snap, ctx, cost, held=None):
+    def task_act(self, task, snap, ctx, cost, held):
         """The queue's decision for one task, IO outside: (act or None, task fields to write — applied by the caller
-        right after). `held`: the round's plan it is part of; None: a round of this task alone."""
+        right after). `held`: the round's plan it is part of."""
         return self._collecting(lambda: self._task_act(task, snap, ctx, cost, held))
 
     def _collecting(self, decide):
@@ -797,7 +797,7 @@ class Brain:
         else:
             tasks.update(task["id"], **fields)
 
-    def _task_act(self, task, snap, ctx, cost, held=None):
+    def _task_act(self, task, snap, ctx, cost, held):
         goal = tasks.goal_of(task)
         # reconcile: the remainder is read each round ({} = done); the held plan is a cache of how, never a count
         rest = goals.remainder(goal, snap, self.mem)
@@ -805,14 +805,6 @@ class Brain:
         if finished:
             self.finish(task, "done", "")
             return None
-        if held is None:
-            held = self.round_for([(f"task {task['id']}", goal, 0)], snap, cost, self.held.get(task["id"]))
-            if held is None:
-                self.fail_task(task, self.unplannable.get("round", "unplannable"))
-                return None
-            self.held[task["id"]] = held
-            if task.get("state") != "running":
-                self._write(task, state="running")
         if not held["steps"]:
             if finished is None:                  # a run-once goal whose plan has run
                 self.finish(task, "done", "")
@@ -1030,9 +1022,6 @@ def replan(entries, snap, cost, pending=None, held=None):
             targets = [planner.Target(name, decompose.round_needs(goal, snap.inv, cost), rank)
                        for name, goal, rank in entries]
             _first, steps, _secs = planner.plan_round(snap.inv, targets, cost, pending, held=held)
-        missing = [st for st in steps if not skillkit.handles(st)]
-        if missing:
-            raise Unplannable(f"no skill provides {missing[0].kind} {missing[0].token}")
     except Unplannable as e:
         return None, f"unplannable: {e}"
     return {"steps": steps, "sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension}, None

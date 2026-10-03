@@ -37,8 +37,8 @@ from bonobo.knowledge import members  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import Unplannable  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
-from tests.world import (PLANNER_DIMS, bag, cost, full_bag, inventory, memory, slot, snapshot, state,  # noqa: E402
-                         worlds)
+from tests.world import (PLANNER_DIMS, bag, cost, full_bag, handles, inventory, memory, slot, snapshot,  # noqa: E402
+                         state, worlds)
 
 OVER, NETHER = "minecraft:overworld", "minecraft:the_nether"
 
@@ -138,7 +138,7 @@ class Plans(unittest.TestCase):
                     for kind, token in omits:
                         self.assertNotIn(pair(kind, token), pairs(steps), f"{kind} {token} planned: {list(map(str, steps))}")
                     for s in steps:
-                        self.assertTrue(skillkit.handles(s), f"{s}: no skill provides it")
+                        self.assertTrue(handles(s), f"{s}: no skill carries it out")
                         self.assertGreaterEqual(s.est, 0)
 
     def test_goal_to_steps_ordered(self):
@@ -298,7 +298,7 @@ class EffectGoals(unittest.TestCase):
                 self.assertEqual(steps[-1].count, 2)
                 self.assertIn(effect, skillkit.step_keys(steps[-1]))
                 self.assertEqual([s for s in steps[:-1] if effect in skillkit.step_keys(s) and s.count == 2], [])
-                self.assertTrue(all(skillkit.handles(s) for s in steps))
+                self.assertTrue(all(handles(s) for s in steps))
                 self.assertTrue(skillkit.providers(effect))
                 self.assertIsNone(goals.done(goal, snapshot(), None), "done when its plan ran")
                 self.assertEqual(goals.describe(goal), f"effect {effect} ×2")
@@ -739,7 +739,21 @@ class Held:
         snap = snapshot(st or state(), inv)
         if self.task["state"] not in tasks.LIVE:
             return None
-        act, update = self.b.task_act(self.task, snap, None, cost(snap, mem=self.b.mem, **self.seen))
+        c, tid = cost(snap, mem=self.b.mem, **self.seen), self.task["id"]
+        goal = tasks.goal_of(self.task)
+        # the round's plan for this task alone, as plan_proposals makes it before the queue's decision (task_act)
+        done = goals.remainder(goal, snap, self.b.mem) == {}
+        held = self.b.held.get(tid) if done else self.b.round_for([(f"task {tid}", goal, 0)], snap, c,
+                                                                  self.b.held.get(tid))
+        if held is None and not done:
+            self.task.update(self.b._collecting(
+                lambda: self.b.fail_task(self.task, self.b.unplannable.get("round", "unplannable")))[1])
+            return None
+        if not done:
+            self.b.held[tid] = held
+            if self.task.get("state") != "running":
+                self.task["state"] = "running"
+        act, update = self.b.task_act(self.task, snap, None, c, held)
         self.task.update(update)
         return act
 
@@ -1908,12 +1922,12 @@ class Queue(unittest.TestCase):
 
     @staticmethod
     def complete(steps, last):
-        """The chain is whole: not empty, every step carried out by some registered skill (skill.handles), and its
+        """The chain is whole: not empty, every step carried out by some registered skill (handles), and its
         last step the goal's own — its kind, its token (or a member of the group token: "food" ← cooked beef), and
         the detail the goal fixed."""
         from bonobo.knowledge import members
         kind, token, detail = last
-        if not steps or not all(skillkit.handles(s) for s in steps):
+        if not steps or not all(handles(s) for s in steps):
             return False
         end = steps[-1]
         tokens = {bare(token)} | {bare(m) for m in members(token)}

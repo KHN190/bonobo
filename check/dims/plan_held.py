@@ -47,15 +47,19 @@ def craft_chain():
             Step("craft", "minecraft:furnace", 1, {"times": 1, "inputs": {"minecraft:cobblestone": 8}})]
 
 
-def held_for(value, goal, snap, mem, key=None):
+def held_for(value, goal, snap, mem, key=None, blacklist=None):
     """The held plan of `value` for `goal` (brain.held's shape: steps, sig, event, dim, want), each step priced by the
-    production cost model as the planner prices its own (Step.est: D6 reads it)."""
+    production cost model over the round's readings (its look, perception's ground) as the planner prices its own
+    (Step.est: D6 reads it)."""
     from bonobo.cost import Cost
+    from bonobo.perception import ground_read
+    from bonobo.planner import from_bag, price_as_run
     from typing import cast
     out = _held_for(value, goal, snap, mem, key)
-    cost = Cost(snap, mem)
-    for st in cast(list, out["steps"]):
-        st.est = cost.estimate(st)
+    cost = Cost(snap, mem, blacklist, region=ground_read(snap))
+    steps = cast(list, out["steps"])
+    for st, est in zip(steps, price_as_run(steps, list(from_bag(snap.inv, reserved=cost.reserved).tools), cost)):
+        st.est = est                 # as the plan runs: the tools its earlier steps make (planner.plan_round)
     return out
 
 
@@ -86,15 +90,16 @@ def _held_for(value, goal, snap, mem, key=None):
 def prepare(brain, facts):
     if facts["plan_held"] == "none":
         return
-    from bonobo import api, tasks
-    from bonobo.world import Inventory, Snapshot
+    from bonobo import tasks
+    from bonobo.knowledge import SOURCE_BLOCKS
+    from bonobo.world import Snapshot
     from bonobo.brain import round_key
     tid = task_id()
     live = [t for t in tasks.load() if t["state"] in tasks.LIVE]
     seq, task = next((i, t) for i, t in enumerate(live) if t["id"] == tid)
-    snap = Snapshot.from_readings(api.get("/state"), Inventory())
+    snap = Snapshot.read(SOURCE_BLOCKS)          # the round's own reading and look (check/round.py reads the same)
     brain.held[tid] = held_for(facts["plan_held"], tasks.goal_of(task), snap, brain.mem,
-                               round_key([(f"task {tid}", tasks.goal_of(task), seq)], snap, brain.mem))
+                               round_key([(f"task {tid}", tasks.goal_of(task), seq)], snap, brain.mem), brain.blacklist)
 
 
 def alpha(a):
