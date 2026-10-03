@@ -2437,7 +2437,7 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
 
 
 class GivenUpThenANextStep(unittest.TestCase):
-    """E5: a skill given up (over its budget, or stalled) is followed by what it declared — into cover the next
+    """E5: work given up is followed by what its cause asks (brain.abandon_after) — into cover the next
     round, once; "replan" leaves the round to plan again. Nothing hangs."""
 
     def test_rows(self):
@@ -2462,14 +2462,18 @@ class GivenUpThenANextStep(unittest.TestCase):
                 got = [b.decide(snap, None).name for _ in range(2)]
                 self.assertEqual(got, want)
 
-    def test_what_follows_by_default(self):
-        # G3: a plain give-up (no tree found) replans — no walk to cover; a jar task's own stuck too, never None
-        rows = [("a skill declaring nothing", skillkit.Spec().abandon, "replan"),
-                ("a jar task stuck", api.TaskStuck("goto: no progress").then, "replan"),
-                ("must fail: a fight's soft skill: cover", skillkit.REGISTRY["slay_dragon"].abandon, "cover")]
-        for name, got, want in rows:
+    def test_what_follows_by_cause(self):
+        # E5/G3 (brain.abandon_after): a danger that stopped it → cover; not found or stuck → replan (no walk to
+        # cover); a skill's own `abandon` overriding the cause
+        rows = [("not found: replan", api.NotAvailable("no trees found nearby"), None, "replan"),
+                ("a jar task stuck: replan", api.TaskStuck("goto: no progress"), "stuck", "replan"),
+                ("must fail: lava stopped it: cover", api.Interrupted("lava"), "hazard:lava", "cover"),
+                ("a threat took the body: cover", api.Interrupted("threat"), "layer:tactic", "cover"),
+                ("a fight's soft skill stuck: its own cover", api.TaskStuck("slay: no progress", then="cover"),
+                 "stuck", "cover")]
+        for name, err, source, want in rows:
             with self.subTest(name):
-                self.assertEqual(got, want)
+                self.assertEqual(brainmod.abandon_after(err, source), want)
 
     def test_a_skill_with_no_next_step_is_refused(self):
         # must fail: an abandon outside skill.ABANDON_WAYS is refused where it is declared

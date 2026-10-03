@@ -386,7 +386,8 @@ class Brain:
                     cause=retry.cause_of(err) if outcome == "failed" else None)
         if isinstance(err, api.TaskStuck):
             events.anomaly("task stuck", f"{name}: {err}")
-            self.abandoned = err.then          # E5: the next round's first word is what the skill declared
+        if err is not None:
+            self.abandoned = abandon_after(err, source)     # E5: what follows it, by its cause
         first = arbiter.resume_of(source)[1] if source is not None else None
         if outcome == "ok":
             self.retry.succeeded(name)
@@ -978,6 +979,18 @@ def write(task, fields):
     """Apply a decision's task writes (task_act, after_step) to the task file: one update, nothing when unchanged."""
     if fields:
         tasks.update(task["id"], **fields)
+
+DANGER_SOURCES = ("layer:safety", "layer:tactic")     # with every "hazard:…": work given up to a danger
+
+
+def abandon_after(err, source):
+    """Pure (E5): what follows work given up — into cover when a danger stopped it (S1, a threat), else the round
+    plans again (not found, stuck: no walk to cover); a skill's own `abandon` (TaskStuck.then) overriding."""
+    if isinstance(err, api.TaskStuck) and err.then is not None:
+        return err.then
+    if source is not None and (source in DANGER_SOURCES or source.startswith("hazard:")):
+        return "cover"
+    return "replan"
 
 def outcome_of(err) -> "tuple[Outcome, Source | None]":
     """Pure: (outcome, interrupt source); "interrupted" when the source's rule resumes the work — no count, no /stop, no cooldown."""
