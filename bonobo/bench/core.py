@@ -411,6 +411,8 @@ def fresh_row(brain):
     room's walk)."""
     from .. import fresh
     from ..memory import Memory
+    if not os.environ.get("MC_DATA"):
+        raise RuntimeError("bench rows drop world-scoped stores: run with MC_DATA set (mc.py scenario sets its own)")
     fresh.drop(fresh.WORLD_SCOPED + (os.path.basename(NOTES),))
     reset_brain(brain, Memory(NOTES))
 

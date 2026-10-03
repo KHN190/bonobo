@@ -2,7 +2,13 @@
 """mc — command line for the Minecraft brain (package `bonobo`). Long runs: `supervise.sh`."""
 import argparse
 import json
+import os
 import sys
+
+if sys.argv[1:2] == ["scenario"] and not os.environ.get("MC_DATA"):
+    from bonobo import paths as _paths
+    # the bench drops world-scoped stores each row (core.fresh_row): its own data dir, never the real world's
+    os.environ["MC_DATA"] = os.path.join(_paths.data_dir(), "bench-world")
 
 from bonobo import api, skillcore, skills
 from bonobo.api import McError, log
