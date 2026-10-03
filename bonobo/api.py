@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import threading
@@ -44,6 +45,8 @@ class ApiState(lifecycle.State):
     state_read_at: float = 0.0
     feet_seen: "tuple[float, float, float] | None" = None     # the body's place in the last /state read
     dim_seen: "str | None" = None                              # its dimension then
+    moved_m: float = 0.0                 # blocks the body moved, summed over successive /state reads (E4: the path)
+    bar_seen: "tuple[float, float] | None" = None      # (food, saturation) in the last /state read (E4: the drain)
     home_break: "str | None" = None      # a rescue's reason while it may break a home block (home_break_allowed)
     # the body's clock for the round log (brain._round's gap): when a task's end was first seen, when a task was
     # first posted since the round began (perf_counter seconds; None when not yet)
@@ -60,6 +63,7 @@ STATE = lifecycle.owns(__name__, ApiState())
 
 
 ANOMALY = None      # events.anomaly, wired by the brain (api stays below the event log)
+MOVE_READ_MAX = 32.0      # blocks between two /state reads still counted as moving (farther: a teleport, a respawn)
 
 
 def swallowed(where, err):
@@ -403,7 +407,13 @@ def get(path) -> dict:
     r = api("GET", path)
     if path.startswith("/state") and isinstance(r, dict) and "x" in r:
         STATE.state_reads, STATE.state_read_at = STATE.state_reads + 1, time.time()
-        STATE.feet_seen = (r["x"], r["y"], r["z"])      # read for free where a failure happened
+        here, dim = (r["x"], r["y"], r["z"]), r.get("dimension", STATE.dim_seen)
+        if STATE.feet_seen is not None and dim == STATE.dim_seen:
+            step = math.dist(STATE.feet_seen, here)
+            STATE.moved_m += step if step <= MOVE_READ_MAX else 0.0      # a teleport or a respawn is no walk
+        STATE.feet_seen = here      # read for free where a failure happened
+        if "food" in r:
+            STATE.bar_seen = (float(r["food"]), float(r.get("saturation", 0.0)))
         STATE.dim_seen = r.get("dimension", STATE.dim_seen)
     return r
 

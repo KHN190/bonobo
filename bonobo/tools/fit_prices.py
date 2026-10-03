@@ -2,7 +2,8 @@
 game. A game or policy item is never fitted (a miss there is a model bug, said); an item is changed only from MIN_N
 kept samples and by at least MIN_CHANGE, one fit moving it at most ×FIT_STEP and never past ×MEASURED_BAND of its first
 prior (knowledge.PRIOR_ORIGIN keeps it). Fitted: the step works (PRIOR_TICKS), a crop's or an animal's growth
-(GROW_S), the walk (WALK_BLOCKS_PER_TICK: a speed, fitted inversely), a search's prior (play.toml seek_prior_s).
+(GROW_S), the walk (WALK_BLOCKS_PER_TICK: a speed, fitted inversely) and its route (ROUTE_FACTOR), a search's
+prior (play.toml seek_prior_s) and the bar's drain (food_drain_s: seconds a point, fitted inversely).
 Usage: fit_prices [--write]"""
 import os
 import re
@@ -38,6 +39,8 @@ def current_values():
     out.update({f"knowledge.GROW_S.{k}": (v, False) for k, v in knowledge.GROW_S.items()})
     out["data.WALK_BLOCKS_PER_TICK"] = (data.WALK_BLOCKS_PER_TICK, True)
     out["plan.seek_prior_s"] = (float(beliefs.CONFIG["plan"]["seek_prior_s"]), False)
+    out["data.ROUTE_FACTOR"] = (data.ROUTE_FACTOR, False)
+    out["risk.food_drain_s"] = (float(beliefs.CONFIG["risk"]["food_drain_s"]), True)      # seconds a point: inversely
     return out
 
 
@@ -92,8 +95,8 @@ def fitted_knowledge(src, changes, first):
             key = item.rsplit(".", 1)[1]
             src = _sub_in(src, "GROW_S = {", key, str(new))
             src = _sub_in(src, '"knowledge.GROW_S": {', key, '"measured"')
-        elif item == "data.WALK_BLOCKS_PER_TICK":
-            src = src.replace('"data.WALK_BLOCKS_PER_TICK": "prior"', '"data.WALK_BLOCKS_PER_TICK": "measured"')
+        elif item in ("data.WALK_BLOCKS_PER_TICK", "data.ROUTE_FACTOR"):
+            src = src.replace(f'"{item}": "prior"', f'"{item}": "measured"')
         b, e = _block(src, "PRIOR_ORIGIN = {")
         if f'"{item}"' not in src[b:e]:
             src = src[:e - 1] + ("" if e - b == 2 else ", ") + f'"{item}": {first[item]}' + src[e - 1:]
@@ -101,18 +104,24 @@ def fitted_knowledge(src, changes, first):
 
 
 def fitted_data(src, changes):
-    """Pure: data.py's source with the fitted walk speed."""
-    new = changes.get("data.WALK_BLOCKS_PER_TICK")
-    return src if new is None else _scalar(src, "WALK_BLOCKS_PER_TICK", str(new))
+    """Pure: data.py's source with the fitted walk speed and route factor."""
+    for item in ("data.WALK_BLOCKS_PER_TICK", "data.ROUTE_FACTOR"):
+        if item in changes:
+            src = _scalar(src, item.split(".", 1)[1], str(changes[item]))
+    return src
 
 
 def fitted_play(src, changes):
-    """Pure: play.toml with the fitted search prior, its tag "[measured]"."""
-    new = changes.get("plan.seek_prior_s")
-    if new is None:
-        return src
-    src = _scalar(src, "seek_prior_s", str(new))
-    return re.sub(r"^(seek_prior_s\s*=\s*\S+\s*#\s*)\[prior\]", r"\1[measured]", src, count=1, flags=re.M)
+    """Pure: play.toml with the fitted search prior and the bar's drain, each tagged "[measured]"."""
+    for item in ("plan.seek_prior_s", "risk.food_drain_s"):
+        if item not in changes:
+            continue
+        key = item.split(".", 1)[1]
+        src = _scalar(src, key, str(changes[item]))
+        tagged = re.sub(rf"^({key}\s*=\s*\S+\s*#\s*)\[prior\]", r"\1[measured]", src, count=1, flags=re.M)
+        src = tagged if tagged != src else re.sub(rf"^({key}\s*=\s*\S+\s*#\s*)", r"\1[measured] ", src, count=1,
+                                                  flags=re.M)
+    return src
 
 
 def main(argv):

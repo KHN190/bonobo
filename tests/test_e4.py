@@ -107,6 +107,12 @@ class Fit(unittest.TestCase):
         self.assertEqual(fit_prices.fitted_play(toml, {"plan.seek_prior_s": 450.0}),
                          'seek_prior_s = 450.0       # [measured] seconds to find one\n')
         self.assertEqual(fit_prices.fitted_play(toml, {}), toml)                 # must fail: rewritten unasked
+        drain = 'food_drain_s = 80.0                  # seconds of ordinary activity per point\n'
+        self.assertEqual(fit_prices.fitted_play(drain, {"risk.food_drain_s": 40.0}),
+                         'food_drain_s = 40.0                  # [measured] seconds of ordinary activity per point\n')
+        self.assertIn("ROUTE_FACTOR = 1.8 ",
+                      fit_prices.fitted_data("ROUTE_FACTOR = 1.5            # route\n", {"data.ROUTE_FACTOR": 1.8}))
+        self.assertEqual(fit_prices.fitted(80.0, 80.0, 2.0, 5, "prior", True), 40.0)   # draining faster: fewer s a point
 
 
 class ByPart(unittest.TestCase):
@@ -154,6 +160,52 @@ class ThePriceLineByPart(unittest.TestCase):
                          ("PRIOR_TICKS.gather_each:prior", "data.WALK_BLOCKS_PER_TICK:prior", "risk.food_drain_s:prior",
                           12.5))
         self.assertNotIn("seek", ln["price"])                     # must fail: a zero part priced
+
+
+class TheWalkSplit(unittest.TestCase):
+    """The path the /state reads traced: the route factor and the walking speed apart, and the bar's drain."""
+
+    def test_route_and_speed(self):
+        from bonobo.data import ROUTE_FACTOR, WALK_BLOCKS_PER_TICK
+        from bonobo.game import TICKS_PER_S
+        speed = WALK_BLOCKS_PER_TICK * TICKS_PER_S
+        # (situation, path, straight, walk seconds) → {item: ratio}
+        rows = [("the route as priced, the speed as priced", 15.0 * ROUTE_FACTOR, 15.0, 15.0 * ROUTE_FACTOR / speed,
+                 {"data.ROUTE_FACTOR": 1.0, "data.WALK_BLOCKS_PER_TICK": 1.0}),
+                ("a straight road walked twice as fast", 15.0, 15.0, 15.0 / speed / 2,
+                 {"data.ROUTE_FACTOR": round(1 / ROUTE_FACTOR, 6), "data.WALK_BLOCKS_PER_TICK": 0.5}),
+                ("must fail: a step of 2 blocks tells nothing of its route", 2.0, 2.0, 1.0, {}),
+                ("must fail: no path traced", None, 15.0, 5.0, {})]
+        for name, path, straight, walk_s, want in rows:
+            with self.subTest(name):
+                ln = {"path_m": path, "straight_m": straight}
+                self.assertEqual({k: round(v, 6) for k, v in e4.walk_split(ln, walk_s).items()}, want)
+
+    def test_the_drain(self):
+        from bonobo import beliefs
+        drain = beliefs.value("risk.food_drain_s")
+        # (situation, lines) → the priced drain against the measured one
+        rows = [("as priced: one point every drain seconds", [dict(line(actual=drain), bar_drop=1.0)], 1.0),
+                ("twice as fast over two steps, one of them dropping nothing",
+                 [dict(line(actual=drain / 2), bar_drop=0.0), dict(line(actual=drain / 2), bar_drop=2.0)], 2.0),
+                ("must fail: no bar read: no verdict", [line()], None)]
+        for name, lines, want in rows:
+            with self.subTest(name):
+                g, _n = e4.drain_ratio(lines)
+                self.assertEqual(None if g is None else round(g, 6), want)
+
+    def test_the_odometer(self):
+        from unittest import mock
+        from bonobo import api, dispatch
+        with mock.patch.object(api, "STATE", api.ApiState()), mock.patch.object(api, "api") as wire:
+            for x, food, dim in ((0.0, 20, "o"), (3.0, 19, "o"), (7.0, 19, "o"), (500.0, 19, "o"), (501.0, 18, "n")):
+                wire.return_value = {"x": x, "y": 64.0, "z": 0.0, "food": food, "saturation": 0.0, "dimension": dim}
+                api.get("/state")
+                if x == 0.0:
+                    start = {"moved": api.STATE.moved_m, "feet": api.STATE.feet_seen, "bar": api.STATE.bar_seen}
+            got = dispatch.step_moved(start, api.STATE)
+        # 3 + 4 walked; the 493-block jump (a teleport) and the dimension change are no walk (must fail: 501)
+        self.assertEqual((got["path_m"], got["straight_m"], got["bar_drop"]), (7.0, 501.0, 2.0))
 
 
 class BenchColumn(unittest.TestCase):

@@ -6,7 +6,8 @@ import json
 import math
 
 from ..api import swallowed
-from ..data import TICKS_PER_S
+from .. import beliefs
+from ..data import ROUTE_FACTOR, TICKS_PER_S, WALK_BLOCKS_PER_TICK
 
 STEP_BAND = (0.5, 2.0)
 ITEM_SPREAD = (0.25, 4.0)
@@ -46,10 +47,33 @@ def part_ratios(line):
     walk, seek = (est.get("walk", 0) + est.get("surface", 0)) / TICKS_PER_S, est.get("seek", 0) / TICKS_PER_S
     moved = (act["walk"] + act["seek"]) * k
     if walk > 0 and not seek and "walk" in price:
-        out[price["walk"]] = moved / walk
+        out.update(walk_split(line, act["walk"] * k) or {price["walk"]: moved / walk})
     elif seek > 0 and not walk and "seek" in price:
         out[price["seek"]] = moved / seek
     return out
+
+
+STRAIGHT_MIN = 4.0      # blocks: a shorter move tells nothing of its route's length
+
+
+def walk_split(line, walk_s):
+    """Pure: the walk's two prices apart, from the path the /state reads traced — {ROUTE_FACTOR: path / (straight ×
+    the factor), WALK_BLOCKS_PER_TICK: walk seconds / (path at the priced speed)}; {} when the path was not traced."""
+    path, straight = line.get("path_m"), line.get("straight_m")
+    if not path or not straight or straight < STRAIGHT_MIN or walk_s <= 0:
+        return {}
+    return {"data.ROUTE_FACTOR": path / (straight * ROUTE_FACTOR),
+            "data.WALK_BLOCKS_PER_TICK": walk_s / (path / (WALK_BLOCKS_PER_TICK * TICKS_PER_S))}
+
+
+def drain_ratio(lines):
+    """Pure: (the bar's drain priced (risk.food_drain_s) against the measured one — Σ drop × the price / Σ seconds,
+    > 1 draining faster — and the lines it read), over the ok lines that read the bar; (None, 0) without one."""
+    read = [ln for ln in lines if ln.get("ok") and ln.get("bar_drop") is not None and ln.get("actual_s")]
+    seconds = sum(float(ln["actual_s"]) * _scale(ln) for ln in read)
+    if not read or seconds <= 0:
+        return None, 0
+    return sum(float(ln["bar_drop"]) for ln in read) * float(beliefs.value("risk.food_drain_s")) / seconds, len(read)
 
 
 def inside(r, band):
@@ -99,4 +123,7 @@ def item_verdicts(lines):
         g = math.exp(sum(math.log(r) for r in kept) / len(kept)) if kept else None
         out[item] = {"tag": d["tag"], "n": len(kept), "gmean": g, "dropped": d["dropped"],
                      "holds": g is not None and inside(g, STEP_BAND) and all(inside(r, ITEM_SPREAD) for r in kept)}
+    g, n = drain_ratio(lines)
+    if g is not None:
+        out["risk.food_drain_s"] = {"tag": "prior", "n": n, "gmean": g, "dropped": [], "holds": inside(g, STEP_BAND)}
     return out

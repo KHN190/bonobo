@@ -64,7 +64,8 @@ def price_line(step, night, dimension, actual_s, why=None, row=None, phases=None
     if phases:
         walk, seek = round(phases.get("walk", 0.0), 2), round(phases.get("seek", 0.0), 2)
         out["actual_parts"] = {"walk": walk, "seek": seek, "work": round(max(0.0, actual_s - walk - seek), 2)}
-        out.update({k: round(phases[k], 2) for k in ("arrived_s", "game_s") if phases.get(k) is not None})
+        out.update({k: round(phases[k], 2) for k in ("arrived_s", "game_s", "path_m", "straight_m", "bar_drop")
+                    if phases.get(k) is not None})
     return out
 
 
@@ -94,19 +95,32 @@ def _game_tick():
         return None
 
 
+def step_moved(start, now):
+    """Pure: what the body did over a step from the /state reads (api.STATE at its start, `start`, and `now`): the
+    path walked (every move, a skill's own included), the straight line from where it began to where it is, the drop
+    of food plus saturation."""
+    out = {"path_m": now.moved_m - start.get("moved", now.moved_m)}
+    if start.get("feet") is not None and now.feet_seen is not None:
+        out["straight_m"] = math.dist(start["feet"], now.feet_seen)
+    if start.get("bar") is not None and now.bar_seen is not None:
+        out["bar_drop"] = sum(start["bar"]) - sum(now.bar_seen)
+    return out
+
+
 def run_priced(dimension, step, night, run):
     """`run()` carried out as `step`, its price line written however it ends: every way a step is run (a task's step,
     a reflex's shelter, a bench row's) goes through here, so each is priced and timed the same way."""
     t0, g0 = time.time(), _game_tick()
     PHASES.clear()
-    PHASES.update(seek=0.0, walked=nav.WALKED["s"], arrived=nav.WALKED["arrived"])
+    PHASES.update(seek=0.0, walked=nav.WALKED["s"], arrived=nav.WALKED["arrived"], moved=api.STATE.moved_m,
+                  feet=api.STATE.feet_seen, bar=api.STATE.bar_seen)
 
     def phases():
         g1 = _game_tick() if g0 is not None else None
         arrived = nav.WALKED["arrived"] if nav.WALKED["arrived"] != PHASES.get("arrived") else None
         return {"walk": max(0.0, nav.WALKED["s"] - PHASES.get("walked", 0.0) - PHASES.get("seek_walk", 0.0)),
                 "seek": PHASES.get("seek", 0.0), "arrived_s": None if arrived is None else arrived - t0,
-                "game_s": None if g1 is None else (g1 - g0) / TICKS_PER_S}
+                "game_s": None if g1 is None else (g1 - g0) / TICKS_PER_S, **step_moved(PHASES, api.STATE)}
     try:
         out = run()
     except GameUnreachable:
