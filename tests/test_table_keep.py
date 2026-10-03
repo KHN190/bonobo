@@ -81,13 +81,18 @@ class NextUseWalksThePlanForward(unittest.TestCase):
     price_as_run's own at-chain (cost.site, carried forward past steps with none), None past the plan's end."""
 
     class _FakeCost:
-        """A cost stub: `site` answers from a {id(step): place} map, as price_as_run's own cost.site would."""
+        """A cost stub: `site` answers from a {id(step): place} map, as price_as_run's own cost.site would;
+        `feet` is the fallback start when `last` has no site of its own."""
 
-        def __init__(self, sites):
+        def __init__(self, sites, feet=(0, 0, 0)):
             self.sites = sites
+            self._feet = feet
 
         def site(self, step):
             return self.sites.get(id(step))
+
+        def feet(self):
+            return self._feet
 
     def test_rows(self):
         gather = Step("gather", "minecraft:oak_log", 4)
@@ -108,6 +113,16 @@ class NextUseWalksThePlanForward(unittest.TestCase):
         stick = Step("craft", "minecraft:stick", 4)
         cost = self._FakeCost({})
         self.assertIsNone(craft.next_table_use(cost, [table_now, stick], table_now))
+
+    def test_no_move_in_between_is_zero_distance_not_unknown(self):
+        """smelt → smelt with no sited step between them: the next use is right here, not None (which would read
+        as "never keep" in station_kept — a free walk back must not be priced as a forced carry)."""
+        table_now = Step("craft", "minecraft:crafting_table", 1)
+        smelt_a = Step("smelt", "minecraft:iron_ingot", 1)
+        smelt_b = Step("smelt", "minecraft:gold_ingot", 1)
+        cost = self._FakeCost({id(smelt_a): (5, 70, 5)})     # smelt_a's own site: where the furnace already is
+        with mock.patch.object(craft._k, "step_station", lambda s: "minecraft:furnace" if s is smelt_b else None):
+            self.assertEqual(craft.next_furnace_use(cost, [table_now, smelt_a, smelt_b], smelt_a), (5, 70, 5))
 
     def test_carries_the_last_known_place_forward(self):
         """A craft step itself has no site (own_work's never a kinds-step): the place before it (D6) stands in."""
