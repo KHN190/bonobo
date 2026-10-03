@@ -3,7 +3,7 @@ import functools
 import math
 
 from .game import COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
-from .data import ANIMAL_HP, BASE_MARKERS, DAY_END, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, DEEPSLATE_ORE_HARDNESS, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
+from .data import ANIMAL_HP, BASE_MARKERS, DAY_END, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, DEEPSLATE_ORE_HARDNESS, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
 from .data import TAKEABLE
 from .data import COLORS, WOODS, ATTACKS_PER_S, HAND_ATTACKS_PER_S, HAND_DAMAGE, NETHER, OVERWORLD, PIGLIN_BARTER, is_night
 
@@ -94,10 +94,6 @@ DRAGON_BEDS = 8
 def food_count(inv):
     """The one definition of 'food carried': cooked/ready food only (raw meat must be cooked first)."""
     return sum(inv.count(f) for f in ALL_FOOD)
-
-def food_points(inv):
-    """Hunger points the ready food carried restores, from the one table (data.NUTRITION)."""
-    return sum(inv.count(mid(f)) * NUTRITION[f] for f in FOOD)
 
 def nether_kit_missing(inv):
     """Pure: what a Nether trip still lacks (empty = ready): cooked food, blocks, a gold helmet, bag room."""

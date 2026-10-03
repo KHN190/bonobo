@@ -1,4 +1,4 @@
-"""Needs: what must be PLANNED to be had — a bed or the night's parts before dark, food stock before it runs out, a tool that broke under a held plan, a water bucket before a fall, blocks where the path is blocked, the night's ore underground. Each is PROPOSED (`need` → `needs_now`), never queued: brain.need_act turns it into the next step of its plan and arbiter.PLAN_ORDER ranks it with the queue. The fixed maintenance reflexes (eat, land, the night's shelter, the bag…) are reflexes.py. Also the tool-repair skill and the one choice of how to get through a night (`overnight`). Pure `repair_pair`, `dusk_s`, `due_now`, `overnight` are offline-tested."""
+"""Needs: what must be PLANNED to be had — a bed or the night's parts before dark, a tool that broke under a held plan, a water bucket before a fall, blocks where the path is blocked, the night's ore underground. Each is PROPOSED (`need` → `needs_now`), never queued: the brain plans it with the queue in the round's one plan (planner.plan_round, by seconds). The fixed maintenance reflexes (eat, land, the night's shelter, the bag…) are reflexes.py. Also the tool-repair skill and the one choice of how to get through a night (`overnight`). Pure `repair_pair`, `dusk_s`, `due_now`, `overnight` are offline-tested."""
 
 import json
 import math
@@ -6,7 +6,7 @@ import time
 from typing import TYPE_CHECKING
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, decompose, goals, survive, beliefs
+from . import api, decompose, goals, survive
 from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
 from . import bag
@@ -15,8 +15,8 @@ from .cost import Cost
 from .decompose import cooled_ways, night_facts, night_left_s, way_key  # noqa: F401
 if TYPE_CHECKING:
     from .shapes import BagState, CraftTask
-from .data import DAY_END, NIGHT_WORK, TOOL_KINDS, memo_ttl, mid, FOOD, NUTRITION, DAY_TICKS, TICKS_PER_S, REPAIR_BONUS_PARTS
-from .knowledge import food_count, food_points, FIND_AT
+from .data import DAY_END, NIGHT_WORK, TOOL_KINDS, memo_ttl, DAY_TICKS, TICKS_PER_S, REPAIR_BONUS_PARTS
+from .knowledge import FIND_AT
 from .planner import Unplannable, craftable_tier
 from .skill import skill
 from .skillcore import lost
@@ -112,18 +112,6 @@ def tool_kinds(steps):
     """Pure: the tool kinds these plan steps need (a mine step with a tier needs a pickaxe)."""
     return {"pickaxe"} if any(st.kind == "mine" and st.detail.get("tier") is not None for st in steps) else set()
 
-def food_on_its_way(pending):
-    """Pure: (meals, hunger points) of the ready food a background job or machine is making ({item id: count})."""
-    ready = {mid(f): NUTRITION[f] for f in FOOD}
-    meals = sum(n for item, n in pending.items() if item in ready)
-    return meals, sum(n * ready[item] for item, n in pending.items() if item in ready)
-
-def food_lasts_s(snap, pending=None):
-    """Seconds of work the stomach, the bag's meals and those cooking cover."""
-
-    drain = float(beliefs.value("risk.food_drain_s"))
-    return (float(snap.get("food", 20)) + food_points(snap.inv) + food_on_its_way(pending or {})[1]) * drain
-
 def working_tiers(inv):
     """{tool kind: best tier with a working one} for TOOL_KINDS. Pure over the bag."""
     out = {}
@@ -189,7 +177,7 @@ class Needs:
     def propose(self, snap, ctx, reads=None):
         """This round's needs into `needs_now` (PLAN proposals), computed from the snapshot alone."""
 
-        b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
+        b, inv, over = self.brain, snap.inv, snap.dimension == "minecraft:overworld"
         enclosed, soft_ground, dig_site = ground(reads)
         blocked = b.reflexes.blocked_here(b.place)
         # a bed from what is carried skips the night: before any shelter and the night's work
@@ -218,14 +206,6 @@ class Needs:
         if blocked is not None and inv.count("building") < BRIDGE_MIN:
             self.need("bridge stock", goals.have(("building", bridge_stock(snap.feet, blocked["pos"]))),
                       "path blocked with nothing to bridge with")
-        food_goal = goals.have(("food", 8))
-        # food cooking counts toward stock and stomach (else a hunt ran with beef in the furnace)
-        pending = b.mem.pending_outputs(snap.dimension)
-        meals, points = food_on_its_way(pending)
-        if food_count(inv) + meals < 8:
-            secs, known = self.plan(food_goal, snap)
-            if due_now(food_lasts_s(snap, pending), secs, known, s.get("food", 20) + points < EAT_BELOW):
-                self.need("food stock", food_goal, "food runs out before more could be had")
         if over and not snap.night and inv.count("bed") == 0:
             way, seconds, steps = self.overnight(snap)
             if way is not None and due_now(dusk_s(snap), seconds, self.known(steps, snap), dusk_s(snap) <= 0) \
@@ -257,7 +237,7 @@ class Needs:
                     region=ground_of(snap), stop=hazard_seen)
 
     def need(self, kind, goal, why):
-        """Propose getting `goal` (kind: its place in arbiter.PLAN_ORDER)."""
+        """Propose getting `goal` (`kind` names it)."""
 
         if all(g != goal for _k, g, _w in self.needs_now):
             self.needs_now.append((kind, goal, why))

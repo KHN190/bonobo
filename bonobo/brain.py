@@ -12,7 +12,7 @@ import time
 import traceback
 
 from . import (api, arbiter, bag, decompose, dispatch, explore, goals, hazard, intent, nav, nether, paths, retry,
-               needs, reflexes, tape, tasks, threat, world, perception)
+               needs, planner, reflexes, tape, tasks, threat, world, perception)
 from . import skill as skillkit
 from . import craft, events, lifecycle, mechanisms, skillcore, survive
 api.ANOMALY = events.anomaly      # a swallowed or unexpected error is an event (counted, said at 1st/10th/100th)
@@ -565,14 +565,8 @@ class Brain:
 
         def upkeep():
             self.needs.propose(snap, ctx)
-            out = [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
-                   for seq, name, run in self.reflexes.proposals(snap, ctx)]
-            for kind, goal, _why in (self.needs.needs_now if getattr(self, "planning", True) else ()):
-                act = self.need_act(kind, goal, snap, ctx)
-                if act is not None:
-                    out.append(arbiter.Intent("plan", act, kind=kind, key=f"{kind}: {goals.describe(goal)}",
-                                              surface=act_on_surface(act)))
-            return out
+            return [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
+                    for seq, name, run in self.reflexes.proposals(snap, ctx)]
 
         # the gate's facts: what is cooling, and whether the surface is closed (met and unplannable needs are judged
         # where proposed, never intents)
@@ -603,24 +597,37 @@ class Brain:
         return chosen.action if chosen else None
 
     def plan_proposals(self, snap, ctx):
-        """The queue's head (by night a step needing no sun), else night ore, waiting for day or idle stocking; asked after upkeep, which outranks it."""
+        """The round's one plan over the queue's goals and upkeep's needs (planner.plan_round: by seconds, the queue's
+        place a tie-break only, the bar kept above empty along it): its first step that can run, else night ore,
+        waiting for day or idle stocking; asked after upkeep, which outranks it."""
         items = tasks.load()
         if tasks.expire(items):
             tasks.save(items)
         live = [t for t in items if t["state"] in tasks.LIVE]
         closed = snap.night
         self.just_finished = False
+        cost = Cost(snap, self.mem, self.blacklist, region=ground_of(snap), stop=hazard_seen, policy=self.policy_cache)
+        offers, targets = [], []
         for seq, task in enumerate(live):
             if not self.ready(f"task {task['id']}"):
                 continue
-            act, update = self.task_act(task, snap, ctx, Cost(snap, self.mem, self.blacklist, region=ground_of(snap), stop=hazard_seen,
-                                                              policy=self.policy_cache))
+            act, update = self.task_act(task, snap, ctx, cost)
             write(task, update)
             if act is not None:
-                queued = arbiter.Intent("plan", act, kind="queue", seq=seq, key=f"task {task['id']}",
+                offers.append((act, "queue"))
+                targets.append(planner.Target(act.name, decompose.round_needs(tasks.goal_of(task), snap.inv, cost), seq))
+        for kind, goal, _why in (self.needs.needs_now if getattr(self, "planning", True) else ()):
+            act = self.need_act(kind, goal, snap, ctx)
+            if act is not None:
+                offers.append((act, kind))
+                targets.append(planner.Target(act.name, decompose.round_needs(goal, snap.inv, cost), len(live) + len(targets)))
+        if offers:
+            act, kind = self.round_pick(offers, targets, snap, ctx, cost)
+            if act is not None:
+                picked = arbiter.Intent("plan", act, kind=kind, key=act.name,
                                         surface=act_on_surface(act) or (closed and self.under_sky(snap)))
-                if arbiter.viable(queued, {"surface_closed": closed}):
-                    return [queued]     # a surface step at night: the next task's, or the night's own work
+                if arbiter.viable(picked, {"surface_closed": closed}):
+                    return [picked]     # a surface step at night: the night's own work instead
         if self.just_finished and not any(t["state"] in tasks.LIVE for t in tasks.load()):
             # the round that finished the last task proposes nothing: stocking in the same breath was momentum, not a decision
             return []
@@ -634,6 +641,25 @@ class Brain:
             if act is not None:
                 out.append(arbiter.Intent("plan", act, kind="night stock", key=act.name))
         return out
+
+    def round_pick(self, offers, targets, snap, ctx, cost):
+        """(act, kind) for the round plan's first step that can run: a task's or a need's own act when it is theirs,
+        else the step itself (food the plan put first so the bar never runs out); (None, None) when the targets
+        together cannot be planned (the reason kept as the round's)."""
+        try:
+            _first, steps, _secs = planner.plan_round(snap.inv, targets, cost, self.mem.pending_outputs(snap.dimension))
+        except Unplannable as e:
+            self.__dict__.setdefault("unplannable", {})["round"] = str(e)
+            return None, None
+        open_air = snap.night and self.under_sky(snap)
+        for st in steps:
+            own = next(((a, k) for a, k in offers if a.step is not None and step_key(a.step) == step_key(st)), None)
+            if own is not None:
+                return own
+            if not met(st, snap) and self.valid(st, snap, ctx) and not (snap.night and arbiter.on_surface(st.kind)) \
+                    and not open_air:
+                return craft_act("plan", f"round: {step_key(st)}", ctx, steps, st, snap.night, inv=snap.inv), "round"
+        return None, None
 
     def under_sky(self, snap):
         """The body stands under the open sky (reflexes.sheltered: not under rock, walled in, nor inside a site): by

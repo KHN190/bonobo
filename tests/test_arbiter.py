@@ -40,25 +40,6 @@ class Ordering(unittest.TestCase):
                                         now=now)
                 self.assertEqual(None if got is None else got.reason, want)
 
-    # The combinations the brain bench no longer runs (it moves one condition at a time): (PLAN proposals as kinds
-    # in the order proposed) → the kind that drives. What each cell of the old product decided, as one table.
-    PLAN_COMBOS = [
-        ("dusk and low food: the night's parts first", ["food stock", "night prep"], "night prep"),
-        ("low food and a queued task: food first", ["queue", "food stock"], "food stock"),
-        ("a broken tool under a held plan beats the queue", ["queue", "broken tool"], "broken tool"),
-        ("underground at night: the queue before the night's stock", ["night stock", "queue"], "queue"),
-        ("blocked path at dusk: night prep before bridge blocks", ["bridge stock", "night prep"], "night prep"),
-        ("must fail: an unknown kind ranked first — an unknown kind ranks after every known one", ["mystery", "night stock"], "night stock"),
-        ("only waiting for day", ["wait for day"], "wait for day"),
-    ]
-
-    def test_plan_order_over_the_combinations(self):
-        for name, kinds, want in self.PLAN_COMBOS:
-            with self.subTest(name):
-                out = []
-                got = arbiter.arbitrate([intent("plan", k, out, at=0.0, kind=k) for k in kinds], now=0.0)
-                self.assertEqual(got.kind, want)
-
     def test_an_unknown_layer_is_refused(self):
         for layer in ("urgent", "", "PLAN"):
             with self.subTest(layer=layer), self.assertRaises(ValueError):
@@ -229,7 +210,8 @@ class Invariants(unittest.TestCase):
     """Generated over every layer and kind, not written pair by pair; the expectations are relations (a smaller time
     scale is faster), never a copy of the order being tested."""
     LAYERS = sorted(arbiter.SCALES)
-    KINDS = list(arbiter.PLAN_ORDER)
+    KINDS = ["queue", "round", "night prep", "broken tool", "water bucket", "bridge stock", "night stock",
+             "wait for day", "idle"]
 
     def test_any_submission_order_gives_the_same_choice(self):
         # (situation) → one choice whatever the order the layers submitted in
@@ -275,11 +257,15 @@ class Invariants(unittest.TestCase):
                 self.assertEqual((chosen([stale], now=2.0), chosen([stale, live], now=2.0), chosen([stale], now=0.5)),
                                  (None, "live", "stale"))
 
-    def test_an_unknown_kind_ranks_after_every_known_one(self):
+    def test_no_plan_kind_outranks_another(self):
+        # G3: within PLAN the round's one plan chose by seconds; the arbiter keeps no order of kinds — the place in line
         for kind in [k for k in self.KINDS if k not in arbiter.LAST_RESORT]:    # last-resort kinds: `gate`'s table
-            with self.subTest(kind):
-                self.assertEqual(chosen([arbiter.Intent("plan", lambda: None, "?", at=0.0, kind="no such kind", key="?"),
-                                         arbiter.Intent("plan", lambda: None, kind, at=0.0, kind=kind, key=kind)]), kind)
+            for other in [k for k in self.KINDS if k not in arbiter.LAST_RESORT and k != kind]:
+                with self.subTest(f"{kind} before {other}"):
+                    self.assertEqual(chosen([arbiter.Intent("plan", lambda: None, other, at=0.0, kind=other, key=other,
+                                                            seq=1),
+                                             arbiter.Intent("plan", lambda: None, kind, at=0.0, kind=kind, key=kind,
+                                                            seq=0)]), kind)
 
 
 
@@ -377,8 +363,7 @@ class Crowded(unittest.TestCase):
              True, ["broken tool", "night stock"], "hazard"),
             ("bag full, a task, no food on hand: empty the bag", {**BAG_FULL, **HUNGRY, "meal": None}, False,
              False, ["queue", "food stock"], "empty the bag"),
-            ("nothing fires, plans only: the plan's order", {}, False, False, ["idle", "food stock", "queue"],
-             "food stock"),
+            ("nothing fires, the round's one plan: it drives", {}, False, False, ["round"], "round"),
             ("must fail: calm and nothing proposed: nothing drives", {}, False, False, [], None)]
 
     def test_crowded_rounds(self):
