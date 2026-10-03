@@ -10,7 +10,7 @@ from .api import McError, NotAvailable, log
 from .skill import skill
 from .data import LEVEL_SIGHT_DEPTH, BAN_MAX_S, TASK_WAIT_S, WORK_REACH, cannot_reach, bare, mid
 from .knowledge import FIND_AT, members
-from .data import MINE_YIELD
+from .data import GROUPS, MINE_YIELD, PLACEABLE_AS
 from .game import JUMP_BLOCKS
 from .bag import mineable, opener, pickup_whitelist, refused
 from .world import Inventory, Region, cell_add, connected, entities, find, region_around, ripe_near
@@ -94,8 +94,9 @@ def deep_below(cell: Cell, feet_at: Cell) -> bool:
 
 def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
     """Pure: (tasks, why not) for a straight shaft from the feet down to a buried `target`'s level: dug only as deep as
-    nav.dig_down_tasks finds safe (lava, water, a cave stop it) and the blocks carried can pillar back out of (the last
-    JUMP_BLOCKS jumped)."""
+    nav.dig_down_tasks finds safe (lava, water, a cave stop it) and the blocks to pillar back out with — carried, and
+    what the shaft itself digs that places (stone → cobblestone, dirt: data.PLACEABLE_AS, the building group) — cover
+    (the last JUMP_BLOCKS jumped)."""
     depth = feet_at[1] - target[1]
     try:
         tasks, safe = nav.dig_down_tasks(region, feet_at, depth, protected)
@@ -103,8 +104,12 @@ def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
         return None, str(e)
     if safe < depth:
         return None, f"lava, water or a cave {safe + 1} down"
-    if carried < depth - JUMP_BLOCKS:
-        return None, f"{carried} blocks carried, {depth - JUMP_BLOCKS} to pillar back out"
+    x, y, z = feet_at
+    dug = sum(1 for i in range(1, depth + 1) if region.solid((x, y - i, z))
+              and mid(PLACEABLE_AS.get(bare(region.name((x, y - i, z))), bare(region.name((x, y - i, z)))))
+              in GROUPS["building"])
+    if carried + dug < depth - JUMP_BLOCKS:
+        return None, f"{carried} blocks carried, {dug} dug on the way, {depth - JUMP_BLOCKS} to pillar back out"
     return tasks, None
 
 def stair_leg_end(start: Cell, target: Cell) -> Cell:

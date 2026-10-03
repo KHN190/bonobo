@@ -38,12 +38,23 @@ class Shaft(unittest.TestCase):
         # (scene, blocks carried) → dug?
         from bonobo.game import JUMP_BLOCKS
         under = (FEET[0], FEET[1] - 1, FEET[2])
+        deep = (FEET[0], FEET[1] - depth, FEET[2])
+
+        def glass():
+            """The same depth of glass, the dug cell too (nothing it digs places back), over stone."""
+            blocks = {(0, FEET[1] - i, 0): "glass" for i in range(1, depth + 1)}
+            blocks.update({(x, FEET[1] - depth - k, z): "stone" for x in range(-2, 3) for z in range(-2, 3) for k in range(1, 3)})
+            return FakeRegion((-2, FEET[1] - depth - 3, -2), (2, FEET[1] + 2, 2), blocks)
         floor = FakeRegion((-2, FEET[1] - 4, -2), (2, FEET[1] + 2, 2),
                            {(x, y, z): "stone" for x in range(-2, 3) for z in range(-2, 3) for y in range(FEET[1] - 3, FEET[1])})
         # (scene, the stone dug to, blocks carried) → dug?
         rows = [("soil over stone, blocks to climb out (the last block jumped): dug", ground(), stone,
                  depth - JUMP_BLOCKS, True),
-                ("must fail: one block short of pillaring out", ground(), stone, depth - JUMP_BLOCKS - 1, False),
+                ("the shaft's own soil and stone pillar it out: nothing carried", ground(), stone, 0, True),
+                ("must fail: one block short of pillaring out (a shaft through what places nothing)", glass(), deep,
+                 depth - JUMP_BLOCKS - 1, False),
+                ("must fail (mine_stone__base): two down in a stone floor, nothing carried: the first stone dug pillars out",
+                 floor, (FEET[0], FEET[1] - 2, FEET[2]), 0, True),
                 ("must fail (mine_stone__base): the stone under the feet, nothing carried: one block down is jumped out of",
                  floor, under, 0, True),
                 ("lava beside the shaft", ground(lava_side), stone, depth, False),
