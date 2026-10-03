@@ -146,6 +146,9 @@ def key(facts):
 def of(**kw):
     """Facts from keyword values (the rest, a DEPENDS fact whose condition is off, and a dimension's value its
     `valid` refuses here: its `instead`, else the domain's first value)."""
+    bad = {k: v for k, v in kw.items() if k not in DOMAINS or v not in DOMAINS[k]}
+    if bad:     # a state kept against an older domain (a renamed value, a dropped fact) is no state of this one
+        raise ValueError(f"facts outside their domains: {bad}")
     out = {k: kw.get(k, d[0]) for k, d in DOMAINS.items()}
     for k, (on, _witness) in DEPENDS.items():
         if not on(out):
