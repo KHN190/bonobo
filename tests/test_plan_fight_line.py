@@ -82,6 +82,19 @@ class TheLineHoldsWhenTheRoundIsSpent(unittest.TestCase):
             planner.SPENT.update(saved)
 
 
+class AHeldHuntIsJudgedAgain(unittest.TestCase):
+    def test_rows(self):
+        inv = inventory(("stone_sword", 1))
+        held = planner.plan_needs(bag(inv), [("minecraft:string", 1)], cost(snapshot(state(health=20.0), inv), spider=10))
+        # (health now, the held hunt still the incumbent?)
+        for hp, want in ((20.0, True), (float(SPLIT), False)):    # must fail: a hunt under the line replayed as the bar
+            with self.subTest(hp=hp):
+                c = cost(snapshot(state(health=hp), inv), spider=10)
+                search = planner.Search(c)
+                root = planner.Node(planner.from_bag(bag(inv), None, None, c.reserved, c.facts()), [], [])
+                self.assertEqual(search.replay(root, [("minecraft:string", 1)], held) is not None, want)
+
+
 class PlannedBag(unittest.TestCase):
     """cost.planned_bag: the plan's tools replace the bag's, the rest stays (what the judge reads)."""
 

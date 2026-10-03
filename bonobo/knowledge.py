@@ -16,6 +16,7 @@ GROUP_RECIPES = {
 }
 
 # fn(step) → the needs of what carries out a planned step; wired by skill.py so knowledge stays below the skills
+TABLES_VERSION = [0]    # bumped at each registration or wiring: what the planner's bound is built from changed
 STEP_CALL = None
 STEP_WHEN = None       # fn(step, facts) → [(fact, value)] it needs first, or why it cannot run (skill.when_of_step)
 STEP_SETS = None       # fn(step) → {fact: value} its run leaves (skill.sets_of_step)

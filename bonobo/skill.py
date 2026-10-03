@@ -345,6 +345,7 @@ def steps_for_fact(fact, value):
 
 
 def _wire_planner():
+    knowledge.TABLES_VERSION[0] += 1
     knowledge.STEP_CALL = call_of_step
     knowledge.STEP_WHEN = when_of_step
     knowledge.STEP_SETS = sets_of_step
@@ -433,10 +434,11 @@ def skill(name=None, **options):
         contract.needs = {} if callable(spec.needs) else dict(spec.needs or {})
         contract.gives = gives_of(spec.gives)
         contract.remaining = spec.remaining
-        from .knowledge import CONTRACT_FACTS, PRODUCERS
+        from .knowledge import CONTRACT_FACTS, PRODUCERS, TABLES_VERSION
         for g in contract.gives:
             if not isinstance(g, str) and g not in PRODUCERS:
                 PRODUCERS.append(g)
+                TABLES_VERSION[0] += 1
         CONTRACT_FACTS.update(g for g in contract.gives if isinstance(g, str) and g.startswith("state:"))
         for v in contract.sets.values():
             CONTRACT_FACTS.update(v if isinstance(v, dict) else ())

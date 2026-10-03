@@ -35,6 +35,10 @@ class Dearer(Unplannable):
     """No plan under the cap the caller already has a way at."""
 
 
+class Cut(Dearer):
+    """Not weighed: the round's steps were spent before this way was (budget_spent), not found dearer."""
+
+
 @dataclass
 class Step:
     kind: str            # craft | smelt | mine | gather | hunt | ... — or any effect a skill provides (skill.providers)
@@ -501,7 +505,7 @@ def bound(cost):
     from . import knowledge
     stats = tuple(sorted((k, d.get("per"), d.get("n")) for k, d in cost.mem.data.get("durations", {}).items())) \
         if cost.mem is not None else ()
-    key = (tuple(id(p) for p in knowledge.PRODUCERS), id(knowledge.STEP_CALL), stats,
+    key = (knowledge.TABLES_VERSION[0], tuple(id(p) for p in knowledge.PRODUCERS), stats,      # ids of tables it holds: alive
            type(cost).__name__ if isinstance(cost, NullCost) else "cost")
     if key not in _BOUNDS:
         if len(_BOUNDS) >= BOUNDS_KEPT:
@@ -780,6 +784,14 @@ class Search:
             for dim in self.call(st):
                 if dim.startswith("tool:") and not inv.has_tool(dim.split(":")[1], int(dim.split(":")[2]), 0):
                     return None
+            # the hard gates the search's own steps pass (prep's `when`, emit's S5 line): none skipped on a replay
+            when = self.when(st, facts)
+            if isinstance(when, str) or any(facts.get(f) != v for f, v in when):
+                return None
+            if not self.cost.fight_line(st, inv.held())[0] and not any(
+                    all(inv.has_tool(r[1], int(r[2]), 0) if r[0] == "tool" else inv.available(r[0]) >= int(r[1])
+                        for r in rows) for rows in self.cost.line_kit(st, inv.held())):
+                return None             # under the line, and no kit that clears it made before it (emit's rule)
             entries.append((st, inv.held(), len(entries)))
             facts.update(self.sets(st))
             material, _, kind = bare(st.token).rpartition("_")
@@ -1126,6 +1138,7 @@ class Search:
             return best
 
         total = 0.0
+        emitted = {id(t[1]) for t in node.stack if t[0] == "emit"}
         for task in node.stack:
             op = task[0]
             if op == "need":
@@ -1136,6 +1149,8 @@ class Search:
                 total += unit(task[1]) or 0.0
             elif op == "emit" and task[1] is not step:
                 total += own(task[1])
+            elif op == "prep" and task[1] is not step and id(task[1]) not in emitted:
+                total += own(task[1])           # a step whose emit is not queued yet: its work is still to come
             elif op == "fuel":
                 total += task[1].count * (unit("coal") or 0.0)
             elif op in ("fact", "do"):
@@ -1402,6 +1417,8 @@ class Search:
         if heap and (nodes > allowance or round_spent()) and not self.exact and (best is None or heap[0][0] < best[0]):
             SPENT["budget"] += 1              # stopped with cheaper possible: P5 may be missed, said (budget_spent)
         if best is None and cap < math.inf:
+            if round_spent():
+                raise Cut("not weighed: the round's search steps were spent")
             raise Dearer(f"no plan under {cap:.0f} ticks")
         if best is None:
             raise Unplannable(first_reason or (self.reasons[0] if self.reasons else "no way found"))
@@ -1456,7 +1473,8 @@ def price_as_run(steps, tools, cost, held=None) -> list:
         site = cost.site(step)
         at = site if site is not None else at
         material, _, kind = bare(step.token).rpartition("_")
-        if step.kind == "craft" and kind in TOOL_KINDS and material in TOOL_USES:
+        if kind in TOOL_KINDS and material in TOOL_USES and step.kind not in ("use", "await"):
+            # a tool had from here on, however it came: made, taken from a chest, traded
             have.append((kind, next(t for t, m in TOOL_MATERIAL_FOR_TIER.items() if m == material), 1))
         out.append(est)
     return out

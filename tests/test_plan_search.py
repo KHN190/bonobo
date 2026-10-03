@@ -1,6 +1,7 @@
 """The one planner's search (planner.py): its bound never above what a plan pays, every way of a token an option
 (group members, containers), the priced alternatives it reports, and a container taken from once per what it holds.
 Tables of values: the expectations come from the planner's own price of each alternative or from the game's tables."""
+import math
 import os
 import sys
 import tempfile
@@ -378,6 +379,67 @@ class TheSearchPricesAtTheLeast(unittest.TestCase):
             self.assertLessEqual(c.walk_lb(step), walk_ticks(1.0))
 
 
+class ASubPlanIsRememberedWithWhatItsPriceReads(unittest.TestCase):
+    def test_the_same_need_after_another_prefix(self):
+        from tests.world import cost
+        c = cost(snapshot(), oak_log=30)
+        search = planner.Search(c)
+
+        def node(gathered):
+            n = planner.Node(planner.from_bag(bag(inventory()), None, None, c.reserved, c.facts()), [], [])
+            if gathered:
+                search.emit(n, planner.Step("gather", "log", 1, {}), 0, 0)
+                n.inv.consume("log", 1, awaits=False)
+            n.stack = [("need", "log", 2, 0, False)]
+            return n
+        got = []
+        for gathered in (True, False, True):        # the second and third asked after the memo holds the first
+            n = node(gathered)
+            g0 = n.g
+            got.append(search.settled(n, math.inf).g - g0)
+        # must fail: one price for both (the memo's, whichever prefix it was made under): the trees walked to or not
+        self.assertLess(got[0], got[1])
+        self.assertEqual(got[0], got[2])
+
+
+class AToolTakenIsHeld(unittest.TestCase):
+    def test_a_mine_after_a_pickaxe_from_a_chest(self):
+        from tests.world import cost
+        c = cost(snapshot(), stone=10)
+        mine = planner.Step("mine", "minecraft:cobblestone", 8, {"blocks": ["stone"], "tier": 0, "breaks": 8})
+        took = planner.price_as_run([planner.Step("withdraw", "minecraft:wooden_pickaxe", 1, {"pos": [0, 64, 0]}), mine], [], c)
+        bare = planner.price_as_run([planner.Step("withdraw", "minecraft:stick", 1, {"pos": [0, 64, 0]}), mine], [], c)
+        # must fail: the mine after a pickaxe taken from a chest priced bare-handed (only a crafted tool counted)
+        self.assertLess(took[1], bare[1])
+
+
+class AWayNotWeighedIsSaid(unittest.TestCase):
+    def test_a_capped_search_after_the_rounds_steps(self):
+        saved = dict(planner.SPENT)
+        try:
+            planner.SPENT.update(round=0, steps=planner.ROUND_STEPS)
+            search = planner.Search(NullCost())
+            root = planner.Node(planner.from_bag(bag(inventory()), facts=NullCost().facts()), [], [])
+            # must fail: reported Dearer (found dearer than the way had) though nothing of it was weighed
+            with self.assertRaises(planner.Cut):
+                search.plan(root, [("tool", "pickaxe", 1)], None, 10 ** 9)
+        finally:
+            planner.SPENT.update(saved)
+
+
+class TheBoundFollowsTheTables(unittest.TestCase):
+    def test_a_rewiring_builds_it_again(self):
+        from bonobo import knowledge
+        first = planner.bound(NullCost())
+        saved = knowledge.TABLES_VERSION[0]
+        try:
+            knowledge.TABLES_VERSION[0] += 1       # a skill registered, the hooks wired again
+            # must fail: the bound built from the tables before (kept by object ids an address may reuse)
+            self.assertIsNot(planner.bound(NullCost()), first)
+        finally:
+            knowledge.TABLES_VERSION[0] = saved
+
+
 class ThePlanTakenSaysItsWay(unittest.TestCase):
     def test_every_step_weighed_on_its_way_is_kept(self):
         del planner.PATHS[:]
@@ -461,6 +523,17 @@ class AFasterToolPaysOrIsNotTried(unittest.TestCase):
         self.assertNotIn(2, tiers(10))
         self.assertIn(2, tiers(500))        # must fail: never tried where 500 blocks pay for it
         self.assertIn(2, tiers(10, 500))    # must fail: cut for these 10 blocks though 500 more are still to mine
+
+
+class APrepAloneStillCounts(unittest.TestCase):
+    def test_the_work_behind_a_prep_is_in_the_bound(self):
+        search = planner.Search(NullCost())
+        node = planner.Node(planner.from_bag(bag(inventory(("wooden_pickaxe", 1))), facts=NullCost().facts()), [], [])
+        later = planner.Step("mine", "minecraft:cobblestone", 500, {"blocks": ["stone"], "tier": 0, "breaks": 500})
+        now = planner.Step("mine", "minecraft:cobblestone", 10, {"blocks": ["stone"], "tier": 0, "breaks": 10})
+        node.stack = [("prep", later, 0)]          # its emit not queued yet
+        # must fail: the 500 blocks behind a lone prep left out of what a faster pickaxe can save
+        self.assertGreater(search.saves_at_most(node, "pickaxe", 0, 2, now), 0)
 
 
 class AlikeOrdersAreOne(unittest.TestCase):
