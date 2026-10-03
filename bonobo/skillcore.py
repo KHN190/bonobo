@@ -101,9 +101,10 @@ class Context:
         self.blacklist = blacklist if blacklist is not None else Versioned()
         self.ban_counts = _BAN_COUNTS  # shared like the blacklist
 
-    def prices(self):
-        """{token: seconds per unit}, or {} when nobody handed any over (tests, replays)."""
-        got = self._prices() if callable(self._prices) else self._prices
+    def prices(self, hide=None):
+        """{token: seconds per unit} (`hide`: the source at that cell hidden), or {} when nobody handed any over
+        (tests, replays)."""
+        got = self._prices(hide) if callable(self._prices) else self._prices
         return got or {}
 
     def blocked(self, pos):

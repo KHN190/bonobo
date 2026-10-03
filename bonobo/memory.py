@@ -224,7 +224,7 @@ class Memory:
         d = self.data
         self.clock: int | None = None     # game ticks (/state gameTime), set each round; what every "seen" note is stamped with
         self.refuted: dict = {}           # (step kind, token, target) → (seconds, state): prices a run refuted (refute)
-        # kind → seconds a note of it is worth (bag.note_value over the round's prices), None for what nothing prices:
+        # note row → seconds it is worth (its own source hidden: brain.note_worth), None for what nothing prices:
         # the cap's measure (MEMORY_CAP), wired by the brain each round; None: no cap
         self.worth = None
         for key, default in (("sites", []), ("stations", []), ("seen", []), ("deaths", []),
@@ -675,12 +675,12 @@ class Memory:
         return row
 
     def _cap(self):
-        """At most MEMORY_CAP priced notes (worth: bag.note_value): past it the least worth goes, ties the oldest;
-        a note nothing prices (a portal, a fortress, a village, a station, water) is kept and never counted."""
-        if self.worth is None:
+        """At most MEMORY_CAP priced notes (worth: its own source hidden): past it the least worth goes, ties the
+        oldest; a note nothing prices (a portal, a fortress, a village, a station, water) is kept and never counted."""
+        if self.worth is None or len(self.data["seen"]) <= MEMORY_CAP:
             return
         priced = [(w, row.get("t") or 0, i) for i, row in enumerate(self.data["seen"])
-                  for w in (self.worth(row["kind"]),) if w is not None]
+                  for w in (self.worth(row),) if w is not None]
         over = len(priced) - MEMORY_CAP
         if over > 0:
             gone = {i for _w, _t, i in sorted(priced)[:over]}

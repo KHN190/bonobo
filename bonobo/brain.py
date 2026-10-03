@@ -267,7 +267,7 @@ class Brain:
         self.last_light = self.last_offhand = self.last_scan = self.last_track = self.last_hold_log = 0
         self.lit_place = None      # where the last first lighting was done (a place signature)
         fight_loop.wire(self.mem, lambda snap: self.policy(snap, snap.night), self.blacklist,
-                        prices=self.price_table)
+                        prices=self.round_prices)
 
     def home_guard(self, task):
         """api's door for a home: a refused task raises (memory.home_refusal); a home block broken at a rescue's
@@ -327,7 +327,7 @@ class Brain:
 
     def context(self, dimension, policy=None):
         return skillcore.Context(self.mem, policy or self.policy_cache, dimension, self.blacklist,
-                              prices=self.price_table)
+                              prices=self.round_prices)
 
     # -- reflexes: invariants, not decisions
     def invariants(self):
@@ -541,7 +541,7 @@ class Brain:
         api.GATE = lambda tasks: nav.gate(tasks, policy)    # each mine/place/use from a stand the jar's check holds
         prices = self.price_table(snap)
         api.HOLD = lambda tasks: skillcore.hold(tasks, prices.get)     # the main hand set by Python (I2)
-        self.mem.worth = lambda kind: bag.note_value(kind, prices.get)   # memory's cap measure (MEMORY_CAP)
+        self.mem.worth = self.note_worth(snap)     # memory's cap measure (MEMORY_CAP)
         ctx = self.context(snap.dimension)
         self._mark("policy")
         self.needs.observe(snap)
@@ -1105,16 +1105,37 @@ class Brain:
         return dict(held, steps=steps, enroute=name) if chosen else dict(held, enroute=None)
 
     def hidden_prices(self, snap, step, where):
-        """Prices (price_table's) with the en-route candidate hidden — its cell, a mob's entity, banned (the ban mask
-        every estimate reads: Cost.not_there, _entity): an item's worth later by a trip of its own were this source
-        not there. An unopened chest's look hides nothing (no source yet)."""
+        """Prices with the en-route candidate hidden (prices_without); an unopened chest's look hides nothing (no
+        source yet)."""
+        return self.price_table(snap) if step.kind == "look" else self.prices_without(snap, where)
+
+    def prices_without(self, snap, where):
+        """Prices (price_table's) with the source at `where` hidden — its cell, a mob's entity there, banned (the ban
+        mask every estimate reads: Cost.not_there, _entity): a thing's worth by a trip of its own were it not there."""
         mask = world.Versioned(self.blacklist)
-        if step.kind != "look":
-            mask[tuple(where)] = skillcore.Ban(math.inf)
-            for e in snap.mobs or ():
-                if e.get("id") is not None and tuple(math.floor(e[k]) for k in ("x", "y", "z")) == tuple(where):
-                    mask[(e["id"], 0, 0)] = skillcore.Ban(math.inf)
+        mask[tuple(where)] = skillcore.Ban(math.inf)
+        for e in snap.mobs or ():
+            if e.get("id") is not None and tuple(math.floor(e[k]) for k in ("x", "y", "z")) == tuple(where):
+                mask[(e["id"], 0, 0)] = skillcore.Ban(math.inf)
         return Prices(Cost(snap, self.mem, mask, policy=self.policy_cache, stop=api.stop_asked), snap.inv)
+
+    def note_worth(self, snap):
+        """Memory's cap measure for the round: a note's worth with its own source hidden, once per (kind, cell)."""
+        got = {}
+
+        def worth(row):
+            key = (row["kind"], tuple(row["pos"]))
+            if key not in got:
+                got[key] = bag.note_value(row["kind"], self.prices_without(snap, row["pos"]).get)
+            return got[key]
+        return worth
+
+    def round_prices(self, hide=None):
+        """The skills' prices this round (Context.prices), `hide`'s source hidden when given; None before a round."""
+        snap = self.round_snap
+        if snap is None:
+            return None
+        return self.price_table(snap) if hide is None else self.prices_without(snap, hide)
 
     def light_intent(self, snap, ctx):
         """An open dark area underground (never the surface, a short shaft or a sealed hole): lit first where work

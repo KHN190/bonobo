@@ -56,7 +56,7 @@ def loot_chest(ctx):
     if not opened(r):
         ctx.ban(pos, 1800)
         raise McError(f"could not open the chest at {pos}", pos=pos)
-    prices = ctx.prices()
+    prices = ctx.prices(hide=pos)     # what it holds is worth its reget were this chest not there
     if not prices:
         # no price table, no decision: say so rather than write a chest off as looted
         raise NotAvailable("no price table: cannot say what is worth taking")

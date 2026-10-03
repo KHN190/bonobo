@@ -16,7 +16,7 @@ PRICES = {"tree": 20.0, "iron_ore": 60.0, "sheep": 15.0}     # seconds a note is
 
 def capped():
     mem = memory()
-    mem.worth = lambda kind: PRICES.get(kind)               # a portal, a fortress: nothing prices them
+    mem.worth = lambda row: PRICES.get(row["kind"])              # a portal, a fortress: nothing prices them
     return mem
 
 
