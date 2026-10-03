@@ -177,7 +177,8 @@ def cmd_scenario(a):
         for name in sheet.SCENARIOS:
             code = runner.code_for(name)
             st, med = runner.status(table, name, code)
-            print(f"{name:20} {code} {st:9} {'' if med is None else f'median {med}s'}")
+            print(f"{name:20} {code} {st:9} E4 {runner.e4_status(table, name, code):4} "
+                  f"{'' if med is None else f'median {med}s'}")
         return
     from bonobo import perception
     # `all` skips release-only scenarios (the dragon, the portal room, long real-world searches): run them by name.

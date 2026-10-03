@@ -273,7 +273,7 @@ def P3(b, d, a, ctx):
     return None
 
 
-ROUND_STEPS = 1500       # the user's cap on a round's search steps, against a runaway search
+from bonobo.planner import ROUND_STEPS  # noqa: E402  (the cap the planner keeps to)
 
 
 def P4(b, d, a, ctx):

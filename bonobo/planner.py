@@ -694,10 +694,11 @@ class Search:
 
     def replay(self, root, needs, steps):
         """The held plan priced on today's world as the incumbent — (ticks, tie, steps) when it still runs from this…"""
-        if any(n[0] in ("fact", "do") for n in needs):
+        if any(n[0] == "do" for n in needs):
             return None
         inv = root.inv.clone()
         entries = []
+        facts = dict(inv.facts)
         for st in steps:
             st = Step(st.kind, st.token, st.count, dict(st.detail))
             for tok, c in (st.detail.get("inputs") or self.recipe_inputs(st)).items():
@@ -711,6 +712,7 @@ class Search:
                 if dim.startswith("tool:") and not inv.has_tool(dim.split(":")[1], int(dim.split(":")[2]), 0):
                     return None
             entries.append((st, inv.held(), len(entries)))
+            facts.update(self.sets(st))
             material, _, kind = bare(st.token).rpartition("_")
             if st.kind == "craft" and kind in TOOL_KINDS and material in TOOL_USES:
                 tier = next(t for t, m in TOOL_MATERIAL_FOR_TIER.items() if m == material)
@@ -718,7 +720,10 @@ class Search:
             else:
                 inv.add(st.token, st.count)
         for n in needs:
-            if n[0] == "tool" and not inv.has_tool(n[1], int(n[2]), 0) or n[0] != "tool" and inv.available(n[0]) < int(n[1]):
+            if n[0] == "fact":
+                if facts.get(n[1]) != n[2]:
+                    return None             # a fact asked that its steps do not make
+            elif n[0] == "tool" and not inv.has_tool(n[1], int(n[2]), 0) or n[0] != "tool" and inv.available(n[0]) < int(n[1]):
                 return None
         out, ticks = forward(entries, self.cost, self.start_tools)
         return ticks, (), out
@@ -798,6 +803,11 @@ class Search:
             if got is not None:
                 return got
         return None
+
+    @staticmethod
+    def cut():
+        """A search the round's budget stopped short: said (budget_spent), P5 and the G3 checks read it."""
+        SPENT["budget"] += 1
 
     def dead(self, why):
         self.reasons.append(why)
@@ -1190,6 +1200,9 @@ class Search:
     def settle(self, node, floor=0, cap=math.inf):
         """`node` run down to `floor`, each choice on the way settled by what its options' own runs cost (each run t…"""
         while len(node.stack) > floor:
+            if cap < math.inf and round_spent() and not self.exact:
+                Search.cut()
+                return None                   # the round's steps spent and a way already had: this one is not weighed
             if cap < math.inf and node.g + self.h(node, floor) > cap:
                 return None                   # no cap yet: nothing to prune against, the bound not asked
             got = self.advance(node, floor)
@@ -1197,10 +1210,10 @@ class Search:
                 return node
             best, best_f, before = None, math.inf, len(self.reasons)
             for k, c in enumerate(sorted(got, key=lambda c: (c.g + self.h(c, c.horizon), c.tie))):
-                width = DIVE_WIDTH if self.spent <= DIVE_NODES else 1      # the budget spent: the first way that can be had
+                width = DIVE_WIDTH if self.spent <= DIVE_NODES and not round_spent() else 1   # spent: the first way that can be had
                 if width == 1 and k == 1 and not self.exact:
                     SPENT["budget"] += 1
-                if best is not None and self.greedy and not self.exact and floor > 0 and k >= width:
+                if best is not None and self.greedy and not self.exact and (floor > 0 or round_spent()) and k >= width:
                     break                     # inside a choice, the few least-bound ways; A* weighs the rest
                 done = self.settled(c, cap if best is None else min(cap, best_f))
                 # weighed with what is left after it: a trip one way makes, the rest of the plan takes free
@@ -1280,7 +1293,7 @@ class Search:
         push(self.h(root), (), root)
         nodes = 0
         visited: dict = {}                  # the transposition table: (what is left, the bag, what is open) → least g
-        while heap and (nodes <= MAX_NODES or self.exact):
+        while heap and (self.exact or nodes <= MAX_NODES and not round_spent()):
             f, tie, n = heapq.heappop(heap)
             if (f, tie) >= ((best[0], best[1]) if best is not None else (cap, ())):
                 break
@@ -1304,7 +1317,7 @@ class Search:
                 fc = c.g + self.h(c)
                 if fc < cap and (best is None or (fc, c.tie) < (best[0], best[1])):
                     push(fc, c.tie, c)
-        if heap and nodes > MAX_NODES and not self.exact and (best is None or heap[0][0] < best[0]):
+        if heap and (nodes > MAX_NODES or round_spent()) and not self.exact and (best is None or heap[0][0] < best[0]):
             SPENT["budget"] += 1              # stopped with cheaper possible: P5 may be missed, said (budget_spent)
         if best is None and cap < math.inf:
             raise Dearer(f"no plan under {cap:.0f} ticks")
@@ -1453,7 +1466,13 @@ def plan_name(steps):
     return " → ".join(dict.fromkeys(f"{s.kind} {bare(s.token)}" for s in steps)) or "nothing to do"
 
 
-SPENT = {"steps": 0, "budget": 0}      # search steps advanced, searches a budget stopped (counted by the round)
+SPENT: dict = {"steps": 0, "budget": 0, "round": None}   # steps advanced, searches a budget stopped, where a round began
+ROUND_STEPS = 1500      # the user's cap on a round's search steps, against a runaway search (P4)
+
+
+def round_spent():
+    """Pure given SPENT: a round is open (brain.decide marks where it began) and has advanced its cap of steps."""
+    return SPENT["round"] is not None and SPENT["steps"] - SPENT["round"] >= ROUND_STEPS
 lifecycle.in_place(__name__, "SPENT")
 
 
@@ -1617,7 +1636,7 @@ def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False, cap
     return best[1] if best else []
 
 
-def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False):
+def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False, settled=None):
     """The steps of the targets with every one-of target settled to its cheapest way (ways that cannot be had left o…"""
     choices = [t for t in targets if t.options]
     fixed = [t for t in targets if not t.options]
@@ -1635,6 +1654,9 @@ def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False):
         # what needs no search priced first: its seconds cap every search after it
         combos.sort(key=lambda c: (any(opt[1] for opt in c) or bool(fixed), floor[id(c)]))
     for combo in combos:
+        if best is not None and not exact and round_spent():
+            Search.cut()                    # the round's steps spent: the ways not yet weighed are not (budget_spent)
+            break
         if best is not None and len(combos) > 1 and floor[id(combo)] >= best[0][0]:
             why.append(" + ".join(opt[0] for opt in combo) + ": dearer at the least than the way taken")
             continue
@@ -1647,11 +1669,13 @@ def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False):
             continue
         key = (sum(s.est for s in steps) / TICKS_PER_S + sum(opt[2] for opt in combo), [o[0] for o in combo])
         if best is None or key < best[0]:
-            best = (key, steps, {t.name: opt[0] for t, opt in zip(choices, combo)})
+            best = (key, steps, {t.name: opt[0] for t, opt in zip(choices, combo)}, fixed + picked)
     if best is None:
         raise Unplannable("; ".join(why) or "no way of a one-of target")
     if chosen is not None:
         chosen.update(best[2])
+    if settled is not None:
+        settled[:] = best[3]            # the targets with each one-of settled to its way
     return best[1]
 
 
@@ -1659,11 +1683,17 @@ def plan_round(inv, targets, cost, pending=None, jobs=None, held=None, chosen=No
                exact=False) -> tuple[Step | None, list, float]:
     """The round's one plan over every target (the queue's goals and upkeep's):"""
     jobs = dict(pending or {}) if jobs is None else jobs
-    steps = _one_of(inv, targets, cost, pending, jobs, held, chosen, exact)
+    settled: list = []
+    steps = _one_of(inv, targets, cost, pending, jobs, held, chosen, exact, settled)
     left = food_left_s(cost)
     if not fed_in_time(steps, left):
         fed = plan_needs(inv, [("food", 1)], cost, pending, jobs, exact=exact)
-        steps = fed + _cheapest_order(_After(inv, fed), targets, cost, pending, jobs, exact=exact)   # the rest from what the meal leaves
+        shared = set().union(*map(_ids_used, fed)) & set().union(*map(_ids_used, steps), *map(_ids_made, steps))
+        if exact or shared:
+            # the rest from what the meal leaves: the ways settled, the plan just made its first bar
+            steps = fed + _cheapest_order(_After(inv, fed), settled, cost, pending, jobs, steps, exact)
+        else:
+            steps = fed + steps         # the meal takes nothing the plan takes or makes: the plan stands after it
         if not fed_in_time(steps, left):
             raise Unplannable(f"the bar runs out in {left:.0f} s before any food the plan can make")
     tools = list(from_bag(inv, pending, jobs, cost.reserved, cost.facts()).tools)

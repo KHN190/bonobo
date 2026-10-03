@@ -9,7 +9,7 @@ from . import api, explore, gather, nav, paths, retry, skillcore
 from . import world
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, log, swallowed
-from .data import GROUPS, bare, mid, seen_class
+from .data import GROUPS, TICKS_PER_S, bare, mid, seen_class
 from .knowledge import FIND_AT, PRICE_SOURCE, PRIOR_TICKS
 
 SEEK_KINDS = ("mine", "gather", "hunt")      # steps whose "nothing in range" is answered by looking elsewhere
@@ -32,6 +32,7 @@ def price_line(step, night, dimension, actual_s, why=None, row=None):
 def trace(step, night, dimension, t0, why=None):
     """The step's price line appended to prices.jsonl (MC_DATA); a bench row names itself (MC_BENCH_ROW)."""
     line = price_line(step, night, dimension, time.time() - t0, why, os.environ.get("MC_BENCH_ROW"))
+    line["cond"]["tick_rate"] = float(os.environ.get("MC_BENCH_TICK_RATE") or TICKS_PER_S)     # a bench row's fast clock
     try:
         with open(PRICES, "a") as fh:
             fh.write(json.dumps(line, default=str) + "\n")

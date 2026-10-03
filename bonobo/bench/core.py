@@ -163,6 +163,40 @@ def _achieve(ctx, needs, done, rounds=12):
         raise McError(f"needs {needs} not met after {rounds} plan steps")
     return True
 
+
+def one_step(ctx, kind, token, count=1, detail=None):
+    """One plan step priced by the cost model and run as the brain runs it, its price line written (E4): through
+    dispatch when a skill provides it, else a shelter step through the shelter reflex's own runner."""
+    from .. import api, dispatch, reflexes
+    from ..cost import Cost
+    from ..knowledge import SOURCE_BLOCKS
+    from ..planner import Step
+    from ..world import Snapshot
+    snap = Snapshot.read(SOURCE_BLOCKS)
+    step = Step(kind, token, count, dict(detail or {}))
+    step.est = int(Cost(snap, BRAIN.mem).estimate(step))
+    if dispatch.runner_for(ctx, step) is not None:
+        return dispatch.execute(ctx, step, snap.night)
+    t0 = time.time()
+    try:
+        out = reflexes.SHELTER_RUN[token](ctx)
+    except api.McError as e:
+        dispatch.trace(step, snap.night, snap.dimension, t0, f"failed: {type(e).__name__}")
+        raise
+    dispatch.trace(step, snap.night, snap.dimension, t0)
+    return out
+
+
+def chest_known(ctx, chest, items):
+    """The chest at `chest` as memory last saw it open: `items` [(id, count)] (the planner takes from it)."""
+    BRAIN.mem.note_container(chest, ctx.dimension, [{"id": i, "count": n} for i, n in items])
+
+
+def home_with_chest(ctx, chest, half=6):
+    """A home round the origin holding one chest never opened (the look's case: its contents unknown)."""
+    lo, hi = at(-half, -1, -half), at(half, 4, half)
+    BRAIN.mem.add_home("bench", [(lo, hi)], ctx.dimension, {tuple(chest): "chest"})
+
 # the engine under every sweep bench: cells, their build commands, what a row records, rules over the table
 
 SWEEP = {}

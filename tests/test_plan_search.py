@@ -297,6 +297,34 @@ class TheAlternativesAreReported(unittest.TestCase):
         self.assertIn("minecraft:bedrock", str(caught.exception))
 
 
+class ARoundThinksWithinItsCap(unittest.TestCase):
+    def test_rows(self):
+        saved = dict(planner.SPENT)
+        # (where the round began, steps now) → spent? — None: no round open (a test, a bench estimate)
+        rows = [(None, 99999, False), (0, planner.ROUND_STEPS - 1, False),
+                (0, planner.ROUND_STEPS, True),            # must fail: a round past its cap searching on
+                (100, planner.ROUND_STEPS, False)]        # must fail: steps before the round counted against it
+        try:
+            for began, now, want in rows:
+                with self.subTest(began=began, now=now):
+                    planner.SPENT.update(round=began, steps=now)
+                    self.assertEqual(planner.round_spent(), want)
+        finally:
+            planner.SPENT.update(saved)
+
+    def test_a_way_after_the_cap_is_not_weighed(self):
+        saved = dict(planner.SPENT)
+        try:
+            planner.SPENT.update(round=0, steps=planner.ROUND_STEPS)
+            search = planner.Search(NullCost())
+            root = planner.Node(planner.from_bag(bag(inventory()), facts=NullCost().facts()), [], [])
+            root.stack = [("need", "log", 1, 0, False)]
+            # must fail: a capped way searched on past the round's cap
+            self.assertIsNone(search.settle(root, 0, 10 ** 9))
+        finally:
+            planner.SPENT.update(saved)
+
+
 class AHeldPlanIsReplayedHonestly(unittest.TestCase):
     def test_a_craft_whose_inputs_are_not_had_is_no_incumbent(self):
         search = planner.Search(NullCost())
@@ -304,6 +332,14 @@ class AHeldPlanIsReplayedHonestly(unittest.TestCase):
         held = [planner.Step("craft", "minecraft:iron_pickaxe", 1, {"times": 1, "inputs": {}})]
         # must fail: a 60-tick incumbent from an empty bag (its step names no inputs: the recipe's were not read)
         self.assertIsNone(search.replay(root, [("tool", "pickaxe", 2)], held))
+
+    def test_a_fact_asked_is_replayed_by_the_steps_that_make_it(self):
+        search = planner.Search(NullCost())
+        root = planner.Node(planner.from_bag(bag(inventory()), facts=NullCost().facts()), [], [])
+        held = [planner.Step("build", "nether_portal", 1, {})]
+        # must fail: a held plan for a fact never replayed (searched again from nothing each round)
+        self.assertIsNotNone(search.replay(root, [("fact", "portal", True)], held))
+        self.assertIsNone(search.replay(root, [("fact", "covered", True)], held))   # must fail: a fact it never makes
 
     def test_takes_from_one_container_are_one_trip(self):
         def took(a, b):
