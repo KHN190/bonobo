@@ -96,12 +96,12 @@ class _Gone:
 
 
 def stand_kind(kinds):
-    """Pure: the door's stand kind for working one of `kinds` (nav.stands_for): a fluid is used (a bucket), a block
-    mined; None for what is no block (a mob, a pseudo-kind): its way is the walker's."""
+    """Pure: the door's stand kind for working one of `kinds` (nav.stands_for): a fluid is clicked (use_item: a
+    bucket), a block mined; None for what is no block (a mob, a pseudo-kind): its way is the walker's."""
     names = [bare(k) for k in kinds]
     if not names or any(n not in HARDNESS for n in names):
         return None
-    return "use" if any(n in HAZARD for n in names) else "mine"
+    return "use_item" if any(n in HAZARD for n in names) else "mine"
 
 
 def route_refused(routes, where):

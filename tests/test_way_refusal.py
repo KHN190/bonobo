@@ -62,7 +62,8 @@ def cost(region, feet, carried, blacklist=None):
 
 
 class ThePlanRefusesByTheDoorsPredicate(unittest.TestCase):
-    """Cost.refused(cell, kind) ⇔ the door's plan_way over the same read ground finds no way and names a read cell."""
+    """Cost.refused(cell, kind) ⇔ the door's loop (nav.reach: plan_way's ways taken, again) over the same read ground
+    finds no stand and names a read cell."""
 
     def test_rows(self):
         for kind in KINDS:
@@ -73,8 +74,9 @@ class ThePlanRefusesByTheDoorsPredicate(unittest.TestCase):
                         region, feet = FakeRegion(LO, HI, blocks), feet_of(geo)
                         c = cost(region, feet, carried)
                         sk = "use" if kind == "chest" else stand_kind([kind])       # a container: Cost.stored's use
-                        steps, why, _s = nav.plan_way(region, feet, t, sk, c.snap.inv, set())
-                        door_fails = steps is None and getattr(why, "cell", None) is not None
+                        got = nav.reach(region, feet, t, sk, c.snap.inv, set())     # the door's loop (gate)
+                        why = got.why
+                        door_fails = got.stand is None and getattr(why, "cell", None) is not None
                         # must fail (accept2): the plan prices a source the door then finds no tread to
                         self.assertEqual(c.refused(t, sk) is not None, door_fails, why)
 
@@ -112,7 +114,7 @@ class AFailedWayIsKeyedByItsCause(unittest.TestCase):
                     steps, why, _s = nav.plan_way(region, feet, t, sk, inventory_of(0), set())
                     if steps is not None:
                         continue                  # a way: nothing fails
-                    task = {"type": "mine" if sk == "mine" else "use", "x": t[0], "y": t[1], "z": t[2]}
+                    task = {"type": sk, "x": t[0], "y": t[1], "z": t[2]}
                     with mock.patch.object(nav, "feet", lambda: feet), \
                             mock.patch.object(nav, "_read_box", lambda cells: region), \
                             mock.patch.object(nav, "inventory_now", lambda: inventory_of(0)):
@@ -125,11 +127,14 @@ class AFailedWayIsKeyedByItsCause(unittest.TestCase):
         blocks, t = geometry("pillar", "oak_log")
         feet = feet_of("pillar")
         why = nav.plan_way(FakeRegion(LO, HI, blocks), feet, t, "mine", inventory_of(0), set())[1]
+        # the plan's look: the drop beside the pillar not read (every tread the door's ways would need: its cause's
+        # cell and the ones past it, nav.reach takes them all)
+        unread = {(x, y, z) for x in range(1, HI[0] + 1) for y in range(FEET[1], feet[1]) for z in range(LO[2], HI[2] + 1)} - {t}
 
-        class Unread(FakeRegion):         # the plan's look: the cause's cell not read
+        class Unread(FakeRegion):
             def inside(self, p):
-                return tuple(p) != why.cell and super().inside(p)
-        region = Unread(LO, HI, {p: n for p, n in blocks.items() if p != why.cell})
+                return tuple(p) not in unread and super().inside(p)
+        region = Unread(LO, HI, {p: n for p, n in blocks.items() if p not in unread})
         self.assertIsNone(cost(region, feet, 0).refused(t, "mine"))            # unknown: possible
         bans = Versioned()
         bans[why.cell] = Ban(float("inf"))

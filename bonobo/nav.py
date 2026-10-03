@@ -1336,9 +1336,11 @@ def tunnel_steps(region, feet, target, protected=(), places=(), done=None):
             stand = (here[0] + d[0], y, here[2] + d[1])
             cells = [stand, cell_add(stand, (0, 1, 0))]
             tread = cell_add(stand, (0, -1, 0))
-            if not all(region.inside(c) for c in cells + [tread]) or stand in been:
-                # off the read, or back where it was (over the target: no level stand holds it)
-                return tasks, f"no stand reaches {tuple(target)} within the read"
+            if stand in been:
+                # back where it was (over the target): no level stand holds it, as read — the target's own failure
+                return tasks, Why(f"no level stand reaches {tuple(target)}", target)
+            if not all(region.inside(c) for c in cells + [tread]):
+                return tasks, f"no stand reaches {tuple(target)} within the read"     # off the read: unknown
             been.add(stand)
             step, why = _step_tasks(region, cells, tread, stand, feet, protected, left, here)
             if step is None:
