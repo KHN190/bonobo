@@ -31,10 +31,9 @@ def _region():
 
 
 class MineOverrunKey(unittest.TestCase):
-    """accept7-shaped (a vein 10 down and ~76 off, same budget as test_overrun_paths' Accept7MineStep): its way is
-    priced past the 61 s step's budget before any digging (api.afford), refuted by dispatch.execute; the vein's
-    second cell (NEAR) sits a touch closer to the body than the remembered one (ORE), so approach_cell goes for it
-    first."""
+    """A vein 10 down and far off: its way is priced past the 61 s step's budget before any digging (api.afford),
+    refuted by dispatch.execute; the vein's second cell (NEAR) sits a touch closer to the body than the remembered
+    one (ORE), so approach_cell goes for it first."""
 
     def test_refuted_price_is_read_back_at_cost_site(self):
         region = _region()
@@ -56,6 +55,10 @@ class MineOverrunKey(unittest.TestCase):
             return costmod.Cost(snap, mem)
 
         base_ticks = cost_of().estimate(step)
+        # the ban/refute state is (feet, way-relevant kinds) read off api.STATE (skillcore.ban_state), live by real
+        # /state and /inventory reads (api.get's side effect) that this offline run never makes — pinned here to the
+        # same feet and bag Cost's snapshot uses, so the write (dispatch.execute) and the read (Cost) agree on it
+        kinds = frozenset(s["id"] for s in bag.slots if s.get("count"))
         with mock.patch.object(dispatch, "run_step", fake_run_step), \
                 mock.patch.object(dispatch, "trace", lambda *a, **k: None), \
                 mock.patch.object(gather, "Inventory", lambda *a: bag), \
@@ -65,6 +68,8 @@ class MineOverrunKey(unittest.TestCase):
                 mock.patch.object(api, "get", lambda *a, **k: state(x=FEET[0] + .5, y=FEET[1], z=FEET[2] + .5)), \
                 mock.patch.object(api, "detail", lambda *a: None), \
                 mock.patch.object(api, "run_chain", lambda *a, **k: []), \
+                mock.patch.object(api.STATE, "feet_seen", FEET), \
+                mock.patch.object(api.STATE, "kinds_seen", kinds), \
                 self.assertRaises(api.Overrun):
             dispatch.execute(ctx, step, False)
 
