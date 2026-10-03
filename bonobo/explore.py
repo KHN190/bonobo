@@ -4,7 +4,7 @@ import math
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, nav
 from .api import NotAvailable, log
-from .data import RARE_SIGHTINGS, SEARCH_LEGS, SEARCH_LOOK_R, bare
+from .data import RARE_SIGHTINGS, SEARCH_LEGS, SEARCH_LOOK_R, SEARCH_MOB_R, bare
 from .skill import skill
 from .world import biomes_around, feet
 from .knowledge import FIND_AT, MINE, search_target, takeable_blocks
@@ -29,7 +29,7 @@ def surface_first(ctx, max_climb=90):
 LAND = ["grass_block", "dirt", "stone", "sand", "podzol", "snow_block"]
 TRAVEL_RANGE = 2          # travel_to's arrival range unless asked
 SEEK_RANGE = 3            # seek stops this near what it found
-LOOK_MOBS, LOOK_BLOCKS = 64, SEARCH_LOOK_R       # how far one look sees: /entities and /find radii
+LOOK_MOBS, LOOK_BLOCKS = SEARCH_MOB_R, SEARCH_LOOK_R       # how far one look sees: /entities and /find radii
 
 CANOPY = ("leaves", "_log")      # a tree top is sky to a search, not ground to stand on
 
@@ -47,7 +47,7 @@ def _ground(tx, tz, y, surface=True, top=None):
     """The y to walk to at (tx, tz). A surface search: the open-sky cell over the known land nearest it (a buried
     hit's surface, never its y+1). An underground one: known land, else the column's ground near `y` (a cave floor)."""
     from .world import Region
-    land = [h for h in find(LAND, radius=48, limit=60) if math.dist((h["x"], h["z"]), (tx, tz)) <= 16]
+    land = [h for h in find(LAND, radius=LOOK_BLOCKS, limit=60) if math.dist((h["x"], h["z"]), (tx, tz)) <= 16]
     if surface:
         near = min(land, key=lambda h: math.dist((h["x"], h["z"]), (tx, tz))) if land else None
         x, z = (near["x"], near["z"]) if near else (tx, tz)
@@ -178,12 +178,15 @@ def seek_blocks(ctx, blocks, legs=SEARCH_LEGS, leg=40):
 def seek(ctx, kinds, pos=None):
     """Go to where one of these is: the nearest in sight, else the spot memory named, else look for one (a spiral)."""
 
-    hits = find(kinds, radius=48, limit=1)
-    mobs = [] if hits else entities(64, list(kinds))
+    hits = find(kinds, radius=LOOK_BLOCKS, limit=1)
+    mobs = [] if hits else entities(LOOK_MOBS, list(kinds))
     if hits:
         target = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
     elif mobs:
-        target = (round(mobs[0]["x"]), round(mobs[0]["y"]), round(mobs[0]["z"]))
+        _how, e = nav.chase(mobs[0]["id"], [mobs[0]["type"]], ctx.policy, SEEK_RANGE)
+        if e is None:
+            return explore_for(ctx, list(kinds))       # walked off out of sight: look for one again
+        target = (round(e["x"]), round(e["y"]), round(e["z"]))
     elif pos:
         target = tuple(pos)
     elif any(k.startswith("minecraft:") and "_" not in k.split(":")[-1] for k in kinds):
@@ -205,7 +208,7 @@ def approach_policy(policy):
     import dataclasses
     return dataclasses.replace(policy, allow_dig=False)
 
-# what the travel scan notes: the nearest of each kind in 48 blocks, takeable and rare blocks, animals in sight
+# what the travel scan notes: the nearest of each kind in a look (LOOK_BLOCKS), takeable and rare blocks, animals in sight
 SCAN_BLOCKS = {"tree": ["oak_log", "birch_log", "spruce_log", "jungle_log", "acacia_log", "dark_oak_log"],
                "water": ["water"], "lava": ["lava"], "iron": ["iron_ore", "deepslate_iron_ore"]}
 _ALIAS = {"tree", "water", "lava"}      # scan kinds noted by their own name; the rest by the block that was hit
@@ -230,21 +233,21 @@ def note_around(mem, dimension, here):
             if not unknown(mem, dimension, [kind] if kind in _ALIAS else blocks):
                 continue           # already held in memory: looking again is a search, not a sighting
             looked_blocks += blocks
-            hits = find(blocks, radius=48, limit=1)
+            hits = find(blocks, radius=LOOK_BLOCKS, limit=1)
             seen_blocks += hits
             if hits:
                 h = hits[0]
                 mem.note_seen(kind if kind in _ALIAS else h["block"], (h["x"], h["y"], h["z"]), dimension)
         rare = unknown(mem, dimension, list(RARE_SIGHTINGS))
         looked_blocks += rare
-        for h in (find(takeable_blocks(), radius=48, limit=16) or []) + \
-                ((find(rare, radius=48, limit=8) or []) if rare else []):
+        for h in (find(takeable_blocks(), radius=LOOK_BLOCKS, limit=16) or []) + \
+                ((find(rare, radius=LOOK_BLOCKS, limit=8) or []) if rare else []):
             seen_blocks.append(h)
             mem.note_seen(h["block"], (h["x"], h["y"], h["z"]), dimension)
-        mobs = entities(48, list(SCAN_MOBS))
+        mobs = entities(LOOK_MOBS, list(SCAN_MOBS))
         for e in mobs:
             mem.note_seen(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), dimension)
         # what this look covered, per section, for the frontier
-        mem.see_sections(dimension, here, 48, _by_kind(seen_blocks + mobs), looked_blocks + list(SCAN_MOBS))
+        mem.see_sections(dimension, here, LOOK_BLOCKS, _by_kind(seen_blocks + mobs), looked_blocks + list(SCAN_MOBS))
     except api.McError as e:
         api.swallowed("scan_resources: looking around", e)

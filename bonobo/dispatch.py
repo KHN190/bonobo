@@ -9,10 +9,10 @@ from . import api, explore, gather, lifecycle, nav, paths, retry, skillcore
 from . import world
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, log, swallowed
-from .data import GROUPS, TICKS_PER_S, bare, mid, seen_class
+from .data import TICKS_PER_S, bare, mid, seen_class
 from .knowledge import FIND_AT, PRICE_SOURCE, PRIOR_TICKS, find_class, step_kinds
 
-SEEK_KINDS = ("mine", "gather", "hunt")      # steps whose "nothing in range" is answered by looking elsewhere
+SEEK_KINDS = ("mine", "gather", "hunt", "fill")      # steps whose "nothing in range" is answered by looking elsewhere
 
 PRICES = paths.data("prices.jsonl", env="MC_PRICES")
 PER_UNIT = {"smelt": "smelt_each", "mine": "mine_each", "gather": "gather_each", "hunt": "hunt_each"}
@@ -216,7 +216,7 @@ def go_find(ctx, step):
 
     here, dim, mem = world.feet(), ctx.dimension, ctx.mem
     blocks = list(step.detail.get("blocks", ()))
-    names = {"gather": ["tree"], "mine": blocks, "hunt": list(step.detail.get("types", ()))}.get(step.kind, [])
+    names = {"gather": ["tree"], "mine": blocks, "hunt": list(step.detail.get("types", ())), "fill": ["water"]}.get(step.kind, [])
     notes = sorted(((r["kind"], tuple(r["pos"])) for n in names for r in mem.seen(n, dim)),
                    key=lambda kp: math.dist(kp[1], here))
     tried = 0
@@ -247,7 +247,7 @@ def go_find(ctx, step):
     try:           # a search that found nothing fails its verify: that is "nowhere new", not a crash
         if step.kind == "hunt":
             return bool(explore.explore_for(ctx, list(step.detail["types"])))
-        return bool(explore.seek_blocks(ctx, GROUPS["log"] if step.kind == "gather" else blocks))
+        return bool(explore.seek_blocks(ctx, step_kinds(step)))
     except api.INTERRUPTIONS:
         raise
     except McError as e:

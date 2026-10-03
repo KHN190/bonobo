@@ -6,6 +6,7 @@ from .game import BREAK_COOLDOWN, COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT
 from .data import ANIMAL_HP, BASE_MARKERS, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, HARDNESS, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
 from .data import TAKEABLE
 from .data import BIOME_CREATURES, BIOME_PATCH, TREES_PER_CHUNK, VILLAGE_BIOMES
+from .data import SEARCH_RINGS
 from .data import CHUNK_BLOCKS, CREATURE_CHUNK_P, DEEPSLATE_TOP, ORE_VEINS, PASSIVE_WEIGHT, ROUTE_FACTOR, SEARCH_LOOK_R, VILLAGE_ONLY, VILLAGE_REGION_BLOCKS, WALK_BLOCKS_PER_TICK
 from .data import COLORS, WOODS, ATTACKS_PER_S, HAND_ATTACKS_PER_S, HAND_DAMAGE, NETHER, OVERWORLD, PIGLIN_BARTER, is_night
 
@@ -173,6 +174,11 @@ def ore_layer_blocks(ore, y):
         share = 1.0 / span if shape == "uniform" else (2.0 / span) * (1.0 - abs(y - (lo + hi) / 2) / (span / 2))
         total += veins * size * share
     return total
+
+
+def next_look(radius):
+    """Pure: the ring a search looks at after one at `radius` (SEARCH_RINGS), None past the last: a seek then."""
+    return next((r for r in SEARCH_RINGS if r > radius), None)
 
 
 def _area_s(per_block2):

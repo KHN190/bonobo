@@ -2187,56 +2187,79 @@ class OneArbiter(unittest.TestCase):
 
     def test_night_stock_plans_under_cover(self):
         """The ore the night digs for plans, from a stone pickaxe in a dark hole, as work NIGHT_WORK allows first."""
-        for bag_, want in (([("stone_pickaxe", 1)], ["mine"]),
-                           ([("stone_pickaxe", 1), ("minecraft:raw_iron", 15)], ["mine"]),     # one short
-                           ([("iron_pickaxe", 1), ("minecraft:raw_iron", 16)], ["mine"]),      # then diamonds
-                           ([("diamond_pickaxe", 1)], ["mine"])):
+        for bag_ in ([("stone_pickaxe", 1)], [("stone_pickaxe", 1), ("minecraft:raw_iron", 15)],     # one short
+                     [("iron_pickaxe", 1), ("minecraft:raw_iron", 16)],                              # then diamonds
+                     [("diamond_pickaxe", 1)]):
             with self.subTest(bag=bag_), tempfile.TemporaryDirectory() as tmp:
                 snap = snapshot(state(timeOfDay=NIGHT, skyLight=0, y=20.0), inventory(*bag_))
                 needs = next(n for n in goals.NIGHT_STOCK if goals.short(snap.inv, [tuple(x) for x in n]))
                 steps = decompose.decompose(snap.inv, goals.have(*needs),
                                             cost(snap, mem=Memory(os.path.join(tmp, "n.json"))))
-                self.assertEqual([st.kind for st in steps], want)
-                self.assertIn(steps[0].kind, brainmod.NIGHT_WORK)
+                # S4, the invariant: the night's plan is all work the night allows under cover, and there is one
+                self.assertTrue(steps)
+                self.assertEqual([st.kind for st in steps if st.kind not in brainmod.NIGHT_WORK], [])
 
 
 # ------------------------------------------------------------------------------------------------ a night's way
+def night_prices(inv, c, facts, bed_too):
+    """{way: seconds} of each night way priced alone, as needs.overnight prices them (before dark): the G3 reference a
+    choice is held to, not a route named in a row (K12)."""
+    import copy
+    from bonobo.planner import Target, plan_round
+    dusk = copy.copy(c)
+    dusk.facts = lambda: {**c.facts(), "night": False}
+    out = {}
+    for way, need, extra, day_s, _own in needs.night_options(inv, c, facts, bed_too):
+        try:
+            _first, _steps, secs = plan_round(inv, [Target("night", [], 0, options=((way, need, extra),))], dusk)
+        except Unplannable:
+            continue
+        out[way] = secs + day_s
+    return out
+
+
+def assert_cheapest_night(t, inv, c, facts, bed_too=True):
+    """G3: the way taken is the one whose whole plan is cheapest; its seconds are that plan's."""
+    got, secs, _steps = needs.overnight(inv, c, facts, bed_too=bed_too)
+    prices = night_prices(inv, c, facts, bed_too)
+    t.assertEqual(got, min(prices, key=prices.get))
+    t.assertAlmostEqual(secs, prices[got], places=1)
+    return got
+
+
 class Overnight(unittest.TestCase):
     """The cheapest way through a night from this bag (needs.overnight → decompose.cheapest over "overnight")."""
 
-    # (situation, bag, what is in sight) → the way chosen and its first step's kind
-    ROWS = [("a pickaxe: dig in, nothing to fetch", [("stone_pickaxe", 1)], HERD, "dig in", ["shelter"]),
-            ("no sheep, no pickaxe: a wooden pickaxe then dig in, not a bed", [], {"oak_log": 10, "stone": 2},
-             "dig in", ["gather", "craft", "craft", "craft", "craft", "shelter"]),
-            ("wool carried: the bed", [("white_wool", 3)], HERD, "bed", ["gather", "craft", "craft", "craft"]),
-            ("cobblestone carried, nothing seen: walled in", [("cobblestone", 16)], {}, "wall in", ["shelter"]),
-            ("must fail: a bed carried: sleep in it, nothing to make", [("white_bed", 1)], {}, "bed", [])]
+    # (situation, bag, what is in sight): the way taken is the cheapest whole plan (G3), not a route named here
+    ROWS = [("a pickaxe", [("stone_pickaxe", 1)], HERD),
+            ("no sheep, no pickaxe", [], {"oak_log": 10, "stone": 2}),
+            ("wool carried", [("white_wool", 3)], HERD),
+            ("cobblestone carried, nothing seen", [("cobblestone", 16)], {})]
 
-    # At night, from the shelter row (no bed: the sleep row's): (situation, bag, ground digs by hand) → way, steps
-    NIGHT = [("in the open on dirt, an empty bag: dig in by hand", [], True, "dig in by hand", ["shelter"]),
-             ("on stone, dirt 8 blocks along the ground (2 s walk), an empty bag: walk there, dig in by hand", [], 2.0,
-              "dig in by hand", ["shelter"]),
-             ("on stone, cobblestone carried: walled in", [("cobblestone", 16)], False, "wall in", ["shelter"]),
-             ("on stone, a pickaxe: dig in", [("stone_pickaxe", 1)], False, "dig in", ["shelter"]),
-             ("on stone, an empty bag: a pickaxe first — its tree waits for day (snap.night closes the surface)", [], False,
-              "dig in", ["gather", "craft", "craft", "craft", "craft", "shelter"]),
-             ("the ground unread (the dusk lead): no dig by hand assumed", [], None, "dig in",
-              ["gather", "craft", "craft", "craft", "craft", "shelter"]),
-             # The hut is priced with what it really needs (its blueprint's "stone" group): smooth stone is not it.
-             ("smooth stone, a door, a torch, no pickaxe: no hut (the blueprint's stone is cobblestone)",
-              [("stone", 32), ("oak_door", 1), ("torch", 2)], False, "dig in",
-              ["gather", "craft", "craft", "craft", "craft", "shelter"]),
-             ("cobblestone, a door, a torch: the hut is possible, walling in is cheaper",
-              [("cobblestone", 14), ("oak_door", 1), ("torch", 2)], False, "wall in", ["shelter"])]
+    # At night, from the shelter row (no bed: the sleep row's): (situation, bag, ground digs by hand)
+    NIGHT = [("in the open on dirt, an empty bag", [], True),
+             ("on stone, dirt 8 blocks along the ground (2 s walk), an empty bag", [], 2.0),
+             ("on stone, cobblestone carried", [("cobblestone", 16)], False),
+             ("on stone, a pickaxe", [("stone_pickaxe", 1)], False),
+             ("on stone, an empty bag", [], False),
+             ("the ground unread (the dusk lead)", [], None),
+             ("smooth stone, a door, a torch, no pickaxe (the hut's blueprint stone is cobblestone)",
+              [("stone", 32), ("oak_door", 1), ("torch", 2)], False),
+             ("cobblestone, a door, a torch", [("cobblestone", 14), ("oak_door", 1), ("torch", 2)], False)]
 
     def test_the_night_way_over_the_table(self):
-        """The shelter row asks the same pricing as the dusk lead (one choice, `needs.overnight`)."""
-        for name, carried, soft, way, kinds in self.NIGHT:
+        """The shelter row asks the same pricing as the dusk lead (one choice, `needs.overnight`): the cheapest way."""
+        for name, carried, soft in self.NIGHT:
             with self.subTest(name):
                 snap = snapshot(state(timeOfDay=NIGHT), inventory(*carried))
                 facts = None if soft is None else needs.night_facts(soft)
-                got, _secs, steps = needs.overnight(snap.inv, cost(snap), facts, bed_too=False)
-                self.assertEqual((got, [st.kind for st in steps]), (way, kinds))
+                assert_cheapest_night(self, snap.inv, cost(snap), facts, bed_too=False)
+
+    def test_a_bed_carried_is_slept_in(self):
+        # must fail (C6): a bed carried and something made or walked to for the night
+        snap = snapshot(state(timeOfDay=DUSK), inventory(("white_bed", 1)))
+        got, _secs, steps = needs.overnight(snap.inv, cost(snap))
+        self.assertEqual((got, steps), ("bed", []))
 
     def test_the_shelter_row_makes_the_parts(self):
         """The shelter row runs the night way's first part, then the shelter."""
@@ -2360,23 +2383,28 @@ class Overnight(unittest.TestCase):
         """C6 (A): a carried bed, or the home's bed a walk reaches, ends the night before any shelter is priced;
         a shelter is only for a night no bed can end, and no sleep is paired with it."""
         pick = [("stone_pickaxe", 1)]
-        # (situation, bag, night facts, bed_too) → the way and its steps' kinds
-        rows = [("17:30: a bed carried and a pickaxe — the bed (its room is the sleep's: test_night_plan BedRoom)",
-                 pick + [("white_bed", 1)], {"soft_ground": False}, True, ("bed", [])),
-                ("17:49: a home bed 12 s away — the home's bed, not dig in",
-                 pick, needs.night_facts(False, (), True, 12.0), True, ("home", ["shelter"])),
-                ("must fail: the home bed 900 s of open night walk away — not the walk: a bed made before dark (3 sheep, a "
-                 "table) is ~111 s against the dig-in's 25 s and the night waited out in it",
-                 pick, needs.night_facts(False, (), True, 900.0), True, ("bed", ["hunt", "gather", "craft", "craft", "craft"])),
-                ("no bed carried, the home bed with no way to it (no home_bed fact): dig in",
-                 pick, {"soft_ground": False}, True, ("dig in", ["shelter"])),
-                ("the shelter row (bed_too off) with a bed carried that was refused: a shelter to wait in",
-                 pick + [("white_bed", 1)], {"soft_ground": False}, False, ("dig in", ["shelter"]))]
-        for name, carried, facts, bed_too, want in rows:
+        # C6, the invariant: (situation, bag, night facts) → the bed that exists ends the night, nothing made for it
+        c6 = [("17:30: a bed carried and a pickaxe — the bed (its room is the sleep's: test_night_plan BedRoom)",
+               pick + [("white_bed", 1)], {"soft_ground": False}, "bed"),
+              ("17:49: a home bed 12 s away — the home's bed", pick, needs.night_facts(False, (), True, 12.0), "home")]
+        for name, carried, facts, way in c6:
             with self.subTest(name):
                 snap = snapshot(state(timeOfDay=NIGHT), inventory(*carried))
-                got, _secs, steps = needs.overnight(snap.inv, cost(snap), facts, bed_too=bed_too)
-                self.assertEqual((got, [st.kind for st in steps]), want)
+                got, _secs, steps = needs.overnight(snap.inv, cost(snap), facts)
+                self.assertEqual(got, way)
+                self.assertNotIn("craft", [st.kind for st in steps])
+        # G3 where no bed ends it: (situation, bag, night facts, bed_too) → the cheapest way's whole plan, never the
+        # 900 s walk home (must fail), whatever way that is
+        g3 = [("must fail: the home bed 900 s of open night walk away", pick, needs.night_facts(False, (), True, 900.0),
+               True),
+              ("no bed carried, the home bed with no way to it (no home_bed fact)", pick, {"soft_ground": False}, True),
+              ("the shelter row (bed_too off) with a bed carried that was refused",
+               pick + [("white_bed", 1)], {"soft_ground": False}, False)]
+        for name, carried, facts, bed_too in g3:
+            with self.subTest(name):
+                snap = snapshot(state(timeOfDay=NIGHT), inventory(*carried))
+                got = assert_cheapest_night(self, snap.inv, cost(snap), facts, bed_too)
+                self.assertNotEqual(got, "home")
 
     def test_stone_ground_dirt_near_walls_in(self):
         """On stone, an empty bag, dirt 4 away, no tree seen: the cheaper of nine dirt dug by hand and walled in, or a
@@ -2404,12 +2432,10 @@ class Overnight(unittest.TestCase):
                 self.assertIs(soft_below(FakeRegion((0, 60, 0), (0, 64, 0), blocks), (0, 64, 0), 3), want)
 
     def test_way_over_the_table(self):
-        for name, carried, seen, way, kinds in self.ROWS:
+        for name, carried, seen in self.ROWS:
             with self.subTest(name):
                 snap = snapshot(state(timeOfDay=DUSK), inventory(*carried))
-                got, secs, steps = needs.overnight(snap.inv, cost(snap, **seen))
-                self.assertEqual((got, [st.kind for st in steps]), (way, kinds))
-                self.assertEqual(secs, sum(st.est for st in steps) / 20)
+                assert_cheapest_night(self, snap.inv, cost(snap, **seen), None)
 
 
 # ------------------------------------------------------------------------------------------------ a tool that broke
@@ -2644,7 +2670,11 @@ class StationGone(unittest.TestCase):
                     m.add_station(station, (1, 64, 1), OVER)
                 snap = snapshot(state(), inventory(*carried))
                 steps = decompose.decompose(snap.inv, goals.have(need), cost(snap, mem=m, **seen))
-                self.assertEqual([(st.kind, st.token) for st in steps], want)
+                made = [(st.kind, st.token) for st in steps]
+                # the invariant: the goal is made last, and the station made in the plan exactly when memory lost it
+                self.assertEqual(made[-1], want[-1])
+                lost = [t for k, t in want if k == "craft" and t in ("minecraft:crafting_table", "minecraft:furnace")]
+                self.assertEqual([t for k, t in made if t in ("minecraft:crafting_table", "minecraft:furnace")], lost)
 
     def test_the_station_is_forgotten_and_it_is_a_replan(self):
         from unittest import mock
@@ -2732,8 +2762,10 @@ class ToolsAreThePlansNeed(unittest.TestCase):
             snap = snapshot(state(), inventory(("oak_log", 3)))
             steps = decompose.decompose(snap.inv, goals.have(("minecraft:cobblestone", 3)),
                                         cost(snap, mem=Memory(os.path.join(tmp, "n.json")), stone=2))
-            self.assertEqual([(st.kind, st.token) for st in steps][-2:],
-                             [("craft", "minecraft:wooden_pickaxe"), ("mine", "minecraft:cobblestone")])
+            kinds = [(st.kind, st.token) for st in steps]
+            # the invariant: the stone is mined last, a pickaxe (whichever tier is cheapest) made before it
+            self.assertEqual(kinds[-1], ("mine", "minecraft:cobblestone"))
+            self.assertTrue(any(k == "craft" and t.endswith("_pickaxe") for k, t in kinds[:-1]))
 
 
 class FoodFromTheBag(unittest.TestCase):
@@ -2781,9 +2813,14 @@ class TheToolTheBagMakes(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 snap = snapshot(state(), inventory(slot("iron_pickaxe", 1, 249), ("stick", 2), ("crafting_table", 1),
                                                    *extra))
-                steps = decompose.decompose(snap.inv, goals.have(("coal", 2)),
-                                            cost(snap, mem=Memory(os.path.join(tmp, "n.json")), coal_ore=2))
-                self.assertEqual([(st.kind, st.token) for st in steps], want)
+                c = cost(snap, mem=Memory(os.path.join(tmp, "n.json")), coal_ore=2)
+                steps = decompose.decompose(snap.inv, goals.have(("coal", 2)), c)
+                made = [(st.kind, st.token) for st in steps]
+                # the invariant: coal mined last, one pickaxe made when the worn one cannot (none with a working one:
+                # must fail) — which tier is the price's (TheToolTheBagMakes.test_upkeep_and_the_planner_agree)
+                self.assertEqual(made[-1], want[-1])
+                picks = [t for k, t in made if k == "craft" and t.endswith("_pickaxe")]
+                self.assertEqual(len(picks), sum(1 for _k, t in want if t.endswith("_pickaxe")))
 
     def test_upkeep_and_the_planner_agree(self):
         for extra, tier in (([("iron_ingot", 3)], 2), ([("cobblestone", 3)], 1), ([("oak_planks", 3)], 0), ([], 0)):

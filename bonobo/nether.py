@@ -178,6 +178,8 @@ def _not_gold():
     """Everything carried except the gold being traded away: what a barter brings back raises this."""
     return sum(int(s.get("count", 1)) for s in Inventory().slots if s["id"] != "minecraft:gold_ingot")
 
+PIGLIN_REACH = 3        # a piglin this near is tossed to where it stands
+
 @skill(gives=[_k.GIVES_BARTER, "state:bartered"], remaining=_k.bartered, needs={"minecraft:gold_ingot": 1, "minecraft:golden_helmet": 1}, pre=[skillcore.in_dimension(NETHER)], start=lambda c: _not_gold(), verify=lambda c: _not_gold() > c.base, budget=600, stall=180,
        provides={"barter": lambda ctx, s: (int(s.detail.get("ingots", 8)),)}, when=lambda s, f: [("dimension", NETHER)])
 def barter_piglin(ctx, ingots=8):
@@ -199,11 +201,13 @@ def barter_piglin(ctx, ingots=8):
                           and not ctx.blocked((e["id"], 0, 0))), key=lambda e: e["distance"])
         if not piglins:
             raise NotAvailable("no piglin nearby")
-        if piglins[0]["distance"] > 3:
+        if piglins[0]["distance"] > PIGLIN_REACH:
             p = piglins[0]
-            if not nav.arrived_near((round(p["x"]), round(p["y"]), round(p["z"])), ctx.policy, range_=2.5, attempts=1):
+            how, _near = nav.chase(p["id"], ["minecraft:piglin"], ctx.policy, PIGLIN_REACH)
+            if how == "far":
                 ctx.ban((p["id"], 0, 0), 300)
                 raise api.NavFailed("could not get next to a piglin", pos=(p["id"], 0, 0))
+            continue                     # next to it, or walked off: the piglins read again
         # an ingot toward every piglin in reach, then one shared wait (they inspect in parallel)
         for p in [e for e in piglins if e["distance"] <= 6][:max(1, ingots - thrown)]:
             slot = next((s["slot"] for s in Inventory().slots if s["id"] == "minecraft:gold_ingot"), None)

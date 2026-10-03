@@ -5,6 +5,7 @@ import time
 
 from . import api
 from .api import Interrupted, McError
+from .data import SEARCH_LOOK_R
 from .data import MEASURED_BAND, MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, GROUPS, HARDNESS, HAZARD, NAV_NODES, bare, mid
 from .knowledge import SURFACE_Y, sources, step_station, work_s, food_count, soil_depth, dawn_s, body_facts, expected_find_s, step_kinds, WALK_TICKS_PER_BLOCK, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import ban_state, banned
@@ -204,7 +205,7 @@ class Cost:
         hit = self._nearest(kinds, sources)
         return hit[1] if hit else None
 
-    def distance(self, blocks, radius: float = 48, sources=False):
+    def distance(self, blocks, radius: float = SEARCH_LOOK_R, sources=False):
         """Blocks to the nearest one of these: remembered (no world read), else in sight now (one cached /find), else
         None. `sources`: what a gather or a mine takes from — a protected cell (a home block) is not there."""
 
@@ -227,11 +228,14 @@ class Cost:
             self.cache[key] = min(near) if near else self._known(types)
         return self.cache[key]
 
-    def _surface_trip(self):
-        """Under rock, getting out is part of any surface trip, and it scales with depth."""
-        if not under_rock(self.snap.get("skyLight", 15)):
+    def _surface_trip(self, at=None):
+        """Under rock, getting out is part of any surface trip, and it scales with depth — from the step's own place
+        (`at`: below SURFACE_Y is under rock), the snapshot's sky for a step that runs first."""
+        feet, _tools = self.step_state(at)
+        covered = under_rock(self.snap.get("skyLight", 15)) if at is None else feet[1] < SURFACE_Y
+        if not covered:
             return 0
-        return PRIOR_TICKS["surface"] + PRIOR_TICKS["surface_per_block"] * max(0, SURFACE_Y - int(self.snap.feet[1]))
+        return PRIOR_TICKS["surface"] + PRIOR_TICKS["surface_per_block"] * max(0, SURFACE_Y - int(feet[1]))
 
     # -- what the planner asks
     def facts(self):
@@ -355,11 +359,10 @@ class Cost:
             return measured
         if step.kind == "seek":
             kinds = step_kinds(step)
-            return round(self.seek_s(kinds) * TICKS_PER_S)
+            return round(self.seek_s(kinds, held) * TICKS_PER_S)
         if step.kind == "wait":
             return round(dawn_s(self.snap.state) * TICKS_PER_S)
-        if held is None:
-            held = held_tiers(self.snap.inv)
+        held = self.step_state(None, held)[1]
         ticks = prior_work_ticks(step, held, TICKS_PER_S)
         if table_back and self.table_back(step):
             # the table placed for it is broken and carried on after (craft.takes_back): its break by what is held
@@ -383,18 +386,18 @@ class Cost:
         """The soil under the feet (knowledge.soil_depth) in `region`, the blocks perception read (never read here);…"""
         return soil_depth(self.region, tuple(self.snap.feet))
 
-    def work_of(self, step, reach=True):
+    def work_of(self, step, reach=True, at=None):
         """(breaks, kills) a step is expected to make: its own work (knowledge.own_work) and (`reach`) the digging
-        to the nearest in sight (dug_way)."""
+        to the nearest in sight (dug_way) from the step's own place (`at`, step_state)."""
         breaks, kills = own_work(step)
         if reach and step.kind == "mine":
-            breaks = breaks + self._dug(step)
+            breaks = breaks + self._dug(step, at)
         return breaks, kills
 
-    def _dug(self, step):
+    def _dug(self, step, at=None):
         """The blocks the way to the nearest in sight breaks (dug_way), [] when none is in sight or no way is found."""
         blocks = step.detail.get("blocks") or ()
-        feet = tuple(int(c) for c in self.snap.feet)
+        feet = tuple(int(c) for c in self.step_state(at)[0])
         hit = self.seen(blocks, self.not_there(True))
         if hit is None:
             return []
@@ -414,7 +417,7 @@ class Cost:
         if k == "gather":
             return self.distance(GROUPS["log"], sources=True)
         if k in ("mine", "take"):
-            return self.distance(step.detail.get("blocks", ()), 32, sources=True)
+            return self.distance(step.detail.get("blocks", ()), sources=True)
         return self._entity(step.detail.get("types", ()))
 
     def known_source(self, step):
@@ -457,7 +460,7 @@ class Cost:
             # from every place a plan may stand before it: remembered, a container, the look's (site's own answers)
             near = min((math.dist(p, site) for p in self.places() if tuple(p) != tuple(site)), default=math.inf)
             # and as priced from here, first in the plan: the nearest source, which need not be the site's
-            parts = self._walk_parts(step, None, None, dig=False) if step.kind in self.SOURCED else {"seek": 1}
+            parts = self._walk_parts(step, None, held, dig=False) if step.kind in self.SOURCED else {"seek": 1}
             here = parts["walk"] if not parts["seek"] else math.inf
             self.cache[key] = min(walk_ticks(min(near, math.dist(self.snap.feet, site))), here)
         return self.cache[key]
@@ -483,29 +486,28 @@ class Cost:
             if k in ("goto", "withdraw", "look"):
                 through = self.door_s(site, at)
                 out["walk"] = round(through * TICKS_PER_S) if through is not None else out["walk"]
-            out["dig"] = self.dig_to(step, held) if k == "mine" and dig else 0
+            out["dig"] = self.dig_to(step, held, at) if k == "mine" and dig else 0
         elif k in self.SOURCED:
             d = self._source(step)
-            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else self.find_ticks(step_kinds(step), held)
+            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else self.find_ticks(step_kinds(step), held, at)
             if k != "mine":
-                out["surface"] = self._surface_trip()
+                out["surface"] = self._surface_trip(at)
             elif dig:
-                out["dig"] = self.dig_to(step, held)
+                out["dig"] = self.dig_to(step, held, at)
         elif k == "fill":
             d = self._known(["water"])
-            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else self.find_ticks(["water"])
+            out["walk" if d is not None else "seek"] = walk_ticks(d) if d is not None else self.find_ticks(["water"], held, at)
         elif k in ("goto", "withdraw", "look"):
             through = self.door_s(tuple(step.detail["pos"]))
             out["walk"] = round(through * TICKS_PER_S) if through is not None else \
                 walk_ticks(math.dist(self.snap.feet, tuple(step.detail["pos"])))
         return out
 
-    def dig_to(self, step, held=None):
+    def dig_to(self, step, held=None, at=None):
         """Ticks the digging to the nearest one in sight takes (work_of's breaks beyond the step's own), each break
         with the best of `held` ({tool kind: tier}; the bag's when None)."""
-        if held is None:
-            held = held_tiers(self.snap.inv)
-        return dig_to_ticks(self.work_of(step)[0], step, held, TICKS_PER_S)
+        held = self.step_state(None, held)[1]
+        return dig_to_ticks(self.work_of(step, at=at)[0], step, held, TICKS_PER_S)
 
     def door_s(self, where, at=None):
         """Seconds to `where` from `at` (the feet when None) through a taught door on the way, else None: the
@@ -539,7 +541,7 @@ class Cost:
         hit = self._nearest(kinds)
         return hit[0] if hit else None
 
-    def seek_s(self, kinds):
+    def seek_s(self, kinds, held=None, at=None):
         """Seconds to reach one of these: the game's route, else the known distance walked, else the prior."""
 
         seconds = self.route_s(kinds)
@@ -547,7 +549,7 @@ class Cost:
             return max(1.0, round(float(seconds), 1))
         known = self._known(kinds)
         if known is None:
-            return self.find_ticks(kinds) / TICKS_PER_S
+            return self.find_ticks(kinds, held, at) / TICKS_PER_S
         return max(1.0, round(walk_ticks(known) / TICKS_PER_S + 2.0, 1))
 
     def route_s(self, kinds):
@@ -563,11 +565,16 @@ class Cost:
         found, seconds = self.snap.routes.get(route_key(where, 2.0, NAV_NODES), (None, None))
         return seconds if found else None
 
-    def find_ticks(self, kinds, held=None):
-        """Ticks to find one of `kinds` never seen (knowledge.expected_find_s): the soonest of them, from these feet
-        with the tools `held` ({tool kind: tier}) when the search runs, the bag's when None."""
-        facts = {"y": self.snap.feet[1], "held": held_tiers(self.snap.inv) if held is None else held,
-                 "feet": self.snap.feet, "biomes": self.snap.biomes}
+    def step_state(self, at=None, held=None):
+        """(feet, {tool kind: tier}) a step is priced from: the plan's place before it (`at`) and the tools it holds
+        then (`held`) — the snapshot's feet and bag only for a step that runs first (K9: one price, the step's own)."""
+        return (tuple(self.snap.feet) if at is None else tuple(at)), (held_tiers(self.snap.inv) if held is None else held)
+
+    def find_ticks(self, kinds, held=None, at=None):
+        """Ticks to find one of `kinds` never seen (knowledge.expected_find_s): the soonest of them, from the step's
+        own place and tools (step_state)."""
+        feet, tools = self.step_state(at, held)
+        facts = {"y": feet[1], "held": tools, "feet": feet, "biomes": self.snap.biomes}
         return round(min(expected_find_s(k, facts) for k in (kinds or ["other"])) * TICKS_PER_S)
 
 def portal_known(mem, dimension):

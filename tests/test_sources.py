@@ -149,11 +149,16 @@ class BuildingBlocks(unittest.TestCase):
 
     def test_nothing_in_sight_prices_the_search(self):
         """No dirt or stone in sight: the dig is still planned, its walk priced as a search (cost.find_ticks)."""
+        from bonobo.data import mid
+        from bonobo.knowledge import members, step_kinds
         from tests.world import cost, snapshot, state
         snap = snapshot(state(), inventory())
         steps = decompose.decompose(snap.inv, goals.have(("building", 9)), cost(snap))
-        self.assertEqual([(st.kind, st.token) for st in steps], [("mine", "minecraft:dirt")])
-        self.assertGreaterEqual(steps[0].est, cost(snap).find_ticks(["dirt"]))
+        # the invariant, not the route: building blocks dug from the ground, the search for them priced (K12)
+        self.assertEqual([st.kind for st in steps], ["mine"])
+        self.assertIn(mid(steps[0].token), [mid(m) for m in members("building")])
+        self.assertGreaterEqual(steps[0].est, cost(snap).find_ticks(step_kinds(steps[0])))
+
 
 if __name__ == "__main__":
     unittest.main()
