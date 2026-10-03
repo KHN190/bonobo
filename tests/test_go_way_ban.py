@@ -8,7 +8,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from bonobo import api, gather, nav, skillcore  # noqa: E402
+from bonobo import api, gather, nav, skillcore, world  # noqa: E402
 from tests.world import memory  # noqa: E402
 
 START, TARGET, FAIL_CELL = (0, 64, 0), (5, 64, 0), (2, 64, 0)
@@ -22,8 +22,12 @@ class WayUnreachableIsBanned(unittest.TestCase):
         with mock.patch.object(nav, "plan_way", lambda *a, **k: (STEPS, None, 12.0)), \
                 mock.patch.object(nav, "run_way", mock.Mock(side_effect=exc)), \
                 mock.patch.object(api, "detail", lambda *a: None), \
+                mock.patch.object(gather, "Inventory", lambda *a: world.Inventory({"slots": [], "equipment": {}})), \
                 mock.patch.object(ctx, "ban", lambda p, **k: banned.append(tuple(p))):
-            got = gather._go_way(ctx, None, START, TARGET, [], "minecraft:coal_ore")
+            try:
+                got = gather._go_way(ctx, None, START, TARGET, [], "minecraft:coal_ore")
+            except (api.Unreachable, api.NavFailed) as e:
+                got = e
         return got, banned
 
     def test_unreachable_bans_the_named_cell(self):
