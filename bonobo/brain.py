@@ -561,11 +561,13 @@ class Brain:
                 break
         return slices
 
-    # -- deciding (nothing acts in here beyond queueing tasks)
+    # -- deciding (nothing acts on the world in here; the queue's bookkeeping — running, done, failed — is written)
     def decide(self, snap, ctx):
-        """One round: its search steps counted from here, to the user's cap (planner.ROUND_STEPS, P4)."""
+        """One round: its search steps counted from here, to the user's cap (planner.ROUND_STEPS, P4); why nothing
+        could be planned (`unplannable`) is this round's alone."""
         planner.SPENT["round"] = planner.SPENT["steps"]
         planner.PATHS.clear()
+        self.unplannable.clear()
         try:
             return self._decide_round(snap, ctx)
         finally:

@@ -50,6 +50,16 @@ class LayeringIsHard(unittest.TestCase):
                 taken, why = body.preempt(fast, lambda: None, "answer", worth_s=WORTH[worth], now=0.0)
                 self.assertEqual((taken, why), ((fast, "answer"), None), f"{fast} over {slow}/{kind}/{elapsed}/{worth}")
 
+    def test_a_running_rescue_is_not_cut_by_its_own_layer(self):
+        """The watcher's danger repeats every REPEAT_S while the rescue for it runs: the same layer never stops its own
+        running answer (arbiter.Motion.preempt), so the rescue is not re-interrupted."""
+        rows = [("must fail: safety over a running safety rescue", "safety", (None, "held")),
+                ("reflex still takes it", "reflex", (("reflex", "drowning"), None))]
+        for name, asker, want in rows:
+            with self.subTest(name):
+                body = body_with(intent("rescue drowning", layer="safety"))
+                self.assertEqual(body.preempt(asker, lambda: None, "drowning", now=0.0), want)
+
     def test_a_slower_layer_never_takes_the_body_from_a_faster_one(self):
         for kind, elapsed, worth in itertools.product(INTENT, ELAPSED, WORTH):
             body = arbiter.Motion()
