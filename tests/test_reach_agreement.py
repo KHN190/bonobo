@@ -312,15 +312,25 @@ class ReachAgreement(unittest.TestCase):
         print(f"rows={rows} red={len(red)}: {red}")
 
 
-def _two_gaps(width=4):
+def _starving_widths(carried):
+    """Pure: (gap1, gap2) so that EACH gap looks affordable priced alone, fresh, off `carried` (gap1 <= budget,
+    gap2 <= budget), but the two together truly starve the second once the first has actually spent its share
+    (gap1 + gap2 > budget): gap1 spends the whole of place_budget(carried) (nav.py:256) in one go, so the carried
+    stock left for gap2 is `carried - budget`, whose OWN budget (place_budget of what's left) is what gap2 must
+    then exceed by 1. TODO(unsure): assumes one tread spent per gap cell (tunnel_steps) -- not measured here."""
+    budget = nav.place_budget(carried)
+    gap1 = budget
+    gap2 = nav.place_budget(carried - gap1) + 1
+    assert gap2 <= budget, f"gap2={gap2} must still look affordable off a fresh {carried} (budget={budget})"
+    return gap1, gap2
+
+
+def _two_gaps(carried):
     """A single 1-wide, walled corridor (z = -1/+1 solid up to y67: no sideways detour around a gap) with two
-    4-wide chasms in it. place_budget(8) = 8 // 2 = 4 (BLOCK_RESERVE=16 only kicks in past stock > 32, nav.py:256-
-    259): a 4-wide gap needs (about) every one of those 4 treads, so crossing it the first time spends roughly the
-    WHOLE budget a fresh 8 allows. cost.Cost.refused/gather._cheapest_seed price the second gap off a fresh
-    Inventory(8) again (gather.py:196; cost.py:188's `self.snap.inv` is never decremented across steps in one
-    plan), so it looks exactly as affordable as the first -- but only ~4 of the real 8 are left once the first gap
-    is actually crossed, and place_budget(4) = 2 < 4 needed for the second (D6). TODO(unsure): tread-per-gap-cell
-    is an assumption about tunnel_steps' bridging, not measured here -- retune `width` if a run shows otherwise."""
+    chasms in it, sized by `_starving_widths` so cost.Cost.refused/gather._cheapest_seed (which price each step off
+    a FRESH Inventory(carried), gather.py:196, cost.py:188 -- never decremented across steps in one plan) call both
+    reachable, while the real sequential run starves the second once the first has actually spent its share (D6)."""
+    gap1, gap2 = _starving_widths(carried)
     lo, hi = (-10, 50, -10), (60, 80, 10)
     blocks = {(x, 63, 0): "stone" for x in range(lo[0], hi[0] + 1)}
     for z in (-1, 1):
@@ -328,7 +338,7 @@ def _two_gaps(width=4):
             for y in range(63, 68):
                 blocks[(x, y, z)] = "stone"          # the corridor wall: no stepping around a gap sideways
     targets, start = [], 1
-    for _ in range(2):
+    for width in (gap1, gap2):
         for x in range(start, start + width):
             blocks.pop((x, 63, 0), None)
         ore = (start + width, 64, 0)
@@ -345,8 +355,8 @@ class CumulativeBudget(unittest.TestCase):
     steps in the same plan) -- expected red today."""
 
     def test_second_step_sees_the_first_steps_spend(self):
-        region, feet, (a, b) = _two_gaps()
         carried = 8
+        region, feet, (a, b) = _two_gaps(carried)
         # plan-side: both steps priced independently off the SAME starting inv (what gather._cheapest_seed/
         # cost.Cost.refused actually do -- neither is handed the other step's planned spend)
         plan_a = _cost.Cost(world.Snapshot.from_readings(state(x=feet[0] + .5, y=feet[1], z=feet[2] + .5),
