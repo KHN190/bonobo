@@ -1491,24 +1491,33 @@ class _After:
         return sum(s["count"] for s in self.slots if s["id"] == mid(item))
 
 
-def _orders(group, cost):
+def _orders(group):
     """The orders of `group` worth planning: targets whose makings share nothing (no item, tool or station on the
     way) plan the same in any order (forward runs them as it routes), so only those that share are permuted."""
-    lb = bound(cost)
+    seen: dict = {}
 
-    def touches(t):
-        out = set()
-        for n in t.needs:
-            tok = tool_item(n[1], int(n[2])) if n[0] == "tool" else n[0]
-            if n[0] in ("fact", "do"):
-                return None             # a fact or an act: what it touches is not in the tables
-            near = {tok, mid(tok)} | lb.reach.get(tok, set()) | lb.reach.get(mid(tok), set())
-            out |= near | {tool_item(k, tr) for x in near for k, tr in lb.needed(x).items()}
-            out |= {s for x in near for s in (lb.tools_of(lb.stations, x) or ())}
+    def near(tok):                  # the item, every input on its ways, their stations and the tools they mine with
+        if tok in seen:
+            return seen[tok]
+        out = seen[tok] = {tok, mid(tok)}
+        for made, src in sources(tok):
+            got = way(src, made, 1)
+            if got is None:
+                continue
+            step, inputs, station, _adds = got
+            if station:
+                out |= near(station)
+            if step.detail.get("tier") is not None:
+                out |= near(tool_item("pickaxe", int(step.detail["tier"])))
+            for t, _c in inputs:
+                out |= near(t)
         return out
-    sets = [touches(t) for t in group]
-    if any(x is None for x in sets):
-        return itertools.permutations(group)
+
+    sets = []
+    for t in group:
+        if any(n[0] in ("fact", "do") for n in t.needs):
+            return itertools.permutations(group)        # a fact or an act: what it touches is not in the tables
+        sets.append(set().union(*[near(tool_item(n[1], int(n[2])) if n[0] == "tool" else n[0]) for n in t.needs]))
     parts: list[list[int]] = []
     for i in range(len(group)):
         joined = [p for p in parts if any(sets[i] & sets[j] for j in p)]
@@ -1521,7 +1530,7 @@ def _orders(group, cost):
 def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False, cap=math.inf):
     """One level's steps in the order of its targets whose whole plan takes fewest seconds (forward's price:"""
     group = sorted(group, key=lambda t: t.rank)
-    orders = _orders(group, cost) if len(group) <= ORDER_MAX else [tuple(group)]
+    orders = _orders(group) if len(group) <= ORDER_MAX else [tuple(group)]
     best, dearer = None, None
     for order in orders:
         needs = [n for t in order for n in t.needs]

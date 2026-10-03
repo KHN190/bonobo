@@ -337,7 +337,7 @@ class AlikeOrdersAreOne(unittest.TestCase):
                   Target("bed", [("bed", 1)], 2), Target("door", [("door", 1)], 3)], 24)]
         for targets, n in rows:
             with self.subTest(n):
-                self.assertEqual(len(list(planner._orders(targets, NullCost()))), n)
+                self.assertEqual(len(list(planner._orders(targets))), n)
 
 
 class TheBoundKnowsTheTrip(unittest.TestCase):
