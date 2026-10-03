@@ -118,7 +118,7 @@ def _use(item, aim, on_block):
     return res
 
 @skill(gives=K.GIVES_FILL, needs={"minecraft:bucket": 1}, done=lambda c: Inventory().count("minecraft:water_bucket") > 0,
-       budget=300, stall=120, provides={"fill": lambda ctx, s: ()})
+       budget=300, stall=120, provides={"fill": lambda ctx, s: ()}, when=K.night_when(surface=True))
 def fill_water_bucket(ctx):
     """Fill an empty bucket at the nearest reachable still water."""
     here = world.feet()

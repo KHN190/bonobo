@@ -557,6 +557,20 @@ class Memory:
             out = [s for s in out if math.dist(s["pos"], near) <= within]
         return out
 
+    def known_stations(self, block, dimension, near=None, within=None):
+        """Cells of the placed stations of `block` (a group: any member) known here — ours and the homes' parts, the
+        one reading of a known station."""
+        names = {bare(m) for m in GROUPS.get(block, GROUPS.get(bare(block), []))} | {bare(block)}
+        kinds = {home_part_kind(n) for n in names}
+        cells = [tuple(s["pos"]) for s in self.stations(dimension) if bare(s.get("block") or "") in names]
+        for h in self.homes(dimension):
+            parts = h.get("parts") or {}
+            cells += [tuple(p[1]) for p in parts.get("stations", []) if bare(p[0]) in names]
+            cells += [tuple(p) for p in parts.get("beds", [])] if "beds" in kinds else []
+        if near is not None and within is not None:
+            cells = [c for c in cells if math.dist(c, near) <= within]
+        return list(dict.fromkeys(cells))
+
     def remove_station(self, pos):
         self.data["stations"] = [s for s in self.data["stations"] if s["pos"] != list(pos)]
         self.save()

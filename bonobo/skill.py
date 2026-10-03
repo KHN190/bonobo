@@ -112,6 +112,7 @@ class Spec:
     when: Callable[[Any, dict], "list | str"] | None = None
     sets: dict | None = None
     uses: "Needs | Callable[[tuple], Needs] | None" = None      # of its needs, what a run uses up (a fn of its args)
+    station: str | None = None      # a block it works at, carried or standing (never used up): the planner's station
 
 class Contract:
     # set by the `skill` decorator once built
@@ -129,6 +130,7 @@ class Contract:
         self.when = spec.when
         self.sets = dict(spec.sets or {})
         self.uses = spec.uses
+        self.station = spec.station
         # soft: perception's interrupt is left for the body to read instead of ending the skill (a fight takes cover and retries)
         self.soft = spec.soft
         self.name, self.fn, self.pre, self.start, self.done = name, fn, tuple(spec.pre), spec.start, spec.done
@@ -302,6 +304,12 @@ def sets_of_step(step):
     return out
 
 
+def station_of_step(step):
+    """Pure: the station block (or group) the contract carrying out `step` works at, carried or standing; None."""
+    c = _provider(step)
+    return None if c is None else c.station
+
+
 def steps_for_fact(fact, value):
     """Pure: [(kind, token)] of the steps whose run sets `fact` to `value`: a contract giving it as a state, or one whose
     `sets` says so — each named by the contract's own effect keys."""
@@ -329,6 +337,7 @@ def _wire_planner():
     knowledge.STEP_SETS = sets_of_step
     knowledge.STEP_USES = step_uses
     knowledge.FACT_STEPS = steps_for_fact
+    knowledge.STEP_STATION = station_of_step
 
 def declared(name, needs, gives=(), remaining=None):
     """Refuse at import a skill that does not state `needs` and `gives` ({} when none), or leaves a world state without `remaining`."""
