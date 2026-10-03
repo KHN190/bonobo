@@ -142,6 +142,31 @@ class RefutedPrice(unittest.TestCase):
         # must fail: the refuted rest under the plan's own lower bound (P3: lb ≤ the chosen price)
         self.assertEqual(c.estimate(step), bound)
 
+    def test_a_cheaper_second_source_is_picked(self):
+        """The near target (buried) refuted dear: the far one (open on the floor, no dig) beats it on a plain walk."""
+        cost_of, step, near, far, mem, bag = _refuted_scene()
+        c0 = cost_of(bag)
+        self.assertEqual(c0.site(step), near, "fixture must pick the near one first, unrefuted")
+        self._refute(mem, step, near, 1000.0, bag)
+        c = cost_of(bag)
+        # must fail: still priced (and sited) at the dear refuted target, not G3's cheaper second source
+        self.assertEqual(c.site(step), far)
+
+    def test_a_bag_change_lifts_the_refutation(self):
+        """The refutation is kept under the bag's way-relevant kinds (ban_state/knowledge.way_kinds: tools, building
+        blocks): a pickaxe swapped for another tier is a different state, so the same target prices fresh again
+        (G3/E5: the fact only lifts by the state change it was measured in)."""
+        from bonobo.world import Inventory
+        from tests.world import inventory
+        cost_of, step, near, _far, mem, bag = _refuted_scene()
+        self._refute(mem, step, near, 0.5, bag)
+        new_bag = Inventory(inventory(("iron_pickaxe", 1)))        # a different tool tier: a different way_kinds set
+        c = cost_of(new_bag)
+        self.assertEqual(c.site(step), near)
+        c.estimate(step)
+        # must fail: the lifted refutation still priced from the old, refuted rest
+        self.assertNotIn("refuted", step.parts)
+
 
 class Accept7MineStep(unittest.TestCase):
     """The production path (dispatch.run_priced → gather._go_way → nav), accept7's shape: an ore 67 off and 10 down
@@ -177,6 +202,139 @@ class Accept7MineStep(unittest.TestCase):
             dispatch.run_priced("minecraft:overworld", step, False,
                                 lambda: gather._go_way(ctx, region, feet, target, [], "minecraft:raw_iron"))
         self.assertEqual([t for t in sent if t["type"] == "mine"], [])
+
+
+class HuntChaseOverrun(unittest.TestCase):
+    """The production path (dispatch.run_priced -> gather.hunt -> skill._drive -> nav.check_budget), accept7-shaped:
+    a prey that never closes in (nav.chase stubbed "moved" every try, a fake clock 10s a chase). Priced 10s, its
+    OVERRUN budget is 15s: stopped after 2 chases, before a 3rd is ever tried (base 2000ec2: no check_budget at all,
+    every one of count*3+3 tries runs, red by assertion -- McError never raised)."""
+
+    def test_stopped_before_the_3rd_chase(self):
+        from bonobo import dispatch, gather, skillcore
+        from bonobo.planner import Step
+        from tests.world import inventory, memory, state
+
+        clock = [0.0]
+        chases = []
+        prey = {"id": 7, "type": "minecraft:cow", "health": 10.0, "distance": 10.0, "x": 5.0, "y": 64.0, "z": 0.0}
+        st = state(x=.5, y=64.0, z=.5)
+        inv_payload = inventory()
+
+        def api_get(path):
+            if path.startswith("/state"):
+                return st
+            if path.startswith("/inventory"):
+                return inv_payload
+            raise AssertionError(f"unexpected api.get {path}")
+
+        def chase(*a, **k):
+            chases.append(1)
+            clock[0] += 10.0
+            return "moved", None
+
+        ctx = skillcore.Context(memory(), nav.Policy(), "minecraft:overworld")
+        step = Step("hunt", "minecraft:beef", 1, {"types": ["minecraft:cow"]}, 10 * TICKS_PER_S)
+        with mock.patch.object(api, "get", api_get), mock.patch.object(api, "detail", lambda *a: None), \
+                mock.patch.object(gather, "feet", lambda: (0, 64, 0)), \
+                mock.patch.object(gather, "entities", lambda *a, **k: [prey]), \
+                mock.patch.object(gather.nav, "chase", chase), \
+                mock.patch.object(nav.time, "time", lambda: clock[0]), \
+                mock.patch.object(dispatch, "trace", lambda *a, **k: None), \
+                self.assertRaises(api.McError):
+            dispatch.run_priced("minecraft:overworld", step, False,
+                                lambda: gather.hunt(ctx, "minecraft:beef", 1, ("minecraft:cow",), False))
+        self.assertLessEqual(len(chases), 2, "must fail: a 3rd chase tried past the step's budget")
+
+
+class SeekLegOverrun(unittest.TestCase):
+    """The production path (dispatch.run_priced -> explore.seek -> explore.seek_blocks -> skill._drive ->
+    nav.check_budget): nothing in sight or remembered, so seek falls through to seek_blocks's `_search`, stubbed to
+    a fixed-cost generator (a leg finds nothing, a fake clock +30s each -- what's under test is the skill-driver/
+    budget interplay, not _search's own frontier search). Priced 20s, budget 30s (OVERRUN_FLOOR_S-clear): stopped
+    after 2 legs, never the 6 of SEARCH_LEGS (base 2000ec2: no check_budget at all, red by assertion)."""
+
+    def test_stopped_after_two_legs(self):
+        from bonobo import dispatch, explore, skillcore
+        from bonobo.planner import Step
+        from tests.world import memory, state
+
+        clock = [0.0]
+        legs = []
+        st = state(x=.5, y=64.0, z=.5)
+
+        def api_get(path):
+            if path.startswith("/state"):
+                return st
+            raise AssertionError(f"unexpected api.get {path}")
+
+        def fake_search(ctx, kinds, look, radius, legs_n):
+            for _ in range(legs_n):
+                legs.append(1)
+                clock[0] += 30.0
+                yield (0, 0)
+            raise api.NotAvailable("stub: never found")
+
+        ctx = skillcore.Context(memory(), nav.Policy(), "minecraft:overworld")
+        step = Step("seek", "minecraft:iron_ore", 1, {"kinds": ["minecraft:iron_ore"]}, 20 * TICKS_PER_S)
+        with mock.patch.object(api, "get", api_get), mock.patch.object(explore, "log", lambda *a: None), \
+                mock.patch.object(explore, "feet", lambda: (0, 64, 0)), \
+                mock.patch.object(explore, "find", lambda *a, **k: []), \
+                mock.patch.object(explore, "entities", lambda *a, **k: []), \
+                mock.patch.object(explore, "_search", fake_search), \
+                mock.patch.object(nav.time, "time", lambda: clock[0]), \
+                mock.patch.object(dispatch, "trace", lambda *a, **k: None), \
+                self.assertRaises(api.McError):
+            dispatch.run_priced("minecraft:overworld", step, False,
+                                lambda: explore.seek(ctx, ["minecraft:iron_ore"]))
+        self.assertLessEqual(len(legs), 2, "must fail: a 3rd leg tried past the step's budget")
+
+
+class OverrunIsReplannedNotFailed(unittest.TestCase):
+    """brain.outcome_of(Overrun) == "interrupted" (data.EXCEPTIONS["Overrun"]: replan, layer:plan; arbiter.RESUME_OF
+    "same"): Brain.failed returns before writing a retry entry or a ban (brain.py:368's early return) -- new API
+    (api.Overrun, EXCEPTIONS/RESUME_OF rows) with no base equivalent: not red by assertion on 2000ec2 (AttributeError/
+    KeyError there), unlike the production-path rows above."""
+
+    def test_outcome_is_interrupted(self):
+        from bonobo import brain
+        self.assertEqual(brain.outcome_of(api.Overrun("the step ran 20s > 15s", pos=(1, 64, 1), remaining_s=20.0)),
+                         ("interrupted", "layer:plan"))
+
+    def test_failed_writes_no_retry_entry_and_no_ban(self):
+        from bonobo import brain
+        from tests.world import brain_fixture
+        b = brain_fixture()
+        outcomes, retried = [], []
+        b.mem.record_outcome = lambda *a, **k: outcomes.append(a)
+        b.retry.failed = lambda *a, **k: retried.append(a)
+        err = api.Overrun("the step ran 20s > 15s", pos=(5, 64, 5), remaining_s=20.0)
+        self.assertIsNone(b.failed("mine:minecraft:raw_iron", err))
+        self.assertEqual(outcomes, [], "must fail: an interruption counted as an outcome")
+        self.assertEqual(retried, [], "must fail: an interruption written as a retry entry")
+        self.assertEqual(b.blacklist, {}, "must fail: an interruption banned its target")
+
+
+class ReflexShelterNeverOverruns(unittest.TestCase):
+    """bench/core.py's shelter path: dispatch.run_priced(..., budget=False) opens no step clock (S7's exclusion), so
+    nav.check_budget/afford stay no-ops however long the reflex runs. `budget=` is new API (no base signature):
+    not red by assertion on 2000ec2 (TypeError there)."""
+
+    def test_a_long_reflex_never_raises(self):
+        from bonobo import dispatch
+        from bonobo.planner import Step
+        step = Step("skill", "shelter", 1, {}, 5 * TICKS_PER_S)
+
+        def long_reflex():
+            self.assertIsNone(nav.BUDGET[0], "must fail: a budget open under budget=False")
+            for _ in range(5):
+                nav.check_budget()               # must never raise: no budget is open
+            nav.afford(1e9, (0, 64, 0))           # an absurd way price: still a no-op with no budget
+            return "sheltered"
+
+        with mock.patch.object(dispatch, "trace", lambda *a, **k: None):
+            out = dispatch.run_priced("minecraft:overworld", step, False, long_reflex, budget=False)
+        self.assertEqual(out, "sheltered")
 
 
 if __name__ == "__main__":
