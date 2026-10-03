@@ -354,8 +354,7 @@ def plan_ctx(b, act, snap, mem, world):
 
 
 def exact_s(inv, want, needs, cost, pending=None):
-    """Seconds of the cheapest plan with no search budget (the planner's exact mode) for what the round planned:
-    its targets (`want`: brain.round_key's (name, goal)), else the task's needs; None when none."""
+    """Seconds of the cheapest plan with no search budget (the planner's exact mode) for what the round planned:"""
     import json
     from bonobo import decompose
     from bonobo.planner import Target, Unplannable, plan_candidates, plan_round
