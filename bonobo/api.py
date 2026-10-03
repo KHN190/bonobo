@@ -423,10 +423,10 @@ TASK_STATUSES: "tuple[TaskStatus, ...]" = ("running", "succeeded", "failed", "ca
 
 
 def task_ticks(r, segment):
-    """Pure: [type, startTick, brokeTick (a mine's; None), endTick, segment] of a jar task record: where a chain's
-    ticks go (`segment`: the POST it came in, STATE.posts)."""
+    """Pure: [type, startTick, marks, endTick, segment] of a jar task record: where a chain's ticks go (marks: a
+    mine's brokeTick, a collect's pickTicks, else None; `segment`: the POST it came in, STATE.posts)."""
     res = r.get("result") if isinstance(r.get("result"), dict) else {}
-    return [r.get("type"), r.get("startTick"), res.get("brokeTick"), r.get("endTick"), segment]
+    return [r.get("type"), r.get("startTick"), res.get("brokeTick", res.get("pickTicks")), r.get("endTick"), segment]
 
 
 def ticks_mark():

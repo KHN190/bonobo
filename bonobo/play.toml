@@ -113,7 +113,3 @@ air_floor = 120            # [policy] ticks: a hard floor under the clock, in ca
 
 [plan]
 slot_fill_s = 90.0         # [prior] seconds of work per inventory slot filled: how fast a bag fills while mining
-# The chance the thing is HERE AT ALL before anything has been looked for: a world where half the errands find
-# what they went for.
-exists_prior = 0.5   # [prior]
-seek_prior_s = 300.0       # [prior] seconds to find one of something never seen (the column solver)

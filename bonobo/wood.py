@@ -20,7 +20,7 @@ def trunk_batch(base, overhead, want):
     x, y, z = base
     logs = [tuple(base)] + [tuple(c) for c in overhead if y < c[1] <= y + TRUNK_REACH]
     logs = logs[:max(1, want)]
-    return nav.mine_batch(logs, collect=False) + [{"type": "collect", "radius": 4, "only": ["log"]}]
+    return nav.mine_batch(logs, only=["log"])
 
 def felled(trunk, still):
     """Pure: none of this trunk's logs still stands (`still`: the log cells the world lists after chopping)."""

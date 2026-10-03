@@ -3,7 +3,7 @@ game. A game or policy item is never fitted (a miss there is a model bug, said);
 kept samples and by at least MIN_CHANGE, one fit moving it at most ×FIT_STEP and never past ×MEASURED_BAND of its first
 prior (knowledge.PRIOR_ORIGIN keeps it). Fitted: the step works (PRIOR_TICKS), a crop's or an animal's growth
 (GROW_S), the walk (WALK_BLOCKS_PER_TICK: a speed, fitted inversely) and its route (ROUTE_FACTOR), a search's
-prior (play.toml seek_prior_s) and the bar's drain (food_drain_s: seconds a point, fitted inversely).
+biome-made densities (FIND_DENSITY: per chunk, fitted inversely) and the bar's drain (food_drain_s: seconds a point, fitted inversely).
 Usage: fit_prices [--write]"""
 import os
 import re
@@ -39,7 +39,7 @@ def current_values():
                                           if isinstance(v, (int, float))}
     out.update({f"knowledge.GROW_S.{k}": (v, False) for k, v in knowledge.GROW_S.items()})
     out["data.WALK_BLOCKS_PER_TICK"] = (data.WALK_BLOCKS_PER_TICK, True)
-    out["plan.seek_prior_s"] = (float(beliefs.CONFIG["plan"]["seek_prior_s"]), False)
+    out.update({f"knowledge.FIND_DENSITY.{k}": (v, True) for k, v in knowledge.FIND_DENSITY.items()})
     out["data.ROUTE_FACTOR"] = (data.ROUTE_FACTOR, False)
     out["risk.food_drain_s"] = (float(beliefs.CONFIG["risk"]["food_drain_s"]), True)      # seconds a point: inversely
     return out
@@ -92,10 +92,10 @@ def fitted_knowledge(src, changes, first):
             key = item.split(".", 1)[1]
             src = _sub_in(src, "PRIOR_TICKS = {", key, str(new))
             src = _sub_in(src, '"knowledge.PRIOR_TICKS": {', key, '"measured"')
-        elif item.startswith("knowledge.GROW_S."):
-            key = item.rsplit(".", 1)[1]
-            src = _sub_in(src, "GROW_S = {", key, str(new))
-            src = _sub_in(src, '"knowledge.GROW_S": {', key, '"measured"')
+        elif item.startswith(("knowledge.GROW_S.", "knowledge.FIND_DENSITY.")):
+            table, key = item.split(".")[1:]
+            src = _sub_in(src, f"{table} = {{", key, str(new))
+            src = _sub_in(src, f'"knowledge.{table}": {{', key, '"measured"')
         elif item in ("data.WALK_BLOCKS_PER_TICK", "data.ROUTE_FACTOR"):
             src = re.sub(rf'"{re.escape(item)}": "[^"]*"', f'"{item}": "measured"', src, count=1)
         b, e = _block(src, "PRIOR_ORIGIN = {")
@@ -113,8 +113,8 @@ def fitted_data(src, changes):
 
 
 def fitted_play(src, changes):
-    """Pure: play.toml with the fitted search prior and the bar's drain, each tagged "[measured]"."""
-    for item in ("plan.seek_prior_s", "risk.food_drain_s"):
+    """Pure: play.toml with the fitted bar's drain, tagged "[measured]"."""
+    for item in ("risk.food_drain_s",):
         if item not in changes:
             continue
         key = item.split(".", 1)[1]

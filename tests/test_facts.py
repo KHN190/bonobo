@@ -52,7 +52,6 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
                 ("stone across the valley", True, (300, 64, 300), (300, 64, 300))]
 
     def test_arriving_removes_the_walk_from_the_plan(self):
-        from bonobo.cost import UNKNOWN_WALK_TICKS
         for name, reachable, pos, where in self.ARRIVALS:
             with self.subTest(name):
                 m = mem()
@@ -61,19 +60,19 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
                 cost = Cost(Snap(), m, blacklist={} if reachable else {tuple(pos): float("inf")})
                 step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
                 walk = cost.estimate(step) - cost.work(step)
-                want = UNKNOWN_WALK_TICKS if where is None else walk_ticks(math.dist(Snap().feet, where))
+                want = cost.find_ticks(["stone"]) if where is None else walk_ticks(math.dist(Snap().feet, where))
                 self.assertEqual(walk, want)
 
     def test_a_refused_route_is_not_there(self):
         """One reachability reading (cost.route_refused, the game's route cache): a remembered spot whose route was asked
         and not found is not there, for the walk and for Cost.reachable alike."""
         from bonobo import cost as costmod
-        from bonobo.cost import UNKNOWN_WALK_TICKS
         pos = (3, 64, 3)
+        search = Cost(Snap(), mem()).find_ticks(["stone"])
         # (situation, the game's answer to the route there) → (the walk priced, reachable)
         rows = [("not asked: there", None, (walk_ticks(math.dist(Snap().feet, pos)), True)),
                 ("asked and found: there", (True, 2.0), (walk_ticks(math.dist(Snap().feet, pos)), True)),
-                ("must fail: asked and not found: a search, not a walk to it", (False, None), (UNKNOWN_WALK_TICKS, False))]
+                ("must fail: asked and not found: a search, not a walk to it", (False, None), (search, False))]
         for name, answer, want in rows:
             with self.subTest(name):
                 m = mem()

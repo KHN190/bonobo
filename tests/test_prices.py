@@ -33,7 +33,10 @@ class ThePriceLine(unittest.TestCase):
         mine = {"type": "mine", "startTick": 100, "endTick": 120, "result": {"block": "minecraft:stone", "brokeTick": 117}}
         rows = [("must fail: a mine's break apart from its collect", mine, ["mine", 100, 117, 120, 3]),
                 ("a walk breaks nothing", {"type": "goto", "startTick": 90, "endTick": 99, "result": None},
-                 ["goto", 90, None, 99, 3])]
+                 ["goto", 90, None, 99, 3]),
+                ("must fail: a sweep's pickups", {"type": "collect", "startTick": 120, "endTick": 150,
+                                                  "result": {"collected": 2, "pickTicks": [128, 139]}},
+                 ["collect", 120, [128, 139], 150, 3])]
         for name, rec, want in rows:
             with self.subTest(name):
                 self.assertEqual(api.task_ticks(rec, 3), want)
@@ -73,17 +76,18 @@ class TheWaitIsTheNightLeft(unittest.TestCase):
         for t in (13000, 18000, 22500):
             with self.subTest(timeOfDay=t):
                 snap = snapshot(state(timeOfDay=t))
-                # must fail: a wait for day priced as a search for something never seen (seek_prior_s / exists_prior)
+                # must fail: a wait for day priced as a search for something never seen (expected_find_s)
                 self.assertEqual(cost(snap).work(Step("wait", "day", 1, {})), round(dawn_s(snap.state) * TICKS_PER_S))
 
 
 class TheWorkAsTheJarRunsIt(unittest.TestCase):
     def test_a_break_is_a_task(self):
+        from bonobo.game import BREAK_COOLDOWN
         from bonobo.knowledge import PRIOR_TICKS, break_ticks, work_s
-        # must fail: a stone broken in the game's 0.6 s (12 ticks) though the jar's mine task takes ~0.95 s
-        # (bench ore_buried, cave_escape): the swing start, the drops, the task boundary
+        # must fail: a stone broken in the game's 12 ticks, though the next waits the game's cooldown and the task
+        # its own (bench q5: start..broke = break + 6 on every mine)
         self.assertEqual(work_s(["stone"], [], {"pickaxe": 1}, TICKS_PER_S) * TICKS_PER_S,
-                         break_ticks("stone", "minecraft:stone_pickaxe") + PRIOR_TICKS["break_task"])
+                         break_ticks("stone", "minecraft:stone_pickaxe") + BREAK_COOLDOWN + PRIOR_TICKS["break_task"])
 
     def test_a_table_placed_for_a_craft_is_taken_back(self):
         from tests.world import cost
@@ -109,6 +113,18 @@ class TheWorkAsTheJarRunsIt(unittest.TestCase):
         # unread by the dig to it, and the tunnel never seeing through the cells it opened)
         self.assertGreaterEqual(breaks.count("stone"), 4)
         self.assertLessEqual(breaks.count("stone"), 6)
+
+    def test_the_search_is_priced_with_the_tools_of_its_step(self):
+        from bonobo import brain, planner  # noqa: F401
+        from bonobo.bench.words import est
+        from bonobo.knowledge import SURFACE_Y
+        world = est.scene_world(["spreadplayers 13000 13000 0 4 false @p", "clear @p"])
+        # must fail: a spread player priced from the bench box's height, not the surface it lands on
+        self.assertEqual(world["feet"][1], SURFACE_Y)
+        c = est.scene_cost(world)
+        iron = [st for st in planner.plan_needs(c.snap.inv, [("tool", "pickaxe", 2)], c) if st.token == "minecraft:raw_iron"][0]
+        # must fail: the iron searched for with the empty bag's hand, though a stone pickaxe is made before it
+        self.assertLess(iron.parts["seek"], c.find_ticks(["iron_ore", "deepslate_iron_ore"]))
 
     def test_crafts_at_one_table_break_it_once(self):
         from bonobo import planner

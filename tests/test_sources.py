@@ -148,13 +148,12 @@ class BuildingBlocks(unittest.TestCase):
                 self.assertEqual([(st.kind, st.token, st.count) for st in steps], want)
 
     def test_nothing_in_sight_prices_the_search(self):
-        """No dirt or stone in sight: the dig is still planned, its walk priced as a search (cost.UNKNOWN_WALK_TICKS)."""
-        from bonobo.cost import UNKNOWN_WALK_TICKS
+        """No dirt or stone in sight: the dig is still planned, its walk priced as a search (cost.find_ticks)."""
         from tests.world import cost, snapshot, state
         snap = snapshot(state(), inventory())
         steps = decompose.decompose(snap.inv, goals.have(("building", 9)), cost(snap))
         self.assertEqual([(st.kind, st.token) for st in steps], [("mine", "minecraft:dirt")])
-        self.assertGreaterEqual(steps[0].est, UNKNOWN_WALK_TICKS)
+        self.assertGreaterEqual(steps[0].est, cost(snap).find_ticks(["dirt"]))
 
 if __name__ == "__main__":
     unittest.main()

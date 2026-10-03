@@ -731,7 +731,7 @@ def r13(trees):
 PRICE_TABLES = ("knowledge.PRIOR_TICKS", "knowledge.SURFACE_Y", "data.MEASURED_BAND", "knowledge.GROW_S", "knowledge.NIGHT_S",
                 "knowledge.MIN_FIND_P", "knowledge.FIND_AT", "data.WALK_BLOCKS_PER_TICK", "data.ROUTE_FACTOR",
                 "data.HARDNESS", "data.TOOL_SPEED", "data.BREAK_DIVISOR", "data.PASSIVE_WEIGHT", "data.SEARCH_LEGS",
-                "data.SEARCH_LOOK_R", "game.EAT_TICKS", "game.PLAYER_SPRINT")
+                "data.SEARCH_LOOK_R", "game.EAT_TICKS", "game.PLAYER_SPRINT", "game.BREAK_COOLDOWN")
 PRICE_TOML = {"play.toml": ("time", "water", "plan", "engage", "mobs")}
 LABELS = ("game", "measured", "prior", "mineflayer prior", "policy")
 PRICED = ("cost.py",)

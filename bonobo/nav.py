@@ -106,12 +106,39 @@ def batch_sweep(cells, only=None):
             "idle": SWEEP_IDLE, **({"only": list(only)} if only else {})}
 
 
+PICKUP_CELLS = 1      # cells beside the feet whose drop falls in the pickup box (the body's box grown 1 block: game)
+
+
+def dig_order(cells, feet, n=None) -> "list[tuple[Cell, str | None]]":
+    """Pure: up to `n` of `cells` in the order a speedrunner breaks them, each drop falling in the pickup box —
+    [(cell, how)]: a cell at or above the feet first, nearest, a column top down (a face: its drop lands at the body's
+    level); with none left there, the next downward, mined from inside the last hole and stepped into ("step"), or
+    under the feet ("down": the body falls in) — a trench, a staircase, never a hole per cell walked into and out of.
+    A cell at the feet's level past PICKUP_CELLS is stepped onto after its break."""
+    left, f, out = {tuple(c) for c in cells}, tuple(feet), []
+    while left and (n is None or len(out) < n):
+        up = [c for c in left if c[1] >= f[1]]
+        c = (min(up, key=lambda c: (math.hypot(c[0] - f[0], c[2] - f[2]), -c[1], c)) if up else
+             min(left, key=lambda c: (f[1] - c[1], math.hypot(c[0] - f[0], c[2] - f[2]), c)))
+        h = math.hypot(c[0] - f[0], c[2] - f[2])
+        how = None if c[1] > f[1] or (c[1] == f[1] and h <= PICKUP_CELLS) else "down" if h == 0 else "step"
+        out.append((c, how))
+        left.discard(c)
+        f = c if how else f
+    return out
+
+
 def mine_batch(cells: list[Cell], start=None, require_drops=False, collect=True, only=None):
-    """Pure: many cells to break as one chain — single mines in mine_order, the closing sweep (batch_sweep) last when `collect`."""
-    order = mine_order(cells, start)
-    tasks = [{"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False, "requireDrops": require_drops}
-             for c in order]
-    return tasks + ([batch_sweep(order, only)] if collect else [])
+    """Pure: many cells to break as one chain — single mines in mine_order, or, collecting from a known stand, in
+    dig_order with its steps (each drop at the feet); the closing sweep (batch_sweep) last when `collect`."""
+    plan = dig_order(cells, start) if collect and start is not None else [(c, None) for c in mine_order(cells, start)]
+    tasks = []
+    for c, how in plan:
+        tasks.append({"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False, "requireDrops": require_drops,
+                      **({"down": True} if how == "down" else {})})
+        if how == "step":
+            tasks.append({"type": "goto", "x": c[0], "y": c[1], "z": c[2], "range": 0.5, "partial": True})
+    return tasks + ([batch_sweep([c for c, _h in plan], only)] if collect else [])
 
 
 def build_batch(blocks, start=None):

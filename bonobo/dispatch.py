@@ -10,7 +10,7 @@ from . import world
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, log, swallowed
 from .data import GROUPS, TICKS_PER_S, bare, mid, seen_class
-from .knowledge import FIND_AT, PRICE_SOURCE, PRIOR_TICKS
+from .knowledge import FIND_AT, PRICE_SOURCE, PRIOR_TICKS, find_class, step_kinds
 
 SEEK_KINDS = ("mine", "gather", "hunt")      # steps whose "nothing in range" is answered by looking elsewhere
 
@@ -38,13 +38,13 @@ def work_item(step):
     if step.kind == "await":
         return "knowledge.GROW_S.crop" if "wheat" in step.token else "knowledge.GROW_S.animal"
     if step.kind == "seek":
-        return "plan.seek_prior_s"
+        return seek_item(step)
     return f"PRIOR_TICKS.{PER_UNIT.get(step.kind, step.kind if step.kind in PRIOR_TICKS else 'skill')}"
 
 
 def seek_item(step):
-    return "PRIOR_TICKS.unknown_water" if step.kind == "fill" else "plan.seek_prior_s" if step.kind == "seek" \
-        else "PRIOR_TICKS.unknown_walk"
+    """Pure: the price item a search for the step's source rests on (knowledge.find_class of its first kind)."""
+    return find_class((step_kinds(step) or ["other"])[0])[1]
 
 
 def price_line(step, night, dimension, actual_s, why=None, row=None, phases=None):

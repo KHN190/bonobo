@@ -418,6 +418,13 @@ def PW(step):
     return prior_work_ticks(step, {}, costmod.TICKS_PER_S)
 
 
+def FIND(kind, st=None):
+    """A search's ticks for `kind` from the test body (knowledge.expected_find_s over its feet and tools)."""
+    from bonobo.knowledge import expected_find_s, held_tiers
+    s = snapshot(st)
+    return round(expected_find_s(kind, {"y": s.feet[1], "held": held_tiers(s.inv)}) * costmod.TICKS_PER_S)
+
+
 IRON4 = Step("mine", "minecraft:raw_iron", 4, {"blocks": ["iron_ore"], "breaks": 4})
 UNDER = state(skyLight=0, y=20.0)
 # (situation, step, /state, what /find saw, ticks expected: prior work + the walk to it)
@@ -426,7 +433,7 @@ ESTIMATES = [
     ("smelt 3: each + setup", Step("smelt", "minecraft:iron_ingot", 3), None, {}, 3 * PT["smelt_each"] + PT["smelt_setup"]),
     ("mine 4 breaks, ore 10 away", IRON4, None, {"iron_ore": 10}, PW(IRON4) + WT(10)),
     ("must fail: a walk of 0 under-prices — mine, nothing in sight", IRON4, None, {},
-     PW(IRON4) + costmod.UNKNOWN_WALK_TICKS),
+     PW(IRON4) + FIND("iron_ore")),
     ("gather 2, a tree 8 away", Step("gather", "log", 2), None, {"oak_log": 8}, PW(Step("gather", "log", 2)) + WT(8)),
     ("gather underground: the climb out is part of it", Step("gather", "log", 2), UNDER, {"oak_log": 8},
      PW(Step("gather", "log", 2)) + WT(8) + PT["surface"] + PT["surface_per_block"] * (64 - 20)),
@@ -435,7 +442,8 @@ ESTIMATES = [
     ("goto 30 blocks", Step("goto", "pos", 1, {"pos": [30, 64, 0]}), None, {}, WT(30)),
     ("withdraw from a chest 5 away", Step("withdraw", "minecraft:oak_log", 4, {"pos": [5, 64, 0]}), None, {},
      PT["withdraw"] + WT(5)),
-    ("fill with no water known", Step("fill", "minecraft:water_bucket", 1), None, {}, PT["fill"] + 1200),
+    ("fill with no water known: the search by its density", Step("fill", "minecraft:water_bucket", 1), None, {},
+     PT["fill"] + FIND("water")),
     ("sleep", Step("sleep", "bed", 1), None, {}, PT["sleep"]),
 ]
 
@@ -540,7 +548,7 @@ class CostModel(unittest.TestCase):
         spot is not somewhere to go; a log is found as a remembered "tree"."""
         from bonobo import nav, world
         key = lambda p: world.route_key(p, 2.0, 6000)  # noqa: E731
-        prior = float(costmod._PLAY["plan"]["seek_prior_s"])
+        prior = FIND("iron_ore") / costmod.TICKS_PER_S
         rows = [("a route the game priced this round", ("iron_ore", (10, 64, 0)), ["iron_ore"], {key((10, 64, 0)): (True, 7.3)},
                  {}, 7.3),
                 ("no route asked: the walk", ("iron_ore", (10, 64, 0)), ["iron_ore"], {}, {}, round(WT(10) / 20 + 2.0, 1)),
@@ -601,7 +609,7 @@ class CostModel(unittest.TestCase):
                                  want)
 
     def test_seek_seconds(self):
-        prior = float(costmod._PLAY["plan"]["seek_prior_s"])
+        prior = FIND("iron_ore") / costmod.TICKS_PER_S
         for name, known, want in self.SEEKS:
             with self.subTest(name):
                 m = memory()
@@ -609,24 +617,24 @@ class CostModel(unittest.TestCase):
                     m.note_seen("iron_ore", (int(known), 64, 0), OVER)       # `known` blocks from the feet
                 c = costmod.Cost(snapshot(), m)
                 self.assertAlmostEqual(c.seek_s(["iron_ore"]), round(want if want is not None else prior, 1), places=1)
-                self.assertEqual(c.find_p(["iron_ore"]), float(costmod._PLAY["plan"]["exists_prior"]))
 
-    def test_find_chance_by_kind(self):
-        # unseen kinds priced by how the game makes them (data.FIND_P), the rest by the prior
+    def test_find_seconds_by_kind(self):
+        """Unseen kinds priced by how the game places them (knowledge.expected_find_s), the soonest of a step's kinds."""
         from bonobo import data
-        prior = float(costmod._PLAY["plan"]["exists_prior"])
         c = costmod.Cost(snapshot(), memory())
-        sheep, bed = max(data.PASSIVE_WEIGHT, key=data.PASSIVE_WEIGHT.get), f"{data.COLORS[0]}_bed"
-        rows = [("the commonest animal: found every search", ["minecraft:" + sheep], 1.0),
-                ("a village-only block", [bed], data.VILLAGE_P),
-                ("a kind the table does not know: the prior", ["iron_ore"], prior)]
+        weight = data.PASSIVE_WEIGHT
+        common, rare = max(weight, key=weight.get), min(weight, key=weight.get)
+        bed = f"{data.COLORS[0]}_bed"
+        rows = [("the commonest animal", ["minecraft:" + common], FIND("minecraft:" + common)),
+                ("an ore: its band's tunnel", ["iron_ore"], FIND("iron_ore")),
+                ("the soonest of two kinds", ["minecraft:" + rare, "minecraft:" + common], FIND("minecraft:" + common))]
         for name, kinds, want in rows:
             with self.subTest(name):
-                self.assertAlmostEqual(c.find_p(kinds), want)
-        def seek(kinds):
-            return c.seek_s(kinds) / c.find_p(kinds)          # the search's seconds, by the chance it finds one
+                self.assertEqual(c.find_ticks(kinds), want)
         # must fail: a bed priced as a sheep (free run 23:46: seek white_bed ~600s beat wool from sheep)
-        self.assertGreater(seek([bed]), seek(["minecraft:" + sheep]))
+        self.assertGreater(c.seek_s([bed]), c.seek_s(["minecraft:" + common]))
+        # must fail: a rare animal priced as the commonest
+        self.assertGreater(c.seek_s(["minecraft:" + rare]), c.seek_s(["minecraft:" + common]))
 
 
 def stone_tools(worn=0):
@@ -2283,8 +2291,9 @@ class Overnight(unittest.TestCase):
                  pick + [("white_bed", 1)], {"soft_ground": False}, True, ("bed", [])),
                 ("17:49: a home bed 12 s away — the home's bed, not dig in",
                  pick, needs.night_facts(False, (), True, 12.0), True, ("home", ["shelter"])),
-                ("must fail: the home bed 900 s of open night walk away — a safe dig-in, not the exposed walk",
-                 pick, needs.night_facts(False, (), True, 900.0), True, ("dig in", ["shelter"])),
+                ("must fail: the home bed 900 s of open night walk away — not the walk: a bed made before dark (3 sheep, a
+                 # table) is ~111 s against the dig-in's 25 s and the night waited out in it",
+                 pick, needs.night_facts(False, (), True, 900.0), True, ("bed", ["hunt", "gather", "craft", "craft", "craft"])),
                 ("no bed carried, the home bed with no way to it (no home_bed fact): dig in",
                  pick, {"soft_ground": False}, True, ("dig in", ["shelter"])),
                 ("the shelter row (bed_too off) with a bed carried that was refused: a shelter to wait in",
@@ -2296,11 +2305,15 @@ class Overnight(unittest.TestCase):
                 self.assertEqual((got, [st.kind for st in steps]), want)
 
     def test_stone_ground_dirt_near_walls_in(self):
-        """On stone, an empty bag, dirt 4 away: nine dirt dug by hand, then walled in (SOURCES["building"])."""
+        """On stone, an empty bag, dirt 4 away, no tree seen: the cheaper of nine dirt dug by hand and walled in, or a
+        wooden pickaxe from a tree found by the prior density (knowledge.FIND_DENSITY) and dug in — priced, not pinned."""
         snap = snapshot(state(timeOfDay=NIGHT), inventory())
-        got, _secs, steps = needs.overnight(snap.inv, cost(snap, dirt=4), {"soft_ground": False}, bed_too=False)
-        self.assertEqual((got, [(st.kind, st.token) for st in steps]),
-                         ("wall in", [("mine", "minecraft:dirt"), ("shelter", "pod")]))
+        c = cost(snap, dirt=4)
+        got, secs, steps = needs.overnight(snap.inv, c, {"soft_ground": False}, bed_too=False)
+        pod = {o[0]: o[2] for o in needs.night_options(snap.inv, c, {"soft_ground": False}, False)}["wall in"]
+        dirt = c.estimate(Step("mine", "minecraft:dirt", 9, {"blocks": ["dirt", "grass_block"], "breaks": 9})) / 20
+        self.assertEqual(got, "dig in" if secs < dirt + pod else "wall in")
+        self.assertNotIn(got, (None, "hut"))     # must fail: no way, or the dearest one
 
     def test_soft_below_over_the_table(self):
         from bonobo.terrain import soft_below
@@ -2757,15 +2770,19 @@ class TrunkBatch(unittest.TestCase):
             # single mines, the top of the column first (nav.mine_order)
             return [{"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False, "requireDrops": False}
                     for c in sorted(cells, key=lambda c: -c[1])]
-        pick = {"type": "collect", "radius": 4, "only": ["log"]}
+        from bonobo import nav
+
+        def batch(*cells):
+            # the closing pickup every batch has (nav.batch_sweep: its idle SWEEP_IDLE); must fail: the jar's 20
+            return many(*cells) + [nav.batch_sweep(nav.mine_order(cells), ["log"])]
         base = (3, 64, 0)
         up = [(3, 65, 0), (3, 66, 0), (3, 67, 0)]
-        rows = [("four wanted, three overhead: one batch of all of it, no walk in", up, 4, many(base, *up) + [pick]),
-                ("two wanted: the base and the log over it", up, 2, many(base, up[0]) + [pick]),
-                ("one wanted: the base only", up, 1, many(base) + [pick]),
-                ("a stump (nothing overhead)", [], 5, many(base) + [pick]),
+        rows = [("four wanted, three overhead: one batch of all of it, no walk in", up, 4, batch(base, *up)),
+                ("two wanted: the base and the log over it", up, 2, batch(base, up[0])),
+                ("one wanted: the base only", up, 1, batch(base)),
+                ("a stump (nothing overhead)", [], 5, batch(base)),
                 ("must fail: a log past reach (5 up and more): not in the batch", up + [(3, 69, 0), (3, 70, 0)], 9,
-                 many(base, *up) + [pick])]
+                 batch(base, *up))]
         for name, overhead, want, batch in rows:
             with self.subTest(name):
                 self.assertEqual(wood.trunk_batch((3, 64, 0), overhead, want), batch)

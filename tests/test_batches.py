@@ -32,6 +32,32 @@ class MineOrder(unittest.TestCase):
                 self.assertEqual(nav.mine_order(cells, start), want)
 
 
+class DigOrder(unittest.TestCase):
+    """nav.dig_order: a speedrunner's order, each drop in the pickup box — a face first, then a trench or staircase
+    mined from inside the last hole (mine_stone__base: 3 holes 2 apart, a step into and out of each, 65 ticks)."""
+
+    def test_rows(self):
+        f = (0, 64, 0)
+        rows = [("a face before the floor", [(0, 63, 2), (1, 64, 0)], f, None,
+                 [((1, 64, 0), None), ((0, 63, 2), "step")]),
+                ("a column top down", [(1, 64, 0), (1, 65, 0)], f, None, [((1, 65, 0), None), ((1, 64, 0), None)]),
+                ("must fail: a trench from inside the first hole, its next cells beside the feet",
+                 [(2, 63, 0), (3, 63, 0), (2, 63, 1)], f, None,
+                 [((2, 63, 0), "step"), ((2, 63, 1), None), ((3, 63, 0), None)]),
+                ("under the feet: the body falls in", [(0, 63, 0)], f, None, [((0, 63, 0), "down")]),
+                ("n of them", [(1, 64, 0), (2, 64, 0), (5, 64, 0)], f, 2, [((1, 64, 0), None), ((2, 64, 0), "step")]),
+                ("nothing: nothing", [], f, None, [])]
+        for name, cells, feet, n, want in rows:
+            with self.subTest(name):
+                self.assertEqual(nav.dig_order(cells, feet, n), want)
+
+    def test_mine_batch_steps_into_each_hole_once(self):
+        f = (0, 64, 0)
+        got = nav.mine_batch([(2, 63, 0), (2, 63, 1)], f)
+        self.assertEqual([(t["type"], t["x"], t["y"], t["z"]) for t in got[:-1]],
+                         [("mine", 2, 63, 0), ("goto", 2, 63, 0), ("mine", 2, 63, 1)])   # must fail: no step in
+
+
 class BuildOrder(unittest.TestCase):
     def test_rows(self):
         rows = [("the lowest layer first, whatever the list", [(0, 65, 0), (0, 64, 0)], (0, 64, 0),

@@ -2,9 +2,10 @@
 import functools
 import math
 
-from .game import COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
+from .game import BREAK_COOLDOWN, COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
 from .data import ANIMAL_HP, BASE_MARKERS, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, HARDNESS, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
 from .data import TAKEABLE
+from .data import CHUNK_BLOCKS, CREATURE_CHUNK_P, DEEPSLATE_TOP, ORE_VEINS, PASSIVE_WEIGHT, ROUTE_FACTOR, SEARCH_LOOK_R, VILLAGE_ONLY, VILLAGE_REGION_BLOCKS, WALK_BLOCKS_PER_TICK
 from .data import COLORS, WOODS, ATTACKS_PER_S, HAND_ATTACKS_PER_S, HAND_DAMAGE, NETHER, OVERWORLD, PIGLIN_BARTER, is_night
 
 # group recipes: the output follows the input variant; the craft skill picks one owned member with enough
@@ -129,6 +130,95 @@ FIND_AT = {
     "minecraft:diamond": -58, "minecraft:redstone": -58, "minecraft:lapis_lazuli": 0,
     "log": None, "minecraft:sand": None, "minecraft:clay_ball": None, "food": None,
 }
+
+# what the game has no one table for (biome-made), per chunk of ground: priors E4 measures
+FIND_DENSITY = {"tree": 1.0, "water": 0.5, "sand": 0.25, "clay": 0.1, "other": 0.05}
+TUNNEL_FACES = 6          # block faces a 1×2 tunnel's step lays open: each cell's two sides, the roof, the floor
+WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~5.3 ticks a block, sprinting with detours
+SOIL_KINDS = {"stone", "cobblestone", "dirt", "grass_block", "coarse_dirt"}
+AREA_KINDS = {"water": "water", "sand": "sand", "red_sand": "sand", "clay": "clay", "clay_ball": "clay"}
+
+
+def find_class(kind):
+    """Pure: (how the game places `kind`, the price item that says how often): an ore's veins, the soil under the
+    feet, a tree, a passive animal, a village's, or a biome-made patch (FIND_DENSITY)."""
+    k = bare(kind).removeprefix("deepslate_")
+    if k in ORE_VEINS:
+        return "ore", "data.ORE_VEINS"
+    if k in SOIL_KINDS:
+        return "soil", "data.SOIL_DEPTH"
+    if k == "deepslate":
+        return "deep", "data.DEEPSLATE_TOP"
+    if k == "log" or k.endswith(("_log", "_stem")):
+        return "tree", "knowledge.FIND_DENSITY.tree"
+    if k in PASSIVE_WEIGHT:
+        return "animal", "data.CREATURE_CHUNK_P"
+    if k in VILLAGE_ONLY:
+        return "village", "data.VILLAGE_REGION_BLOCKS"
+    area = AREA_KINDS.get(k, "other")
+    return area, f"knowledge.FIND_DENSITY.{area}"
+
+
+def ore_layer_blocks(ore, y):
+    """Pure: blocks of `ore` a chunk holds in the one layer at `y` (ORE_VEINS: veins × size, spread uniform or
+    triangular over each placement's range)."""
+    total = 0.0
+    for veins, size, lo, hi, shape in ORE_VEINS[ore]:
+        if not lo <= y <= hi:
+            continue
+        span = hi - lo
+        share = 1.0 / span if shape == "uniform" else (2.0 / span) * (1.0 - abs(y - (lo + hi) / 2) / (span / 2))
+        total += veins * size * share
+    return total
+
+
+def _area_s(per_block2):
+    """Seconds to the first one of a kind spread `per_block2` over the ground: a walk sweeping a band as wide as a
+    look sees (2 × SEARCH_LOOK_R) until one is in sight, then the walk to it (its mean distance in the look)."""
+    blocks = 1.0 / (2 * SEARCH_LOOK_R * per_block2) + 2 * SEARCH_LOOK_R / 3
+    return blocks * WALK_TICKS_PER_BLOCK / TICKS_PER_S
+
+
+def expected_find_s(kind, facts):
+    """Pure: expected seconds to find one `kind` never seen, from how the game places it (find_class). `facts`:
+    {"y": the feet's y, "held": {tool kind: tier}}. An ore: the dig to its richest band (FIND_AT) and a tunnel there
+    until one shows; the soil's rock: its depth dug; the rest: a walk over the ground (_area_s)."""
+    cls, _item = find_class(kind)
+    held = facts.get("held", {})
+    k = bare(kind).removeprefix("deepslate_")
+    if cls == "ore":
+        drop = next(d for d, (blocks, _t) in MINE.items() if k in [bare(b) for b in blocks])
+        band = FIND_AT[drop]
+        rock = "deepslate" if band < DEEPSLATE_TOP else "stone"
+        per_block = ore_layer_blocks(k, band) / CHUNK_BLOCKS ** 2
+        step_s = work_s([rock, rock], [], held, TICKS_PER_S) + WALK_TICKS_PER_BLOCK / TICKS_PER_S
+        descent = work_s([rock] * abs(int(facts.get("y", band)) - band), [], held, TICKS_PER_S)
+        return descent + step_s / (TUNNEL_FACES * per_block)
+    if cls == "soil":
+        return work_s(["dirt"] * SOIL_DEPTH, [], held, TICKS_PER_S)
+    if cls == "deep":
+        return work_s(["stone"] * max(0, int(facts.get("y", DEEPSLATE_TOP)) - DEEPSLATE_TOP + 1), [], held, TICKS_PER_S)
+    if cls == "animal":
+        return _area_s(CREATURE_CHUNK_P / CHUNK_BLOCKS ** 2 * PASSIVE_WEIGHT[k] / sum(PASSIVE_WEIGHT.values()))
+    if cls == "village":
+        return _area_s(1.0 / VILLAGE_REGION_BLOCKS ** 2)
+    return _area_s(FIND_DENSITY[cls] / CHUNK_BLOCKS ** 2)
+
+
+def step_kinds(step):
+    """Pure: the blocks or mobs a step's source is (what a search for it looks for)."""
+    k = step.kind
+    if k == "gather":
+        return list(GROUPS["log"])
+    if k in ("mine", "take"):
+        return list(step.detail.get("blocks") or ())
+    if k == "fill":
+        return ["water"]
+    if k in ("hunt", "trade"):
+        return list(step.detail.get("types") or ())
+    if k == "seek":
+        return list(step.detail.get("kinds") or [step.token])
+    return []
 
 # every block the cost model and the reflexes ask "how far" about: one scan per round answers all (world.nearest)
 SOURCE_BLOCKS = sorted({b for blocks, _tier in MINE.values() for b in blocks} | set(GROUPS["log"])
@@ -393,7 +483,12 @@ def tool_for(inv, block, min_left=2):
 
 def dig_ticks(blocks, inv):
     """Pure: ticks the breaks of `blocks` (a block name per cell) take, each with the item tool_for holds for it."""
-    return sum(break_ticks(b, tool_for(inv, b)) + PRIOR_TICKS["break_task"] for b in blocks)
+    return sum(break_ticks(b, tool_for(inv, b)) + break_overhead() for b in blocks)
+
+
+def break_overhead():
+    """Ticks a mine task takes per block past the game's break: the game's cooldown and the task's own."""
+    return BREAK_COOLDOWN + PRIOR_TICKS["break_task"]
 
 def tool_item(kind, tier):
     """Pure: the tool of `kind` at `tier` ("minecraft:stone_shovel")."""
@@ -403,7 +498,7 @@ def work_s(breaks, kills, held, ticks_per_s):
     """Pure: seconds the work takes — each block of `breaks` broken, each hp of `kills` dealt — with the best of the
     hand and `held` ({tool kind: tier}) for each."""
     items = ["hand"] + [tool_item(k, t) for k, t in held.items()]
-    return (sum(min(break_ticks(b, i) for i in items) + PRIOR_TICKS["break_task"] for b in breaks) / ticks_per_s
+    return (sum(min(break_ticks(b, i) for i in items) + break_overhead() for b in breaks) / ticks_per_s
             + sum(min(kill_s(i, hp) for i in items) for hp in kills))
 
 def own_work(step):
@@ -783,12 +878,11 @@ PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 
                "shelter:dig_in": 500, "shelter:pod": 800, "shelter:hut": 2400,
                "room:tidy": 300, "room:deposit": 1200,
                "surface": 200, "surface_per_block": 30,     # out from under rock: a base and per block below SURFACE_Y
-               "unknown_walk": 6000, "unknown_water": 1200,  # nothing known nearby: a search's walk; water's
-               "break_task": 8}     # a mine task's own time per block past the game's break: the swing, the drops
+               "break_task": 1}     # a mine's own ticks past the break and BREAK_COOLDOWN: the segment boundary
+#                                    (bench q5: 2-4 ticks a segment of 2-4 mines)
 SURFACE_Y = 64
 GROW_S = {"crop": 900, "animal": 1200}     # seconds (jobs.DURATION)
 NIGHT_S = 420.0               # a night, when the clock is not read
-MIN_FIND_P = 0.02
 # where each price comes from (static R14): game (the game's own data), measured (fitted from runs), prior (a guess,
 # E4's to do), policy (a choice, not a measurable price)
 PRICE_SOURCE = {
@@ -798,13 +892,14 @@ PRICE_SOURCE = {
         "take": "prior", "withdraw": "prior", "look": "prior", "cast": "prior", "farm": "prior", "trade": "prior",
         "reach": "prior", "breed": "prior", "eat": "game", "pickup_each": "measured", "shelter:dig_in": "prior", "shelter:pod": "prior",
         "shelter:hut": "prior", "room:tidy": "prior", "room:deposit": "prior", "surface": "prior",
-        "surface_per_block": "prior", "unknown_walk": "prior", "unknown_water": "prior",
-        "break_task": "measured"},      # bench f1 traces: a stone break 0.95 s against the game's 0.56 s
+        "surface_per_block": "prior",
+        "break_task": "measured"},      # bench q5 ticks (readiness: mine_stone__base, ore_buried, chop__base)
     "knowledge.SURFACE_Y": "game", "data.MEASURED_BAND": "policy", "knowledge.GROW_S": {"crop": "prior", "animal": "game"}, "knowledge.NIGHT_S": "game",
-    "knowledge.MIN_FIND_P": "policy", "knowledge.FIND_AT": "game",
+    "knowledge.FIND_AT": "game", "knowledge.FIND_DENSITY": {"tree": "prior", "water": "prior", "sand": "prior", "clay": "prior", "other": "prior"}, "knowledge.TUNNEL_FACES": "game",
+    "data.ORE_VEINS": "game", "data.CREATURE_CHUNK_P": "game", "data.VILLAGE_REGION_BLOCKS": "game", "data.SOIL_DEPTH": "prior", "data.DEEPSLATE_TOP": "game",
     "data.WALK_BLOCKS_PER_TICK": "mineflayer prior", "data.ROUTE_FACTOR": "prior", "data.HARDNESS": "game",
     "data.TOOL_SPEED": "game", "data.BREAK_DIVISOR": "game", "data.PASSIVE_WEIGHT": "game", "data.SEARCH_LEGS": "prior",
-    "data.SEARCH_LOOK_R": "prior", "game.EAT_TICKS": "game", "game.PLAYER_SPRINT": "game",
+    "data.SEARCH_LOOK_R": "prior", "game.EAT_TICKS": "game", "game.BREAK_COOLDOWN": "game", "game.PLAYER_SPRINT": "game",
 }
 PRIOR_ORIGIN = {}     # a fitted price item → its first value (tools.fit_prices bounds every fit by it)
 

@@ -114,15 +114,16 @@ def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
 
 def pass_cells(vein, open_set, start: Cell, n) -> list[Cell]:
     """Pure: the `n` cells one pass sends — those with an open face in WORK_REACH of `start` first (one chain from
-    where the body stands), then the rest nearest first."""
-    return sorted(vein, key=lambda p: (not (p in open_set and math.dist(p, start) <= WORK_REACH),
-                                       math.dist(p, start), p))[:n]
+    where the body stands), in nav.dig_order (a face or a trench: each drop at the feet), then the rest nearest first."""
+    here = mineable([p for p in vein if p in open_set and math.dist(p, start) <= WORK_REACH], start)
+    first = [c for c, _how in nav.dig_order(here, start, n)]
+    return first + sorted((p for p in vein if p not in first), key=lambda p: (math.dist(p, start), p))[:n - len(first)]
 
 
 def approach_cell(vein, open_set, start: Cell) -> Cell:
     """Pure: the vein cell a pass goes for first — an open-faced one within WORK_REACH of `start` (worked from where
     the body stands), else the nearest: a shaft or a tunnel only for a vein with no open face in reach."""
-    here = [p for p in vein if p in open_set and math.dist(p, start) <= WORK_REACH]
+    here = mineable([p for p in vein if p in open_set and math.dist(p, start) <= WORK_REACH], start)
     return min(here or vein, key=lambda p: (math.dist(p, start), p))
 
 
@@ -362,7 +363,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"{blocks[0]} at {buried}: buried, and no way dug to it")
             continue
-        vein = set(open_faced[:MINE_BATCH])
+        vein = {c for c, _how in nav.dig_order(open_faced, here_now, MINE_BATCH)}
         if not ctx.policy.lava_ok:
             # seal every fluid face of what is about to break (seal_plan); with nothing to seal with, ban those cells (unless the goal wants the fluid)
             seal, wet, e = seal_or_wet(region, vein, Inventory())

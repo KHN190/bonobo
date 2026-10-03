@@ -11,6 +11,7 @@ import os
 import re
 
 from ...data import TICKS_PER_S, bare
+from ...knowledge import SURFACE_Y
 from ..core import pos
 from .ways import _bag
 
@@ -34,6 +35,8 @@ def scene_world(setup):
                 blocks[p] = "air" if mode == "hollow" and not shell(p) else block
         elif w[:2] == ["tp", "@p"] and len(w) >= 5:
             feet = tuple(math.floor(float(v)) for v in w[2:5])
+        elif w[:1] == ["spreadplayers"] and len(w) >= 3:
+            feet = (math.floor(float(w[1])), SURFACE_Y, math.floor(float(w[2])))     # dropped on the top block
         elif w[:2] == ["give", "@p"]:
             item = re.split(r"[\[{]", w[2])[0]
             slots.append((bare(item), int(w[3]) if len(w) > 3 else 1))
