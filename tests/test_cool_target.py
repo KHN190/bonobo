@@ -1,5 +1,5 @@
-"""A cause cooled at a target (brain.failed: `pos`) must be read back from that target, not only from the body's
-place (brain.wait_s) — else a target-bound cooling never holds (reselect every round, retry at once).
+"""A dig-in refused here cools where the body stands (no target to re-plan around), so the next night way is
+priced instead of the same one again.
 
 Maintain.shelter: a night way that fails must not look like a false "ok" (brain.attempt: fn() returned, no
 exception) — the next untried way is tried in the same call; only every way failing is a real failure."""
@@ -13,28 +13,23 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api, reflexes, retry  # noqa: E402
 from bonobo.api import McError, NotAvailable  # noqa: E402
 from bonobo.planner import Step  # noqa: E402
-from tests.world import brain_fixture, inventory, round_ctx, snapshot, state  # noqa: E402
+from bonobo import survive  # noqa: E402
+from bonobo.world import Inventory  # noqa: E402
+from tests.world import FakeRegion, brain_fixture, inventory, round_ctx, snapshot, state  # noqa: E402
 
 HERE = (0.0, 64.0, 0.0)
 
 
-class TargetCooldownIsReadBackAtTheTarget(unittest.TestCase):
-    """(situation, the task asked about) → ready now? `fail_task` cools at ("target", pos), never at the body's
-    own place (brain.failed); `ready` must check both, or a target-bound cooling never holds."""
-    ROWS = [
-        ("must fail: the failed task, at its target: not ready", "dig in", False),
-        ("a different task, never failed: still ready (the cooling is this task's alone)", "wall in", True),
-    ]
-
-    def test_rows(self):
-        for name, task, want in self.ROWS:
-            with self.subTest(name), tempfile.TemporaryDirectory():
-                b = brain_fixture()
-                b.retry, b.place = retry.Retry(), retry.place_signature(HERE, False)
-                b.round_snap = snapshot(state(), inventory())
-                err = api.NotAvailable("not safe here", pos=(5, 64, 5))  # "unavailable" (EXCEPTIONS), BY_PLACE
-                b.failed("dig in", err)
-                self.assertEqual(b.ready(task), want)
+class ADigInRefusedHereCoolsHere(unittest.TestCase):
+    def test_sand_beside_water_names_no_target(self):
+        blocks = {(x, y, z): "sand" for x in range(-2, 3) for z in range(-2, 3) for y in range(60, 64)}
+        blocks[(-1, 63, 0)] = "water"
+        st = {"feet": (0, 64, 0), "region": FakeRegion((-3, 56, -3), (3, 68, 3), blocks),
+              "inv": Inventory({"slots": [{"id": "minecraft:cobblestone", "count": 16, "slot": 0}], "equipment": {}}),
+              "protected": set()}
+        with self.assertRaises(NotAvailable) as got:
+            survive.dig_in_commands(st)
+        self.assertIsNone(getattr(got.exception, "pos", None), "must fail: a target pos cools at the target, never read")
 
 
 def _way(name, token, secs=1.0):

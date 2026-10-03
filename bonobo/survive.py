@@ -671,7 +671,7 @@ def dig_in_commands(state, args=()) -> "list[Task]":
     """Pure: dig_in_plan's tasks, or NotAvailable with its why."""
     tasks, why = dig_in_plan(state)
     if tasks is None:
-        raise NotAvailable(why, pos=getattr(why, "cell", None))
+        raise NotAvailable(why)       # about where the body stands, nothing to re-target: cools here
     return tasks
 
 def soft_spot():
