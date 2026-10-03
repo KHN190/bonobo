@@ -214,9 +214,9 @@ def est_budget(row, setup):
 
 
 def slice_deadline(row, tier):
-    """Pure: (the run, the budget in seconds) of a slice row — one deadline: the slice's own limit (its minutes),
-    capped by the row limit below the acceptance tier, is both its loop's end and the runner's budget (a budget below
-    it stopped the slice early, one above it was never the slice's); None for any other run."""
+    """Pure: (the run, its stop in seconds) of a slice row — one deadline: the slice's own limit (its minutes),
+    capped by the row limit below the acceptance tier, is both its loop's end and where the runner stops the row (a
+    budget below it stopped a slice still at work); the verdict stays the row's budget. None for any other run."""
     from .runner import ROW_LIMIT_S
     from .words.runs import slice_limit_s
     run = row["run"]
@@ -246,8 +246,9 @@ def build(row, tier):
     jobs = kit_jobs(row)
     if jobs:                                 # the kit rule: the best work tool per job, the sword a fight calls for
         out["setup"] = out["setup"] + resolve("_kit_gives")(out, jobs)
-    out["budget"] = deadline[1] if deadline is not None else \
-        row.get("budget") or (est_budget(row, out["setup"]) if "est" in row else row_budget(row))
+    out["budget"] = row.get("budget") or (est_budget(row, out["setup"]) if "est" in row else row_budget(row))
+    if deadline is not None:
+        out["limit"] = deadline[1]          # where the run stops; the verdict is the budget
     for k, v in row.items():
         if k not in out and k not in ("name", "scene", "why", "no_detail", "kit", "est"):
             out[k] = dec(v)

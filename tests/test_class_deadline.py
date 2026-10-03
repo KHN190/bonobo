@@ -1,5 +1,6 @@
-"""K9: one deadline per slice row — its loop's end and the runner's budget are the slice's limit in seconds
-(accept_fresh_iron_pickaxe: a 600 s slice under a 320 s budget; its message said "not done after 10.0 min" at 23 s)."""
+"""K9: one deadline per slice row — its loop's end and the runner's stop are the slice's limit in seconds, the
+verdict the row's budget (accept_fresh_iron_pickaxe: a 600 s slice stopped at its 320 s budget; its message said "not
+done after 10.0 min" at 23 s)."""
 import os
 import sys
 import unittest
@@ -22,9 +23,23 @@ class EverySliceHasOneDeadline(unittest.TestCase):
             with self.subTest(name):
                 run, limit = table.slice_deadline(row, tier)
                 built = table.build(row, tier)
-                # must fail: accept_fresh_iron_pickaxe's budget 320 under its 600 s slice
-                self.assertEqual(built["budget"], limit)
+                # must fail: accept_fresh_iron_pickaxe stopped at its 320 s budget under its 600 s slice
+                self.assertEqual(built["limit"], limit)
                 self.assertAlmostEqual(runs.slice_limit_s(run[2]), limit)
+                self.assertEqual(built["budget"], row.get("budget") or (
+                    table.est_budget(row, built["setup"]) if "est" in row else table.row_budget(row)))
+
+    def test_the_run_stops_at_the_limit_and_is_judged_by_the_budget(self):
+        from unittest import mock
+        from bonobo.bench import runner
+        sc = {"budget": 320, "limit": 600, "run": lambda ctx: None}
+        from bonobo import skillcore
+        with mock.patch.object(runner, "_watchdog") as dog, mock.patch.object(runner, "open_window"), \
+                mock.patch.object(skillcore, "really_dead", return_value=False):
+            runner._run_row(sc, lambda: None, None)
+        self.assertEqual(dog.call_args.args[0], 600)          # must fail: stopped at the budget
+        self.assertEqual(runner.judge(True, 400, sc["budget"]),
+                         (False, "outcome reached but over budget: 400s > 320s"))
 
 
 class WhyASliceEnded(unittest.TestCase):
