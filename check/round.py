@@ -361,7 +361,9 @@ def plan_ctx(b, act, snap, mem, world, spent):
                 # a budget-cut round is no violation: what the cut cost is the run's distribution (check.run)
                 out["p5_loss_s"] = sum(int(getattr(s, "est", 0) or 0) for s in held["steps"]) / TICKS_PER_S - out["exact_s"]
                 from bonobo.planner import plan_name
-                out["p5_case"] = (plan_name(held["steps"]), names[0] if names else None)
+                chosen_s = sum(int(getattr(s, "est", 0) or 0) for s in held["steps"]) / TICKS_PER_S
+                out["p5_case"] = (f"{plan_name(held['steps'])} ({chosen_s:.1f} s)",
+                                  f"{names[0] if names else '?'} ({out['exact_s']:.1f} s)")
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
     # the plan and the chosen candidate priced as they run, now (D6): a later reading would see another world
     priced = {tuple(map(id, steps)): price_as_run(list(steps), tools, cost)
