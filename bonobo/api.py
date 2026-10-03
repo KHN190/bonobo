@@ -135,11 +135,14 @@ class CommitmentExpired(McError):
 class Overrun(CommitmentExpired):
     """A step past its budget (step_budget: OVERRUN × its as-run price): its price refuted — stopped and
     re-planned at once (EXCEPTIONS: replan, an interruption: nothing counted, banned or cooled; the skill resumes
-    from what it did), the measured rest recorded for its target (`pos`, `remaining_s`: dispatch.execute)."""
+    from what it did), the measured rest recorded for its target (`pos`, `remaining_s`: dispatch.execute). `spent`:
+    seconds already burned on the step when it was cut (dispatch.execute floors the recorded price by it, so a
+    re-estimate can never undercut what was already paid)."""
 
-    def __init__(self, message="", pos=None, remaining_s=None):
+    def __init__(self, message="", pos=None, remaining_s=None, spent=None):
         super().__init__(message, pos=pos)
         self.remaining_s = remaining_s
+        self.spent = spent
 
 @dataclass
 class StepBudget:
@@ -180,7 +183,8 @@ def check_budget(target=None, remaining_s=None):
     budget = BUDGET[0]
     if budget is not None and budget.left() < 0:
         raise Overrun(f"the step ran {budget.spent():.0f}s > its {budget.limit_s:.0f}s ({OVERRUN}× its price)",
-                       pos=target, remaining_s=budget.spent() if remaining_s is None else remaining_s)
+                       pos=target, remaining_s=budget.spent() if remaining_s is None else remaining_s,
+                       spent=budget.spent())
 
 
 def afford(seconds, target):
@@ -189,7 +193,8 @@ def afford(seconds, target):
     budget = BUDGET[0]
     if budget is not None and seconds > budget.left():
         raise Overrun(f"way to {target} ~{seconds:.0f}s > the step's {budget.left():.0f}s left "
-                       f"({OVERRUN}× its price, {budget.spent():.0f}s spent)", pos=target, remaining_s=seconds)
+                       f"({OVERRUN}× its price, {budget.spent():.0f}s spent)", pos=target, remaining_s=seconds,
+                       spent=budget.spent())
 
 
 class Interrupted(McError):
