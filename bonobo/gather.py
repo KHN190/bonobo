@@ -290,7 +290,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 ctx.mem.forget_seen(b, seed, ctx.dimension, radius=0.5)     # gone from where it was noted
             api.detail(f"  mine {bare(drop)}: noted {seed} is {region.name(seed)} now, note forgotten")
             continue
-        whole = set(connected(region, seed, blocks))      # no way to a vein bans all of it, never cell by cell
+        whole = set(connected(region, seed, blocks))      # no way to a cell bans that cell: the next pass tries another
         vein = set(mineable((p for p in whole if not ctx.blocked(p)), start, region, nav.SAFE_DROP))
         if not vein:
             # the whole connected vein is already proven unreachable: next seed
@@ -321,15 +321,13 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             faces = sorted((p for p in vein if p in open_set), key=lambda p: nav.least_way_s(p, start))
             if _go_way(ctx, region, start, near, faces, drop):
                 continue
-            for p in whole:
-                ctx.ban(p)
+            ctx.ban(near)
             unreachable += 1
             _reach_budget(unreachable, blocks, f"no way to the {blocks[0]} vein at {seed}")
             continue
         walked = nav.arrived_near(near, ctx.policy, range_=3.5, attempts=1) if "travel" in nav.mod_features() else False
         if not walked and not nav.way_to(ctx, vein):
-            for p in whole:
-                ctx.ban(p)
+            ctx.ban(near)
             # the next vein is another target, not a retry: failing the step over one vein cooled the goal
             unreachable += 1
             _reach_budget(unreachable, blocks, f"no way and no tunnel to the {blocks[0]} vein at {seed}")
@@ -340,19 +338,18 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         if not in_reach:
             near_cell = min(vein, key=lambda p: math.dist(p, here_now))
             if not nav.arrived_near(near_cell, ctx.policy, range_=2.0, attempts=1) and not nav.way_to(ctx, {near_cell}):
-                for p in whole:
-                    ctx.ban(p)
+                ctx.ban(near_cell)
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"{blocks[0]} at {near_cell}: no way there and no tunnel")
                 continue
             here_now = feet()
             in_reach = reach_cells(vein, here_now)
             if not in_reach and not nav.way_to(ctx, vein):
-                for p in whole:
-                    ctx.ban(p)
+                ctx.ban(near_cell)
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"got near {near_cell} but no way in to the {blocks[0]}")
                 continue
+        region = region.now()             # the way there dug and placed: its cells read again (P1)
         # distance is not reachability: only open-faced blocks go to mine_many; travel digs a way to the nearest buried one
         held = held_cells(Region(*sight_box(here_now)), here_now, in_reach, vein)
         open_faced = open_faced_cells(in_reach, here_now, region, held)
@@ -378,6 +375,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 api.run_chain(seal, stop_on_failure=True, wait=60)
         # a cell open only into pockets no body can stand in: the jar's mine never digs for a line of sight, so the
         # block on the body's side goes first (bag.opener; down-flagged when it lies below the feet)
+        region = region.now()             # after the seal's places
         openers = sorted({op for _c, op in opener_pairs(region, vein, here_now, ctx.policy.protected)})
         if openers:
             api.run_chain([nav.mine_task(op, down=op[1] < here_now[1]) for op in openers], stop_on_failure=True, wait=60)
@@ -387,6 +385,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             batch = mine_segment_commands({"inv": Inventory(), "feet": here_now}, (vein, drop, tier))
             r = nav.run_cells("mine_many", batch[:-1], then=batch[-1], wait=TASK_WAIT_S)
         except api.Unreachable as out:
+            region = region.now()         # the batch broke what it could
             around = {c: region.name(c) for c in out.cells or ()}
             api.detail(f"  mine {bare(drop)} refused by the jar ({out}): feet {feet()}, cells "
                        + "; ".join(f"{c} {n} faces {[region.name(cell_add(c, d)) for d in nav.NEIGHBOURS6]}" for c, n in around.items()))

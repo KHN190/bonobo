@@ -76,7 +76,7 @@ class Oracle(unittest.TestCase):
                 self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), fires, got)
 
     def test_every_invariant_has_a_function(self):
-        ids = {f"{p}{n}" for p, top in (("S", 8), ("D", 8), ("E", 3), ("R", 5), ("P", 5)) for n in range(1, top + 1)} | {"M1", "K10"}
+        ids = {f"{p}{n}" for p, top in (("S", 8), ("D", 8), ("E", 3), ("R", 5), ("P", 5)) for n in range(1, top + 1)} | {"M1", "K10", "GDEV"}
         self.assertEqual(set(oracle.CHECKS), ids)
 
     def test_unchecked_ones_are_named(self):
