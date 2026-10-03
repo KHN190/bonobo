@@ -214,8 +214,12 @@ def _cheapest_seed(ctx, hits, start, open_set):
         raise NotAvailable(f"no way to any {len(refused)} vein(s) from {start}: {why}", pos=getattr(why, "cell", None) or c)
     return pick_seed(priced) or cells[0]
 
-def _go_way(ctx, region, start, target, faces, drop):
-    """Walk to an open face or dig the planned way toward `target` (nav.plan_way, said); False when there is none."""
+def _go_way(ctx, region, start, target, faces, drop, site=None):
+    """Walk to an open face or dig the planned way toward `target` (nav.plan_way, said); False when there is none.
+    `site`: the ore cell to price the overrun at (Cost.site's own, when it differs from `target`, the vein's nearer
+    approach cell) — default `target`, so a mine step's afford/Overrun always keys on the cell Cost.refuted_ticks
+    reads back, else a refuted price is never found (G3/E5)."""
+    site = target if site is None else site
     walks = nav.plan_walks(faces, WORK_REACH)
     steps, why, seconds = nav.plan_way(region, start, target, "mine", Inventory(), ctx.policy.protected, walks)
     if steps is None:
@@ -229,9 +233,9 @@ def _go_way(ctx, region, start, target, faces, drop):
     # the whole way (every segment nav.reach takes) within what the step has left, its digging timed (OVERRUN)
     if api.BUDGET[0] is not None:
         whole = nav.reach(region, start, target, "mine", Inventory(), ctx.policy.protected, walks=walks)
-        api.afford(max(seconds or 0.0, whole.seconds if whole.stand is not None else 0.0), target)
+        api.afford(max(seconds or 0.0, whole.seconds if whole.stand is not None else 0.0), site)
     try:
-        nav.run_way(steps, ctx.policy, target)
+        nav.run_way(steps, ctx.policy, site)
     except (api.Unreachable, api.NavFailed) as out:
         # the way's own chain named a cell the jar could not reach from here, now: banned (ctx.ban), this pass tries another
         for p in (getattr(out, "cells", None) or [getattr(out, "pos", None) or target]):
@@ -343,7 +347,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         if deep_below(near, start) and ctx.policy.allow_dig:
             # far below: an open face walked to, else a staircase the body can walk back up (nav.plan_way)
             faces = sorted((p for p in vein if p in open_set), key=lambda p: nav.least_way_s(p, start))
-            if _go_way(ctx, region, start, near, faces, drop):
+            if _go_way(ctx, region, start, near, faces, drop, site=seed):
                 continue
             ctx.ban(near)
             unreachable += 1
