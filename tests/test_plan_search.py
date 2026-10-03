@@ -60,13 +60,16 @@ class TheRoundsOnePlan(unittest.TestCase):
 
     def test_the_order_is_the_fewest_seconds(self):
         from bonobo.planner import Target, plan_round
-        targets = [Target("logs", [("log", 8)], 0), Target("torches", [("minecraft:torch", 8)], 1)]
-        by_rank = ticks(plan_needs(bag(inventory()), [("log", 8), ("minecraft:torch", 8)], NullCost()))
-        other = ticks(plan_needs(bag(inventory()), [("minecraft:torch", 8), ("log", 8)], NullCost()))
+        orders = {"logs first": [("log", 8), ("minecraft:torch", 8)], "torches first": [("minecraft:torch", 8), ("log", 8)]}
+        priced = {k: ticks(plan_needs(bag(inventory()), v, NullCost())) for k, v in orders.items()}
+        dear = max(priced, key=lambda k: priced[k])
+        # the dearer order ranked first: the queue's rank is a tie-break, never the order taken
+        targets = [Target("logs", [("log", 8)], 0 if dear == "logs first" else 1),
+                   Target("torches", [("minecraft:torch", 8)], 1 if dear == "logs first" else 0)]
         _first, steps, _secs = plan_round(bag(inventory()), targets, NullCost())
-        # must fail: the queue's rank (logs first) though the other order's whole plan takes fewer seconds
-        self.assertEqual(ticks(steps), min(by_rank, other))
-        self.assertLess(other, by_rank)
+        self.assertNotEqual(priced["logs first"], priced["torches first"])     # the orders differ: the row tells
+        # must fail: the queue's rank taken though the other order's whole plan takes fewer seconds
+        self.assertEqual(ticks(steps), min(priced.values()))
 
     def test_one_of_takes_the_cheapest_whole_plan(self):
         from bonobo.planner import Target, plan_round
