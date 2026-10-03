@@ -399,7 +399,7 @@ def _game_up(timeout=1.0):
         swallowed("api._game_up", e)
         return False
 
-def get(path) -> Any:
+def get(path) -> dict:
     r = api("GET", path)
     if path.startswith("/state") and isinstance(r, dict) and "x" in r:
         STATE.state_reads, STATE.state_read_at = STATE.state_reads + 1, time.time()
