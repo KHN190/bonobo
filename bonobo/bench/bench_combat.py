@@ -104,12 +104,12 @@ ROWS = [
          expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),
                  (('@', -9, 0, -9), ('@', 9, 3, 9), 'glass', 288, 288)]),
     dict(name='fight_enderman_provoked', module='fight_loop',
-         doc=('One enderman provoked (stared at until the jar reads it angry), no sword, a 2-high alcove 4 off → '
-              'under it within 5 s, no hit after, alive'),
+         doc=('One enderman provoked (its saved anger set at the player until the jar reads it angry), no sword, a '
+              '2-high alcove 4 off → under it within 5 s, no hit after, alive'),
          scene=[('sheet', '_ARENA'), ('cmd', 'clear @p minecraft:iron_sword'),
                 ('built', 'alcove', *ALCOVE),
                 ('summon', 'enderman', ('@', -ALCOVE[0], 0, 0), '{PersistenceRequired:1b}')],
-         before=[('&provoke_by_stare',), ('start', 'fight_enderman_provoked'), ('&record_bids',)],
+         before=[('&provoke_by_nbt',), ('start', 'fight_enderman_provoked'), ('&record_bids',)],
          run=('fight_until', ['minecraft:enderman'], 14, False),
          check=[('took_cover_alcove', *ALCOVE, 5.0), ('alive',)],
 point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'enderman'},
