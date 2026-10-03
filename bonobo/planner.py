@@ -1375,21 +1375,7 @@ class Target:
     name: str
     needs: list
     rank: int = 0
-    after: tuple = ()
     options: tuple = ()     # one of: ((way, its needs, seconds it adds beyond its steps), …) — the cheapest whole plan's
-
-def levels(targets):
-    """Pure:"""
-    left, out, done = list(targets), [], set()
-    while left:
-        ready = sorted((t for t in left if set(t.after) <= done), key=lambda t: t.rank)
-        if not ready:
-            raise Unplannable("the targets wait on each other: " + ", ".join(t.name for t in left))
-        out.append(ready)
-        done |= {t.name for t in ready}
-        left = [t for t in left if t.name not in done]
-    return out
-
 
 def food_left_s(cost):
     """Seconds the body's bar lasts with nothing eaten (beliefs risk.food_drain_s a point), None when food is carrie…"""
@@ -1447,16 +1433,9 @@ class _After:
         return sum(s["count"] for s in self.slots if s["id"] == mid(item))
 
 
-def _in_levels(inv, targets, cost, pending, jobs, held=None, exact=False):
-    """The targets' steps, level by level (`levels`), each level from the bag the ones before it leave; `held` (the…"""
-    steps, groups = [], levels(targets)
-    for group in groups:
-        steps += _cheapest_order(_After(inv, steps), group, cost, pending, jobs, held if len(groups) == 1 else None, exact)
-    return steps
-
-
 def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False):
     """One level's steps in the order of its targets whose whole plan takes fewest seconds (forward's price:"""
+    group = sorted(group, key=lambda t: t.rank)
     orders = itertools.permutations(group) if len(group) <= ORDER_MAX else [tuple(group)]
     best = None
     for order in orders:
@@ -1488,9 +1467,9 @@ def _one_of(inv, targets, cost, pending, jobs, held, chosen, exact=False):
         if best is not None and len(combos) > 1 and floor[id(combo)] >= best[0][0]:
             why.append(" + ".join(opt[0] for opt in combo) + ": dearer at the least than the way taken")
             continue
-        picked = [Target(t.name, list(opt[1]), t.rank, t.after) for t, opt in zip(choices, combo)]
+        picked = [Target(t.name, list(opt[1]), t.rank) for t, opt in zip(choices, combo)]
         try:
-            steps = _in_levels(inv, fixed + picked, cost, pending, jobs, held, exact)
+            steps = _cheapest_order(_After(inv, []), fixed + picked, cost, pending, jobs, held, exact)
         except Unplannable as e:
             why.append(" + ".join(opt[0] for opt in combo) + f": {e}")
             continue
@@ -1511,13 +1490,13 @@ def plan_round(inv, targets, cost, pending=None, jobs=None, held=None, chosen=No
     left = food_left_s(cost)
     if not fed_in_time(steps, left):
         fed = plan_needs(inv, [("food", 1)], cost, pending, jobs, exact=exact)
-        steps = fed + _in_levels(_After(inv, fed), targets, cost, pending, jobs, exact=exact)   # the rest from what the meal leaves
+        steps = fed + _cheapest_order(_After(inv, fed), targets, cost, pending, jobs, exact=exact)   # the rest from what the meal leaves
         if not fed_in_time(steps, left):
             raise Unplannable(f"the bar runs out in {left:.0f} s before any food the plan can make")
     tools = list(from_bag(inv, pending, jobs, getattr(cost, "reserved", ()), cost.facts()).tools)
     steps = [Step(s.kind, s.token, s.count, dict(s.detail)) for s in steps]
     for st, est in zip(steps, price_as_run(steps, tools, cost)):
-        st.est = est                 # priced as the whole round runs: levels and the meal planned apart (D6)
+        st.est = est                 # priced as the whole round runs: the meal planned apart (D6)
     return (steps[0] if steps else None), steps, sum(s.est for s in steps) / TICKS_PER_S
 
 

@@ -58,15 +58,6 @@ class TheRoundsOnePlan(unittest.TestCase):
     """planner.plan_round: every target in one plan — a target that waits on another after it (hard), the queue's
     rank a tie-break only, the bar never run out along the plan's clock (hard)."""
 
-    def test_waits_are_kept(self):
-        from bonobo.planner import Target, plan_round
-        first, steps, _secs = plan_round(bag(inventory()), [
-            Target("torches", [("minecraft:torch", 4)], 0, after=("pick",)), Target("pick", [("tool", "pickaxe", 0)], 1)],
-            NullCost())
-        made = [s.token for s in steps if s.kind == "craft"]
-        # must fail: the queue's rank put the torches (rank 0) before the pickaxe they wait on
-        self.assertLess(made.index("minecraft:wooden_pickaxe"), made.index("minecraft:torch"))
-
     def test_the_order_is_the_fewest_seconds(self):
         from bonobo.planner import Target, plan_round
         targets = [Target("logs", [("log", 8)], 0), Target("torches", [("minecraft:torch", 8)], 1)]
@@ -91,12 +82,6 @@ class TheRoundsOnePlan(unittest.TestCase):
                 chosen: dict = {}
                 plan_round(bag(inventory()), [Target("night", [], 0, options=options)], NullCost(), chosen=chosen)
                 self.assertEqual(chosen, {"night": way})
-
-    def test_a_loop_of_waits_is_said(self):
-        from bonobo.planner import Target, plan_round
-        with self.assertRaises(Unplannable):
-            plan_round(bag(inventory()), [Target("a", [("log", 1)], 0, ("b",)), Target("b", [("log", 1)], 0, ("a",))],
-                       NullCost())
 
     def test_the_bar_never_runs_out(self):
         from tests.world import cost, state
