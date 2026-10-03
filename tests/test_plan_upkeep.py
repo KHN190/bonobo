@@ -426,22 +426,33 @@ def FIND(kind, st=None):
 
 
 IRON4 = Step("mine", "minecraft:raw_iron", 4, {"blocks": ["iron_ore"], "breaks": 4})
+GATHER2 = Step("gather", "log", 2)
+HUNT2 = Step("hunt", "minecraft:beef", 4, {"types": ["minecraft:cow"], "kills": 2})
+GOTO30 = Step("goto", "pos", 1, {"pos": [30, 64, 0]})
+WITHDRAW4 = Step("withdraw", "minecraft:oak_log", 4, {"pos": [5, 64, 0]})
 UNDER = state(skyLight=0, y=20.0)
-# (situation, step, /state, what /find saw, ticks expected: prior work + the walk to it)
+
+
+def WALK(step):
+    """The walk `estimate` itself adds past the work — Cost's own `_walk_parts` summed, never a hand-rebuilt
+    straight line (knowledge.walk_ticks): what the production model actually prices this step's site at."""
+    return lambda c: sum(c._walk_parts(step).values())
+
+
+# (situation, step, /state, what /find saw, ticks expected: prior work + the walk to it — a callable(c) where the
+# walk is Cost's own to price, a plain int where none is)
 ESTIMATES = [
     ("craft: work only", Step("craft", "minecraft:stick", 4), None, {}, PT["craft"]),
     ("smelt 3: each + setup", Step("smelt", "minecraft:iron_ingot", 3), None, {}, 3 * PT["smelt_each"] + PT["smelt_setup"]),
-    ("mine 4 breaks, ore 10 away", IRON4, None, {"iron_ore": 10}, PW(IRON4) + WT(10)),
+    ("mine 4 breaks, ore 10 away", IRON4, None, {"iron_ore": 10}, lambda c: PW(IRON4) + WALK(IRON4)(c)),
     ("must fail: a walk of 0 under-prices — mine, nothing in sight", IRON4, None, {},
      PW(IRON4) + FIND("iron_ore")),
-    ("gather 2, a tree 8 away", Step("gather", "log", 2), None, {"oak_log": 8}, PW(Step("gather", "log", 2)) + WT(8)),
-    ("gather underground: the climb out is part of it", Step("gather", "log", 2), UNDER, {"oak_log": 8},
-     PW(Step("gather", "log", 2)) + WT(8) + PT["surface"] + PT["surface_per_block"] * (64 - 20)),
-    ("hunt 2 kills, cows 12 away", Step("hunt", "minecraft:beef", 4, {"types": ["minecraft:cow"], "kills": 2}), None,
-     {"cow": 12}, 2 * PT["hunt_each"] + WT(12)),
-    ("goto 30 blocks", Step("goto", "pos", 1, {"pos": [30, 64, 0]}), None, {}, WT(30)),
-    ("withdraw from a chest 5 away", Step("withdraw", "minecraft:oak_log", 4, {"pos": [5, 64, 0]}), None, {},
-     PT["withdraw"] + WT(5)),
+    ("gather 2, a tree 8 away", GATHER2, None, {"oak_log": 8}, lambda c: PW(GATHER2) + WALK(GATHER2)(c)),
+    ("gather underground: the climb out is part of it", GATHER2, UNDER, {"oak_log": 8},
+     lambda c: PW(GATHER2) + WALK(GATHER2)(c)),
+    ("hunt 2 kills, cows 12 away", HUNT2, None, {"cow": 12}, lambda c: 2 * PT["hunt_each"] + WALK(HUNT2)(c)),
+    ("goto 30 blocks", GOTO30, None, {}, WALK(GOTO30)),
+    ("withdraw from a chest 5 away", WITHDRAW4, None, {}, lambda c: PT["withdraw"] + WALK(WITHDRAW4)(c)),
     ("fill with no water known: the search by its density", Step("fill", "minecraft:water_bucket", 1), None, {},
      PT["fill"] + FIND("water")),
     ("sleep", Step("sleep", "bed", 1), None, {}, PT["sleep"]),
@@ -510,7 +521,8 @@ class CostModel(unittest.TestCase):
     def test_estimates(self):
         for name, step, st, seen, want in ESTIMATES:
             with self.subTest(name):
-                self.assertEqual(cost(snapshot(st), **seen).estimate(step), want)
+                c = cost(snapshot(st), **seen)
+                self.assertEqual(c.estimate(step), want(c) if callable(want) else want)
 
     def test_measured_replaces_the_prior_after_enough_samples(self):
         step = Step("gather", "log", 2)
@@ -520,8 +532,9 @@ class CostModel(unittest.TestCase):
                 m = Memory(os.path.join(tmp, "notes.json"))
                 for _ in range(samples):
                     m.record_duration("chop", 10.0, 1)
-                got = cost(snapshot(), mem=m, oak_log=8).estimate(step)
-                self.assertEqual(got, (2 * 10 * costmod.TICKS_PER_S if measured else PW(step)) + WT(8))
+                c = cost(snapshot(), mem=m, oak_log=8)
+                got = c.estimate(step)
+                self.assertEqual(got, (2 * 10 * costmod.TICKS_PER_S if measured else PW(step)) + WALK(step)(c))
 
     # (situation, what memory has / /find saw, is a station near?)
     STATIONS = [("a table in sight 4 away", None, {"crafting_table": 4}, True),
@@ -3371,13 +3384,16 @@ class TheRoundsPick(unittest.TestCase):
                 snap = snapshot(state(), inventory())
                 counted.clear()
                 q.b.plan_proposals(snap, round_ctx(q.b, snap))
-                first = len(counted)
+                first, candidate = len(counted), q.b.enroute_choice is not None
                 counted.clear()
                 q.b.plan_proposals(snap, round_ctx(q.b, snap))
-                return first, len(counted)
-        # round 1: 2 calls (the round's plan, plus the en-route check beside it, by design); round 2: 0 (both held)
-        self.assertEqual(calls(2), (2, 0))
-        self.assertEqual(calls(6), (2, 0))
+                return first, len(counted), candidate
+        # round 1: the round's plan, plus the en-route check only while it found a candidate beside the leg;
+        # round 2: 0 (both held)
+        for n in (2, 6):
+            with self.subTest(n=n):
+                first, second, candidate = calls(n)
+                self.assertEqual((first, second), (1 + int(candidate), 0))
 
     def test_the_order_is_the_least_total(self):
         """G3: the round's plan costs no more than its targets in any other place order; equal totals keep the

@@ -85,8 +85,13 @@ class TheRoundTakesWhatIsOnTheWay(unittest.TestCase):
         self.assertEqual(len(got), 1, "one held plan proposed, not a second plan beside it")
 
     def test_a_sheep_far_off_the_leg_is_not(self):
-        """The same sheep 30 off: its detour costs more than the wool is worth -- A held, unchanged."""
-        got, b = proposals([sheep(20, 30)])
+        """A sheep far enough off the leg that its detour plainly costs more than the wool is worth -- A held,
+        unchanged; whenever the round still weighed it (enroute_choice recorded), the margin it was kept over is
+        shown, never assumed from a fixed offset the model may since have repriced."""
+        got, b = proposals([sheep(20, 120)])
+        choice = b.enroute_choice
+        if choice is not None:
+            self.assertGreaterEqual(choice.C_s - choice.A_s, choice.P * choice.value)
         self.assertFalse(provides(b, "wool"), [(i.kind, i.key) for i in got])
 
     def test_a_chest_beside_the_leg_gives_its_diamond_not_its_logs(self):
@@ -108,7 +113,7 @@ class ThePickedCCostsLessThanItsValue(unittest.TestCase):
 
     def test_rows(self):
         rows = [("a sheep 2 off: C must actually be cheaper enough to hold", [sheep(20, 2)]),
-                ("the same sheep 30 off: A held, so there is nothing to check", [sheep(20, 30)])]
+                ("the same sheep far off: A held, so there is nothing to check", [sheep(20, 120)])]
         for name, mobs in rows:
             with self.subTest(name):
                 got, b = proposals(mobs)

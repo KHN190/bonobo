@@ -6,9 +6,9 @@ import tempfile
 import time
 import unittest
 
-from bonobo import cost as cost_mod, decompose, goals, planner
+from bonobo import brain, cost as cost_mod, decompose, goals, planner
 from bonobo.memory import Memory, merge_double
-from tests.world import cost, inventory, snapshot, state
+from tests.world import brain_fixture, cost, inventory, round_ctx, snapshot, state
 
 IRON = "minecraft:iron_ingot"
 
@@ -118,6 +118,33 @@ class LookOrTake(unittest.TestCase):
                     self.assertNotIn("look", kinds)
                 else:
                     self.assertEqual(kinds[0], first, [str(s) for s in held["steps"]])
+
+    def test_a_recorded_look_is_not_redone(self):
+        """brain.met: a look's own effect lands only in memory (note_container), never in the "have" remainder — the
+        held plan is otherwise unchanged (round_key: still short of iron, same bag), so next_step must see the look
+        as already done once it is on record, even empty, instead of picking it again."""
+        with tempfile.TemporaryDirectory() as tmp:
+            m = self.home(tmp, [(3, 64, 0)])          # unopened
+            snap = snapshot(state(), inventory())
+            c = cost(snap, mem=m)
+            goal = goals.have((IRON, 24))
+            task = {"id": "t1", "goal": goal["goal"], "args": goal["args"], "state": "pending", "reason": ""}
+            held, why = brain.replan([("task t1", goal, 0)], snap, c)
+            self.assertIsNone(why)
+            self.assertEqual(held["steps"][0].kind, "look", [str(s) for s in held["steps"]])
+
+            b = brain_fixture(mem=m)
+            act, update = b.task_act(task, snap, round_ctx(b, snap), c, held)
+            task.update(update)
+            self.assertEqual(act.step.kind, "look")
+
+            m.note_container((3, 64, 0), "minecraft:overworld", [])   # the look ran: the chest opened, empty
+
+            # the same held plan, handed to task_act again (round_key unchanged: still short of iron) — must fail:
+            # next_step reselects the same look, redone every round
+            act2, update2 = b.task_act(task, snap, round_ctx(b, snap), c, held)
+            self.assertNotEqual(act2.step.kind if act2 else None, "look",
+                                "a look already on record (even empty) must not be redone")
 
     def test_change_rate(self):
         with tempfile.TemporaryDirectory() as tmp:

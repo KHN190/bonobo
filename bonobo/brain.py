@@ -823,7 +823,7 @@ class Brain:
         open_air = snap.night and self.under_sky(snap)
 
         def skip(s):
-            if met(s, snap):
+            if met(s, snap, self.mem):
                 return "already met"
             if snap.night and arbiter.on_surface(s.kind):
                 return "a surface step, and it's night"
@@ -948,7 +948,7 @@ class Brain:
                 return None
             self.fail_task(task, f"nothing left to plan, still short of {waiting}")
             return None
-        met_skip = lambda s: "already met" if met(s, snap) else None  # noqa: E731
+        met_skip = lambda s: "already met" if met(s, snap, self.mem) else None  # noqa: E731
         step = self.next_step(held["steps"], snap, ctx, met_skip)
         if step is None:
             # same bag, same plan: re-solving every round ran nothing, so the step cools until the next event
@@ -1167,7 +1167,7 @@ class Brain:
     def p2_refused(self, snap):
         """P2: the held plan's next step cannot be worked from here — the nearest of its kinds in the look is refused
         a way from these feet (Cost.refused: nav.known_refusal over the round's ground)."""
-        st = next((s for s in self.held_steps() if not met(s, snap)), None)
+        st = next((s for s in self.held_steps() if not met(s, snap, self.mem)), None)
         kinds = _k.step_kinds(st) if st is not None else []
         seen = sorted((h["distance"], (h["x"], h["y"], h["z"])) for k in kinds for h in snap.hits.get(bare(k), ()))
         if not seen:
@@ -1369,10 +1369,14 @@ def run_once_ends(own, steps, held):
         return any(step_key(o) == step_key(st) for o in own for st in steps)
     return len(held.get("want") or ()) <= 1 and bool(held["steps"]) and held["steps"][-1] in steps
 
-def met(step, snap):
-    """Pure: the world already holds what a walk makes."""
+def met(step, snap, mem):
+    """Pure given its readers: the world (or what is already known of it) already holds what the step makes — a
+    goto's arrival, or a look's container already on record (even empty: the look is what learns that, not a
+    remainder, so round_key alone never sees it done)."""
     if step.kind == "goto":
         return math.dist(snap.feet, tuple(step.detail["pos"])) <= float(step.detail.get("range", 2))
+    if step.kind == "look":
+        return mem is not None and mem.container_record(tuple(step.detail["pos"])) is not None
     return False
 
 def round_key(entries, snap, mem) -> tuple:
