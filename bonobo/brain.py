@@ -115,15 +115,6 @@ def act_commit_s(act):
     ticks = sum(int(getattr(st, "est", 0) or 0) for st in getattr(act, "steps", ()))
     return ticks / TICKS_PER_S if ticks > 0 else None
 
-def ground_of(snap):
-    """The blocks perception read (perception.price_inputs' ground): the region a Cost prices digging over."""
-    return perception.price_inputs(snap.state)["ground"]
-
-def hazard_seen():
-    """A stop perception asked for (api.interrupt_pending): a plan being searched ends, the round starts again from
-    survival."""
-    return api.interrupt_pending() is not None
-
 def pays_switch(held_s, chosen_s, lost_s):
     """Pure (D4): a new plan replaces the held one only when its seconds and the work the switch throws away beat
     what is left of the held one."""
@@ -609,7 +600,6 @@ class Brain:
         live = [t for t in items if t["state"] in tasks.LIVE]
         closed = snap.night
         self.just_finished = False
-        cost = Cost(snap, self.mem, self.blacklist, region=ground_of(snap), stop=hazard_seen, policy=self.policy_cache)
         entries, queued = [], []
         for seq, task in enumerate(live):
             if not self.ready(f"task {task['id']}"):
@@ -624,6 +614,8 @@ class Brain:
             if self.ready(name):
                 entries.append((name, goal, len(live) + len(entries)))
         if entries:
+            cost = Cost(snap, self.mem, self.blacklist, region=perception.ground_read(snap), stop=api.stop_asked,
+                        policy=self.policy_cache)
             old = self.held.get(queued[0]["id"]) if queued else getattr(self, "needs_plan", None)
             held = self.round_for(entries, snap, cost, old)
             if held is None:
@@ -724,8 +716,8 @@ class Brain:
         name = f"{kind}: {goals.describe(goal)}"
         if not self.ready(name):
             return None
-        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED, region=ground_of(snap),
-                    stop=hazard_seen)
+        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED, region=perception.ground_read(snap),
+                    stop=api.stop_asked)
         try:
             steps = decompose.decompose(snap.inv, goal, cost, pending=self.mem.pending_outputs(snap.dimension))
         except Unplannable as e:
@@ -913,7 +905,7 @@ class Brain:
         except McError as e:
             api.swallowed("brain.price_table", e)
             return {}
-        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, region=ground_of(snap)), snap.inv)
+        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, region=perception.ground_read(snap)), snap.inv)
 
     # -- bookkeeping
     def track(self, snap):
@@ -1011,6 +1003,9 @@ def replan(entries, snap, cost, pending=None, held=None):
             targets = [planner.Target(name, decompose.round_needs(goal, snap.inv, cost), rank)
                        for name, goal, rank in entries]
             _first, steps, _secs = planner.plan_round(snap.inv, targets, cost, pending, held=held)
+        missing = [st for st in steps if not skillkit.handles(st)]
+        if missing:
+            raise Unplannable(f"no skill provides {missing[0].kind} {missing[0].token}")
     except Unplannable as e:
         return None, f"unplannable: {e}"
     return {"steps": steps, "sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension,

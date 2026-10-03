@@ -3,7 +3,9 @@
 import heapq
 import math
 
-SNAP = 6            # endpoints within this many blocks are the same waypoint
+from .data import WAYPOINT_R
+
+SNAP = WAYPOINT_R
 WALK_S = 0.2        # seconds per block for the unknown direct part (same unit as the mod's path costs)
 MAX_LEGS = 400
 

@@ -19,6 +19,13 @@ def notes(*shelters_at):
     return mem
 
 
+def walked(a, b):
+    """A memory holding a travelled leg from `a` to `b` (overworld): the road noted."""
+    mem = notes()
+    mem.data.setdefault("roads", {})["minecraft:overworld"] = [{"a": list(a), "b": list(b), "s": 9.0, "used": 0}]
+    return mem
+
+
 DAY, NIGHT = state(timeOfDay=2000), state(timeOfDay=18000)
 HERE = snapshot(DAY, inventory()).feet
 # Every goal kind (goals.TEMPLATES): (goal, the world with it not done, the world with it done, the remainder when not
@@ -38,7 +45,8 @@ GOAL_LEFT = {
              (snapshot(state(timeOfDay=2000, x=HERE[0] + 12.5, z=HERE[2] + 0.5), inventory()), notes()),
              {"blocks away": 10.0}),
     "road": (goals.make("road", a=[0, 64, 0], b=[9, 64, 0]), (snapshot(DAY, inventory()), notes()),
-             (snapshot(DAY, inventory()), notes()), None),
+             (snapshot(state(timeOfDay=2000, x=9.5, z=0.5), inventory()), walked([0, 64, 0], [9, 64, 0])),
+             {"road walked": 1, "blocks away": 3.0}),
     "build": (goals.make("build", bp="shelter", at=list(HERE)), (snapshot(DAY, inventory()), notes((500, 64, 500))),
               (snapshot(DAY, inventory()), notes(HERE)), {"built:shelter": 1}),
     "sleep": (goals.make("sleep"), (snapshot(NIGHT, inventory()), notes()), (snapshot(DAY, inventory()), notes()),
@@ -97,7 +105,9 @@ class Reconcile(unittest.TestCase):
                  snapshot(day, inventory(("wooden_pickaxe", 1))), {"tool:pickaxe": 1}),
                 ("sleep at night → the night", goals.make("sleep"), snapshot(night, inventory()), {"night": 1}),
                 ("sleep by day → met", goals.make("sleep"), snapshot(day, inventory()), {}),
-                ("must fail: a run-once goal: the world cannot say", goals.make("road", a=[0, 64, 0], b=[9, 64, 0]),
+                ("a road not walked: the leg and the way to its end", goals.make("road", a=[0, 64, 0], b=[9, 64, 0]),
+                 snapshot(day, inventory()), {"road walked": 1, "blocks away": 3.0}),
+                ("must fail: a run-once goal: the world cannot say", goals.make("skill", name="eat"),
                  snapshot(day, inventory()), None)]
         for name, goal, snap, want in rows:
             with self.subTest(name):

@@ -123,6 +123,12 @@ def interrupt_pending():
     return STATE.interrupt
 
 
+def stop_asked():
+    """A stop perception asked for (interrupt_pending): a plan being searched ends, the round starts again from
+    survival."""
+    return interrupt_pending() is not None
+
+
 def request_interrupt(reason):
     """Leave `reason` for the running work to take (the arbiter's preemption; perception to a soft skill)."""
     STATE.interrupt = reason

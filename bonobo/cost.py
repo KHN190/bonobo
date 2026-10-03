@@ -66,6 +66,18 @@ def dug_way(feet, target, block, soil, ore, inv, protected=()):
         here = ends[-1]
     return out
 
+def planned_bag(inv, held):
+    """Pure: the bag as a plan has it when a step runs — its tools those the plan holds by then ({kind: tier}, each
+    fresh), everything else the bag's."""
+    from .data import TOOL_MATERIAL_FOR_TIER, TOOL_USES
+    from .knowledge import tool_item
+    from .world import Inventory
+    slots = [s for s in getattr(inv, "slots", ()) if bare(s["id"]).rpartition("_")[2] not in TOOL_KINDS]
+    for kind, tier in held.items():
+        slots.append({"id": tool_item(kind, tier), "count": 1, "damage": 0,
+                      "maxDamage": TOOL_USES[TOOL_MATERIAL_FOR_TIER[tier]], "slot": len(slots)})
+    return Inventory({"slots": slots, "equipment": dict(getattr(inv, "equipment", {}) or {})})
+
 class _Gone:
     """Cells an estimate never goes to: banned now, protected (None: none asked), or the game's route there asked this
     round and not found (`route_refused`: the one reachability reading)."""
@@ -237,7 +249,7 @@ class Cost:
         found = skill.step_contract(step)
         if found is None:
             return True, None
-        inv = self.snap.inv if held is None else knowledge.planned_bag(self.snap.inv, held)
+        inv = self.snap.inv if held is None else planned_bag(self.snap.inv, held)
         try:
             return knowledge.FIGHT_LINE(found[0], found[1], getattr(self.snap, "state", {}) or {}, inv)
         except (IndexError, KeyError, TypeError):

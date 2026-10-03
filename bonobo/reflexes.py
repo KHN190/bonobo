@@ -222,8 +222,8 @@ class Maintain:
             "bed_near": _once(reads, "bed_near", lambda: home_bed_near(b.mem, snap)
                               or in_sight(snap, BASE_MARKERS["bed"], survive.HOME_BED_R)),
             "night_way": night_way,
-            "shelter_ready": lambda: snap.night and not _once(reads, "bed_tonight",
-                                                                        lambda: b.needs.bed_tonight(snap))()
+            "shelter_ready": lambda: snap.night and not _once(reads, "bed_tonight", lambda: (
+                b.needs.night_facts(snap, reads), b.needs.bed_tonight(snap))[1])()
             and not view["sheltered"] and view["night_way"][0] is not None,
             "sheltered": lambda: self.sheltered(snap, enclosed),
             "job_ready": lambda: self.ready_job(snap) is not None,
