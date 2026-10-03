@@ -98,6 +98,62 @@ class TheRoundsOnePlan(unittest.TestCase):
                 self.assertEqual(first.token == "minecraft:cooked_beef", first_food)
 
 
+class TheBoundIsKeptAcrossRounds(unittest.TestCase):
+    """planner.bound: one Bound while the producers and the measured durations hold; a duration measured builds it
+    again (stale prices are wrong prices)."""
+
+    def test_rows(self):
+        from tests.world import cost, state
+        m = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
+        first = planner.bound(cost(snapshot(state(), inventory()), mem=m))
+        again = planner.bound(cost(snapshot(state(), inventory()), mem=m))      # the next round, nothing measured
+        for _ in range(5):
+            m.record_duration("mine:minecraft:cobblestone", 1.0)
+        measured = planner.bound(cost(snapshot(state(), inventory()), mem=m))
+        # must fail: a duration measured, the old prices kept
+        self.assertEqual((again is first, measured is first), (True, False))
+
+
+class LeastPricesAreTheFixpoint(unittest.TestCase):
+    """planner.least_prices (a heap, a fallen price re-pricing only its users) equals the plain fixed point: every
+    way of every token relaxed until nothing falls — cycles and shares below one unit included."""
+
+    @staticmethod
+    def plain(ways):
+        import math
+        from bonobo.data import mid
+        got: dict = {}
+
+        def of(t):
+            return got.get(t, got.get(mid(t), math.inf))
+        for _ in range(len(ways) + 1):
+            changed = False
+            for asked, ways_ in ways.items():
+                v = min((per + sum(of(t) * c for t, c in ins.items()) for per, ins, _n in ways_), default=math.inf)
+                if v < got.get(asked, math.inf) - 1e-9:
+                    got[asked], changed = v, True
+            if not changed:
+                break
+        return got
+
+    def test_the_tables(self):
+        ways = planner.Bound(NullCost()).ways
+        self.assertEqual({k: round(v, 6) for k, v in planner.least_prices(ways).items()},
+                         {k: round(v, 6) for k, v in self.plain(ways).items()})
+
+    def test_rows(self):
+        # (situation, ways) → prices
+        rows = [("a chain", {"a": [(1.0, {}, {})], "b": [(2.0, {"a": 3}, {})]}, {"a": 1.0, "b": 5.0}),
+                ("a share below one unit", {"a": [(8.0, {}, {})], "b": [(1.0, {"a": 0.25}, {})]}, {"a": 8.0, "b": 3.0}),
+                ("must fail: the dearer way first, the cheaper found later (a price is never final when popped)",
+                 {"y": [(10.0, {}, {})], "x": [(9.0, {}, {}), (1.0, {"y": 0.5}, {})]}, {"y": 10.0, "x": 6.0}),
+                ("a cycle never lowers a price", {"a": [(4.0, {}, {}), (1.0, {"b": 1}, {})], "b": [(1.0, {"a": 1}, {})]},
+                 {"a": 4.0, "b": 5.0})]
+        for name, ways, want in rows:
+            with self.subTest(name):
+                self.assertEqual(planner.least_prices(ways), want)
+
+
 class TheHeldPlanIsTheBar(unittest.TestCase):
     """The plan held from the round before, priced on today's world, is the incumbent: a plan as cheap is found with
     far fewer search steps; a held plan that no longer runs from this bag is ignored."""

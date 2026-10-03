@@ -257,6 +257,37 @@ def contract_facts():
     return out
 
 
+def least_prices(ways):
+    """Pure: {token: the least ticks one unit's derivation takes} over `ways` ({token: [(ticks per unit, {input: per
+    unit}, _)]}) — the least fixed point, by a heap: a token whose price falls re-prices only the ways that use it
+    (label-correcting: an input's share may be below its own price, so no price is final when first popped)."""
+    def node(t):
+        return t if t in ways else mid(t) if mid(t) in ways else None
+    users: dict = {}
+    for asked, ways_ in ways.items():
+        for _per, ins, _n in ways_:
+            for t in ins:
+                if node(t) is not None:
+                    users.setdefault(node(t), set()).add(asked)
+    price: dict = {}
+
+    def best(asked):
+        return min((per + sum(price.get(node(t), math.inf) * c for t, c in ins.items()) for per, ins, _n in ways[asked]),
+                   default=math.inf)
+    heap = [(best(a), a) for a in ways]
+    heapq.heapify(heap)
+    while heap:
+        value, asked = heapq.heappop(heap)
+        if value == math.inf or value >= price.get(asked, math.inf) - 1e-9:
+            continue
+        price[asked] = value
+        for user in users.get(asked, ()):
+            got = best(user)
+            if got < price.get(user, math.inf) - 1e-9:
+                heapq.heappush(heap, (got, user))
+    return price
+
+
 class Bound:
     """What a token costs at the least, from the tables: never above what a plan pays, whatever the bag holds.
     `scratch[token]` — ticks one unit's whole derivation takes from nothing (each way's own work with the best tools,
@@ -294,18 +325,7 @@ class Bound:
                 ins = {t: c / out for t, c in inputs if step.kind != "farm"}
                 self.ways.setdefault(asked, []).append((self.per_run(cost, step) / out, ins, need))
                 self.shapes.setdefault(asked, []).append((step, _station, ins))
-        scratch = {}
-        for _ in range(len(self.ways) + 1):
-            changed = False
-            for asked, ways_ in self.ways.items():
-                best = min((per + sum(self._of(scratch, t) * c for t, c in ins.items()) for per, ins, _n in ways_),
-                           default=math.inf)
-                if best < scratch.get(asked, math.inf) - 1e-9:
-                    scratch[asked] = best
-                    changed = True
-            if not changed:
-                break
-        self.scratch = scratch
+        self.scratch = least_prices(self.ways)
         self.reach = {}     # token → every token its derivation may use (its inputs, theirs, …)
         for asked in self.ways:
             seen, todo = set(), [asked]
@@ -419,26 +439,25 @@ class Bound:
         return got
 
 
-_BOUNDS = {}      # the offline bound (NullCost reads nothing): one per registry state
+_BOUNDS = {}      # Bound by (producers, hooks, measured durations): reused across rounds
+BOUNDS_KEPT = 4   # the offline one, the live one and a change or two in between
 lifecycle.in_place(__name__, "_BOUNDS")
 
 
 def bound(cost):
-    """The tables' bound (`Bound`), cached on the cost model (the offline one: per registry state)."""
+    """The tables' bound (`Bound`), kept across rounds while what it is built from holds: the registered producers and
+    hooks, and the durations measured (memory) — a change in either builds it again."""
     from . import knowledge
-    if isinstance(cost, NullCost):
-        key = (tuple(id(p) for p in knowledge.PRODUCERS), id(knowledge.STEP_CALL))
-        if key not in _BOUNDS:
+    mem = getattr(cost, "mem", None)
+    stats = tuple(sorted((k, d.get("per"), d.get("n")) for k, d in mem.data.get("durations", {}).items())) \
+        if mem is not None and hasattr(mem, "data") else ()
+    key = (tuple(id(p) for p in knowledge.PRODUCERS), id(knowledge.STEP_CALL), stats,
+           type(cost).__name__ if isinstance(cost, NullCost) else "cost")
+    if key not in _BOUNDS:
+        if len(_BOUNDS) >= BOUNDS_KEPT:
             _BOUNDS.clear()
-            _BOUNDS[key] = Bound(cost)
-        return _BOUNDS[key]
-    cache = cost.plans() if hasattr(cost, "plans") else getattr(cost, "cache", None)     # once a round's readings
-    if cache is not None and "bound" in cache:
-        return cache["bound"]
-    got = Bound(cost)
-    if cache is not None:
-        cache["bound"] = got
-    return got
+        _BOUNDS[key] = Bound(cost)
+    return _BOUNDS[key]
 
 
 # -- the search
@@ -774,9 +793,10 @@ class Search:
                 continue                # a thing standing in the world is taken only where one is known
             out.append(((0, 0, i), self.tasks(token, n, depth, len(node.steps), *got)))
             carried = self.from_carried(node, src, made, n)
-            if carried:
+            part = way(src, made, carried) if carried else None
+            if part is not None:
                 # the action keyed by its inputs' source: what the bag's inputs make is its own step, run when it pays
-                out.append(((0, 0, i, 1), self.tasks(token, carried, depth, len(node.steps), *way(src, made, carried))
+                out.append(((0, 0, i, 1), self.tasks(token, carried, depth, len(node.steps), *part)
                             + [("need", token, n - carried, depth, False)]))
         if self.kinds is None:
             out += self.withdrawals(node, token, n, depth)
@@ -788,11 +808,12 @@ class Search:
         part is carried, that part is a step of its own (an input on its way never holds the carried part back)."""
         if src[0] not in ("craft", "smelt") or n < 2:
             return 0
-        if all(node.inv.available(t) >= c for t, c in way(src, made, n)[1]):
+        whole = way(src, made, n)
+        if whole is None or all(node.inv.available(t) >= c for t, c in whole[1]):
             return 0
         for k in range(n - 1, 0, -1):
             got = way(src, made, k)
-            if got[0].count < n and all(node.inv.available(t) >= c for t, c in got[1]):
+            if got is not None and got[0].count < n and all(node.inv.available(t) >= c for t, c in got[1]):
                 return got[0].count
         return 0
 
