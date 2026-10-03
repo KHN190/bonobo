@@ -1336,12 +1336,19 @@ class Upkeep(unittest.TestCase):
                 self.assertEqual(set(queued) & {(("bed", 1),)}, want)
 
     def test_dusk_clock(self):
-        from bonobo.data import DAY_END
-        # derived from the one dusk (data.DAY_END): seconds = ticks to it / 20; must fail: at dusk and after, none
+        from bonobo.data import DAY_END, DAY_TICKS, NIGHT_END
+        dawn = NIGHT_END + 100
+        # derived from the one dusk (data.DAY_END): seconds = ticks to the next one / 20; must fail: at dusk and after,
+        # none; from dawn (NIGHT_END) the next day's dusk, never 0
         for tod, secs in ((0, DAY_END / 20), (6000, (DAY_END - 6000) / 20), (11500, (DAY_END - 11500) / 20),
-                          (DAY_END, 0.0), (18000, 0.0), (24000 + 6000, (DAY_END - 6000) / 20)):
+                          (DAY_END, 0.0), (18000, 0.0), (24000 + 6000, (DAY_END - 6000) / 20),
+                          (dawn, (DAY_TICKS - dawn + DAY_END) / 20)):
             with self.subTest(timeOfDay=tod):
                 self.assertEqual(needs.dusk_s(snapshot(state(timeOfDay=tod))), secs)
+        prep = (DAY_END - 11500) / 20 / needs.LEAD + 1.0        # the night's prep, its lead past the light left at 11500
+        self.assertTrue(needs.due_now(needs.dusk_s(snapshot(state(timeOfDay=11500))), prep, True, False))
+        # must fail: dawn is no dusk (dusk_s 0 there queued the night's prep at daybreak)
+        self.assertFalse(needs.due_now(needs.dusk_s(snapshot(state(timeOfDay=dawn))), prep, True, False))
 
     def test_nether_retreat(self):
         rows = [({}, [("cooked_beef", 8)], None),  # must fail: not in the Nether, no retreat
