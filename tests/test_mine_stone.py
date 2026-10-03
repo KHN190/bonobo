@@ -36,16 +36,52 @@ class Shaft(unittest.TestCase):
         lava_side = {(1, stone[1], 0): "lava"}
         cave = {(0, y, 0): "air" for y in range(stone[1] - 2, stone[1])}
         # (scene, blocks carried) → dug?
-        rows = [("soil over stone, blocks to climb out: dug", ground(), depth, True),
-                ("must fail: no blocks to pillar back out", ground(), depth - 1, False),
-                ("lava beside the shaft", ground(lava_side), depth, False),
-                ("a cave under the shaft's foot", ground(cave), depth, False)]
-        for name, region, carried, dug in rows:
+        from bonobo.game import JUMP_BLOCKS
+        under = (FEET[0], FEET[1] - 1, FEET[2])
+        floor = FakeRegion((-2, FEET[1] - 4, -2), (2, FEET[1] + 2, 2),
+                           {(x, y, z): "stone" for x in range(-2, 3) for z in range(-2, 3) for y in range(FEET[1] - 3, FEET[1])})
+        # (scene, the stone dug to, blocks carried) → dug?
+        rows = [("soil over stone, blocks to climb out (the last block jumped): dug", ground(), stone,
+                 depth - JUMP_BLOCKS, True),
+                ("must fail: one block short of pillaring out", ground(), stone, depth - JUMP_BLOCKS - 1, False),
+                ("must fail (mine_stone__base): the stone under the feet, nothing carried: one block down is jumped out of",
+                 floor, under, 0, True),
+                ("lava beside the shaft", ground(lava_side), stone, depth, False),
+                ("a cave under the shaft's foot", ground(cave), stone, depth, False)]
+        for name, region, target, carried, dug in rows:
             with self.subTest(name):
-                tasks, why = gather.shaft_plan(region, FEET, stone, carried)
+                tasks, why = gather.shaft_plan(region, FEET, target, carried)
                 self.assertEqual(tasks is not None, dug, why)
                 if dug:
-                    self.assertEqual(len([t for t in tasks if t.get("type") != "wait"]), depth)
+                    self.assertEqual(len([t for t in tasks if t.get("type") != "wait"]), FEET[1] - target[1])
+
+
+class NoShaftIsNoBan(unittest.TestCase):
+    """mine_stone__base: a shaft that cannot be dug from here banned every cell of the connected vein (88 stone), and the
+    next pass found nothing; the way in failed, not the vein — no ban, the next pass takes another way."""
+
+    def test_rows(self):
+        from bonobo import api, nav
+        from bonobo.skillcore import Context
+        cells = [(x, FEET[1] - SOIL - 1, 0) for x in range(-2, 3)]      # the stone under the soil
+        region = ground()
+        ctx = Context(None, nav.Policy(allow_dig=True), "minecraft:overworld", {})
+        hits = [{"x": c[0], "y": c[1], "z": c[2], "block": "minecraft:stone", "distance": 3.0} for c in cells]
+        shaft = mock.Mock(return_value=(None, "the shaft refused"))
+        with mock.patch.object(gather, "Inventory", lambda: bag(inventory(("wooden_pickaxe", 1)))), \
+                mock.patch.object(gather, "require_pickaxe", lambda *a, **k: None), \
+                mock.patch.object(gather, "find", lambda blocks, radius=32, limit=50, exposed=False: [] if exposed else hits), \
+                mock.patch.object(gather, "feet", lambda: FEET), \
+                mock.patch.object(api, "get", lambda path, *a, **k: state()), \
+                mock.patch.object(gather, "region_around", lambda *a, **k: region), \
+                mock.patch.object(gather.nav, "dig_down_region", lambda *a, **k: region), \
+                mock.patch.object(gather, "shaft_plan", shaft), \
+                mock.patch.object(api, "detail", lambda *a: None):
+            run = gather.mine.__wrapped__(ctx, "minecraft:cobblestone", 3, ["stone"], 0)
+            next(run)                   # the first pass's top
+            next(run)                   # its shaft refused; the next pass's top
+        self.assertTrue(shaft.called)                   # the scene reached the shaft
+        self.assertEqual(dict(ctx.blacklist), {})       # must fail: the whole vein banned over one refused shaft
 
 
 PICK = {"id": "minecraft:diamond_pickaxe", "count": 1, "damage": 0, "maxDamage": 1561}

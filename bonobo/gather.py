@@ -11,6 +11,7 @@ from .skill import skill
 from .data import LEVEL_SIGHT_DEPTH, BAN_MAX_S, TASK_WAIT_S, WORK_REACH, cannot_reach, bare, mid
 from .knowledge import FIND_AT, members
 from .data import MINE_YIELD
+from .game import JUMP_BLOCKS
 from .bag import mineable, opener, pickup_whitelist, refused
 from .world import Inventory, Region, cell_add, connected, entities, find, region_around, ripe_near
 from .skillcore import ToolMissing, mine_cell, gained
@@ -93,7 +94,8 @@ def deep_below(cell: Cell, feet_at: Cell) -> bool:
 
 def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
     """Pure: (tasks, why not) for a straight shaft from the feet down to a buried `target`'s level: dug only as deep as
-    nav.dig_down_tasks finds safe (lava, water, a cave stop it) and the blocks carried can pillar back out of."""
+    nav.dig_down_tasks finds safe (lava, water, a cave stop it) and the blocks carried can pillar back out of (the last
+    JUMP_BLOCKS jumped)."""
     depth = feet_at[1] - target[1]
     try:
         tasks, safe = nav.dig_down_tasks(region, feet_at, depth, protected)
@@ -101,8 +103,8 @@ def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
         return None, str(e)
     if safe < depth:
         return None, f"lava, water or a cave {safe + 1} down"
-    if carried < depth:
-        return None, f"{carried} blocks carried, {depth} to pillar back out"
+    if carried < depth - JUMP_BLOCKS:
+        return None, f"{carried} blocks carried, {depth - JUMP_BLOCKS} to pillar back out"
     return tasks, None
 
 def stair_leg_end(start: Cell, target: Cell) -> Cell:
@@ -207,6 +209,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     no_cell = set()      # seeds whose vein has no mineable cell from here: the next pass takes the next seed
     opened = set()       # cells the jar could not hold a stand at, given a side face once (then banned if refused again)
     sent = set()         # cells sent to the jar: their notes are retired once the count is met
+    shaftless = set()    # cells no shaft from here reaches: their vein is walked or tunnelled to instead (never banned)
     dug_out = False      # a batch that broke its cells but brought nothing in gets one dig-out and sweep
     for _ in range(10):
         have = Inventory().count(drop)
@@ -280,13 +283,14 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         # reach a vein by walking if there is a way, else by digging one: buried ore has no path, and banning it left coal inside a wall forever
         near = min(vein, key=lambda p: math.dist(p, start))
         if (FIND_AT.get(mid(drop)) is None and near not in open_set and near[1] < start[1]
-                and ctx.policy.allow_dig):
+                and ctx.policy.allow_dig and near not in shaftless):
             # a buried surface kind (stone under the soil): straight down, with a way back out and no lava below
             shaft, why = shaft_plan(nav.dig_down_region(start, start[1] - near[1]), start, near,
                                     Inventory().count("building"), ctx.policy.protected)
             if shaft is None:
-                for p in whole:
-                    ctx.ban(p)
+                # this way in failed, not the vein: the next pass walks or tunnels to it (a ban here barred all of it)
+                api.detail(f"  mine {bare(drop)}: no shaft down to {near} from {start}: {why}")
+                shaftless.add(near)
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"no shaft down to the {blocks[0]} at {near}: {why}")
                 continue
