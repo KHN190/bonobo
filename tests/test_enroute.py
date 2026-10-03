@@ -6,6 +6,7 @@ milestone). Rows go through the production round
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -118,6 +119,54 @@ class ThePickedCCostsLessThanItsValue(unittest.TestCase):
                 self.assertIsNotNone(choice, "C held: the round must still record what it was weighed against")
                 self.assertLess(choice.C_s - choice.A_s, choice.P * choice.value)
                 self.assertEqual(len(got), 1, "one held plan a round, never two priced")
+
+
+def smelting(mobs, wait_s):
+    """The round's held plan for an iron pickaxe whose 3 ingots a furnace is still smelting (`wait_s` left): await
+    then craft, nothing to walk to; `mobs` in sight. Returns the brain."""
+    tmp = tempfile.mkdtemp()
+    lifecycle.reset_all(caches=False)
+    with mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")), \
+            mock.patch.object(api, "api", side_effect=AssertionError("the round read the world")):
+        b = brain_fixture()
+        b.mem.clock = 0
+        b.mem.add_job("furnace", (2, 64, 0), D, "minecraft:iron_ingot", 3, time.time() + wait_s, True)
+        snap = world.Snapshot.from_readings(state(x=.5, y=64, z=.5), world.Inventory(inventory(*KIT, ("stick", 2))),
+                                            {}, mobs, ground())
+        b.round_snap = snap
+        tasks.add(goals.have(("minecraft:iron_pickaxe", 1)))
+        b.plan_proposals(snap, round_ctx(b, snap))
+        return b
+
+
+class TheFurnaceWaitIsFree(unittest.TestCase):
+    """While a furnace smelts what the plan awaits, the plan has no site to walk to: what lies beside the feet is
+    still weighed, and C's extra seconds within the wait cost nothing."""
+
+    def test_rows(self):
+        rows = [("a sheep 3 off, 35s left: C", sheep(3, 1), 35.0, True),
+                ("a sheep 45 off, 35s left: its detour fits the wait, C", sheep(45, 1), 35.0, True),
+                ("the same sheep, 1s left: the detour is paid in full, A", sheep(45, 1), 1.0, False)]
+        for name, mob, wait_s, taken in rows:
+            with self.subTest(name):
+                b = smelting([mob], wait_s)
+                # must fail on the base: an await/craft plan has no site, so no candidate is ever weighed
+                self.assertEqual(provides(b, "wool"), taken, held_tokens(b))
+
+
+class AWorthIsWithItsSourceHidden(unittest.TestCase):
+    """A candidate's value is the seconds to get it again were it not there (brain.hidden_prices), in the cheap
+    bound as in the final weighing: priced with the sheep in sight, wool costs only its hunt and never pays."""
+
+    def test_rows(self):
+        got, b = proposals([sheep(3, 5)])
+        snap, at = b.round_snap, (3, 64, 5)
+        hunt = next((st for st in b.needs_plan["steps"] if st.kind == "hunt"), None)
+        # must fail on the base: its bound priced wool with this sheep in sight, so the sheep never reached C
+        self.assertIsNotNone(hunt, [(i.kind, i.key) for i in got])
+        hidden, plain = b.hidden_prices(snap, hunt, at).get("wool"), b.price_table(snap).get("wool")
+        self.assertGreater(hidden, plain)
+        self.assertEqual(b.enroute_choice.value, hidden)
 
 
 class NeverIronBeforeAPickaxe(unittest.TestCase):
