@@ -48,6 +48,16 @@ def _decision(act, chosen, intents, world):
                     name=getattr(act, "name", None), alternatives=tuple(alts))
 
 
+def fact_ages():
+    """P1: {reading: (its age now, the longest its cache keeps it)} for the readings a round decides on."""
+    from bonobo import perception, world
+    now = time.time()
+    look = world._SIGHT
+    return {"the look (world.nearest)": (now - look["t"] if look.get("key") else 0.0, world.SIGHT_TTL_S),
+            "the ground and kit (perception)": (now - perception.STATE.grid_at if perception.STATE.grid_at else 0.0,
+                                                perception.READ_TTL_S)}
+
+
 def _hazard_at(ctx, world):
     """Search.advance with the hazard written at its first call (S7): the interrupt as the arbiter writes it, the
     body under water with no air on every read after."""
@@ -234,6 +244,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
                 stack.enter_context(mock.patch.object(planner.Search, "advance", _hazard_at(ctx, world)))
             act = b.decide(snap, bctx)
         ctx["search_steps"] = SPENT["steps"] - began            # the round's own thinking, the checker's readings apart
+        ctx["fact_ages"] = fact_ages()
         if ctx.get("hazard_at") is not None:
             ctx["search_steps_after"] = SPENT["steps"] - ctx["hazard_at"]
         if offered:
