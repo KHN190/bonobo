@@ -459,15 +459,15 @@ class Node:
                     self.open)
 
 
-def step_key(step):
+def step_value(step):
     """Pure: what a step is, by value — the key its contracts' answers are kept under."""
     return step.kind, step.token, step.count, repr(sorted(step.detail.items())) if step.detail else ""
 
 
-def _asked(memo, name, fn, facts=False):
+def _hook_memo(memo, name, fn, facts=False):
     """`fn(step[, facts])`, kept in `memo` by the step's value (and the facts it is asked against)."""
     def ask(step, *rest):
-        key = (name, step_key(step)) + ((tuple(sorted(rest[0].items())),) if facts else ())
+        key = (name, step_value(step)) + ((tuple(sorted(rest[0].items())),) if facts else ())
         if key not in memo:
             memo[key] = fn(step, *rest)
         got = memo[key]
@@ -500,11 +500,11 @@ class Search:
         knowledge.producers()                 # the skills registered: their hooks below are wired
         # the contracts' answers about a step, asked once a search per step (the registry does not change within one)
         hooks = shared.setdefault("hooks", {})
-        self.call = _asked(hooks, "call", knowledge.STEP_CALL or (lambda step: {}))
-        self.when = _asked(hooks, "when", knowledge.STEP_WHEN or (lambda step, facts: []), facts=True)
-        self.sets = _asked(hooks, "sets", knowledge.STEP_SETS or (lambda step: {}))
-        self.used = _asked(hooks, "used", knowledge.STEP_USES or (lambda step: {}))
-        self.station_of = _asked(hooks, "station", step_station)
+        self.call = _hook_memo(hooks, "call", knowledge.STEP_CALL or (lambda step: {}))
+        self.when = _hook_memo(hooks, "when", knowledge.STEP_WHEN or (lambda step, facts: []), facts=True)
+        self.sets = _hook_memo(hooks, "sets", knowledge.STEP_SETS or (lambda step: {}))
+        self.used = _hook_memo(hooks, "used", knowledge.STEP_USES or (lambda step: {}))
+        self.station_of = _hook_memo(hooks, "station", step_station)
         fact_steps = knowledge.FACT_STEPS or (lambda fact, value: [])
         self.fact_steps = lambda fact, value: hooks.setdefault(("facts", fact, repr(value)), fact_steps(fact, value))
 
