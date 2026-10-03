@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
-from .data import DOOR_NEAR, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .data import DOOR_NEAR, ENTITY_REACH, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .game import EYE_HEIGHT, PLAYER_SPRINT
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
 from .knowledge import WAY_BLOCKS, dig_ticks
@@ -308,8 +308,13 @@ LEGS = 6
 # task types sent only from a stand the jar's own check holds (I4: gate); the jar's approach then has nothing to do
 APPROACHING = ("mine", "place", "use", "use_item", "attack", "interact")
 ENTITY_ACTS = ("attack", "interact")     # acts on a mob: judged where it is now (K7), never a cell fixed at plan time
-ENTITY_REACH = 3.0       # the game's entity_interaction_range attribute (survival player default)
 WAY_TRIES = 3            # ways plan_way is asked for one stand (a staircase comes a segment at a time)
+MINE_PASSES = 10         # passes gather.mine makes at a vein, a way (_go_way) each before its gate's own
+
+def ways_for(act):
+    """Pure: the ways the run spends getting to a stand for `act` — a mined source: mine's passes, then the gate's;
+    any other: the gate's (reach_stand). What reach is given, so a plan refuses only what the run gives up on (P2)."""
+    return MINE_PASSES + WAY_TRIES if act == "mine" else WAY_TRIES
 
 def use_holds(region, feet_at, cell, reach=REACH):
     """Pure: the jar's UseBlockTask sight — the block's centre or a face centre the first hit from the eye, in reach."""
@@ -339,6 +344,8 @@ def stands_for(kind, region, feet_at, target, down=False):
         return holds(region, feet_at, target, down=down)
     if kind == "place":
         return place_holds(region, feet_at, target)
+    if kind == "use_item" and region.hazard(target) and feet_at[1] < target[1]:
+        return False         # a bucket's ray takes sources only: from below the surface it enters through flowing water
     if kind in ("use", "use_item"):
         return use_holds(region, feet_at, target)
     if kind in ENTITY_ACTS:
@@ -1446,32 +1453,36 @@ class Reached:
     seconds: float = 0.0
 
 
-def reach(region, feet, site, act, inv, protected=(), down=False):
+def reach(region, feet, site, act, inv, protected=(), down=False, tries=None):
     """Pure: can `act` (stands_for's kinds; a mob act on its cell now, K7) on `site` be done after travelling from
-    `feet` with `inv` — the gate's own loop (gate → reach_stand) over `region`: the stand test, else plan_way's way,
-    its steps taken over the read (After), again up to WAY_TRIES. A why naming a cell is a refusal there; a way still
-    under way when the tries end names none (the run reads again). Plan and run ask this one question (P2/K1)."""
+    `feet` with `inv` — the run's own loop (gate → reach_stand) over `region`: the stand test, else plan_way's way,
+    its steps taken over the read (After), again up to `tries` (ways_for(act)); the tries spent or a way changing
+    nothing, the last way's why, else the site (reach_stand's NavFailed there). Plan and run ask this one question
+    (P2/K1)."""
     here, ground, spent, secs, why = tuple(feet), After(region), 0, 0.0, None
     site = tuple(site)
-    for _ in range(WAY_TRIES):
+    for _ in range(ways_for(act) if tries is None else tries):
         if stands_for(act, ground, here, site, down):
             return Reached(here, None, spent, secs)
         steps, why, s = plan_way(ground, here, site, act, less_way_blocks(inv, spent), protected)
         if steps is None:
             return Reached(None, why, spent, secs)
+        before = here
         here = took(ground, steps, here)
         spent += sum(t["type"] == "place" for t in steps)
         secs += s or 0.0
+        if here == before and not any(t["type"] in ("mine", "place") for t in steps):
+            break                       # the same way again: the run's next tries change nothing
     if stands_for(act, ground, here, site, down):
         return Reached(here, None, spent, secs)
-    return Reached(None, why or Why(f"no stand for {act} {site} after {WAY_TRIES} ways"), spent, secs)
+    return Reached(None, why or Why(f"no stand for {act} {site} after its ways", site), spent, secs)
 
 
-def known_refusal(region, feet, target, kind, inv, protected, known=lambda c: True):
+def known_refusal(region, feet, target, kind, inv, protected, known=lambda c: True, tries=None):
     """Pure: reach's why when no way to `kind` at `target` exists and the cell it names is `known` (read), else
     None: a way, or a failure only past what was read (unknown is possible). The one predicate a plan refuses a
     source by and the door's reach_stand fails by."""
-    got = reach(region, feet, target, kind, inv, protected)
+    got = reach(region, feet, target, kind, inv, protected, tries=tries)
     cell = getattr(got.why, "cell", None)
     return got.why if got.stand is None and cell is not None and known(cell) else None
 

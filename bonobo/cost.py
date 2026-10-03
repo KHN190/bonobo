@@ -148,7 +148,7 @@ class Cost:
                                                                   self.snap.routes, state=state))
         return got[1]
 
-    def _nearest(self, kinds, sources=False):
+    def _nearest(self, kinds, sources=False, kind=None):
         """(position, distance) of the nearest remembered one of these (memory.seen, "tree" for any log), or None;
         `sources`: a protected cell is not there."""
 
@@ -156,15 +156,15 @@ class Cost:
         here, dim = self.snap.feet, self.snap.dimension
         skip = self.not_there(sources)
         spots = {tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if tuple(r["pos"]) not in skip}
-        got = self.workable([(math.dist(p, here), p) for p in spots], stand_kind(kinds))
+        got = self.workable([(math.dist(p, here), p) for p in spots], kind or stand_kind(kinds))
         return (got[1], got[0]) if got else None
 
-    def seen(self, kinds, skip, radius=math.inf):
+    def seen(self, kinds, skip, radius=math.inf, kind=None):
         """(distance, cell) of the nearest of `kinds` in the round's look, none in `skip`, within `radius`, that a way
-        is not known to fail to (workable); or None."""
+        to `kind` (default stand_kind: worked as a source) is not known to fail to (workable); or None."""
         got = [(h["distance"], (h["x"], h["y"], h["z"])) for k in kinds for h in self.snap.hits.get(bare(k), ())
                if h["distance"] <= radius and (h["x"], h["y"], h["z"]) not in skip]
-        return self.workable(got, stand_kind(kinds))
+        return self.workable(got, kind or stand_kind(kinds))
 
     def workable(self, cands, kind):
         """The nearest of `cands` ((distance, cell)) no known way refusal bars (refused): asked lazily, nearest first,
@@ -174,22 +174,36 @@ class Cost:
                 return d, c
         return None
 
-    def refused(self, cell, kind):
-        """The why no way to `kind` (nav.stands_for) at `cell` exists from these feet over the round's read ground —
-        nav.known_refusal, the door's own predicate, banned cells no-go —, or None (a way, or unknown past the read).
-        Snapshot only (K10), once a round per (cell, kind, bans) (D8)."""
+    def step_bag(self, spent=0):
+        """The bag a step is priced with: the snapshot's, less the way blocks the plan's steps before it spent (D6:
+        spent along the plan, nav.less_way_blocks)."""
+        from . import nav
+        return nav.less_way_blocks(self.snap.inv, spent)
+
+    def reach(self, cell, kind, at=None, spent=0):
+        """nav.reach — the door's own predicate — for `kind` at `cell` from the step's place (`at`, step_state) with
+        the bag its plan leaves (step_bag), over the round's read ground, banned cells no-go; None off the read.
+        Snapshot only (K10), once a round per (cell, kind, place, way-block budget, bans) (D8, P4)."""
         if self.region is None or not self.region.inside(cell):
             return None
         from . import nav
         gone = self.not_there(False)
-        key = ("refused", tuple(cell), kind, gone)
+        feet = tuple(int(c) for c in self.step_state(at)[0])
+        bag = self.step_bag(spent)
+        key = ("reach", tuple(cell), kind, feet, nav.place_budget(bag.count("building")), gone)
         if key not in self.cache:
-            feet = tuple(int(c) for c in self.snap.feet)
             ground = _Ground(feet, cell, self.region.name(cell), self.soil(), False, self.region, gone.cells)
-            self.cache[key] = nav.known_refusal(ground, feet, tuple(cell), kind, self.snap.inv,
-                                                set(self.protected() or ()) | gone.cells,
-                                                lambda p: self.region.inside(p) or p in gone.cells)
+            self.cache[key] = nav.reach(ground, feet, tuple(cell), kind, bag, set(self.protected() or ()) | gone.cells)
         return self.cache[key]
+
+    def refused(self, cell, kind, at=None, spent=0):
+        """The why no way to `kind` (nav.stands_for) at `cell` exists (reach) whose cell was read or banned, or None
+        (a way, or unknown past the read): what a plan refuses a source by, as the door fails by it."""
+        got = self.reach(cell, kind, at, spent)
+        named = getattr(got.why, "cell", None) if got is not None and got.stand is None else None
+        if named is None or not (self.region.inside(named) or named in self.not_there(False).cells):
+            return None
+        return got.why
 
     def ripe(self, token):
         """Ripe crop cells known to give `token` from due crop jobs (memory only: an estimate never touches the world)."""
@@ -320,15 +334,16 @@ class Cost:
 
     def station_near(self, block):
         """A station of `block` within STATION_R: one of ours (memory: stations, machines that provide it) or one in
-        sight — used where it stands, never made again."""
+        sight — used where it stands, never made again; one a way to use is refused at (refused: the door's "use") is
+        not near."""
         feet, dim = self.snap.feet, self.snap.dimension
-        if self.mem.known_stations(block, dim, near=feet, within=STATION_R):
+        if any(self.refused(c, "use") is None for c in self.mem.known_stations(block, dim, near=feet, within=STATION_R)):
             return True
         if any(MACHINE_PROVIDES.get(tag) == mid(block) for m in self.mem.machines(dim)
                if math.dist(m["origin"], feet) <= STATION_R for tag in m.get("tags", ())):
             return True
-        near = self.distance([block], STATION_R)
-        return near is not None and near <= STATION_R
+        known = self._nearest([block], kind="use")
+        return (known is not None and known[1] <= STATION_R) or self.seen([block], self.not_there(), STATION_R, "use") is not None
 
     def measured(self, step):
         """Ticks the skill runner has measured for this step, or None until enough runs exist."""

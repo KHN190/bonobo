@@ -66,28 +66,22 @@ def surface_aim(cell):
 
     return cell[0] + 0.5, cell[1] + 0.95, cell[2] + 0.5
 
-def fill_spot(region, here, fluid="water", reach=REACH):
-    """Pure: (stand, source) to fill a bucket from: a dry cell whose eye reaches the source's top, never below its surface (lava: 2 away)."""
-
-    best = None
-    sources = [p for p in region.blocks if is_source(region, p, fluid)]
+def fill_spot(region, here, fluid="water", inv=None, protected=()):
+    """Pure: (stand, source) to fill a bucket from, the nearest source first: where the door's own predicate for the
+    click (nav.reach, "use_item": in sight, never below the surface) gets to from `here` with `inv` (none: no way
+    blocks) — or, `here` off the read, the nearest stand it holds from as read (lava: 2 away from any)."""
+    inv = inv if inv is not None else Inventory({"slots": [], "equipment": {}})
+    sources = sorted((p for p in region.blocks if is_source(region, p, fluid)), key=lambda p: math.dist(p, here))
     for w in sources:
-        for dx in range(-3, 4):
-            for dz in range(-3, 4):
-                # never below the surface: a level view entered sideways through flowing water, which the bucket's ray ignores
-                for dy in (0, 1):
-                    s = (w[0] + dx, w[1] + dy, w[2] + dz)
-                    if s == w or not standable(region, s) or region.name(s) == "water":
-                        continue
-                    if fluid == "lava" and lava_within(region, s, 2):
-                        continue
-                    top = surface_aim(w)
-                    if math.dist(_eye(s), top) > reach or not clear_line(region, _eye(s), w, top):
-                        continue
-                    d = math.dist(s, here)
-                    if best is None or d < best[0]:
-                        best = (d, s, w)
-    return None if best is None else (best[1], best[2])
+        if region.inside(here):
+            got = nav.reach(region, here, w, "use_item", inv, protected)
+            stands = [got.stand] if got.stand is not None else []
+        else:
+            stands = sorted(nav.stand_candidates(region, w, "use_item"), key=lambda s: math.dist(s, here))
+        stand = next((s for s in stands if not (fluid == "lava" and lava_within(region, s, 2))), None)
+        if stand is not None:
+            return stand, w
+    return None
 
 def portal_light_cell(origin, turns, attempt=0):
     """Pure: the frame's inner bottom obsidian clicked with flint and steel (the second attempt one block further in)."""

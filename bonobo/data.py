@@ -395,6 +395,7 @@ def is_night(time_of_day, dimension="minecraft:overworld"):
 REACH = 4.5            # the jar's block interaction range (survival: getBlockInteractionRange)
 HOLD_MARGIN = 0.5      # the jar's MineTask.holds works within the reach less this
 WORK_REACH = REACH - HOLD_MARGIN     # how far a block is worked from a stand (holds; fluids' fill spot)
+ENTITY_REACH = 3.0     # the game's entity_interaction_range (survival player): a mob is hit or used within it
 FALLING = {"sand", "red_sand", "gravel", "suspicious_sand", "suspicious_gravel"}   # fall when the cell below opens
 FALLING_SUFFIX = "_concrete_powder"
 def is_falling(name):

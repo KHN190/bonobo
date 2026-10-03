@@ -9,7 +9,7 @@ from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .data import SEARCH_LOOK_R, SEARCH_MOB_R, SEARCH_RINGS
-from .data import LEVEL_SIGHT_DEPTH, BAN_MAX_S, TASK_WAIT_S, WORK_REACH, cannot_reach, bare, mid
+from .data import LEVEL_SIGHT_DEPTH, BAN_MAX_S, ENTITY_REACH, TASK_WAIT_S, WORK_REACH, cannot_reach, bare, mid
 from .knowledge import FIND_AT, members
 from .data import GROUPS, MINE_YIELD, PLACEABLE_AS
 from .game import JUMP_BLOCKS
@@ -236,7 +236,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     sent = set()         # cells sent to the jar: their notes are retired once the count is met
     shaftless = set()    # cells no shaft from here reaches: their vein is walked or tunnelled to instead (never banned)
     dug_out = False      # a batch that broke its cells but brought nothing in gets one dig-out and sweep
-    for _ in range(10):
+    for _ in range(nav.MINE_PASSES):
         have = Inventory().count(drop)
         if have >= target:
             # the count met: the notes of what was mined are spent (only a whole pass's end retired them — a count met
@@ -545,7 +545,7 @@ def _hunt_seen(types):
     """The prey in sight as a detail line: id and distance each."""
     return ", ".join(f"{n['id']}@{n['distance']:.1f}" for n in entities(SEARCH_MOB_R, types)) or "none"
 
-HUNT_REACH = 6          # an animal this near after the walk is attacked where it stands
+HUNT_REACH = ENTITY_REACH     # an animal this near after the walk is attacked where it stands (the door's mob reach)
 
 def _hunt_progress(token, types):
     near = entities(SEARCH_MOB_R, types)
