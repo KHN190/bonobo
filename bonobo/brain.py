@@ -816,11 +816,6 @@ class Brain:
             self.fail_task(task, f"nothing left to plan, still short of {waiting}")
             return None
         step = next((s for s in held["steps"] if not met(s, snap) and self.valid(s, snap, ctx)), None)
-        if step is None and ctx is not None:
-            kinds = self.fight_blocked(held["steps"], snap, ctx)
-            act = self.raise_line(kinds, snap, ctx) if kinds else None
-            if act is not None:
-                return act
         if step is None:
             # same bag, same plan: re-solving every round ran nothing, so the step cools until the next event
             self.fail_step(task, NotAvailable("no step of the plan can run from here"))
@@ -848,28 +843,6 @@ class Brain:
         if found is not None and not fight_line_holds(found[0].contract, (ctx,) + tuple(found[1]), snap.state, snap.inv)[0]:
             return False
         return dispatch.can_start(ctx, step)
-
-    def fight_blocked(self, steps, snap, ctx):
-        """The mob kinds of the first held step refused only by the fight line, or None."""
-        for st in steps:
-            if not (runnable(st, snap.inv) and self.ready(step_key(st))):
-                continue
-            found = dispatch.runner_for(ctx, st)
-            if found is None:
-                continue
-            contract, args = found[0].contract, (ctx,) + tuple(found[1])
-            if not fight_line_holds(contract, args, snap.state, snap.inv)[0]:
-                return list(contract.fights(skillkit.Call(args, {})) or ())
-        return None
-
-    def raise_line(self, kinds, snap, ctx):
-        """The first step toward the cheapest kit that clears the fight line, or None."""
-        priced = [(self.needs.plan_s(goals.have(*rows), snap), rows) for rows in line_raisers(kinds, snap.state, snap.inv)]
-        priced = [(secs, rows) for secs, rows in priced if secs < math.inf]
-        if not priced:
-            return None
-        _secs, rows = min(priced, key=lambda p: p[0])
-        return self.need_act("fight line", goals.have(*rows), snap, ctx)
 
     def after_step(self, act, outcome):
         """The held plan after a step's outcome; returns the task fields to write."""

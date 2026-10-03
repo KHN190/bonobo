@@ -101,7 +101,9 @@ class RoundReselection(unittest.TestCase):
             with self.subTest(name), contextlib.redirect_stdout(io.StringIO()), \
                     mock.patch.object(brain, "line_raisers", lambda *a, **k: kit):
                 d, _got, ctx = rnd.decide(f)
-                self.assertTrue((d.name or "").startswith("fight line"), d.name)
+                plan = [(s.kind, s.token) for s in ctx.get("plan") or []]
+                self.assertEqual((d.layer, d.name), ("plan", "task t1"))         # the kit is the task plan's own steps
+                self.assertIn(("craft", "minecraft:iron_chestplate"), plan, plan)
                 self.assertEqual(ctx["reselected"], want)            # must fail when only the intent key is asked
 
 
