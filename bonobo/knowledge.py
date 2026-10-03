@@ -828,6 +828,8 @@ def prior_ticks(step):
         return PRIOR_TICKS["hunt_each"] * step.detail.get("kills", step.count)
     if k == "fill":
         return PRIOR_TICKS["fill"] * step.count
+    if k == "eat":
+        return PRIOR_TICKS["eat"] * max(1, int(step.count))      # count: the bites
     if k == "take" and step.token in TAKEABLE:
         return round(float(TAKEABLE[step.token]["break_s"]) * TICKS_PER_S) * max(1, int(step.count))
     if k == "farm":

@@ -4,6 +4,7 @@ model over the scene read offline) × the bench's slack — never a typed number
   ("step", kind, token, count, detail)  the cost model's price of one step (detail positions '@'-relative)
   ("way", target)                       nav.plan_way's seconds to stand at `target` over the scene's blocks
   ("fight", mobs, n)                    the fight model's estimate (words.fight.fight_est_s)
+  ("eat", food)                         the eat step at the bites survive.bite_plan makes from `food` and the bag
   ("on", scene_words, word)             `word` priced over another scene (a must-fail row: the work it was asked)
   ("sum", word, ...)                    the words one after another"""
 import math
@@ -111,4 +112,8 @@ def est_s(word, setup, dimension="minecraft:overworld"):
         return _step_s(*args, world, dimension)
     if kind == "way":
         return _way_s(args[0], world)
+    if kind == "eat":
+        from ...survive import bite_plan
+        bites = len(bite_plan(args[0], {f"minecraft:{i}": n for i, n in world["slots"]}))
+        return _step_s("eat", "food", bites, {}, world, dimension)
     raise ValueError(f"no estimate word {kind!r}")
