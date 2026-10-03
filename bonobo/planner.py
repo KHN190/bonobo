@@ -1115,6 +1115,10 @@ class Search:
         """The run-order tasks of one way: its inputs, its station, its call's own needs, the step, what it adds."""
         station = station or self.station_of(step)     # the contract's own station where the recipe names none
         out: list[tuple] = [("need", t, c, depth + 1, False) for t, c in inputs]
+        short = getattr(self.cost, "step_blocks_short", lambda s: 0)(step)
+        if short:
+            # its site reached only over treads the bag lacks: way blocks first, the cheapest kind by seconds (G3)
+            out.append(("need", "building", short, depth + 1, False))
         if step.kind == "smelt":
             out.append(("fuel", step, depth))
         if station:

@@ -258,6 +258,10 @@ def place_budget(stock):
 
     return max(0, stock - BLOCK_RESERVE) if stock > 2 * BLOCK_RESERVE else stock // 2
 
+def stock_for(treads):
+    """Pure: the fewest blocks carried whose place_budget lays `treads` (its inverse)."""
+    return 2 * treads if 2 * treads <= 2 * BLOCK_RESERVE else treads + BLOCK_RESERVE
+
 # below this, walking on ends runs: no regeneration, and the next hit is the last
 MIN_WALK_HP = 6.0
 

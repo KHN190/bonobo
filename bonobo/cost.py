@@ -166,9 +166,33 @@ class Cost:
         """The nearest of `cands` ((distance, cell)) no known way refusal bars (refused): asked lazily, nearest first,
         stopping at the first that is not refused; or None."""
         for d, c in sorted(cands):
-            if kind is None or self.refused(c, kind) is None:
+            if kind is None or self.unfixable(c, kind) is None:
                 return d, c
         return None
+
+    def way_blocks_short(self, cell, kind, at=None, spent=0):
+        """Way blocks the bag its plan leaves (step_bag) lacks for the door's way to `kind` at `cell`: refused only
+        for a tread (nav's "no tread"), reached with a leg's worth carried — the stock that lays its treads
+        (nav.stock_for) less what is held; 0 for a way, an unknown or a refusal blocks do not fix. The plan gets
+        them first (planner.tasks: a "building" need, G3 picking the cheapest kind)."""
+        from . import nav
+        reached = self.reach(cell, kind, at, spent)
+        if reached is None or reached.stand is not None or not str(reached.why).startswith("no tread"):
+            return 0
+        rich = self.reach(cell, kind, at, spent, extra=nav.BLOCK_RESERVE + nav.LEG)
+        if rich is None or rich.stand is None:
+            return 0
+        return max(1, nav.stock_for(rich.spent) - self.step_bag(spent).count("building"))
+
+    def step_blocks_short(self, step):
+        """way_blocks_short at the step's site (a sourced step's one target), 0 with none."""
+        kind, site = self.way_kind(step), self.site(step)
+        return self.way_blocks_short(site, kind) if kind is not None and site is not None else 0
+
+    def unfixable(self, cell, kind, at=None, spent=0):
+        """refused's why, unless carried blocks fix it (way_blocks_short: the plan gets them first); else None."""
+        why = self.refused(cell, kind, at, spent)
+        return why if why is not None and not self.way_blocks_short(cell, kind, at, spent) else None
 
     def step_bag(self, spent=0):
         """The bag a step is priced with: the snapshot's, less the way blocks the plan's steps before it spent (D6:
@@ -176,7 +200,7 @@ class Cost:
         from . import nav
         return nav.less_way_blocks(self.snap.inv, spent)
 
-    def reach(self, cell, kind, at=None, spent=0):
+    def reach(self, cell, kind, at=None, spent=0, extra=0):
         """nav.reach — the door's own predicate — for `kind` at `cell` from the step's place (`at`, step_state) with
         the bag its plan leaves (step_bag), over the round's read ground (a banned unread cell: no ground,
         _Ground.void); None off the read. Snapshot only (K10), once a round per (cell, kind, place, way blocks held,
@@ -187,6 +211,10 @@ class Cost:
         gone = self.not_there(False)
         feet = tuple(int(c) for c in self.step_state(at)[0])
         bag = self.step_bag(spent)
+        if extra:
+            # `extra` dirt more (way_blocks_short's probe: would carried blocks make the way)
+            bag = type(bag)({"slots": list(bag.slots) + [{"id": "minecraft:dirt", "count": extra, "slot": len(bag.slots)}],
+                             "equipment": dict(bag.equipment)})
         key = ("reach", tuple(cell), kind, feet, bag.count("building"), nav.building_of(bag), gone)
         if key not in self.cache:
             ground = _Ground(feet, cell, self.region.name(cell), self.soil(), False, self.region, gone.cells)
@@ -574,7 +602,7 @@ class Cost:
         out = {"walk": 0, "dig": 0, "surface": 0, "seek": 0}
         site = self.site(step) if at is not None else None
         kind = self.way_kind(step)
-        if site is not None and kind is not None and self.refused(site, kind, at, spent) is not None:
+        if site is not None and kind is not None and self.unfixable(site, kind, at, spent) is not None:
             out["seek"] = self.find_ticks(step_kinds(step), held, at)
         elif at is not None and site is not None:
             out["walk"] = walk_ticks(math.dist(at, site))
