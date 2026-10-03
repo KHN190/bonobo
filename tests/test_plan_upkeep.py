@@ -2291,8 +2291,8 @@ class Overnight(unittest.TestCase):
                  pick + [("white_bed", 1)], {"soft_ground": False}, True, ("bed", [])),
                 ("17:49: a home bed 12 s away — the home's bed, not dig in",
                  pick, needs.night_facts(False, (), True, 12.0), True, ("home", ["shelter"])),
-                ("must fail: the home bed 900 s of open night walk away — not the walk: a bed made before dark (3 sheep, a
-                 # table) is ~111 s against the dig-in's 25 s and the night waited out in it",
+                ("must fail: the home bed 900 s of open night walk away — not the walk: a bed made before dark (3 sheep, a "
+                 "table) is ~111 s against the dig-in's 25 s and the night waited out in it",
                  pick, needs.night_facts(False, (), True, 900.0), True, ("bed", ["hunt", "gather", "craft", "craft", "craft"])),
                 ("no bed carried, the home bed with no way to it (no home_bed fact): dig in",
                  pick, {"soft_ground": False}, True, ("dig in", ["shelter"])),
