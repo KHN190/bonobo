@@ -29,6 +29,8 @@ MAX_DEPTH = 14
 MAX_NODES = 400       # A* expansions past the incumbent (~0.1 s measured): spent, the best complete plan found
                       # stands — the incumbent at least (D1: an answer, never a hang)
 MERGEABLE = {"mine", "gather", "hunt", "smelt"}
+FOOD_IDS = frozenset(mid(f) for f in ALL_FOOD)          # what the eat reflex eats
+MAKES_FOOD = ("smelt", "craft", "take", "withdraw", "trade", "await")   # steps that put food in the bag
 MERGEABLE_CRAFTS = {"planks", "minecraft:stick", "minecraft:torch", "minecraft:ladder"}
 REORDER_MAX = 10      # steps with a known place an order is searched over exactly (2^n states)
 
@@ -398,6 +400,7 @@ class Node:
 
 class Search:
     def __init__(self, cost, kinds=None):
+        self.hungry = getattr(cost, "hunger_rate", lambda: 0.0)()
         self.cost = cost
         self.kinds = kinds              # step kinds allowed (None: all)
         self.lb = bound(cost)
@@ -565,9 +568,28 @@ class Search:
             if src[0] == "take" and getattr(self.cost, "site", lambda s: None)(step) is None:
                 continue                # a thing standing in the world is taken only where one is known
             out.append(((0, 0, i), self.tasks(token, n, depth, len(node.steps), *got)))
+            carried = self.from_carried(node, src, made, n)
+            if carried:
+                # the action keyed by its inputs' source: what the bag's inputs make is its own step, run when it pays
+                out.append(((0, 0, i, 1), self.tasks(token, carried, depth, len(node.steps), *way(src, made, carried))
+                            + [("need", token, n - carried, depth, False)]))
         if self.kinds is None:
             out += self.withdrawals(node, token, n, depth)
         return out
+
+    @staticmethod
+    def from_carried(node, src, made, n):
+        """The most of `n` a craft or smelt makes from inputs the bag already holds (0 < k < n), else 0: when only
+        part is carried, that part is a step of its own (an input on its way never holds the carried part back)."""
+        if src[0] not in ("craft", "smelt") or n < 2:
+            return 0
+        if all(node.inv.available(t) >= c for t, c in way(src, made, n)[1]):
+            return 0
+        for k in range(n - 1, 0, -1):
+            got = way(src, made, k)
+            if got[0].count < n and all(node.inv.available(t) >= c for t, c in got[1]):
+                return got[0].count
+        return 0
 
     def withdrawals(self, node, token, n, depth):
         """Taking it from a container that holds it (memory.stored, each weighed by the chance it still does): as
@@ -741,7 +763,11 @@ class Search:
         for kind in {k for k in map(tool_kind, breaks) if k is not None} | ({"sword"} if kills else set()):
             if kind in held:
                 node.inv.wear(kind, 0, self.uses(step, kind))
-        node.g += self.cost.work(step, held) + self.cost.dig_to(step, held) + self.cost.walk_lb(step)
+        ticks = self.cost.work(step, held) + self.cost.dig_to(step, held) + self.cost.walk_lb(step)
+        if self.hungry and not node.inv.facts.get("fed"):
+            ticks += round(ticks * self.hungry)         # F1l: hunger's seconds until a step makes food
+            node.inv.facts["fed"] = mid(step.token) in FOOD_IDS and step.kind in MAKES_FOOD
+        node.g += ticks
         node.inv.facts.update(self.sets(step))
         node.steps.append((step, held, start))      # start: where the steps it needs begin
         return None
@@ -876,9 +902,13 @@ def forward(entries, cost):
         held.append(h)
     order = walk_order(steps, cost)
     out, at, total = [], None, 0
+    hungry = getattr(cost, "hunger_rate", lambda: 0.0)()      # F1l: hunger's seconds until a step makes food
     for i in order:
         step = steps[i]
         step.est = cost.estimate(step, held[i], at)
+        if hungry:
+            step.est += round(step.est * hungry)
+            hungry = 0.0 if mid(step.token) in FOOD_IDS and step.kind in MAKES_FOOD else hungry
         site = cost.site(step) if hasattr(cost, "site") else None
         at = site if site is not None else at
         total += step.est

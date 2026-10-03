@@ -683,17 +683,19 @@ def night_loss(s):
     idle = 0.0 if s["sheltered"] else _T["night_s"]
     return p * (1.0 - _protection(s)) * _T["death_cost_s"] + idle
 
-def hunger_loss(s):
-    """Seconds the CURRENT hunger costs before the next meal: work lost to not sprinting and not regenerating."""
-
-    food = float(s["food"])
+def hunger_slowed(food):
+    """The share of working time this hunger loses while it lasts: no sprint, no regeneration (the one hunger rate)."""
+    food = float(food)
     if food >= _R["food_full"]:
         return 0.0
-    span = _T["day_s"] * _R["meal_share_of_day"]        # how long this hunger has to be carried
     slowed = (_R["food_full"] - food) / _R["food_full"] * _R["hunger_slowdown"]
     if food <= _R["food_low"]:
         slowed = max(slowed, _R["starving_slowdown"])   # below the floor nothing sprints and nothing heals
-    return span * slowed
+    return slowed
+
+def hunger_loss(s):
+    """Seconds the CURRENT hunger costs before the next meal: work lost to not sprinting and not regenerating."""
+    return _T["day_s"] * _R["meal_share_of_day"] * hunger_slowed(s["food"])     # carried until the next meal
 
 def larder_loss(s):
     """Seconds the lack of MEALS costs over the next day: hunger we will not be able to answer."""

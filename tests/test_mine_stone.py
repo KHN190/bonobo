@@ -53,7 +53,7 @@ PICK = {"id": "minecraft:diamond_pickaxe", "count": 1, "damage": 0, "maxDamage":
 
 class SoilDepth(unittest.TestCase):
     """knowledge.soil_depth: the soil under the feet as read (shovel blocks down to the rock); the prior SOIL_DEPTH only
-    where the column is not read through — and the staircase's soil steps follow it (cost.dig_blocks)."""
+    where the column is not read through — and the staircase's soil steps follow it (cost.dug_way)."""
 
     def test_rows(self):
         from bonobo.knowledge import soil_depth
@@ -78,7 +78,8 @@ class SoilDepth(unittest.TestCase):
         steps = FEET[1] - deep - 1
         for soil in (1, SOIL_DEPTH):
             with self.subTest(soil):
-                got = costmod.dig_blocks(FEET[1], deep, True, soil)
+                got = costmod.dug_way(FEET, (FEET[0] + 1, deep, FEET[2]), "iron_ore", soil, True,
+                                      bag(inventory(("stone_pickaxe", 1))))
                 # must fail: the soil steps fixed whatever was read
                 self.assertEqual(got.count("dirt"), min(soil, steps) * STAIR_CELLS)
 

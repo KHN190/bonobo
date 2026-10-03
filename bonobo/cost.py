@@ -5,10 +5,10 @@ import time
 
 from .api import McError
 from .beliefs import CONFIG as _PLAY
-from .data import MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, SOIL_DEPTH, LEVEL_SIGHT_DEPTH, STAIR_CELLS, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare, mid
-from .knowledge import soil_depth, dawn_s, MIN_FIND_P, body_facts, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
+from .data import MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare, mid
+from .knowledge import food_count, soil_depth, dawn_s, MIN_FIND_P, body_facts, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
-from .world import ROUTES, entities, job_ready, nearest, route_key, sight_pos, sight_y
+from .world import ROUTES, Region, entities, job_ready, nearest, route_key, sight_pos, sight_y
 from .skill import MIN_SAMPLES
 from .planner import Unplannable, plan_needs
 
@@ -27,29 +27,60 @@ def walk_ticks(distance):
     """Ticks to walk `distance` straight-line blocks, detours included: the one walk-time estimate."""
     return int(float(distance) * WALK_TICKS_PER_BLOCK)
 
-def dig_blocks(feet_y, y, ore, soil):
-    """Pure: the blocks dug to reach y from the feet, expected — a buried surface kind straight down through the soil
-    over it; an ore a level stand holds (LEVEL_SIGHT_DEPTH: no region read here) nothing, deeper by a staircase
-    (STAIR_CELLS a step), its first `soil` steps soil (knowledge.soil_depth), the rest rock (deepslate below DEEPSLATE_TOP)."""
-    if not ore:
-        return ["dirt"] * max(0, feet_y - 1 - y)
-    if y >= feet_y - LEVEL_SIGHT_DEPTH:
-        return []
-    out = []
-    for k in range(1, feet_y - y):
-        level = feet_y - k
-        rock = "deepslate" if level < DEEPSLATE_TOP else "stone"
-        out += ["dirt" if k <= soil else rock] * STAIR_CELLS
+class _Ground(Region):
+    """The ground as expected where nothing is read: air from the feet up, `soil` levels of dirt under them, then stone
+    (deepslate below DEEPSLATE_TOP); the target its own block, or soil over a buried surface kind."""
+
+    def __init__(self, feet, target, block, soil, ore):
+        pad = 3
+        self.lo = tuple(min(feet[i], target[i]) - pad for i in range(3))
+        self.hi = tuple(max(feet[i], target[i]) + pad for i in range(3))
+        self.blocks, self.props = {}, {}
+        self.feet_y, self.target, self.block, self.soil, self.ore = feet[1], tuple(target), bare(block), soil, ore
+
+    def name(self, p):
+        if tuple(p) == self.target:
+            return self.block
+        k = self.feet_y - p[1]
+        if k <= 0:
+            return "air"
+        if k <= self.soil or not self.ore:
+            return "dirt"
+        return "deepslate" if p[1] < DEEPSLATE_TOP else "stone"
+
+
+def dug_way(feet, target, block, soil, ore, inv, protected=()):
+    """The block names the way to stand where `target` can be mined breaks — nav.plan_way's own choice (a level way or a
+    staircase, by seconds, at any depth) over the expected ground — or None when it finds none."""
+    from . import nav
+    region, here, out = _Ground(feet, target, block, soil, ore), tuple(feet), []
+    for _segment in range(abs(feet[1] - target[1]) + 2):
+        steps, _why, _secs = nav.plan_way(region, here, tuple(target), "mine", inv, protected or ())
+        if steps is None:
+            return out or None
+        out += [region.name((t["x"], t["y"], t["z"])) for t in steps
+                if t["type"] == "mine" and (t["x"], t["y"], t["z"]) != tuple(target)]
+        ends = [(t["x"], t["y"], t["z"]) for t in steps if t["type"] == "goto"]
+        if not steps or not ends or ends[-1] == here:
+            return out                    # standing where it is held, or no farther: a staircase is planned a segment at a time
+        here = ends[-1]
     return out
 
 class _Gone:
-    """Cells an estimate never goes to: banned now, or protected (None: none asked)."""
+    """Cells an estimate never goes to: banned now, protected (None: none asked), or the game's route there asked this
+    round and not found (`route_refused`: the one reachability reading)."""
 
     def __init__(self, protected, blacklist):
         self.protected, self.blacklist = protected, blacklist
 
     def __contains__(self, p):
-        return banned(self.blacklist, tuple(p)) or (self.protected is not None and tuple(p) in self.protected)
+        return banned(self.blacklist, tuple(p)) or (self.protected is not None and tuple(p) in self.protected) \
+            or route_refused(tuple(p))
+
+
+def route_refused(where):
+    """The game's route to `where` was asked this round and not found (nav's route cache, read, never asked)."""
+    return ROUTES.get(route_key(where, 2.0, NAV_NODES), (None, None))[0] is False
 
 class Cost:
     """The cost model a planner is given."""
@@ -252,14 +283,29 @@ class Cost:
 
     def work_of(self, step, reach=True):
         """(breaks, kills) a step is expected to make: its own work (knowledge.own_work) and (`reach`) the digging
-        to the nearest in sight (dig_blocks)."""
+        to the nearest in sight (dug_way)."""
         breaks, kills = own_work(step)
         if reach and step.kind == "mine" and self.snap is not None:
-            y = sight_y(step.detail.get("blocks") or (), self.not_there(True))
-            if y is not None:
-                breaks = breaks + dig_blocks(int(self.snap.feet[1]), int(y), FIND_AT.get(step.token) is not None,
-                                             self.soil())
+            breaks = breaks + self._dug(step)
         return breaks, kills
+
+    def _dug(self, step):
+        """The blocks the way to the nearest in sight breaks (dug_way), [] when none is in sight or no way is found."""
+        blocks = step.detail.get("blocks") or ()
+        feet = tuple(int(c) for c in self.snap.feet)
+        target = sight_pos(blocks, self.not_there(True))
+        if target is None:
+            y = sight_y(blocks, self.not_there(True))
+            target = None if y is None else (feet[0] + 1, int(y), feet[2])
+        if target is None:
+            return []
+        key = ("dug", feet, tuple(target), tuple(blocks))
+        if key not in self.cache:
+            inv = getattr(self.snap, "inv", None)
+            got = dug_way(feet, target, blocks[0] if blocks else "stone", self.soil(),
+                          FIND_AT.get(step.token) is not None, inv, self.protected()) if inv is not None else None
+            self.cache[key] = got or []
+        return list(self.cache[key])
 
     SOURCED = ("gather", "mine", "take", "hunt", "trade")      # step kinds that walk to where their thing is found
 
@@ -371,6 +417,23 @@ class Cost:
         return sum(s.est for s in steps) / TICKS_PER_S
 
     # -- seconds to a kind: where it is, the game's route to it, the chance a search finds one
+    def hunger_rate(self):
+        """The share of each step's seconds hunger adds until something is eaten (threat.hunger_slowed), 0 with
+        food carried (eaten by the reflex) or no body read."""
+        state = getattr(self.snap, "state", None) or {}
+        inv = getattr(self.snap, "inv", None)
+        if "food" not in state or inv is None or food_count(inv) > 0:
+            return 0.0
+        from . import threat
+        return threat.hunger_slowed(state["food"])
+
+    def reachable(self, kinds):
+        """False only when the game's route to the nearest remembered one was asked and not found."""
+        if self.mem is None or self.snap is None:
+            return True
+        spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, self.snap.dimension)]
+        return not spots or not route_refused(min(spots, key=lambda p: math.dist(p, self.snap.feet)))
+
     def where(self, kinds):
         """The position of the nearest known one, or None: what "on the way" is judged by."""
         hit = self._nearest(kinds)

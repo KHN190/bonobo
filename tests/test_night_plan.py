@@ -94,6 +94,11 @@ class LightBox(unittest.TestCase):
                 self.assertTrue(all(any(TORCH_LIGHT - sum(abs(t[i] - c[i]) for i in range(3)) > 0 for t in torches)
                                     for c in dark))
 
+    def test_the_games_torch_light(self):
+        from bonobo.data import TORCH_LIGHT
+        # must fail: 15 (a lantern's level, not a torch's): a cell 14 away was counted lit
+        self.assertEqual((TORCH_LIGHT, TORCH_LIGHT - 14 > 0), (14, False))
+
     def test_pays(self):
         # (dark spots, floor spots, night left s, torch s) → pays
         rows = [("must fail: the dark open surface, no torches planned", 40, 120, 400.0, 0.5, True),

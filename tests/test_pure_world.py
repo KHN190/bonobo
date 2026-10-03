@@ -705,20 +705,32 @@ class Planner(unittest.TestCase):
                 self.assertEqual(inv.available(token), want)
 
     def test_virtual_inventory_has_tool(self):
-        tools = [("pickaxe", 2, 50), ("sword", 1, 3)]
-        w = knowledge.TOOL_WORKING
-        rows = [  # (why, kind, tier, uses the work spends, expected): left ≥ uses + TOOL_WORKING (knowledge.working)
+        # the plan's tools carry the uses they spend before they stop working (knowledge.spare_uses)
+        tools = [["pickaxe", 2, 50], ["sword", 1, 0]]
+        rows = [  # (why, kind, tier, uses the work spends, expected)
             ("iron pickaxe for stone", "pickaxe", 1, 10, True),
-            ("exact tier, the uses leave it working (boundary)", "pickaxe", 2, 50 - w, True),
-            ("must fail: one use more and it stops working", "pickaxe", 2, 50 - w + 1, False),
+            ("exact tier, every spare use spent (boundary)", "pickaxe", 2, 50, True),
+            ("must fail: one use more than it spares", "pickaxe", 2, 51, False),
             ("must fail: tier too high", "pickaxe", 3, 10, False),
             ("worn sword: no use to spare", "sword", 1, 1, False),
-            ("no axe", "axe", 0, 0, False),
+            ("no axe", "axe", 0, 1, False),
         ]
         inv = planner.VirtualInventory({}, tools)
         for why, kind, tier, uses, want in rows:
             with self.subTest(why):
                 self.assertEqual(inv.has_tool(kind, tier, uses), want)
+
+    def test_the_bag_brings_its_spare_uses(self):
+        from tests.world import bag, inventory, slot
+        w = knowledge.TOOL_WORKING
+        # (why, uses left on an iron pickaxe) → the plan's (kind, tier, spare uses), none when it is not working
+        rows = [("fresh", 250, [["pickaxe", 2, 250 - w]]), ("at the margin: working, nothing to spare", w,
+                                                             [["pickaxe", 2, 0]]),
+                ("must fail: under the margin: not a tool the plan has", w - 1, [])]
+        for why, left, want in rows:
+            with self.subTest(why):
+                got = planner.from_bag(bag(inventory(slot("iron_pickaxe", 1, 250 - left)))).tools
+                self.assertEqual([list(t) for t in got], want)
 
 
 # ---------------------------------------------------------------- retry / skill
