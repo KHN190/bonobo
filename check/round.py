@@ -48,14 +48,17 @@ def _decision(act, chosen, intents, world):
                     name=getattr(act, "name", None), alternatives=tuple(alts))
 
 
-def fact_ages():
-    """P1: {reading: (its age now, the longest its cache keeps it)} for the readings a round decides on."""
+def fact_ages(state_at):
+    """P1: {reading: (its age now, the most it may be)}: the body's safety facts a perception cycle (read as the
+    round begins: its age is the round's own time), terrain its TTL (data.FACT_TTL_S)."""
     from bonobo import perception, world
+    from bonobo.data import FACT_TTL_S
     now = time.time()
     look = world._SIGHT
-    return {"the look (world.nearest)": (now - look["t"] if look.get("key") else 0.0, world.SIGHT_TTL_S),
-            "the ground and kit (perception)": (now - perception.STATE.grid_at if perception.STATE.grid_at else 0.0,
-                                                perception.READ_TTL_S)}
+    return {"the body (/state: hp, hunger, hand, danger)": (now - state_at, perception.WATCH_S),
+            "the look (world.nearest)": (now - look["t"] if look.get("key") else 0.0, FACT_TTL_S["look"]),
+            "the ground (perception)": (now - perception.STATE.grid_at if perception.STATE.grid_at else 0.0,
+                                        FACT_TTL_S["ground"])}
 
 
 def _hazard_at(ctx, world):
@@ -238,14 +241,14 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False):
         from bonobo import tasks as tasklist
         live_before = {t["id"] for t in tasklist.load() if t["state"] in tasklist.LIVE}     # D1: what this round finishes
         from bonobo.planner import SPENT
-        began, cut = SPENT["steps"], SPENT["budget"]
+        began, cut, state_at = SPENT["steps"], SPENT["budget"], time.time()    # the round's /state, read now
         with contextlib.ExitStack() as stack:
             if hazard:
                 stack.enter_context(mock.patch.object(planner.Search, "advance", _hazard_at(ctx, world)))
             act = b.decide(snap, bctx)
         ctx["search_steps"] = SPENT["steps"] - began            # the round's own thinking, the checker's readings apart
         ctx["budget_spent"] = SPENT["budget"] > cut              # a search stopped by its budget this round
-        ctx["fact_ages"] = fact_ages()
+        ctx["fact_ages"] = fact_ages(state_at)
         if ctx.get("hazard_at") is not None:
             ctx["search_steps_after"] = SPENT["steps"] - ctx["hazard_at"]
         planned = plan_ctx(b, act, snap, mem, world)          # read now: the checker's later readings move what is seen

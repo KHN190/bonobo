@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Mapping, TypeVar, cast
 
 from . import api, lifecycle
 from .game import EYE_HEIGHT
-from .data import (DAY_END, DAY_TICKS, is_night, DOOR_SUFFIX, GROUPS, HAZARD, NIGHT_END, OPEN_PROP, PARTIAL_SUFFIX, PASSABLE,
+from .data import (DAY_END, DAY_TICKS, FACT_TTL_S, is_night, DOOR_SUFFIX, GROUPS, HAZARD, NIGHT_END, OPEN_PROP, PARTIAL_SUFFIX, PASSABLE,
                    PASSABLE_SUFFIX, is_door,
                    PLAYER_MADE_SUFFIX, TIER_OF_MATERIAL, UNBREAKABLE, bare, living, mid)
 
@@ -240,7 +240,6 @@ class Snapshot:
     def get(self, key, default=None):
         return self.state.get(key, default)
 
-SIGHT_TTL_S = 3.0          # a round's look at "how far is the nearest of each": kept while the feet stay put
 _SIGHT = {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}, "memo": {}, "v": 0}
 SIGHT_PER_BLOCK = 4        # hits kept per block: a source is the nearest of them outside the protected cells
 # the round's route answers and the last look are about the world we stood in (a new row may stand at the same feet)
@@ -267,8 +266,8 @@ def nearest(kinds, feet, dimension, radius: float = 48, union=(), skip=None):
     cells that are not there for this ask (a gather source is never a home block)."""
 
     names = [bare(k) for k in kinds]
-    key = (tuple(feet), dimension)
-    fresh = _SIGHT["key"] == key and time.time() - _SIGHT["t"] < SIGHT_TTL_S
+    key = (tuple(feet), dimension, api.STATE.world_writes)
+    fresh = _SIGHT["key"] == key and time.time() - _SIGHT["t"] < FACT_TTL_S["look"]
     if not fresh:
         _SIGHT.update(key=key, t=time.time(), near={}, y={}, hits={}, memo={}, v=_SIGHT.get("v", 0) + 1)
     near, hits_of = _SIGHT["near"], _SIGHT.setdefault("hits", {})

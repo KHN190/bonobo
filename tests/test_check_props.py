@@ -50,22 +50,43 @@ class DuskByThePrep(unittest.TestCase):
 
 
 class FreshFacts(unittest.TestCase):
-    """P1 (age): a fact the round decides on is no older than one perception cycle, by its age now and by how long its
-    cache may keep it."""
+    """P1 (age): a safety fact the round decides on is no older than a perception cycle, a terrain fact than its TTL
+    (data.FACT_TTL_S); a send that may change blocks drops the terrain reads at once."""
 
     def test_rows(self):
+        from bonobo.data import FACT_TTL_S
         from bonobo.perception import WATCH_S
         from check.inv import effects
         d = rnd.Decision("plan", "task", None, None, (), None, "task t1", ())
-        # (situation, {reading: (age now, kept at most)}) → flagged
-        rows = [("read this cycle, kept a cycle", {"look": (0.0, WATCH_S)}, False),
-                ("must fail: read two cycles ago", {"look": (2 * WATCH_S, WATCH_S)}, True),
-                ("must fail: a cache that keeps it longer than a cycle", {"look": (0.0, 15 * WATCH_S)}, True)]
+        look = FACT_TTL_S["look"]
+        # (situation, {reading: (age now, the most it may be)}) → flagged
+        rows = [("the body read this cycle", {"body": (WATCH_S / 2, WATCH_S)}, False),
+                ("must fail: the body read two cycles ago", {"body": (2 * WATCH_S, WATCH_S)}, True),
+                ("the look within its TTL", {"look": (look / 2, look)}, False),
+                ("must fail: the look past its TTL", {"look": (2 * look, look)}, True)]
         for name, ages, flagged in rows:
             with self.subTest(name):
                 got = effects.P1(of(), d, of(), {"fact_ages": ages})
                 self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), flagged)
         self.assertIsInstance(effects.P1(of(), d, of(), {}), oracle.Unchecked)
+
+    def test_a_dig_sent_drops_the_look(self):
+        from unittest import mock
+        from bonobo import api, world
+        asked = []
+
+        def get(path):
+            asked.append(path)
+            return {"blocks": []}
+        with mock.patch.object(api, "get", get), mock.patch.dict(world._SIGHT, {"key": None, "t": 0.0, "near": {},
+                                                                              "y": {}, "hits": {}, "memo": {}}), \
+                mock.patch.object(world, "_per_block_ok", lambda: False):
+            world.nearest(["stone"], (0, 64, 0), "minecraft:overworld")
+            world.nearest(["stone"], (0, 64, 0), "minecraft:overworld")
+            self.assertEqual(len(asked), 1)                      # one look a TTL
+            api.STATE.world_writes += 1                          # a mine task sent
+            world.nearest(["stone"], (0, 64, 0), "minecraft:overworld")
+            self.assertEqual(len(asked), 2)                      # must fail: the look kept past our own dig
 
 
 class AHazardMidPlan(unittest.TestCase):
