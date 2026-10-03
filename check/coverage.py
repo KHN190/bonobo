@@ -262,19 +262,33 @@ def decision_code():
     return seen, why
 
 
+def inlined_guards(code):
+    """Offsets of the compiler's builtin guards: 3.14 inlines any()/all()/tuple()… over a generator behind
+    `LOAD_COMMON_CONSTANT <builtin>; IS_OP is; POP_JUMP_IF_FALSE`, whose jump runs only with the builtin rebound."""
+    ins = [i for i in dis.get_instructions(code) if i.opname != "CACHE"]
+    return {c.offset for a, b, c in zip(ins, ins[1:], ins[2:])
+            if a.opname == "LOAD_COMMON_CONSTANT" and b.opname == "IS_OP" and c.opname == "POP_JUMP_IF_FALSE"}
+
+
 class Gate:
     def __init__(self):
         decision, self.excluded = decision_code()
         self.arms = {}          # (code, offset, dest) → hit
         self.codes = {}         # a code's process-independent id → the code
+        self.inlined = 0        # the builtin guards' rebound arms, out of the denominator
         for c in decision:
             self.codes[ident(c)] = c
+            guards = inlined_guards(c)
             for src, left, right in c.co_branches():
                 self.arms[(c, src, left)] = False
-                self.arms[(c, src, right)] = False
+                if src in guards:
+                    self.inlined += 1
+                else:
+                    self.arms[(c, src, right)] = False
 
     def __enter__(self):
         sys.monitoring.use_tool_id(TOOL, "check")
+        sys.monitoring.restart_events()
         hit = self.arms
 
         def on(code, src, dst):

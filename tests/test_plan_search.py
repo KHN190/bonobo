@@ -446,6 +446,17 @@ class AToolTakenIsHeld(unittest.TestCase):
         # must fail: the mine after a pickaxe taken from a chest priced bare-handed (only a crafted tool counted)
         self.assertLess(took[1], bare[1])
 
+    def test_every_tool_material_has_its_tier(self):
+        from bonobo.data import TIER_OF_MATERIAL, TOOL_USES
+        from tests.world import cost
+        c = cost(snapshot(), stone=10)
+        for material in TOOL_USES:                     # must fail: a golden or netherite pickaxe raised StopIteration
+            with self.subTest(material):
+                took = planner.price_as_run([planner.Step("withdraw", f"minecraft:{material}_pickaxe", 1,
+                                                          {"pos": [0, 64, 0]})], [], c)
+                self.assertEqual(len(took), 1)
+                self.assertIn(material, TIER_OF_MATERIAL)
+
 
 class AWayNotWeighedIsSaid(unittest.TestCase):
     def test_a_capped_search_after_the_rounds_steps(self):

@@ -591,5 +591,67 @@ class Denominator(unittest.TestCase):
                 self.assertEqual(None if c in decision else why[c].split(" (")[0].split(":")[0], want)
 
 
+class TheRoundObservesTheBag(unittest.TestCase):
+    """K9: check.round runs Needs.observe as Brain._round_body does — a held plan's pickaxe worn out since last round
+    is a broken tool this round."""
+
+    def test_rows(self):
+        from bonobo import needs
+        from check import round as rnd
+        seen = []
+        real = needs.Needs.propose
+
+        def propose(self, *a, **k):
+            seen.append(set(self.broken))
+            return real(self, *a, **k)
+        for value, want in (("broke", {"pickaxe"}), ("none", set())):     # must fail: broke never reached needs.broken
+            with self.subTest(value):
+                seen.clear()
+                from unittest import mock
+                with mock.patch.object(needs.Needs, "propose", propose):
+                    rnd.decide(of(upkeep_held=value, pickaxe=-1), fail_then_again=False)
+                self.assertEqual(seen[0], want)
+
+
+class InlinedGuards(unittest.TestCase):
+    """check/coverage.inlined_guards: the compiler's builtin guard (any/all/tuple over a generator) by structure."""
+
+    def test_rows(self):
+        from check.coverage import inlined_guards
+        rows = [(lambda xs: any(x for x in xs), 1),      # must fail: the rebound-builtin arm left in the denominator
+                (lambda xs: all(x for x in xs), 1),
+                (lambda xs: tuple(x for x in xs), 1),
+                (lambda xs: sum(x for x in xs), 0),      # must fail: a plain call taken for a guard
+                (lambda xs: [x for x in xs if x], 0)]
+        for i, (fn, want) in enumerate(rows):
+            with self.subTest(i):
+                self.assertEqual(len(inlined_guards(fn.__code__)), want)
+
+    def test_the_gate_counts_only_the_live_arm(self):
+        from bonobo import needs
+        from check.coverage import Gate, inlined_guards
+        gate, c = Gate(), needs.tool_kinds.__code__
+        guards = inlined_guards(c)
+        self.assertTrue(guards)
+        for src, left, right in c.co_branches():
+            if src in guards:
+                self.assertIn((c, src, left), gate.arms)
+                self.assertNotIn((c, src, right), gate.arms)
+
+
+class GatesInOneProcess(unittest.TestCase):
+    """A second Gate in the same process records its arms (an arm DISABLEd under the first is restarted)."""
+
+    def test_both_record(self):
+        from bonobo import needs
+        from check.coverage import Gate
+        c = needs.tool_kinds.__code__
+        for _ in range(2):                               # must fail: the second records nothing
+            gate = Gate()
+            with gate:
+                needs.tool_kinds([])
+            self.assertTrue(any(ok for (code, _s, _d), ok in gate.arms.items() if code is c))
+
+
 if __name__ == "__main__":
     unittest.main()

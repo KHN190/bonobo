@@ -9,7 +9,7 @@ from typing import Any
 
 from . import api, lifecycle
 from .api import McError
-from .data import GROUPS, NIGHT_WORK, OVERWORLD, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_USES, bare, mid
+from .data import GROUPS, NIGHT_WORK, OVERWORLD, TIER_OF_MATERIAL, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_USES, bare, mid
 from .beliefs import CONFIG, TICKS_PER_S, fights_back
 from .knowledge import (ALL_FOOD, CONTRACT_FACTS, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
@@ -892,7 +892,7 @@ class Search:
             facts.update(self.sets(st))
             material, _, kind = bare(st.token).rpartition("_")
             if st.kind == "craft" and kind in TOOL_KINDS and material in TOOL_USES:
-                tier = next(t for t, m in TOOL_MATERIAL_FOR_TIER.items() if m == material)
+                tier = TIER_OF_MATERIAL[material]
                 inv.add_tool(kind, tier, spare_uses(TOOL_USES[material]))
             else:
                 inv.add(st.token, st.count)
@@ -1632,7 +1632,7 @@ def price_as_run(steps, tools, cost, held=None) -> list:
         material, _, kind = bare(step.token).rpartition("_")
         if kind in TOOL_KINDS and material in TOOL_USES and step.kind not in ("use", "await"):
             # a tool had from here on, however it came: made, taken from a chest, traded
-            have.append((kind, next(t for t, m in TOOL_MATERIAL_FOR_TIER.items() if m == material), 1))
+            have.append((kind, TIER_OF_MATERIAL[material], 1))
         out.append(est)
     return out
 
@@ -1836,7 +1836,7 @@ class _After:
             item = mid(GROUPS[st.token][0]) if st.token in GROUPS else mid(st.token)
             material, _, kind = bare(item).rpartition("_")
             if st.kind == "craft" and kind in TOOL_KINDS and material in TOOL_USES:
-                tier = next(t for t, m in TOOL_MATERIAL_FOR_TIER.items() if m == material)
+                tier = TIER_OF_MATERIAL[material]
                 self._tools[kind].append((tier, TOOL_USES[material], item))
             elif st.kind not in ("seek", "look", "reach", "portal", "enter", "activate", "slay", "sleep", "wait"):
                 counts[item] += int(st.count)
