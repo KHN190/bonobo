@@ -290,7 +290,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 ctx.mem.forget_seen(b, seed, ctx.dimension, radius=0.5)     # gone from where it was noted
             api.detail(f"  mine {bare(drop)}: noted {seed} is {region.name(seed)} now, note forgotten")
             continue
-        whole = set(connected(region, seed, blocks))      # no way to a vein bans all of it, never cell by cell
+        whole = set(connected(region, seed, blocks))      # no way to a cell bans that cell: the next pass tries another
         vein = set(mineable((p for p in whole if not ctx.blocked(p)), start, region, nav.SAFE_DROP))
         if not vein:
             # the whole connected vein is already proven unreachable: next seed
@@ -321,15 +321,13 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             faces = sorted((p for p in vein if p in open_set), key=lambda p: nav.least_way_s(p, start))
             if _go_way(ctx, region, start, near, faces, drop):
                 continue
-            for p in whole:
-                ctx.ban(p)
+            ctx.ban(near)
             unreachable += 1
             _reach_budget(unreachable, blocks, f"no way to the {blocks[0]} vein at {seed}")
             continue
         walked = nav.arrived_near(near, ctx.policy, range_=3.5, attempts=1) if "travel" in nav.mod_features() else False
         if not walked and not nav.way_to(ctx, vein):
-            for p in whole:
-                ctx.ban(p)
+            ctx.ban(near)
             # the next vein is another target, not a retry: failing the step over one vein cooled the goal
             unreachable += 1
             _reach_budget(unreachable, blocks, f"no way and no tunnel to the {blocks[0]} vein at {seed}")
@@ -340,16 +338,14 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         if not in_reach:
             near_cell = min(vein, key=lambda p: math.dist(p, here_now))
             if not nav.arrived_near(near_cell, ctx.policy, range_=2.0, attempts=1) and not nav.way_to(ctx, {near_cell}):
-                for p in whole:
-                    ctx.ban(p)
+                ctx.ban(near_cell)
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"{blocks[0]} at {near_cell}: no way there and no tunnel")
                 continue
             here_now = feet()
             in_reach = reach_cells(vein, here_now)
             if not in_reach and not nav.way_to(ctx, vein):
-                for p in whole:
-                    ctx.ban(p)
+                ctx.ban(near_cell)
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"got near {near_cell} but no way in to the {blocks[0]}")
                 continue
@@ -584,8 +580,8 @@ def hunt(ctx, token, count, types, night):
                       range_=3, attempts=2)
             e = next((n for n in entities(64, types) if n["id"] == e["id"]), None)
             if e is None or e["distance"] > 6:
-                ctx.ban((prey[0]["id"], 0, 0), 300)
-                raise api.NavFailed(f"could not get to the {bare(types[0])}", pos=(prey[0]["id"], 0, 0))
+                ctx.ban((prey[0]["id"], 0, 0), 300)      # this one, not the hunt: the next prey is another target
+                continue
         api.detail(f"   hunt: prey {e['id']} at {(round(e['x'], 1), round(e['y'], 1), round(e['z'], 1))} "
                    f"{e['distance']:.1f} off; {_hunt_seen(types)}")
         try:

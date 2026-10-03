@@ -45,5 +45,34 @@ class HuntDetail(unittest.TestCase):
             self.assertIn(want, text)
 
 
+class AnUnreachedPreyIsBannedAlone(unittest.TestCase):
+    def test_the_next_prey_is_hunted(self):
+        far, near = dict(COW, id=8, x=40.5, distance=40.0), dict(COW, id=9, x=3.5, distance=3.0)
+        banned, attacked = set(), []
+
+        class Bans(Ctx):
+            def blocked(self, key):
+                return key in banned
+
+            def ban(self, key, s):
+                banned.add(key)
+
+        class Held:
+            def count(self, token):
+                return len(attacked)
+        sight = lambda r, types: [e for e in (far, near) if (e["id"], 0, 0) not in banned]     # noqa: E731
+        with mock.patch.object(gather, "entities", sight), mock.patch.object(gather, "Inventory", Held), \
+                mock.patch.object(nav, "arrived_near", lambda *a, **k: False), \
+                mock.patch.object(gather._k, "under_rock", lambda *a: False), \
+                mock.patch.object(api, "get", lambda path: {"skyLight": 15}), \
+                mock.patch.object(api, "run", lambda task, **k: attacked.append(task["entity"]) or {"status": "succeeded"}), \
+                mock.patch.object(nav, "walk_sweep"), mock.patch.object(gather, "gained", lambda f, before: f()), \
+                mock.patch.object(gather, "feet", lambda: (0, 64, 0)), mock.patch.object(api, "detail"):
+            for _ in gather.hunt.__wrapped__(Bans(), "minecraft:beef", 1, ["minecraft:cow"], False):
+                pass
+        # must fail: the hunt failed over the one cow it could not reach (NavFailed), the next never tried
+        self.assertEqual((attacked, banned), ([9], {(8, 0, 0)}))
+
+
 if __name__ == "__main__":
     unittest.main()
