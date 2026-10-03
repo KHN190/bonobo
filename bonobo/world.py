@@ -52,7 +52,7 @@ class Versioned(dict[K, V]):
         self._wrote()
         return super().popitem()
 
-    def setdefault(self, k, default=None):
+    def setdefault(self, k: K, default: V, /) -> V:
         if k not in self:
             self._wrote()
         return super().setdefault(k, default)
