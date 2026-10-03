@@ -14,8 +14,9 @@ from . import api, arbiter, lifecycle, paths, skillcore, tape, knowledge
 from .api import McError, TaskStuck
 from .knowledge import have_remainder, needs_rows
 from .bag import has_room
+from .world import Versioned
 
-REGISTRY: "dict[str, Contract]" = {}
+REGISTRY: "dict[str, Contract]" = Versioned()      # versioned: what is read off it is kept until it changes
 Needs = dict[str, int]         # {dimension: minimum}: "tool:pickaxe:2", "item:minecraft:bucket", ... (knowledge.needs_rows)
 Bag = dict[str, int]           # {item or group token: count}: a wanted bag, what is left of it
 VERIFY_SETTLE_S = 3.0      # how long a finished skill's effect may take to show up in the world
@@ -175,9 +176,18 @@ def step_keys(step):
     """The effects a plan step asks for, most specific first."""
     return [f"{step.kind}:{step.token}", f"item:{step.token}", step.kind]
 
+_PROVIDERS: dict = {}
+
+
 def providers(effect):
-    """Contracts that provide `effect`, preferred first."""
-    return sorted((c for c in REGISTRY.values() if effect in c.provides), key=lambda c: -c.prefer)
+    """Contracts that provide `effect`, preferred first (kept per registry version)."""
+    if _PROVIDERS.get("version") != REGISTRY.version:
+        _PROVIDERS.clear()
+        _PROVIDERS["version"] = REGISTRY.version
+    key = ("effect", effect)
+    if key not in _PROVIDERS:
+        _PROVIDERS[key] = sorted((c for c in REGISTRY.values() if effect in c.provides), key=lambda c: -c.prefer)
+    return list(_PROVIDERS[key])
 
 def provider(ctx, step):
     """(runner, args) of the skill that carries out `step` here, or None when no registered skill can."""
