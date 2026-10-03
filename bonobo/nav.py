@@ -591,7 +591,7 @@ def reach_stand(task, policy, faces=None, at=None):
         api.detail(f"   way to {kind} {target}: {len(steps)} steps, ~{seconds:.0f}s")
         _IN_WAY[0] += 1
         try:
-            run_way(steps, policy)
+            run_way(steps, policy, target)
         finally:
             _IN_WAY[0] -= 1
     here = feet()
@@ -601,8 +601,9 @@ def reach_stand(task, policy, faces=None, at=None):
 
 
 class Overrun(McError):
-    """A step's ways past its budget (OVERRUN × its as-run price): stopped, nothing banned (a price missed is no
-    cell's failure, K2) — the round prices it again from where the body stands."""
+    """A step's ways past its budget (OVERRUN × its as-run price): stopped, its own cause ("overrun", data.EXCEPTIONS)
+    cooled at the way's target (`pos`) while the state holds (E5): another source is priced, this one again once the
+    bag or the ground changes."""
 
 
 @dataclass
@@ -636,10 +637,10 @@ def afford(seconds, target):
     budget = BUDGET[0]
     if budget is not None and seconds > budget.left():
         raise Overrun(f"way to {target} ~{seconds:.0f}s > the step's {budget.left():.0f}s left "
-                      f"({OVERRUN}× its price, {budget.spent_s:.0f}s spent)")
+                      f"({OVERRUN}× its price, {budget.spent_s:.0f}s spent)", pos=target)
 
 
-def run_way(steps, policy):
+def run_way(steps, policy, target=None):
     """A way's steps as one chain (run_chain: its segments, the interrupt check between them, policy.before_segment's
     hazard hook — S1/S7), the running step's budget spent by the clock and checked before each segment (Overrun)."""
     budget, began = BUDGET[0], time.time()
@@ -649,7 +650,7 @@ def run_way(steps, policy):
             policy.before_segment(part)
         if budget is not None and budget.spent_s + time.time() - began > budget.limit_s:
             raise Overrun(f"ways ran {budget.spent_s + time.time() - began:.0f}s > the step's "
-                          f"{budget.limit_s:.0f}s ({OVERRUN}× its price)")
+                          f"{budget.limit_s:.0f}s ({OVERRUN}× its price)", pos=target)
     try:
         api.run_chain(steps, stop_on_failure=True, before_segment=before)
     finally:

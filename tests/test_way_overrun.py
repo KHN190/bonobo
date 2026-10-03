@@ -89,5 +89,41 @@ class StepBudget(unittest.TestCase):
         self.assertEqual(seen, [SEGMENT, SEGMENT])
 
 
+class Accept7MineStep(unittest.TestCase):
+    """The production path (dispatch.run_priced → gather._go_way → nav), accept7's shape: an ore 67 off and 10 down
+    through stone, the step priced 61 s. Its way (~200 s of digging) is past 1.5× the price: refused before a block is
+    dug, a McError for the round (must fail: the whole way sent, accept7's ~138 s tunnel)."""
+
+    def test_the_way_past_the_price_is_never_dug(self):
+        from bonobo import dispatch, gather, skillcore, world
+        from bonobo.planner import Step
+        from tests.world import inventory, memory
+        feet, target = (12960, 67, 12928), (12995, 57, 12995)
+        lo, hi = (12955, 50, 12923), (13000, 72, 13000)
+        blocks = {(x, y, z): "stone" for x in range(lo[0], hi[0] + 1) for z in range(lo[2], hi[2] + 1)
+                  for y in range(lo[1], feet[1])}
+        blocks[target] = "iron_ore"
+        region = world.Region.of(lo, hi, blocks)
+        bag = world.Inventory(inventory(("stone_pickaxe", 1)))
+        step = Step("mine", "minecraft:raw_iron", 3, {"blocks": ["iron_ore"], "tier": 1, "breaks": 3},
+                    61 * TICKS_PER_S)
+        ctx = skillcore.Context(memory(), nav.Policy(), "minecraft:overworld")
+        sent = []
+
+        def run_chain(tasks, stop_on_failure=False, before_segment=None, **_kw):
+            for i in range(0, len(tasks), SEGMENT):
+                if before_segment:
+                    before_segment(tasks[i:i + SEGMENT])
+                sent.extend(tasks[i:i + SEGMENT])
+            return []
+        with mock.patch.object(api, "run_chain", run_chain), mock.patch.object(api, "detail", lambda *a: None), \
+                mock.patch.object(gather, "Inventory", lambda *a: bag), \
+                mock.patch.object(dispatch, "trace", lambda *a, **k: None), \
+                self.assertRaises(api.McError):
+            dispatch.run_priced("minecraft:overworld", step, False,
+                                lambda: gather._go_way(ctx, region, feet, target, [], "minecraft:raw_iron"))
+        self.assertEqual([t for t in sent if t["type"] == "mine"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

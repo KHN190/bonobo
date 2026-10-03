@@ -445,6 +445,7 @@ EXCEPTIONS: "dict[str, tuple[Cause, Source]]" = {
     "GameUnreachable": ("game", "game lost"),
     "NotAvailable": ("unavailable", "stuck"), "NavFailed": ("nav", "stuck"), "Unreachable": ("nav", "stuck"),
     "TaskStuck": ("stuck", "stuck"),
+    "Overrun": ("replan", "layer:plan"),                   # a price the run refuted (nav.Overrun): re-planned at once, nothing failed
     "ToolMissing": ("tool", "stuck"), "NeedMissing": ("tool", "stuck"),
     "StationMissing": ("replan", "stuck"),                 # the plan counted on a station that is gone
     "CommitmentExpired": ("replan", "layer:plan"),         # the plan grew stale: nothing failed
