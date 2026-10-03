@@ -31,13 +31,16 @@ def E1(b, d, a, ctx):
 
 
 def P1(b, d, a, ctx):
-    """Facts no older than they may be when the round uses them: safety a perception cycle, terrain its TTL (the
-    agreement with a re-read is live only)."""
-    if "fact_ages" not in ctx:
-        return Unchecked("no reading ages taken this round")
-    for name, (age, most) in sorted(ctx["fact_ages"].items()):
+    """Facts as fresh as they may be: the body's (hp, hunger, hand, danger) from the round's own /state read or a later
+    one, terrain no older than its TTL at that read (the agreement with a re-read is live only)."""
+    if ctx.get("body_read") is None:
+        return Unchecked("no decision snapshot this round")
+    used, own = ctx["body_read"]
+    if used < own:
+        return f"decided on /state read {used}, older than the round's own ({own})"
+    for name, (age, most) in sorted(ctx.get("fact_ages", {}).items()):
         if age > most:
-            return f"{name}: {age:.1f} s old, at most {most} s"
+            return f"{name}: {age:.1f} s older than the body's read, at most {most} s"
     return None
 
 

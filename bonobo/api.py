@@ -40,6 +40,8 @@ class ApiState(lifecycle.State):
     last_segment_s: float = 2.0          # how far ahead a watcher must look: a segment's measured length
     posts: int = 0                       # POSTs sent: a read taken since the last one still describes the world
     world_writes: int = 0                # task sends that may change blocks (all but walks): terrain reads drop
+    state_reads: int = 0                 # /state reads so far, and when the last was taken (P1: a snapshot's own)
+    state_read_at: float = 0.0
     feet_seen: "tuple[float, float, float] | None" = None     # the body's place in the last /state read
     dim_seen: "str | None" = None                              # its dimension then
     home_break: "str | None" = None      # a rescue's reason while it may break a home block (home_break_allowed)
@@ -402,6 +404,7 @@ def _game_up(timeout=1.0):
 def get(path) -> Any:
     r = api("GET", path)
     if path.startswith("/state") and isinstance(r, dict) and "x" in r:
+        STATE.state_reads, STATE.state_read_at = STATE.state_reads + 1, time.time()
         STATE.feet_seen = (r["x"], r["y"], r["z"])      # read for free where a failure happened
         STATE.dim_seen = r.get("dimension", STATE.dim_seen)
     return r

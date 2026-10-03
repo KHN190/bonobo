@@ -604,6 +604,7 @@ class Brain:
             api.detail(f"   planning stopped: {e}")
             snap = Snapshot.from_readings(api.get("/state"), Inventory())
             intents, facts = arbiter.first_live((timed("fast", fast),), facts_of)
+        self.decided_on = snap
         chosen = arbiter.arbitrate(intents, facts=facts)
         self._mark("arb")
         arbiter.note_pick(self.__dict__.setdefault("picks", collections.Counter()), chosen)

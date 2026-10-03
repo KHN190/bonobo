@@ -50,23 +50,22 @@ class DuskByThePrep(unittest.TestCase):
 
 
 class FreshFacts(unittest.TestCase):
-    """P1 (age): a safety fact the round decides on is no older than a perception cycle, a terrain fact than its TTL
-    (data.FACT_TTL_S); a send that may change blocks drops the terrain reads at once."""
+    """P1 (age, no wall clock): the round decides on its own /state read or a later one; a terrain read is no older than its
+    TTL (data.FACT_TTL_S) at that read; a send that may change blocks drops the terrain reads at once."""
 
     def test_rows(self):
         from bonobo.data import FACT_TTL_S
-        from bonobo.perception import WATCH_S
         from check.inv import effects
         d = rnd.Decision("plan", "task", None, None, (), None, "task t1", ())
         look = FACT_TTL_S["look"]
-        # (situation, {reading: (age now, the most it may be)}) → flagged
-        rows = [("the body read this cycle", {"body": (WATCH_S / 2, WATCH_S)}, False),
-                ("must fail: the body read two cycles ago", {"body": (2 * WATCH_S, WATCH_S)}, True),
-                ("the look within its TTL", {"look": (look / 2, look)}, False),
-                ("must fail: the look past its TTL", {"look": (2 * look, look)}, True)]
-        for name, ages, flagged in rows:
+        # (situation, (the /state read decided on, the round's own), {terrain: (age at that read, TTL)}) → flagged
+        rows = [("decided on the round's own read", (3, 3), {"look": (look / 2, look)}, False),
+                ("a hazard re-read later in the round", (4, 3), {}, False),
+                ("must fail: decided on an older read", (2, 3), {}, True),
+                ("must fail: the look past its TTL at the body's read", (3, 3), {"look": (2 * look, look)}, True)]
+        for name, reads, ages, flagged in rows:
             with self.subTest(name):
-                got = effects.P1(of(), d, of(), {"fact_ages": ages})
+                got = effects.P1(of(), d, of(), {"body_read": reads, "fact_ages": ages})
                 self.assertEqual(got is not None and not isinstance(got, oracle.Unchecked), flagged)
         self.assertIsInstance(effects.P1(of(), d, of(), {}), oracle.Unchecked)
 
