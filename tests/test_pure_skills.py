@@ -49,6 +49,24 @@ class PickTrunks(unittest.TestCase):
                 self.assertEqual([[(t["x"], t["y"], t["z"]) for t in tr] for tr in got], want)
 
 
+class CheapestTrunk(unittest.TestCase):
+    """wood.cheapest_trunk: the trunk walked to soonest by the walk's price, asked in the order of nav.least_way_s —
+    no nearest-N cut."""
+
+    def test_rows(self):
+        from bonobo import wood
+        trunks = [[{"x": d, "y": 64, "z": 0}] for d in (3, 5, 7, 9, 11, 30)]
+        # (situation, walk seconds by trunk x (absent: no way)) → (trunk x chosen, trunk xs refused)
+        rows = [("must fail: the five nearest have no way: the sixth", {30: 20.0}, (30, [3, 5, 7, 9, 11])),
+                ("a nearer trunk round a long way: the farther one", {3: 40.0, 5: 1.0}, (5, [])),
+                ("must fail: none has a way", {}, (None, [3, 5, 7, 9, 11, 30])),
+                ("the nearest walked to straight: none farther asked", {3: 0.5, 5: 0.1}, (3, []))]
+        for name, walks, (chosen, refused) in rows:
+            with self.subTest(name):
+                got, out = wood.cheapest_trunk(trunks, (0, 64, 0), lambda c: walks.get(c[0]))
+                self.assertEqual((got[0]["x"] if got else None, [t[0]["x"] for t in out]), (chosen, refused))
+
+
 class BitesToFull(unittest.TestCase):
     B, BEEF, APPLE, CARROT, RAW = ("minecraft:bread", "minecraft:cooked_beef", "minecraft:apple", "minecraft:carrot",
                                    "minecraft:beef")

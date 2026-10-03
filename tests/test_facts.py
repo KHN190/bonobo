@@ -418,6 +418,30 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
         self.assertEqual(sorted(knowledge.fact_steps("footing", True)), [("reach", "footing"), ("reach", "land")])
 
 
+class TheSoilIsWhatPerceptionRead(unittest.TestCase):
+    """Cost's dig price reads the soil column in the blocks perception read, never the world again; unread: the prior."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import perception
+
+        def column(dirt):
+            blocks = {(0, y, 0): "stone" for y in range(50, 64 - dirt)}
+            blocks.update({(0, y, 0): "dirt" for y in range(64 - dirt, 64)})
+            return FakeRegion((-1, 50, -1), (1, 70, 1), blocks)
+        # (situation, perception's region) → the soil the cost model prices
+        rows = [("nothing read: the prior", None, data.SOIL_DEPTH),
+                ("must fail: two dirt over rock, read", column(2), 2),
+                ("seven dirt over rock, read", column(7), 7)]
+        for name, region, want in rows:
+            with self.subTest(name), mock.patch.object(perception.STATE, "region", region):
+                ground = perception.price_inputs(dict(Snap.state, timeOfDay=0))["ground"]
+                self.assertEqual(Cost(Snap(), mem(), finds={}, region=ground).soil(), want)
+            with self.subTest(f"{name}: priced from its input alone"), \
+                    mock.patch.object(perception.STATE, "region", column(5)):
+                self.assertEqual(Cost(Snap(), mem(), finds={}, region=region).soil(), want)
+
+
 class TheNightIsAFact(unittest.TestCase):
     """The night is in the plan (S4, R3): surface work waits for the day, other work goes under cover first — the
     plan prices the shelter or the sleep like any other step. Within one plan the night does not pass (no clock)."""

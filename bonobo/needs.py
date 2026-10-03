@@ -52,8 +52,10 @@ def cover(ctx, state):
     from . import skill as skillkit
     # priced as the brain prices (brain.py's Cost: memory, the targets banned here, the movement policy): a banned
     # entity or block is no shelter's way (W3)
-    cost = Cost(Snapshot.from_readings(state, Inventory()), getattr(ctx, "mem", None), getattr(ctx, "blacklist", None),
-                policy=getattr(ctx, "policy", None))
+    from .brain import ground_of
+    snap = Snapshot.from_readings(state, Inventory())
+    cost = Cost(snap, getattr(ctx, "mem", None), getattr(ctx, "blacklist", None), policy=getattr(ctx, "policy", None),
+                region=ground_of(snap))
     ways = []
     for c in skillkit.REGISTRY.values():
         for effect in c.provides:
@@ -250,7 +252,9 @@ class Needs:
             self.need("night prep", goals.have(*src["needs"]), f"dark before {way} could be had")
 
     def cost(self, snap):
-        return Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache, reserved=bag.RESERVED)
+        from .brain import ground_of, hazard_seen
+        return Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache, reserved=bag.RESERVED,
+                    region=ground_of(snap), stop=hazard_seen)
 
     def need(self, kind, goal, why):
         """Propose getting `goal` (kind: its place in arbiter.PLAN_ORDER)."""

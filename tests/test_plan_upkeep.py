@@ -953,6 +953,40 @@ class HeldPlans(unittest.TestCase):
             finally:
                 q.restore()
 
+    def test_a_hazard_seen_while_planning_is_answered_this_round(self):
+        """S1: perception's stop (api.INTERRUPT) ends a search in progress (planner.Search's stop, through the Cost);
+        the round starts again from survival on the body read now and answers the hazard, not the plan."""
+        from bonobo import hazard
+        cost_ = planner.NullCost()
+        cost_.stop = lambda: True
+        with self.assertRaises(api.Interrupted):           # must fail: the search runs on through the stop
+            planner.plan_needs(bag(inventory()), [("log", 4)], cost_)
+        self.assertTrue(planner.plan_needs(bag(inventory()), [("log", 4)], planner.NullCost()))   # no stop: never stops
+        q = Held(goals.have(("log", 4)))
+        b = q.b
+        reads = [state(inWater=True)]             # the body read again once planning stops
+
+        def planning(snap, ctx):
+            api.request_interrupt("drowning")
+            raise api.Interrupted("a hazard while planning")
+        try:
+            with mock.patch.object(b, "plan_proposals", side_effect=planning), \
+                    mock.patch.object(b.reflexes, "proposals", return_value=[]), \
+                    mock.patch.object(b.needs, "propose"), mock.patch.object(b.needs, "needs_now", [], create=True), \
+                    mock.patch.object(api, "get", side_effect=lambda path, *a, **k: reads.pop(0)), \
+                    mock.patch.object(brainmod, "Inventory", lambda: bag(inventory())), \
+                    mock.patch.object(api, "mode", return_value="normal"), \
+                    mock.patch.object(brainmod.arbiter.BODY, "holder", return_value=None), \
+                    mock.patch.object(hazard, "rescue_due",
+                                      side_effect=lambda s, **k: "drowning" if s.get("inWater") else None):
+                act = b.decide(snapshot(state(), inventory()), None)
+            self.assertIsNotNone(act)                       # must fail: the plan's round, the hazard left a round
+            self.assertEqual(act.name, "rescue drowning")
+            self.assertIsNone(api.interrupt_pending())
+        finally:
+            api.clear_requests()
+            q.restore()
+
     # (bag, what idle prepares first, or None when everything is held)
     PREPARE = [(inventory(), ("tool", "pickaxe", 1)),
                (inventory(("stone_pickaxe", 1)), ("tool", "sword", 1)),

@@ -85,11 +85,14 @@ def route_refused(where):
 class Cost:
     """The cost model a planner is given."""
 
-    def __init__(self, snap, mem=None, blacklist=None, known=None, finds=None, policy=None, ripe=None, reserved=()):
+    def __init__(self, snap, mem=None, blacklist=None, known=None, finds=None, policy=None, ripe=None, reserved=(),
+                 region=None, stop=None):
         """`known`: fn(kinds) -> distance or None, standing in for memory (offline: no snapshot, no world).
-        `reserved`: item ids the held plans will consume (bag.RESERVED), kept from a better tool's material."""
+        `reserved`: item ids the held plans will consume (bag.RESERVED), kept from a better tool's material.
+        `region`: the blocks perception read (perception.price_inputs' ground), None when unread.
+        `stop`: () → True ends a search planning with this model (planner.Search), None never."""
 
-        self.snap, self.mem = snap, mem
+        self.snap, self.mem, self.region, self.stop = snap, mem, region, stop
         self.reserved = frozenset(reserved)
         self.blacklist = blacklist or {}
         self.cache = {}
@@ -278,8 +281,9 @@ class Cost:
         return prior_work_ticks(step, held, TICKS_PER_S)
 
     def soil(self):
-        """The soil under the feet (knowledge.soil_depth): no column is read here, so the prior."""
-        return soil_depth(None, tuple(self.snap.feet))
+        """The soil under the feet (knowledge.soil_depth) in `region`, the blocks perception read (never read here);
+        the prior where the column was not read."""
+        return soil_depth(self.region, tuple(self.snap.feet))
 
     def work_of(self, step, reach=True):
         """(breaks, kills) a step is expected to make: its own work (knowledge.own_work) and (`reach`) the digging

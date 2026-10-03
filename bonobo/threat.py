@@ -628,7 +628,8 @@ def price_state(**kw):
          "torches": False, "sword": None, "pickaxe": 0, "food_items": 0, "nights_missed": 0, "armor": 0,
          "shield": False, "bag_free": 36,
          # dark where we stand, where mobs come from — not the same as night
-         "dark": False}
+         "dark": False,
+         "ground": None}             # the blocks perception read: the dig price's soil column (Cost's region)
     unknown = set(kw) - set(s)
     if unknown:
         raise KeyError(f"not survival state: {sorted(unknown)}")

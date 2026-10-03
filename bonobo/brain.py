@@ -114,6 +114,15 @@ def act_commit_s(act):
     ticks = sum(int(getattr(st, "est", 0) or 0) for st in getattr(act, "steps", ()))
     return ticks / TICKS_PER_S if ticks > 0 else None
 
+def ground_of(snap):
+    """The blocks perception read (perception.price_inputs' ground): the region a Cost prices digging over."""
+    return perception.price_inputs(snap.state)["ground"]
+
+def hazard_seen():
+    """A stop perception asked for (api.interrupt_pending): a plan being searched ends, the round starts again from
+    survival."""
+    return api.interrupt_pending() is not None
+
 def pays_switch(held_s, chosen_s, lost_s):
     """Pure (D4): a new plan replaces the held one only when its seconds and the work the switch throws away beat
     what is left of the held one."""
@@ -579,7 +588,14 @@ class Brain:
 
         layers = (timed("fast", fast), timed("upkeep", upkeep)) + \
             ((timed("plan", lambda: self.plan_proposals(snap, ctx)),) if getattr(self, "planning", True) else ())
-        intents, facts = arbiter.first_live(layers, facts_of)
+        try:
+            intents, facts = arbiter.first_live(layers, facts_of)
+        except api.Interrupted as e:
+            # S1: a hazard seen while planning: the round starts again from survival, on the body read now
+            api.consume_interrupt()
+            api.detail(f"   planning stopped: {e}")
+            snap = Snapshot.from_readings(api.get("/state"), Inventory())
+            intents, facts = arbiter.first_live((timed("fast", fast),), facts_of)
         chosen = arbiter.arbitrate(intents, facts=facts)
         self._mark("arb")
         arbiter.note_pick(self.__dict__.setdefault("picks", collections.Counter()), chosen)
@@ -596,7 +612,7 @@ class Brain:
         for seq, task in enumerate(live):
             if not self.ready(f"task {task['id']}"):
                 continue
-            act, update = self.task_act(task, snap, ctx, Cost(snap, self.mem, self.blacklist,
+            act, update = self.task_act(task, snap, ctx, Cost(snap, self.mem, self.blacklist, region=ground_of(snap), stop=hazard_seen,
                                                               policy=self.policy_cache))
             write(task, update)
             if act is not None:
@@ -628,7 +644,8 @@ class Brain:
         name = f"{kind}: {goals.describe(goal)}"
         if not self.ready(name):
             return None
-        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED)
+        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED, region=ground_of(snap),
+                    stop=hazard_seen)
         try:
             steps = decompose.decompose(snap.inv, goal, cost, pending=self.mem.pending_outputs(snap.dimension))
         except Unplannable as e:
@@ -846,7 +863,7 @@ class Brain:
         except McError as e:
             api.swallowed("brain.price_table", e)
             return {}
-        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache), snap.inv)
+        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, region=ground_of(snap)), snap.inv)
 
     # -- bookkeeping
     def track(self, snap):

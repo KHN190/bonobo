@@ -234,6 +234,7 @@ def price_inputs(state):
         food=int(state.get("food", 20)), armor=int(state.get("armor", 0)), dark=dark_here(state),
         sheltered=sheltered(state.get("skyLight", 15), lambda: False, lambda: in_site_here(state)),
         pickaxe=0 if tier is None else max(1, tier),       # tool_loss: 0 none, 1 stone-class, 2+ iron
+        ground=STATE.region,
         **({} if NIGHTS_MISSED is None else {"nights_missed": NIGHTS_MISSED()}),
         **{k: state[k] for k in KIT_PRICED if k in state})
 
@@ -479,12 +480,14 @@ class Watcher(threading.Thread):
             now = time.time()
             if reason is None or now - self.last.get(reason, 0) < REPEAT_S:
                 continue
-            if not (s.get("control") or {}).get("task"):
-                continue        # nothing running to interrupt; the next round's survival check will see it
             if reason == "hostiles" and not answering(now):
                 # stopping the body is not an answer: only the layer about to answer a threat may stop the work
                 continue
             self.last[reason] = now
+            if not (s.get("control") or {}).get("task"):
+                api.request_interrupt(reason)     # no task to stop: a plan being searched ends (S1)
+                api.log(f"!! perception: {reason} → the round's planning stops")
+                continue
             if api.soft():
                 api.request_interrupt(reason)     # soft skill: message only, no /stop — the skill takes cover itself
                 # a soft skill takes cover itself; cancelling its task stranded the player
