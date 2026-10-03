@@ -450,7 +450,7 @@ EXCEPTIONS: "dict[str, tuple[Cause, Source]]" = {
     "PlayerTookControl": ("interrupt", "player"), "FightHolds": ("interrupt", "layer:tactic"),
     "BodyContested": ("interrupt", "manual"), "Died": ("interrupt", "death"),
     "DimensionChanged": ("interrupt", "dimension change"),
-    "Unplannable": ("error", "stuck"), "Dearer": ("error", "stuck"), "Unsolvable": ("error", "crash"), "ReplayMiss": ("error", "crash"),
+    "Unplannable": ("error", "stuck"), "Dearer": ("error", "stuck"), "Cut": ("error", "stuck"), "Unsolvable": ("error", "crash"), "ReplayMiss": ("error", "crash"),
     "SetupInvalid": ("error", "crash"),
 }
 
