@@ -57,6 +57,10 @@ class Step:
         return f"{self.kind} {self.count}× {bare(self.token)} (~{self.est // TICKS_PER_S}s)"
 
 
+_MEMBERS: dict = {}     # token → the item ids it counts (knowledge.members), read once: the tables are fixed
+lifecycle.in_place(__name__, "_MEMBERS")
+
+
 class VirtualInventory:
     """Counts what we'd hold after the planned steps run."""
 
@@ -77,7 +81,11 @@ class VirtualInventory:
         return out
 
     def available(self, token):
-        return sum(self.counts[m] for m in members(token)) + self.produced[token]
+        ids = _MEMBERS.get(token)
+        if ids is None:
+            ids = _MEMBERS[token] = tuple(members(token))
+        counts = self.counts
+        return sum(counts[m] for m in ids) + self.produced[token]
 
     def consume(self, token, n, awaits=True):
         """Use `n` of token: what the plan makes first, then the bag, then what a job is still making — that last
@@ -451,6 +459,22 @@ class Node:
                     self.open)
 
 
+def step_value(step):
+    """Pure: what a step is, by value — the key its contracts' answers are kept under."""
+    return step.kind, step.token, step.count, repr(sorted(step.detail.items())) if step.detail else ""
+
+
+def _hook_memo(memo, name, fn, facts=False):
+    """`fn(step[, facts])`, kept in `memo` by the step's value (and the facts it is asked against)."""
+    def ask(step, *rest):
+        key = (name, step_value(step)) + ((tuple(sorted(rest[0].items())),) if facts else ())
+        if key not in memo:
+            memo[key] = fn(step, *rest)
+        got = memo[key]
+        return dict(got) if isinstance(got, dict) else list(got) if isinstance(got, list) else got
+    return ask
+
+
 class Search:
     def __init__(self, cost, kinds=None, exact=False):
         self.exact = exact              # no budget: every option weighed, A* to the end (the checker's reference)
@@ -460,7 +484,8 @@ class Search:
         shared = plans.setdefault(("search", tuple(sorted(kinds)) if kinds else None, exact), {})
         self.walks = shared.setdefault("walks", {})       # (token, way) → its own walk at the least (own_walk)
         self.spent = 0                  # nodes advanced (the dive's budget: DIVE_NODES)
-        self.stored_c, self.near_c, self.reach_c = (shared.setdefault(k, {}) for k in ("stored", "near", "reach"))
+        self.stored_c, self.near_c, self.reach_c, self.least_c = (shared.setdefault(k, {}) for k in
+                                                                   ("stored", "near", "reach", "least"))
         self.greedy = False             # settle: every option weighed, or (the dive) the few least-bound ways inside a choice
         self.stop = getattr(cost, "stop", None) or (lambda: False)     # injected: true ends the search (Interrupted)
         self.cost = cost
@@ -473,11 +498,15 @@ class Search:
         self.considered = []        # every complete plan priced: (name, seconds, steps) — the round's alternatives
         from . import knowledge
         knowledge.producers()                 # the skills registered: their hooks below are wired
-        self.call = knowledge.STEP_CALL or (lambda step: {})
-        self.when = knowledge.STEP_WHEN or (lambda step, facts: [])
-        self.sets = knowledge.STEP_SETS or (lambda step: {})
-        self.used = knowledge.STEP_USES or (lambda step: {})
-        self.fact_steps = knowledge.FACT_STEPS or (lambda fact, value: [])
+        # the contracts' answers about a step, asked once a search per step (the registry does not change within one)
+        hooks = shared.setdefault("hooks", {})
+        self.call = _hook_memo(hooks, "call", knowledge.STEP_CALL or (lambda step: {}))
+        self.when = _hook_memo(hooks, "when", knowledge.STEP_WHEN or (lambda step, facts: []), facts=True)
+        self.sets = _hook_memo(hooks, "sets", knowledge.STEP_SETS or (lambda step: {}))
+        self.used = _hook_memo(hooks, "used", knowledge.STEP_USES or (lambda step: {}))
+        self.station_of = _hook_memo(hooks, "station", step_station)
+        fact_steps = knowledge.FACT_STEPS or (lambda fact, value: [])
+        self.fact_steps = lambda fact, value: hooks.setdefault(("facts", fact, repr(value)), fact_steps(fact, value))
 
     def sources(self, token):
         """knowledge.sources, asked once a plan (the registry does not change within one)."""
@@ -516,6 +545,17 @@ class Search:
                     station = max(station, self.lb.least(s, 1, held, memo))
             walk = max(walk, self.walk_to(task[1], held, memo["held"]))
         return max(units + walk, tool, station)
+
+    def least(self, token, n, inv):
+        """Bound.least of `n` token from `inv`, once a search per what of its derivation the bag holds."""
+        reach = self.lb.reach.get(token)
+        if reach is None:
+            reach = self.lb.reach.get(mid(token), set())
+        had = tuple(sorted((t, inv.available(t)) for t in reach | {token} if inv.available(t) > 0))
+        key = (token, n, had)
+        if key not in self.least_c:
+            self.least_c[key] = self.lb.least(token, n, inv.available, {"held": {t for t, _n in had} or set()})
+        return self.least_c[key]
 
     def stored(self, token):
         """Whether a remembered container holds `token` (cost.stored), once a search."""
@@ -775,7 +815,7 @@ class Search:
 
     def tasks(self, token, n, depth, start, step, inputs, station, adds):
         """The run-order tasks of one way: its inputs, its station, its call's own needs, the step, what it adds."""
-        station = station or step_station(step)       # the contract's own station where the recipe names none
+        station = station or self.station_of(step)     # the contract's own station where the recipe names none
         out: list[tuple] = [("need", t, c, depth + 1, False) for t, c in inputs]
         if step.kind == "smelt":
             out.append(("fuel", step, depth))
@@ -917,7 +957,7 @@ class Search:
                 if t <= held.get(kind, -1) or not self.sources(tool_item(kind, t)):
                     continue
                 saved = (base - work_s(breaks, kills, {**held, kind: t}, TICKS_PER_S)) * TICKS_PER_S
-                if saved <= 0 or saved <= self.lb.least(tool_item(kind, t), 1, node.inv.available, {}):
+                if saved <= 0 or saved <= self.least(tool_item(kind, t), 1, node.inv):
                     continue            # what it saves here cannot pay even the least the tool costs
                 opts.append(((t + 1, use_rank(kind), 1), [("tool", kind, t, self.uses(step, kind), depth)]))
         return self.options(node, opts, self.after(node, step))
@@ -1011,7 +1051,7 @@ class Search:
             elif need[0] == "fact":
                 after.append(("fact", need[1], need[2], 0))
             elif need[0] == "do":
-                station = step_station(need[1])
+                station = self.station_of(need[1])
                 after += ([("station", station, 0)] if station else []) + [("prep", need[1], 0), ("emit", need[1], 0, 0)]
             elif mid(need[0]) in STATIONS:
                 # a station the goal asks for stands from when it is had: every later step reuses it, none makes another
