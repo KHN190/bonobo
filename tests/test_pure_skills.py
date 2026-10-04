@@ -478,17 +478,14 @@ class CraftCommands(unittest.TestCase):
                     continue
                 self.assertEqual(self.shape(craft.craft_commands(st, (recipes,))), want)
 
-    def test_a_table_kept_for_the_next_sitting(self):
-        """craft.station_kept (G3) decides, not a bare bool: kept when the next use (D6's own place for it) is
-        near enough that walking back there prices cheaper than breaking, carrying and placing it again."""
+    def test_a_table_is_always_taken(self):
+        """Crafting table is always taken back after use, never left standing."""
         from tests.world import bag, inventory
         st = {"inv": bag(inventory(oak_planks=12, cobblestone=3)), "table": None, "spot": (1, 64, 0)}
-        rows = [("kept: the next use is right here (0 ticks back)", (1, 64, 0), False),
-                ("must fail: the next use is far enough that carrying it on prices cheaper", (1, 64, 300), True)]
-        for name, next_use, taken in rows:
+        for name, next_use in [("next use close", (1, 64, 0)), ("next use far", (1, 64, 300))]:
             with self.subTest(name):
                 got = self.shape(craft.craft_commands(dict(st, next_use=next_use), (self.PICK,)))
-                self.assertEqual("mine" in got, taken)
+                self.assertTrue("mine" in got)
 
     def test_resumed_from_the_bag(self):
         """Interrupted after the bag's crafts: the chain rebuilt from the bag then holds only the pickaxe."""

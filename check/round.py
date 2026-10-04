@@ -426,7 +426,8 @@ def plan_ctx(b, act, snap, mem, world, spent):
            "price_run": None,
            "mem": mem, "dimension": snap.dimension, "feet": snap.feet,
            "task_goal": task.get("goal") and {"goal": task["goal"], "args": task.get("args", {})} if task else None,
-           "way": None, "plan_hand_made": bool(held is not None and held.get("hand_made")), "bound": None}
+           "way": None, "plan_hand_made": bool(held is not None and held.get("hand_made")), "bound": None,
+           "enroute": held.get("enroute") if held is not None else None}
     goal = out["task_goal"]
     from bonobo import goals
     look = held["steps"][0] if held is not None and len(held["steps"]) == 1 and held["steps"][0].kind == "look" \

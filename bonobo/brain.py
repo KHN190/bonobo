@@ -467,7 +467,7 @@ class Brain:
                 lifecycle.reset_all()     # the last life's (or dimension's) state names things that are not here
         elif first == "cool":
             self.last_cause = retry.cause_of(err)
-            kinds = bag_now_kinds()
+            kinds = bag_now_kinds() if api.STATE.mode != "survival" and not name.startswith("rescue ") else None
             self.last_failure = self.failed(name, err, site=site, kinds=kinds)
             for key in also:
                 self.failed(key, err, quiet=True, site=site, kinds=kinds)

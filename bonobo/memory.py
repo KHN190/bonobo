@@ -226,7 +226,7 @@ class Memory:
         self.refuted: dict = {}           # (step kind, token, target) → (seconds, state): prices a run refuted (refute)
         # note row → seconds it is worth (its own source hidden: brain.note_worth), None for what nothing prices:
         # the cap's measure (MEMORY_CAP), wired by the brain each round; None: no cap
-        self.worth = None
+        self.worth: Any = None
         for key, default in (("sites", []), ("stations", []), ("seen", []), ("deaths", []),
                              ("night", {"phase": "day", "slept": False, "missed": 0}), ("machines", []),
                              ("stats", {}), ("durations", {}), ("jobs", [])):

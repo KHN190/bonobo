@@ -284,7 +284,28 @@ ROWS = [
          run=('skill', 'craft_chain', [('planks', 2), ('minecraft:stick', 1), ('minecraft:wooden_pickaxe', 1)]),
          before=[('start', 'craft_chain_one_sitting')], check=[('gain', 'minecraft:wooden_pickaxe', 1, 1)],
          est=('plan', [('minecraft:wooden_pickaxe', 1)]),
-         skills=['craft_chain'], tier_fixed='exception', tags={'base': 'craft'})
+         skills=['craft_chain'], tier_fixed='exception', tags={'base': 'craft'}),
+    dict(name='enroute', module='brain',
+         doc=('En-route: raw iron asked, the ore 18 east; an unopened chest 1 off the way holding diamond (the '
+              'diamond tools want it) and logs, 64 logs in the bag → the chest opened, the diamond taken, the logs left; '
+              'the iron and the diamond in fewer seconds than the planner prices the three apart'),
+         scene=[('fill', ('@', -4, -3, -4), ('@', 20, -1, 4), 'stone'), ('fill', ('@', -4, -1, -4), ('@', 20, -1, 4),
+                                                                           'grass_block'),
+                ('fill', ('@', 18, 0, -1), ('@', 19, 2, 1), 'stone'), ('setblock', ('@', 18, 0, 0), 'iron_ore'),
+                ('chest', ('@', 9, 0, 1), 'diamond 2', 'oak_log 10'),
+                ('stand',), ('cmd', 'clear @p'), ('time', 1000), ('give', 'stone_pickaxe'),
+                ('give', 'stone_sword'), ('give', 'stone_axe'), ('give', 'crafting_table'), ('give', 'furnace'),
+                ('give', 'bread', 8), ('give', 'oak_log', 64)],
+         run=('slice', ('!now', ('!count', 'minecraft:raw_iron', '>=', 1)), 2.0, None,
+              [{'goal': 'have', 'args': {'needs': [['minecraft:raw_iron', 1]]}}]),
+         before=[('start', 'enroute')],
+         check=[('count', 'minecraft:raw_iron', '>=', 1), ('count', 'minecraft:diamond', '>=', 1),
+                ('count', 'minecraft:oak_log', '==', 64),
+                ('slice_check', ('!now', ('!count', 'minecraft:raw_iron', '>=', 1)))],
+         detail=('&slice_detail',),
+         est=('sum', ('plan', [('minecraft:raw_iron', 1)]), ('step', 'look', 'container', 1, {'pos': ('@', 9, 0, 1)}),
+              ('step', 'withdraw', 'minecraft:diamond', 2, {'pos': ('@', 9, 0, 1)})), point='C',
+         tier_fixed='exception', tags={'base': 'brain', 'family': 'enroute'}),
 ]
 # E4's rows: each runs its step as the brain does (bench.core.one_step), so its price line is judged
 E4_ROWS = [dict(r, module=r.get('module', 'skills'), point='C', stochastic=False,

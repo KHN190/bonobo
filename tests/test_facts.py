@@ -61,7 +61,8 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
                 cost = Cost(Snap(), m, blacklist={} if reachable else {tuple(pos): Ban(float("inf"))})
                 step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"], "tier": 0, "breaks": 1})
                 walk = cost.estimate(step) - cost.work(step)
-                want = cost.find_ticks(["stone"]) if where is None else walk_ticks(math.dist(Snap().feet, where))
+                reach = cost.reach_ticks(where, "mine") if where is not None else None
+                want = cost.find_ticks(["stone"]) if where is None else (reach if reach is not None else walk_ticks(math.dist(Snap().feet, where)))
                 self.assertEqual(walk, want)
 
     def test_a_refused_route_is_not_there(self):
@@ -70,9 +71,10 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
         from bonobo import cost as costmod
         pos = (3, 64, 3)
         search = Cost(Snap(), mem()).find_ticks(["stone"])
+        reach_pos = Cost(Snap(), mem()).reach_ticks(pos, "mine")
         # (situation, the game's answer to the route there) → (the walk priced, reachable)
-        rows = [("not asked: there", None, (walk_ticks(math.dist(Snap().feet, pos)), True)),
-                ("asked and found: there", (True, 2.0), (walk_ticks(math.dist(Snap().feet, pos)), True)),
+        rows = [("not asked: there", None, (reach_pos, True)),
+                ("asked and found: there", (True, 2.0), (reach_pos, True)),
                 ("must fail: asked and not found: a search, not a walk to it", (False, None), (search, False))]
         for name, answer, want in rows:
             with self.subTest(name):

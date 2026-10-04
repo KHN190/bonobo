@@ -307,7 +307,7 @@ class OneDecisionPoint(unittest.TestCase):
             ask_queue = layer("queue", brain.Act("task", "t", None, step=Step("craft", "minecraft:stick", 4, {})))
             # the round's one plan (brain.round_for) stands in; the task's act is asked of it
             b.round_for = lambda entries, snap, cost, old=None: {"steps": [], "sig": None, "event": False,
-                                                                 "dim": snap.dimension, "want": ()}
+                                                                 "dim": snap.dimension, "want": (), "enroute": None}
             b.task_act = lambda *a: (ask_queue(*a), {})
             b.mem, b.blacklist, b.policy_cache, b.held = None, {}, None, {}
             with self.subTest(busy=sorted(busy)), mock.patch.object(api.STATE, "mode", "normal"), \

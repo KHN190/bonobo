@@ -1021,13 +1021,12 @@ def run_named(name, make_ctx):
                 # returned False without raising: blame the layer of its last failed task
                 exc = silent_failure(console.lines, result)
                 note = f"{type(exc).__name__}: {exc} (outcome not reached in {seconds:.0f}s, budget {sc['budget']}s)"
-    except BaseException as cut:
-        from .. import brain as _brain
-        _report(folder, failure_record(name, code, "cut", f"{CUT}: {type(cut).__name__} {cut}", time.time() - row_t0,
-                                       feedback, trace, console.lines, [a for a in _brain.ACTS if a["start"] >= row_t0]))
-        report_written()             # its world reads and the file before the process goes
-        raise
     finally:
+        if (cut := sys.exc_info()[1]) is not None:
+            from .. import brain as _brain
+            _report(folder, failure_record(name, code, "cut", f"{CUT}: {type(cut).__name__} {cut}", time.time() - row_t0,
+                                           feedback, trace, console.lines, [a for a in _brain.ACTS if a["start"] >= row_t0]))
+            report_written()             # its world reads and the file before the process goes
         _restore_term(term)
         stop.set()
         sys.stdout = console.real

@@ -736,11 +736,17 @@ def _died_at(pos, recovered):
     """A context whose memory holds a death at `pos` (recovered or not): what recover_items walked back to."""
     import tempfile
     from bonobo.memory import Memory
-    m = Memory(os.path.join(tempfile.mkdtemp(prefix="death"), "notes.json"))
-    m.log_death(pos, "minecraft:overworld", carried=[("minecraft:diamond", 3)])
-    if recovered:
-        m.forget_death(pos)
-    return type("Ctx", (), {"mem": m})()
+
+    class _DeathCtx:
+        @property
+        def mem(self):
+            m = Memory(os.path.join(tempfile.mkdtemp(prefix="death"), "notes.json"))
+            m.log_death(pos, "minecraft:overworld", carried=[("minecraft:diamond", 3)])
+            if recovered:
+                m.forget_death(pos)
+            return m
+
+    return _DeathCtx()
 
 
 DROP = {"id": 9, "type": "minecraft:item", "x": 6, "y": 64, "z": 0, "distance": 1.0}
