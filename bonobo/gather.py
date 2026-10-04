@@ -327,7 +327,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             continue
         # never open a block touching lava or water unless the goal wants the fluid; surface blocks keep 2 from any fluid
         want = breaks or max(1, target - have)
-        vein = set(pass_cells(vein, open_set, start, max(want, len(vein) if tier else want)))
+        vein = set(pass_cells(vein, open_set, start, max(want, len(vein) if tier is not None else want)))
         # reach a vein by walking if there is a way, else by digging one: buried ore has no path, and banning it left coal inside a wall forever
         near = approach_cell(vein, open_set, start)
         if (FIND_AT.get(mid(drop)) is None and near not in open_set and near[1] < start[1]
