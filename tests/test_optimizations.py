@@ -174,10 +174,13 @@ class ParkourNavigation(unittest.TestCase):
         reg = FakeRegion((-2, 60, -2), (4, 70, 2), blocks)
         tasks, why = nav.parkour_way(reg, (0, 64, 0), (2, 64, 0))
         self.assertIsNone(why)
-        # Jumps directly to x=2, y=64
-        self.assertEqual(len(tasks), 1)
-        self.assertEqual((tasks[0]["x"], tasks[0]["y"], tasks[0]["z"]), (2, 64, 0))
-        self.assertTrue(tasks[0].get("sprint"))
+        # Active input leap + goto landing at x=2, y=64
+        types = [t["type"] for t in tasks]
+        self.assertIn("input", types)
+        self.assertIn("goto", types)
+        goto_task = next(t for t in tasks if t["type"] == "goto")
+        self.assertEqual((goto_task["x"], goto_task["y"], goto_task["z"]), (2, 64, 0))
+        self.assertTrue(goto_task.get("sprint"))
 
     def test_plan_way_prefers_parkour_over_bridging_for_1_block_gap(self):
         blocks = {
@@ -208,6 +211,66 @@ class ParkourNavigation(unittest.TestCase):
         self.assertEqual(len(short_tasks), 1)
         self.assertEqual(short_tasks[0]["type"], "goto")
         self.assertTrue(short_tasks[0].get("sprint"))
+
+    def test_parkour_way_step_down_safe(self):
+        # 3-block vertical drop from (0, 64, 0) to (2, 61, 0) without stairs
+        blocks = {
+            (0, 63, 0): "stone", (0, 64, 0): "air", (0, 65, 0): "air",
+            (1, 60, 0): "stone", (1, 61, 0): "air", (1, 62, 0): "air", (1, 63, 0): "air", (1, 64, 0): "air",
+            (2, 60, 0): "stone", (2, 61, 0): "air", (2, 62, 0): "air",
+        }
+        reg = FakeRegion((-2, 58, -2), (4, 70, 2), blocks)
+        tasks, why = nav.parkour_way(reg, (0, 64, 0), (2, 61, 0))
+        self.assertIsNone(why)
+        types = [t["type"] for t in tasks]
+        self.assertIn("input", types)
+        # Verify descent input holds forward without jumping to prevent extra fall damage
+        input_task = next(t for t in tasks if t["type"] == "input")
+        self.assertEqual(input_task["keys"], ["forward"])
+        self.assertTrue(any(t.get("type") == "goto" and t.get("y") == 61 for t in tasks))
+
+    def test_parkour_way_water_drop(self):
+        # 6-block vertical drop into water from (0, 66, 0) to (2, 60, 0)
+        blocks = {
+            (0, 65, 0): "stone", (0, 66, 0): "air", (0, 67, 0): "air",
+            (1, 59, 0): "water", (1, 60, 0): "air", (1, 61, 0): "air", (1, 62, 0): "air",
+            (1, 63, 0): "air", (1, 64, 0): "air", (1, 65, 0): "air", (1, 66, 0): "air",
+            (2, 59, 0): "water", (2, 60, 0): "air", (2, 61, 0): "air",
+        }
+        reg = FakeRegion((-2, 58, -2), (4, 70, 2), blocks)
+        # Without water bucket: refused (> 3 blocks)
+        _, why_no_water = nav.parkour_way(reg, (0, 66, 0), (2, 60, 0), has_water=False)
+        self.assertIsNotNone(why_no_water)
+
+        # With water bucket: cleared via deep drop
+        tasks, why = nav.parkour_way(reg, (0, 66, 0), (2, 60, 0), has_water=True)
+        self.assertIsNone(why)
+        self.assertTrue(any(t.get("type") == "goto" and t.get("y") == 60 for t in tasks))
+
+    def test_parkour_course_full(self):
+        # Full course: 1-block gap (x=1), 1-block ledge (x=3), 2-block drop (x=5), 2-block gap (x=7..8)
+        blocks = {
+            (0, 63, 0): "stone", (0, 64, 0): "air", (0, 65, 0): "air",
+            # gap at x=1
+            (1, 63, 0): "air", (1, 64, 0): "air", (1, 65, 0): "air",
+            (2, 63, 0): "stone", (2, 64, 0): "air", (2, 65, 0): "air",
+            # ledge at x=3
+            (3, 64, 0): "stone", (3, 65, 0): "air", (3, 66, 0): "air",
+            (4, 64, 0): "stone", (4, 65, 0): "air", (4, 66, 0): "air",
+            # drop to y=63 at x=5
+            (5, 62, 0): "stone", (5, 63, 0): "air", (5, 64, 0): "air", (5, 65, 0): "air",
+            (6, 62, 0): "stone", (6, 63, 0): "air", (6, 64, 0): "air",
+            # 2-block gap at x=7, 8
+            (7, 62, 0): "air", (7, 63, 0): "air", (7, 64, 0): "air",
+            (8, 62, 0): "air", (8, 63, 0): "air", (8, 64, 0): "air",
+            (9, 62, 0): "stone", (9, 63, 0): "air", (9, 64, 0): "air",
+            (10, 62, 0): "stone", (10, 63, 0): "air", (10, 64, 0): "air",
+        }
+        reg = FakeRegion((-2, 55, -2), (12, 70, 2), blocks)
+        tasks, why = nav.parkour_way(reg, (0, 64, 0), (10, 63, 0))
+        self.assertIsNone(why)
+        self.assertEqual([t for t in tasks if t["type"] in ("mine", "place")], [])
+        self.assertTrue(any(t.get("type") == "goto" and (t.get("x"), t.get("y")) == (10, 63) for t in tasks))
 
 
 if __name__ == "__main__":

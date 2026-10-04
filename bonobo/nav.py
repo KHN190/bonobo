@@ -1005,13 +1005,28 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_gue
         api.at_boundary()                # nightfall between legs: never inside a walk
         api.check_budget(tuple(pos))         # the planned step past its budget: not one more leg (OVERRUN)
         was = feet()
-        how = None if locked else way_kind(_plan_reply(pos, False, False, range_), boxes, was, pos)
+        plan_rep = _plan_reply(pos, False, False, range_)
+        how = None if locked else way_kind(plan_rep, boxes, was, pos)
         if how == "door":
             # out (or in) by the home's taught door (NavFailed: none); the walk goes on from its far side
             api.detail(f"   no walk to {tuple(pos)}: by the home's door")
             if HOME_DOOR is not None:
                 HOME_DOOR(was, pos, policy)
             continue
+        has_water = bool(Inventory().count("minecraft:water_bucket"))
+        # Autonomous parkour route decision: choose direct parkour shortcut if faster than circuitous detour
+        if not locked and (how == "dig" or (plan_rep and plan_rep.get("found") and float(plan_rep.get("seconds", 0.0)) > (math.dist(was, pos) / PLAYER_SPEED) * 1.5 + 1.0)):
+            region = _read_box([was, pos])
+            if region is not None:
+                p_steps, p_why = parkour_way(region, was, pos, getattr(policy, "protected", ()), has_water=has_water)
+                if p_why is None and p_steps:
+                    p_s = way_s(region, was, p_steps, Inventory())
+                    if how == "dig" or p_s < float(plan_rep.get("seconds", 0.0)):
+                        api.detail(f"   parkour shortcut chosen ({p_s:.1f}s vs walk {plan_rep.get('seconds') if plan_rep else 'none'})")
+                        run_way(p_steps, policy, pos)
+                        ok = there(api.get("/state"), asked, range_)
+                        if ok:
+                            return _arrived(_from, asked, _began, ok, closer=True)
         if how == "dig":
             # no route: one way (plan_way's steps; NavFailed with its why when there is none), then judged at the
             # asked cell — never LEGS more asks
@@ -1468,11 +1483,23 @@ def can_step_up(region, here, d, head_clearance=2):
     return True
 
 
+def yaw_of(d):
+    """Pure: Minecraft yaw (float degrees) facing direction (dx, dz)."""
+    dx, dz = d
+    return float(math.degrees(math.atan2(dz, dx)) - 90.0)
+
+
 def step_up_tasks(here, d):
     """Pure: tasks to leap up a 1-block ledge in direction `d` without stopping."""
     dx, dz = d
     x, y, z = here
-    return [{"type": "goto", "x": x + dx, "y": y + 1, "z": z + dz, "range": 0.5, "sprint": True}]
+    tx, ty, tz = x + dx, y + 1, z + dz
+    yaw = yaw_of(d)
+    return [
+        {"type": "look", "x": tx + 0.5, "y": ty + 0.5, "z": tz + 0.5},
+        {"type": "input", "keys": ["forward", "sprint", "jump"], "yaw": yaw, "ticks": 8},
+        {"type": "goto", "x": tx, "y": ty, "z": tz, "range": 0.5, "sprint": True},
+    ]
 
 
 def can_gap_jump(region, here, d, gap_len=1, head_clearance=2, food=20):
@@ -1512,34 +1539,63 @@ def can_gap_jump(region, here, d, gap_len=1, head_clearance=2, food=20):
 def gap_jump_tasks(here, d, gap_len=1):
     """Pure: tasks to leap across a 1 or 2 block gap in direction `d` to land on the other side."""
     dx, dz = d
-    lx, lz = here[0] + dx * (gap_len + 1), here[2] + dz * (gap_len + 1)
-    y = here[1]
-    return [{"type": "goto", "x": lx, "y": y, "z": lz, "range": 0.5, "sprint": True}]
+    x, y, z = here
+    lx = x + dx * (gap_len + 1)
+    lz = z + dz * (gap_len + 1)
+    yaw = yaw_of(d)
+    ticks = 10 if gap_len == 1 else 14
+    return [
+        {"type": "look", "x": lx + 0.5, "y": y + 0.5, "z": lz + 0.5},
+        {"type": "input", "keys": ["forward", "sprint", "jump"], "yaw": yaw, "ticks": ticks},
+        {"type": "goto", "x": lx, "y": y, "z": lz, "range": 0.5, "sprint": True},
+    ]
 
 
-def can_step_down(region, here, d):
-    """Pure: True if a safe 1-block descent in direction `d` can be walked down."""
+def can_step_down(region, here, d, has_water=False, max_drop=3):
+    """Pure: drop_depth (int >= 1) if a safe descent in direction `d` can be made, or 0.
+    Drop <= 3: 0 fall damage in Minecraft.
+    With water bucket (has_water=True): vertical drop up to 20 blocks with gravity freefall."""
     x, y, z = here
     dx, dz = d
-    target_stand = (x + dx, y - 1, z + dz)
-    target_floor = (x + dx, y - 2, z + dz)
-    head_pass = (x + dx, y, z + dz)
-    if not (region.inside(target_stand) and region.inside(target_floor) and region.inside(head_pass)):
-        return False
-    if not region.solid(target_floor):
-        return False
-    if region.solid(target_stand) or region.solid(head_pass):
-        return False
-    if region.hazard(target_stand) or region.hazard(target_floor):
-        return False
-    return True
+    limit = 20 if has_water else max_drop
+    for drop in range(1, limit + 1):
+        target_stand = (x + dx, y - drop, z + dz)
+        target_floor = (x + dx, y - drop - 1, z + dz)
+        if not (region.inside(target_stand) and region.inside(target_floor)):
+            break
+        floor_name = region.name(target_floor)
+        is_water_floor = floor_name in ("water", "flowing_water", "minecraft:water", "minecraft:flowing_water")
+        if not (region.solid(target_floor) or is_water_floor):
+            continue
+        # Clearance: the air column from y down to y - drop must be clear of solid blocks
+        clear = True
+        for k in range(0, drop + 1):
+            c = (x + dx, y - k, z + dz)
+            if region.inside(c) and region.solid(c):
+                clear = False
+                break
+        if not clear:
+            break
+        if region.hazard(target_stand) and not is_water_floor:
+            continue
+        return drop
+    return 0
 
 
-def step_down_tasks(here, d):
-    """Pure: tasks to step down a 1-block slope in direction `d`."""
+def step_down_tasks(here, d, drop=1, has_water=False):
+    """Pure: tasks to step down or drop down a cliff in direction `d`."""
     dx, dz = d
     x, y, z = here
-    return [{"type": "goto", "x": x + dx, "y": y - 1, "z": z + dz, "range": 0.5, "sprint": True}]
+    tx, ty, tz = x + dx, y - drop, z + dz
+    yaw = yaw_of(d)
+    if drop == 1:
+        return [{"type": "goto", "x": tx, "y": ty, "z": tz, "range": 0.5, "sprint": True}]
+    fall_ticks = max(8, int(math.sqrt(drop * 2 / 0.08) * 1.2))
+    return [
+        {"type": "look", "x": tx + 0.5, "y": ty + 0.5, "z": tz + 0.5},
+        {"type": "input", "keys": ["forward"], "yaw": yaw, "ticks": fall_ticks},
+        {"type": "goto", "x": tx, "y": ty, "z": tz, "range": 0.5, "sprint": True},
+    ]
 
 
 def sprint_jump_transit_tasks(start, target, min_dist=6.0, food=20):
@@ -1555,9 +1611,10 @@ def sprint_jump_transit_tasks(start, target, min_dist=6.0, food=20):
     ]
 
 
-def parkour_way(region, feet, target, protected=(), max_steps=32, done=None, food=20):
+def parkour_way(region, feet, target, protected=(), max_steps=32, done=None, food=20, has_water=False):
     """Pure: (tasks, why) of a parkour path from `feet` to `target` using sprint-jumps,
-    1-block ledge jumps, and 1~2 block gap leaps with 0 blocks mined and 0 blocks placed."""
+    1-block ledge jumps, 1~2 block gap leaps, and safe vertical drops (<=3 blocks, or with water bucket)
+    with 0 blocks mined and 0 blocks placed."""
     done = done or (lambda here: stands_for("stand", region, here, target))
     if done(tuple(feet)):
         return [], None
@@ -1574,13 +1631,19 @@ def parkour_way(region, feet, target, protected=(), max_steps=32, done=None, foo
         # 1. Try flat walk
         forward_stand = (x + d[0], y, z + d[1])
         forward_floor = (x + d[0], y - 1, z + d[1])
+        floor_name = region.name(forward_floor)
+        is_floor = region.solid(forward_floor) or floor_name in ("water", "flowing_water", "minecraft:water", "minecraft:flowing_water")
         if (region.inside(forward_stand) and region.inside(forward_floor)
-                and region.solid(forward_floor) and not region.solid(forward_stand)
+                and is_floor and not region.solid(forward_stand)
                 and (not region.inside((forward_stand[0], y + 1, forward_stand[2])) or not region.solid((forward_stand[0], y + 1, forward_stand[2])))
-                and not region.hazard(forward_stand) and not region.hazard(forward_floor)
+                and not region.hazard(forward_stand)
                 and forward_stand not in protected and forward_stand not in been):
             been.add(forward_stand)
-            tasks.append({"type": "goto", "x": forward_stand[0], "y": y, "z": forward_stand[2], "range": 0.5, "sprint": True})
+            if tasks and tasks[-1]["type"] == "goto" and tasks[-1]["y"] == y:
+                tasks[-1]["x"] = forward_stand[0]
+                tasks[-1]["z"] = forward_stand[2]
+            else:
+                tasks.append({"type": "goto", "x": forward_stand[0], "y": y, "z": forward_stand[2], "range": 0.5, "sprint": True})
             here = forward_stand
             continue
 
@@ -1607,14 +1670,16 @@ def parkour_way(region, feet, target, protected=(), max_steps=32, done=None, foo
         if jumped:
             continue
 
-        # 4. Try 1-block step down (only when descending towards target)
-        if target[1] < y and can_step_down(region, here, d):
-            step_target = (x + d[0], y - 1, z + d[1])
-            if step_target not in protected and step_target not in been:
-                been.add(step_target)
-                tasks.extend(step_down_tasks(here, d))
-                here = step_target
-                continue
+        # 4. Try vertical drop (1~3 blocks safe drop, or up to 20 with water bucket)
+        if target[1] < y:
+            drop = can_step_down(region, here, d, has_water=has_water)
+            if drop > 0:
+                step_target = (x + d[0], y - drop, z + d[1])
+                if step_target not in protected and step_target not in been:
+                    been.add(step_target)
+                    tasks.extend(step_down_tasks(here, d, drop=drop, has_water=has_water))
+                    here = step_target
+                    continue
 
         return tasks, f"parkour stopped at {here}"
 
@@ -1635,7 +1700,8 @@ def plan_way(region, feet, target, kind, inv, protected, walks=None, reserve=Tru
     if done(tuple(feet)):
         return [], None, 0.0                       # standing where it can be done: nothing to plan
     dug = []
-    p_steps, p_why = parkour_way(region, feet, target, protected, done=done)
+    has_water = bool(inv.count("minecraft:water_bucket")) if inv else False
+    p_steps, p_why = parkour_way(region, feet, target, protected, done=done, has_water=has_water)
     if p_why is None and p_steps:
         dug.append((p_steps, None))
     dug.append(tunnel_steps(region, feet, target, protected, places, done))
