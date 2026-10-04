@@ -490,7 +490,7 @@ class ThePoints(unittest.TestCase):
                 self.assertEqual(sc.SCENARIOS[name]["point"], "C")
 
     # (what the acceptance row must be) — test point D: 30 minutes, a real world, from nothing, its own tier
-    ACCEPT = [("point", lambda r: r["point"] == "D"), ("budget within the acceptance limit", lambda r: r["budget"] <= bench_acceptance.ACCEPT_LIMIT_S),
+    ACCEPT = [("point", lambda r: r["point"] == "D"), ("stop limit within the acceptance limit", lambda r: r["limit"] <= bench_acceptance.ACCEPT_LIMIT_S),
               ("a real world", lambda r: bool(r.get("raw"))), ("from nothing", lambda r: "clear @p" in r["setup"]),
               ("its own tier", lambda r: r["tier"] == "acceptance")]
 
