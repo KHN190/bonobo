@@ -455,7 +455,8 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             unreachable += 1
             _reach_budget(unreachable, blocks, str(out))
             continue
-        if nav.sweep_lying(ctx, [drop], lambda: gained(lambda: Inventory().count(drop), before)) <= before:
+        if (Inventory().count(drop) < target and
+                nav.sweep_lying(ctx, [drop], lambda: gained(lambda: Inventory().count(drop), before)) <= before):
             if MINE_YIELD.get(mid(drop), 1) < 1 and "failed" not in r["message"]:
                 continue   # a chance drop (grass → seeds ~1 in 8): an empty break is expected, keep breaking
             # partial success is progress: some blocks broke, keep the batch (banning all over one block stalled the kit)

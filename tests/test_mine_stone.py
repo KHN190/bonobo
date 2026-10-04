@@ -334,6 +334,47 @@ class CheapestSeed(unittest.TestCase):
         self.assertEqual(picked, shallow_buried_cell)
         self.assertEqual(calls, [shallow_buried_cell])
 
+    def test_deep_cave_vein_not_preferred_over_shallow_vein(self):
+        from bonobo import nav, skillcore
+        ctx = skillcore.Context(memory(), nav.Policy(), "minecraft:overworld")
+        start = (0, 69, 0)
+        deep_cave_cell = (0, 37, 0)       # 32 blocks down inside a cave touching air
+        shallow_vein_cell = (0, 67, 0)    # 2 blocks below start, buried in rock
+        hits = [{"x": deep_cave_cell[0], "y": deep_cave_cell[1], "z": deep_cave_cell[2]},
+                {"x": shallow_vein_cell[0], "y": shallow_vein_cell[1], "z": shallow_vein_cell[2]}]
+        open_set = {deep_cave_cell}
+
+        calls = []
+
+        def mock_reach(region, s, target, mode, inv, protected, walks=None):
+            calls.append(target)
+            if target == shallow_vein_cell:
+                return nav.Reached(stand=(0, 68, 0), why=None, seconds=4.0)
+            return nav.Reached(stand=(0, 38, 0), why=None, seconds=45.0)
+
+        with mock.patch.object(gather, "Inventory", lambda: bag(inventory())), \
+                mock.patch.object(gather, "region_around", lambda *a, **k: mock.Mock()), \
+                mock.patch.object(gather.nav, "reach", mock_reach):
+            picked = gather._cheapest_seed(ctx, hits, start, open_set)
+
+        self.assertEqual(picked, shallow_vein_cell)
+        self.assertEqual(calls, [shallow_vein_cell])
+
+    def test_mine_skips_sweep_lying_when_target_met(self):
+        from bonobo import nav, skillcore
+        ctx = skillcore.Context(memory(), nav.Policy(allow_dig=True), "minecraft:overworld")
+        sweep_mock = mock.Mock()
+        inv_data = inventory(("cobblestone", 16))
+        with mock.patch.object(gather, "Inventory", lambda: bag(inv_data)), \
+                mock.patch.object(gather.nav, "sweep_lying", sweep_mock):
+            target = 16
+            drop = "minecraft:cobblestone"
+            before = 15
+            run_sweep = (gather.Inventory().count(drop) < target and
+                         nav.sweep_lying(ctx, [drop], lambda: 16) <= before)
+            self.assertFalse(run_sweep)
+            self.assertFalse(sweep_mock.called)
+
 
 if __name__ == "__main__":
     unittest.main()

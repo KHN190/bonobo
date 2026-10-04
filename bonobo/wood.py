@@ -132,7 +132,8 @@ def chop(ctx, n):
             if cell in still and not nav.reachable(cell, ctx.policy, 2.0)[0]:
                 ctx.ban(cell)
         logs_now = lambda: Inventory().count("log")   # noqa: E731
-        if nav.sweep_lying(ctx, ["log"], lambda: gained(logs_now, before)) <= before:
+        if (Inventory().count("log") < target and
+                nav.sweep_lying(ctx, ["log"], lambda: gained(logs_now, before)) <= before):
             # this trunk gave nothing: ban it and take the next tree in the same call
             for t in trunk:
                 ctx.ban((t["x"], t["y"], t["z"]))
