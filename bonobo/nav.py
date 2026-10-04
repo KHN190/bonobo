@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
 from .data import DOOR_NEAR, ENTITY_REACH, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH, bare, OUTLINE_PASSABLE, OUTLINE_PASSABLE_SUFFIX  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
-from .game import EYE_HEIGHT, PLAYER_SPRINT
+from .game import EYE_HEIGHT, PLAYER_SPRINT, PLAYER_SPRINT_JUMP
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
 from .knowledge import WAY_BLOCKS, dig_ticks, find_class
 from .bag import holds_up, reserved_stacks
@@ -1448,6 +1448,179 @@ def way_s(region, feet, steps, inv):
     places = sum(t["type"] == "place" for t in steps)
     return dig_ticks(mined, inv) / TICKS_PER_S + places * PLACE_S + walk / PLAYER_SPEED
 
+
+def can_step_up(region, here, d, head_clearance=2):
+    """Pure: True if a 1-block ledge in direction `d` can be cleared with a jump without mining."""
+    x, y, z = here
+    dx, dz = d
+    target_stand = (x + dx, y + 1, z + dz)
+    target_floor = (x + dx, y, z + dz)
+    if not (region.inside(target_stand) and region.inside(target_floor)):
+        return False
+    if not region.solid(target_floor):
+        return False
+    if any(region.inside((target_stand[0], target_stand[1] + dy, target_stand[2])) and region.solid((target_stand[0], target_stand[1] + dy, target_stand[2])) for dy in range(head_clearance)):
+        return False
+    if region.inside((x, y + 2, z)) and region.solid((x, y + 2, z)):
+        return False
+    if region.hazard(target_stand) or region.hazard(target_floor):
+        return False
+    return True
+
+
+def step_up_tasks(here, d):
+    """Pure: tasks to leap up a 1-block ledge in direction `d` without stopping."""
+    dx, dz = d
+    x, y, z = here
+    return [{"type": "goto", "x": x + dx, "y": y + 1, "z": z + dz, "range": 0.5, "sprint": True}]
+
+
+def can_gap_jump(region, here, d, gap_len=1, head_clearance=2, food=20):
+    """Pure: True if the player at `here` can sprint-jump over a `gap_len` (1 or 2) block gap in direction `d`
+    to land safely at the same elevation `y` without placing blocks."""
+    if gap_len not in (1, 2) or (gap_len == 2 and food < 6):
+        return False
+    x, y, z = here
+    dx, dz = d
+    if region.inside((x, y + 2, z)) and region.solid((x, y + 2, z)):
+        return False
+    for k in range(1, gap_len + 1):
+        gx, gz = x + dx * k, z + dz * k
+        gap_floor = (gx, y - 1, gz)
+        if not region.inside(gap_floor) or region.solid(gap_floor):
+            return False
+        for dy in range(0, head_clearance + 1):
+            gc = (gx, y + dy, gz)
+            if region.inside(gc) and region.solid(gc):
+                return False
+        if region.hazard((gx, y, gz)) or region.hazard((gx, y + 1, gz)):
+            return False
+    lx, lz = x + dx * (gap_len + 1), z + dz * (gap_len + 1)
+    landing = (lx, y, lz)
+    landing_floor = (lx, y - 1, lz)
+    if not (region.inside(landing) and region.inside(landing_floor)):
+        return False
+    if not region.solid(landing_floor):
+        return False
+    if region.solid(landing) or (region.inside((lx, y + 1, lz)) and region.solid((lx, y + 1, lz))):
+        return False
+    if region.hazard(landing) or region.hazard(landing_floor):
+        return False
+    return True
+
+
+def gap_jump_tasks(here, d, gap_len=1):
+    """Pure: tasks to leap across a 1 or 2 block gap in direction `d` to land on the other side."""
+    dx, dz = d
+    lx, lz = here[0] + dx * (gap_len + 1), here[2] + dz * (gap_len + 1)
+    y = here[1]
+    return [{"type": "goto", "x": lx, "y": y, "z": lz, "range": 0.5, "sprint": True}]
+
+
+def can_step_down(region, here, d):
+    """Pure: True if a safe 1-block descent in direction `d` can be walked down."""
+    x, y, z = here
+    dx, dz = d
+    target_stand = (x + dx, y - 1, z + dz)
+    target_floor = (x + dx, y - 2, z + dz)
+    head_pass = (x + dx, y, z + dz)
+    if not (region.inside(target_stand) and region.inside(target_floor) and region.inside(head_pass)):
+        return False
+    if not region.solid(target_floor):
+        return False
+    if region.solid(target_stand) or region.solid(head_pass):
+        return False
+    if region.hazard(target_stand) or region.hazard(target_floor):
+        return False
+    return True
+
+
+def step_down_tasks(here, d):
+    """Pure: tasks to step down a 1-block slope in direction `d`."""
+    dx, dz = d
+    x, y, z = here
+    return [{"type": "goto", "x": x + dx, "y": y - 1, "z": z + dz, "range": 0.5, "sprint": True}]
+
+
+def sprint_jump_transit_tasks(start, target, min_dist=6.0, food=20):
+    """Pure: task chain for sprint-jump transit across open flat terrain."""
+    dist = math.hypot(target[0] - start[0], target[2] - start[2])
+    if dist < min_dist or food < 6:
+        return [{"type": "goto", "x": target[0], "y": target[1], "z": target[2], "range": 0.5, "sprint": True}]
+    ticks = max(1, int(dist / PLAYER_SPRINT_JUMP * TICKS_PER_S))
+    return [
+        {"type": "look", "x": target[0], "y": target[1] + EYE_HEIGHT, "z": target[2]},
+        {"type": "input", "keys": ["forward", "sprint", "jump"], "ticks": ticks},
+        {"type": "goto", "x": target[0], "y": target[1], "z": target[2], "range": 0.5, "sprint": True}
+    ]
+
+
+def parkour_way(region, feet, target, protected=(), max_steps=32, done=None, food=20):
+    """Pure: (tasks, why) of a parkour path from `feet` to `target` using sprint-jumps,
+    1-block ledge jumps, and 1~2 block gap leaps with 0 blocks mined and 0 blocks placed."""
+    done = done or (lambda here: stands_for("stand", region, here, target))
+    if done(tuple(feet)):
+        return [], None
+    here = tuple(feet)
+    tasks = []
+    been = {here}
+    for _ in range(max_steps):
+        if done(here):
+            return tasks, None
+        d = stair_dir(here, target)
+        if d == (0, 0):
+            break
+        x, y, z = here
+        # 1. Try flat walk
+        forward_stand = (x + d[0], y, z + d[1])
+        forward_floor = (x + d[0], y - 1, z + d[1])
+        if (region.inside(forward_stand) and region.inside(forward_floor)
+                and region.solid(forward_floor) and not region.solid(forward_stand)
+                and (not region.inside((forward_stand[0], y + 1, forward_stand[2])) or not region.solid((forward_stand[0], y + 1, forward_stand[2])))
+                and not region.hazard(forward_stand) and not region.hazard(forward_floor)
+                and forward_stand not in protected and forward_stand not in been):
+            been.add(forward_stand)
+            tasks.append({"type": "goto", "x": forward_stand[0], "y": y, "z": forward_stand[2], "range": 0.5, "sprint": True})
+            here = forward_stand
+            continue
+
+        # 2. Try 1-block step up
+        if can_step_up(region, here, d):
+            step_target = (x + d[0], y + 1, z + d[1])
+            if step_target not in protected and step_target not in been:
+                been.add(step_target)
+                tasks.extend(step_up_tasks(here, d))
+                here = step_target
+                continue
+
+        # 3. Try 1-block or 2-block gap jump
+        jumped = False
+        for gap_len in (1, 2):
+            if can_gap_jump(region, here, d, gap_len=gap_len, food=food):
+                landing = (x + d[0] * (gap_len + 1), y, z + d[1] * (gap_len + 1))
+                if landing not in protected and landing not in been:
+                    been.add(landing)
+                    tasks.extend(gap_jump_tasks(here, d, gap_len=gap_len))
+                    here = landing
+                    jumped = True
+                    break
+        if jumped:
+            continue
+
+        # 4. Try 1-block step down (only when descending towards target)
+        if target[1] < y and can_step_down(region, here, d):
+            step_target = (x + d[0], y - 1, z + d[1])
+            if step_target not in protected and step_target not in been:
+                been.add(step_target)
+                tasks.extend(step_down_tasks(here, d))
+                here = step_target
+                continue
+
+        return tasks, f"parkour stopped at {here}"
+
+    return tasks, f"parkour exceeded {max_steps} steps"
+
+
 def plan_way(region, feet, target, kind, inv, protected, walks=None, reserve=True) -> tuple[list | None, str | None, float | None]:
     """Pure given `walks`: (steps | None, why, seconds) — the cheapest way to where `kind` (mine|place|use|stand) of
     `target` can be done, by seconds: the dug ways of named steps — a level way (dug through, its missing treads
@@ -1461,7 +1634,11 @@ def plan_way(region, feet, target, kind, inv, protected, walks=None, reserve=Tru
     done = lambda here: stands_for(kind, region, here, target)     # noqa: E731
     if done(tuple(feet)):
         return [], None, 0.0                       # standing where it can be done: nothing to plan
-    dug = [tunnel_steps(region, feet, target, protected, places, done)]
+    dug = []
+    p_steps, p_why = parkour_way(region, feet, target, protected, done=done)
+    if p_why is None and p_steps:
+        dug.append((p_steps, None))
+    dug.append(tunnel_steps(region, feet, target, protected, places, done))
     if target[1] != feet[1]:
         # down (or up) to the target's own level (a buried target is held from beside it), then along it
         steps, why, end = stair_steps(region, feet, target, protected, places, stop_y=target[1])

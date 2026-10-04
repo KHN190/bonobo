@@ -54,6 +54,7 @@ MOB_WIDTH = {"minecraft:zombie": 0.6, "minecraft:husk": 0.6, "minecraft:zombie_v
 EAT_TICKS = 32                   # one food eaten (Minecraft Wiki, Food: 1.6 s)
 BREAK_COOLDOWN = 5               # ticks before the next block's break begins (ClientPlayerInteractionManager.blockBreakingCooldown)
 PLAYER_SPRINT = 5.612            # blocks/s sprinting (Minecraft Wiki, Sprinting)
+PLAYER_SPRINT_JUMP = 7.127       # blocks/s sprint-jumping (Minecraft Wiki, Sprinting)
 # RangedBowAttackGoal strafe(-0.5) × MoveControl.strafe 0.25 × movement_speed 0.25 × 43.17 b/s per unit; not measured
 BOW_RETREAT = {"minecraft:skeleton": 0.5 * 0.25 * 0.25 * 43.17, "minecraft:stray": 0.5 * 0.25 * 0.25 * 43.17}
 WAYPOINT_R = 6                   # a road's ends within this many blocks are the same waypoint

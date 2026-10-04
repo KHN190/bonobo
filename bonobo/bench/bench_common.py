@@ -55,6 +55,16 @@ ROWS = [
          check=[('call', 'walk_ate', [])], est=('step', 'goto', '', 1, {'pos': ('@', 18, 0, 0)}),
          skills=['goto'],
          tier_fixed='common', combat=False, stochastic=False, tags={'base': 'nav', 'state': 'hungry'}),
+    dict(name='parkour_gap_and_ledge', module='nav',
+         doc='A 1-block gap and 1-block ledge course, empty bag → jumps the gap and scales the ledge to the target.',
+         scene=[('floor', 'stone', 8, 4),
+                ('fill', ('@', 2, -4, -4), ('@', 2, 0, 4), 'air'),
+                ('fill', ('@', 5, 0, -4), ('@', 8, 0, 4), 'stone'),
+                ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'),
+                ('cmd', 'effect give @p saturation 10 255 true')],
+         run=('do', 'bonobo.nav.go_to', [('@', 6, 1, 0), ('$ctx', 'policy')], {'range_': 1.0}),
+         check=[('arrived', ('@', 6, 1, 0), 1.0), ('state', 'health', '>', 10)],
+         budget=15, point='B', skills=['travel_to']),
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 from . import core

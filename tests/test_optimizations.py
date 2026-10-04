@@ -13,7 +13,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import brain, craft, farming, nav, planner, shapes
 from bonobo.bench.words.est import scene_cost
-from tests.world import inventory, memory, snapshot, state
+from tests.world import FakeRegion, bag, inventory, memory, snapshot, state
 
 
 class CraftBatchingAndClustering(unittest.TestCase):
@@ -91,7 +91,7 @@ class InventoryAutoClearGuard(unittest.TestCase):
             inv_mock.used_slots.return_value = 35
             mock_inv_cls.return_value = inv_mock
             with mock.patch("bonobo.craft.craft_plan", return_value=([], None, {})):
-                with mock.patch("bonobo.craft.run_split"):
+                with mock.patch("bonobo.craft.run_split"), mock.patch("bonobo.craft.close_screen"):
                     craft._sitting(ctx, [("minecraft:stick", 1)])
                     mock_make_room.assert_called()
 
@@ -107,5 +107,109 @@ class SprintNavigation(unittest.TestCase):
         self.assertTrue(task.get("sprint"))
 
 
+class ParkourNavigation(unittest.TestCase):
+    """Parkour continuous movement: 1-block ledge clearance, gap jumping without placing blocks, and sprint-jump transit."""
+
+    def test_can_step_up(self):
+        blocks = {
+            (0, 63, 0): "stone", (0, 64, 0): "air", (0, 65, 0): "air", (0, 66, 0): "air",
+            (1, 63, 0): "stone", (1, 64, 0): "stone", (1, 65, 0): "air", (1, 66, 0): "air",
+        }
+        reg = FakeRegion((-2, 60, -2), (4, 70, 2), blocks)
+        self.assertTrue(nav.can_step_up(reg, (0, 64, 0), (1, 0)))
+
+        # 2-block ledge cannot be stepped up
+        blocks[(1, 65, 0)] = "stone"
+        reg2 = FakeRegion((-2, 60, -2), (4, 70, 2), blocks)
+        self.assertFalse(nav.can_step_up(reg2, (0, 64, 0), (1, 0)))
+
+        # Low ceiling blocks step up
+        blocks[(1, 65, 0)] = "air"
+        blocks[(0, 66, 0)] = "stone"
+        reg3 = FakeRegion((-2, 60, -2), (4, 70, 2), blocks)
+        self.assertFalse(nav.can_step_up(reg3, (0, 64, 0), (1, 0)))
+
+    def test_can_gap_jump(self):
+        # 1-block gap: x=1 has air floor at y=63, x=2 has solid stone floor
+        blocks = {
+            (0, 63, 0): "stone", (0, 64, 0): "air", (0, 65, 0): "air", (0, 66, 0): "air",
+            (1, 63, 0): "air", (1, 64, 0): "air", (1, 65, 0): "air", (1, 66, 0): "air",
+            (2, 63, 0): "stone", (2, 64, 0): "air", (2, 65, 0): "air", (2, 66, 0): "air",
+        }
+        reg = FakeRegion((-2, 60, -2), (4, 70, 2), blocks)
+        self.assertTrue(nav.can_gap_jump(reg, (0, 64, 0), (1, 0), gap_len=1))
+
+        # 2-block gap: x=1, x=2 are air floors, x=3 is stone
+        blocks[(2, 63, 0)] = "air"
+        blocks.update({(3, 63, 0): "stone", (3, 64, 0): "air", (3, 65, 0): "air", (3, 66, 0): "air"})
+        reg_gap2 = FakeRegion((-2, 60, -2), (5, 70, 2), blocks)
+        self.assertTrue(nav.can_gap_jump(reg_gap2, (0, 64, 0), (1, 0), gap_len=2, food=20))
+        # Food < 6 cannot sprint -> cannot jump 2-block gap
+        self.assertFalse(nav.can_gap_jump(reg_gap2, (0, 64, 0), (1, 0), gap_len=2, food=5))
+
+        # 3-block gap cannot be jumped
+        self.assertFalse(nav.can_gap_jump(reg_gap2, (0, 64, 0), (1, 0), gap_len=3))
+
+    def test_parkour_way_clears_ledge(self):
+        # (0, 64, 0) -> (2, 65, 0) over a 1-block ledge at x=1
+        blocks = {
+            (0, 63, 0): "stone", (0, 64, 0): "air", (0, 65, 0): "air", (0, 66, 0): "air",
+            (1, 63, 0): "stone", (1, 64, 0): "stone", (1, 65, 0): "air", (1, 66, 0): "air",
+            (2, 64, 0): "stone", (2, 65, 0): "air", (2, 66, 0): "air", (2, 67, 0): "air",
+        }
+        reg = FakeRegion((-2, 60, -2), (5, 70, 2), blocks)
+        tasks, why = nav.parkour_way(reg, (0, 64, 0), (2, 65, 0))
+        self.assertIsNone(why)
+        self.assertTrue(any(t.get("type") == "goto" and t.get("y") == 65 for t in tasks))
+        # 0 mined blocks, 0 placed blocks
+        self.assertEqual([t for t in tasks if t["type"] in ("mine", "place")], [])
+
+    def test_parkour_way_clears_gap(self):
+        # (0, 64, 0) -> (2, 64, 0) over 1-block gap at x=1
+        blocks = {
+            (0, 63, 0): "stone", (0, 64, 0): "air", (0, 65, 0): "air", (0, 66, 0): "air",
+            (1, 63, 0): "air", (1, 64, 0): "air", (1, 65, 0): "air", (1, 66, 0): "air",
+            (2, 63, 0): "stone", (2, 64, 0): "air", (2, 65, 0): "air", (2, 66, 0): "air",
+        }
+        reg = FakeRegion((-2, 60, -2), (4, 70, 2), blocks)
+        tasks, why = nav.parkour_way(reg, (0, 64, 0), (2, 64, 0))
+        self.assertIsNone(why)
+        # Jumps directly to x=2, y=64
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual((tasks[0]["x"], tasks[0]["y"], tasks[0]["z"]), (2, 64, 0))
+        self.assertTrue(tasks[0].get("sprint"))
+
+    def test_plan_way_prefers_parkour_over_bridging_for_1_block_gap(self):
+        blocks = {
+            (0, 63, 0): "stone", (0, 64, 0): "air", (0, 65, 0): "air", (0, 66, 0): "air",
+            (1, 63, 0): "air", (1, 64, 0): "air", (1, 65, 0): "air", (1, 66, 0): "air",
+            (2, 63, 0): "stone", (2, 64, 0): "air", (2, 65, 0): "air", (2, 66, 0): "air",
+        }
+        reg = FakeRegion((-2, 60, -2), (4, 70, 2), blocks)
+        inv = bag(inventory({"id": "minecraft:cobblestone", "count": 64}))
+        steps, why, secs = nav.plan_way(reg, (0, 64, 0), (2, 64, 0), "stand", inv, ())
+        self.assertIsNone(why)
+        # Does NOT place a cobblestone to bridge 1-block gap: jumps it!
+        places = [t for t in steps if t["type"] == "place"]
+        self.assertEqual(places, [])
+
+    def test_sprint_jump_transit_tasks(self):
+        # Long open distance >= 6 blocks: sprint-jump input chain
+        tasks = nav.sprint_jump_transit_tasks((0, 64, 0), (10, 64, 0), min_dist=6.0, food=20)
+        types = [t["type"] for t in tasks]
+        self.assertIn("look", types)
+        self.assertIn("input", types)
+        self.assertIn("goto", types)
+        input_task = next(t for t in tasks if t["type"] == "input")
+        self.assertEqual(input_task["keys"], ["forward", "sprint", "jump"])
+
+        # Short distance: simple sprint goto
+        short_tasks = nav.sprint_jump_transit_tasks((0, 64, 0), (3, 64, 0), min_dist=6.0, food=20)
+        self.assertEqual(len(short_tasks), 1)
+        self.assertEqual(short_tasks[0]["type"], "goto")
+        self.assertTrue(short_tasks[0].get("sprint"))
+
+
 if __name__ == "__main__":
     unittest.main()
+
