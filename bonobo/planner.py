@@ -866,7 +866,8 @@ class Search:
         facts = dict(inv.facts)
         for st in steps:
             st = Step(st.kind, st.token, st.count, dict(st.detail))
-            for tok, c in (st.detail.get("inputs") or self.recipe_inputs(st)).items():
+            own = st.detail.get("inputs") or self.recipe_inputs(st)
+            for tok, c in own.items():
                 if inv.available(tok) < c:
                     return None
                 inv.consume(tok, c, awaits=False)
@@ -875,12 +876,17 @@ class Search:
                 return None             # its station neither carried, made before it, nor standing near
             for dim, n in self.call(st).items():
                 if dim.startswith("tool:"):
-                    if not inv.has_tool(dim.split(":")[1], int(dim.split(":")[2]), 0):
+                    _, kind, tier = dim.split(":")
+                    if not inv.has_tool(kind, int(tier), 0):
                         return None
                 else:
-                    if inv.available(dim) < n:
+                    needed = n - own.get(dim, 0)
+                    if needed > 0 and inv.available(dim) < needed:
                         return None
-                    inv.consume(dim, n, awaits=False)
+            for item, n in self.used(st).items():
+                if inv.available(item) < n:
+                    return None
+                inv.consume(item, n, awaits=False)
             # the hard gates the search's own steps pass (prep's `when`, emit's fight line): none skipped on a replay
             when = self.when(st, facts)
             if isinstance(when, str) or any(facts.get(f) != v for f, v in when):
@@ -889,6 +895,8 @@ class Search:
                     all(inv.has_tool(r[1], int(r[2]), 0) if r[0] == "tool" else inv.available(r[0]) >= int(r[1])
                         for r in rows) for rows in self.cost.line_kit(st, inv.held())):
                 return None             # under the line, and no kit that clears it made before it (emit's rule)
+            if st.kind == "await" and getattr(inv, "pending", {}).get(st.token, 0) < st.count:
+                return None
             entries.append((st, inv.held(), len(entries)))
             facts.update(self.sets(st))
             material, _, kind = bare(st.token).rpartition("_")
@@ -1034,7 +1042,7 @@ class Search:
         if missing <= 0:
             return None
         # the same thing asked again further down: one way chosen for all of it, the rest left in the bag for it
-        extra = 0 if fresh else sum(t[2] for t in node.stack if t[0] == "need" and t[1] == token)
+        extra = 0 if (fresh or mid(token) in STATIONS) else sum(t[2] for t in node.stack if t[0] == "need" and t[1] == token)
         if token in node.open:
             return self.dead(f"{token} asked again while it is being made (a cycle)")
         opts = self.ways(node, token, missing + extra, depth)
@@ -1045,7 +1053,7 @@ class Search:
                     new_tasks = [("use", token, missing) if t == ("use", token, missing + extra) else t for t in tasks]
                 else:
                     emit_task = next((t for t in tasks if t[0] == "emit"), None)
-                    if emit_task and emit_task[1].kind in ("mine", "smelt"):
+                    if emit_task:
                         emit_idx = tasks.index(emit_task)
                         new_tasks = tasks[:emit_idx + 1] + [("add", token, extra)] + tasks[emit_idx + 1:]
                     else:
@@ -1476,12 +1484,14 @@ class Search:
                node.open, self.walked(node))
         hit = self.memo.get(key)
         if hit is not None:
-            ok, delta, steps, g, tie, path = hit
+            ok, delta, rel_steps, g, tie, path = hit
             if not ok or node.g + g > cap:
                 return None
             out = node.child()
+            cur_len = len(node.steps)
+            restored = [(st, h, cur_len + s_rel) for st, h, s_rel in rel_steps]
             out.inv, out.stack = _applied(node.inv, delta), out.stack[:node.horizon]
-            out.steps, out.g, out.tie = node.steps + list(steps), node.g + g, node.tie + tie
+            out.steps, out.g, out.tie = node.steps + restored, node.g + g, node.tie + tie
             out.path = node.path + tuple((node.g + dg, h) for dg, h in path)
             return out
         start, g0, t0, p0, before = len(node.steps), node.g, len(node.tie), len(node.path), node.inv.clone()
@@ -1490,7 +1500,8 @@ class Search:
             if cap == math.inf:
                 self.memo[key] = (False, None, (), 0.0, (), ())
             return None
-        self.memo[key] = (True, _delta(before, done.inv), tuple(done.steps[start:]), done.g - g0, done.tie[t0:],
+        rel_steps = tuple((st, h, s_start - start) for st, h, s_start in done.steps[start:])
+        self.memo[key] = (True, _delta(before, done.inv), rel_steps, done.g - g0, done.tie[t0:],
                           tuple((g - g0, h) for g, h in done.path[p0:]))
         return done
 
@@ -1804,6 +1815,25 @@ def plan_candidates(inv, needs, cost, pending=None, jobs=None, kinds=None, exact
 
 def plan_needs(inv, needs, cost, pending=None, jobs=None, kinds=None, held=None, exact=False, cap=math.inf):
     """The cheapest steps that make `needs` held from this bag (`plan_candidates`' first); `held`:"""
+    needs = list(needs)
+    if len(needs) <= 1:
+        return plan_candidates(inv, needs, cost, pending, jobs, kinds, exact, held, cap)[0][2]
+    orders = list(itertools.permutations(needs)) if (exact or len(needs) <= 3) else [needs]
+    best = None
+    for order in orders:
+        try:
+            steps = plan_candidates(inv, list(order), cost, pending, jobs, kinds, exact, held, cap)[0][2]
+        except Exception:
+            continue
+        waits = [i for i, st in enumerate(steps) if st.kind == "await"]
+        free = [i for i, st in enumerate(steps) if st.kind in ("mine", "gather")]
+        bad_wait = 1 if waits and free and max(free) > min(waits) else 0
+        raw_count = sum(s.count for s in steps if s.kind in ("mine", "gather", "hunt"))
+        key = (bad_wait, total_est, raw_count, len(steps), tuple(str(s) for s in steps))
+        if best is None or key < best[0]:
+            best = (key, steps)
+    if best is not None:
+        return best[1]
     return plan_candidates(inv, needs, cost, pending, jobs, kinds, exact, held, cap)[0][2]
 
 

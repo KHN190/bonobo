@@ -178,7 +178,8 @@ def execute(ctx, step, night):
     except api.INTERRUPTIONS:
         raise      # no statistics
     except (McError, api.ToolMissing) as e:
-        ctx.mem.record_outcome(f"nav:{step.kind}" if retry.cause_of(e) == "nav" else key, False)
+        if retry.cause_of(e) != "replan":
+            ctx.mem.record_outcome(f"nav:{step.kind}" if retry.cause_of(e) == "nav" else key, False)
         raise
     if not (isinstance(out, dict) and "ordered" in out):
         ctx.mem.record_outcome(key, True)   # a furnace loaded is not a step done: that is when it is held

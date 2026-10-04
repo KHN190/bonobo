@@ -185,6 +185,8 @@ def run_cells(kind, tasks, then=None, wait=TASK_WAIT_S):
             pending, in_a_row = [], 0
             continue
         succeeded += k
+        if k > 0:
+            in_a_row = 0
         bad, msg = pending[k], results[k].get("message") or ""
         pending = pending[k + 1:]
         in_a_row = in_a_row + 1 if any(w in msg for w in STEP_UNREACHABLE) else 0
@@ -560,9 +562,14 @@ def gate(tasks, policy):
             raise api.NavFailed(f"planned step not standable: {bad[0]['type']} at {cell}")
         reach_stand(bad[0], policy, at=cell)
     else:
-        first = target_of(pairs[0][0], region, where)
-        raise api.NavFailed(f"no stand reached for {[(t['type'], target_of(t, region, where)) for t, _s in pairs][:3]}",
-                            pos=first)
+        pairs = task_stands(tasks, feet())
+        where = mob_cells(tasks)
+        cells = [c for c in (target_of(t, None, where) for t, _s in pairs) if c is not None]
+        region = _read_box(cells + [s for _t, s in pairs])
+        if unstandable(tasks, region, feet(), where) is not None:
+            first = target_of(pairs[0][0], region, where) if pairs else None
+            raise api.NavFailed(f"no stand reached for {[(t['type'], target_of(t, region, where)) for t, _s in pairs][:3]}",
+                                pos=first)
     before = region
     return lambda done: unplanned(before, tasks, done)
 
@@ -642,7 +649,7 @@ def reach_stand(task, policy, faces=None, at=None):
         finally:
             _IN_WAY[0] -= 1
     here = feet()
-    if kind != "stand" and stands_for(kind, _read_box([here, target]), here, target, task.get("down", False)):
+    if kind == "stand" or stands_for(kind, _read_box([here, target]), here, target, task.get("down", False)):
         return                          # the last way stood it (reach's own last check)
     raise api.NavFailed(f"no stand for {kind} {target} after {tries} ways", pos=target)
 
@@ -1023,15 +1030,18 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_gue
             continue
         has_water = bool(Inventory().count("minecraft:water_bucket"))
         # Autonomous parkour route decision: choose direct parkour shortcut if faster than circuitous detour
-        if not locked and (how == "dig" or (plan_rep and plan_rep.get("found") and float(plan_rep.get("seconds", 0.0)) > (math.dist(was, pos) / PLAYER_SPEED) * 1.5 + 1.0)):
+        sec_val = plan_rep.get("seconds") if plan_rep else None
+        rep_seconds = float(sec_val) if sec_val is not None else 0.0
+        if not locked and (how == "dig" or (plan_rep and plan_rep.get("found") and rep_seconds > (math.dist(was, pos) / PLAYER_SPEED) * 1.5 + 1.0)):
             region = _read_box([was, pos])
             if region is not None:
-                b_item = building_item() if getattr(policy, "allow_build", True) else None
-                places = [b_item] * 8 if b_item else None
+                avail_blocks = place_budget(way_bag(Inventory(), not policy.escape).count("building"))
+                b_item = building_item() if getattr(policy, "allow_build", True) and avail_blocks > 0 else None
+                places = [b_item] * min(8, avail_blocks) if b_item else None
                 p_steps, p_why = parkour_way(region, was, pos, getattr(policy, "protected", ()), has_water=has_water, places=places)
                 if p_why is None and p_steps:
                     p_s = way_s(region, was, p_steps, Inventory())
-                    if how == "dig" or p_s < float(plan_rep.get("seconds", 0.0)):
+                    if how == "dig" or p_s < rep_seconds:
                         api.detail(f"   parkour shortcut chosen ({p_s:.1f}s vs walk {plan_rep.get('seconds') if plan_rep else 'none'})")
                         run_way(p_steps, policy, pos)
                         ok = there(api.get("/state"), asked, range_)

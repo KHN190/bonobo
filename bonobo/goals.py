@@ -2,7 +2,7 @@
 
 import math
 
-from .data import TIER_OF_MATERIAL, TOOL_KINDS, bare
+from .data import STATION_R, TIER_OF_MATERIAL, TOOL_KINDS, bare
 from .game import WAYPOINT_R
 from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held_count, kit_needs, reconcile,  # noqa: F401
                         tool_ok)
@@ -106,8 +106,58 @@ def remainder(goal, snap, mem):
 # the shared remainder math is knowledge's; goals and skills' `remaining` both read it there
 @desired(*ITEM_GOALS)
 def _held_remainder(goal, snap, mem):
-    if goal["goal"] == "milestone" and goal.get("args", {}).get("name") in RUN_AFTER:
-        return None                       # its plan ends in doing (find the stronghold, light the portal)
+    if goal["goal"] == "milestone":
+        mname = goal.get("args", {}).get("name")
+        if mname in RUN_AFTER:
+            if snap.dimension == "minecraft:the_end":
+                return {}
+            return None                       # its plan ends in doing (find the stronghold, light the portal)
+        if snap.dimension == "minecraft:the_end" and mname in ("blaze rods", "ender pearls", "eyes of ender"):
+            return {}
+        if mname == "blaze rods":
+            eyes = held_count(snap.inv, "minecraft:ender_eye")
+            powder = held_count(snap.inv, "minecraft:blaze_powder")
+            rods = held_count(snap.inv, "minecraft:blaze_rod")
+            equiv_powder = rods * 2 + powder + eyes
+            if rods >= 7 or eyes >= 12 or equiv_powder >= 12:
+                return {}
+            needed = math.ceil(max(0, 14 - equiv_powder) / 2)
+            return {"minecraft:blaze_rod": max(1, needed)}
+        if mname == "ender pearls":
+            eyes = held_count(snap.inv, "minecraft:ender_eye")
+            pearls = held_count(snap.inv, "minecraft:ender_pearl")
+            if pearls + eyes >= 12:
+                return {}
+            return {"minecraft:ender_pearl": 12 - (pearls + eyes)}
+        if mname == "station kit":
+            rem = {}
+            for blk in ("minecraft:crafting_table", "minecraft:furnace"):
+                has_item = snap.inv.count(blk) > 0
+                has_station = any(mem.known_stations(blk, snap.dimension, near=snap.feet, within=STATION_R)) if mem is not None else False
+                if not has_item and not has_station:
+                    rem[blk] = 1
+            return rem
+        if mname == "bed":
+            if snap.inv.count("bed") > 0:
+                return {}
+            if mem is not None and mem.home_part("beds", snap.dimension, snap.feet, anywhere=True) is not None:
+                return {}
+            return {"bed": 1}
+        rem = have_remainder(snap.inv, needs(goal, snap.inv))
+        if rem:
+            cleaned = {}
+            for item, count in rem.items():
+                if item == "minecraft:bucket":
+                    filled = snap.inv.count("minecraft:water_bucket") + snap.inv.count("minecraft:lava_bucket")
+                    count = max(0, count - filled)
+                    if count <= 0:
+                        continue
+                worn = snap.inv.count(item, include_worn=True) - snap.inv.count(item)
+                needed = max(0, count - worn)
+                if needed > 0:
+                    cleaned[item] = needed
+            return cleaned
+        return rem
     return have_remainder(snap.inv, needs(goal, snap.inv))
 
 @desired("goto")

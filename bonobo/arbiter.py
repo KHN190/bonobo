@@ -195,11 +195,28 @@ class Motion:
         self.preempted_at = 0.0          # when a fast layer last overrode; plans older than this are stale
         self.preempted_by = None
         self.violations = []
-        self.driving = None       # the preemption currently executing, if any
+        self._drivers = []
+        self._manual_driving = None
         self.lease = None         # (intent, release, worth_s): the decision the body holds, and what ends it
         # the slowest layer that may still drive: None = ordinary play; REFLEX = reflexes only, the body driven from outside
         self.ceiling = None
         self._log = log or (lambda *_: None)
+
+    @property
+    def driving(self):
+        with self._lock:
+            if self._drivers:
+                return self._drivers[-1]
+            return self._manual_driving
+
+    @driving.setter
+    def driving(self, val):
+        with self._lock:
+            self._manual_driving = val
+            if val is None:
+                self._drivers.clear()
+            elif not self._drivers or self._drivers[-1] != val:
+                self._drivers.append(val)
 
     # -- engagement ------------------------------------------------------------------------------------------------
 
@@ -228,14 +245,16 @@ class Motion:
     def _run(self, intent):
         """Execute an intent with this thread marked as its owner for the duration."""
         prev = getattr(self._local, "current", None)
-        was_driving = self.driving
+        with self._lock:
+            self._drivers.append(intent)
         self._local.current = intent
-        self.driving = intent
         try:
             intent.action()
         finally:
             self._local.current = prev
-            self.driving = was_driving
+            with self._lock:
+                if intent in self._drivers:
+                    self._drivers.remove(intent)
         self.last = intent
 
     def current(self):
@@ -284,6 +303,8 @@ class Motion:
         current = self.current()
         if holder is not None and current is not holder:
             if current is not None and current.scale < holder.scale:
+                with self._lock:
+                    self.lease = None
                 return True
             self.violations.append((time.time(), what))
             self._log(f"?? {what} drove the body while '{holder.reason}' held it (refused)")
@@ -322,14 +343,14 @@ class Motion:
                 if fresh_enough(held_at, now, fresh_within):
                     return refuse("held", f"   motion: {layer} '{reason}' waits: {holder.layer} "
                                           f"'{holder.reason}' still holds its answer")
-        driving = self.driving
-        if driving is not None and driving.scale < intent.scale:
-            return refuse("layer", f"   motion: {layer} '{reason}' waits: {driving.layer} "
-                                   f"'{driving.reason}' is driving")
-        if driving is not None and driving.scale == intent.scale:
-            # a layer does not cut off its own running answer (the threat layer once stopped itself every tick)
-            return refuse("held", f"   motion: {layer} '{reason}' waits: its own '{driving.reason}' is running")
         with self._lock:
+            driving = self.driving
+            if driving is not None and driving.scale < intent.scale:
+                return refuse("layer", f"   motion: {layer} '{reason}' waits: {driving.layer} "
+                                       f"'{driving.reason}' is driving")
+            if driving is not None and driving.scale == intent.scale:
+                # a layer does not cut off its own running answer (the threat layer once stopped itself every tick)
+                return refuse("held", f"   motion: {layer} '{reason}' waits: its own '{driving.reason}' is running")
             self.preempted_at, self.preempted_by = intent.at, intent
             if release is not None:
                 # take the body and record the lease in one step, or the woken planner posts into the gap

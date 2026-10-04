@@ -401,6 +401,8 @@ class Brain:
                                     also_at=(here,) if here is not None and cause in retry.BY_PLACE else (),
                                     state=self.state_of(place, self.fail_target[name], kinds, cause),
                                     target=self.fail_target[name])
+        if name.startswith("rescue "):
+            self.retry.cap(name, 5.0, time.time(), place)
         if verdict is not None and verdict.worth_logging and not quiet:
             log(f"{'~~' if isinstance(err, NotAvailable) else '!!'} {name}: {err} "
                 f"({cause}, ×{verdict.n}; {cause} cools here for {verdict.wait}s; at {api.feet_seen()}, "
@@ -579,7 +581,7 @@ class Brain:
         began = time.time()
         if act.layer == "L0":
             tape.end(self, act, snap)
-            self._running(act.run)
+            self._running(lambda: arbiter.BODY.carry(arbiter.Intent("safety", act.run, act.name, key=act.name), act.run))
             ACTS.append(act_record(act, began, time.time(), None, None))
             return
         box = {}
@@ -633,20 +635,24 @@ class Brain:
     def _decide_round(self, snap, ctx):
         """Every layer proposes, the arbiter chooses; nothing here ranks."""
         def fast():
-            out = []
-            if arbiter.BODY.holder() is not None or api.mode() == "survival":
-                out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
-            unanswered = fight_loop.unanswered_now(time.time())
-            afloat = self.reflexes.afloat
-            fallen = self.watch.fallen(snap.state) if hasattr(self, "watch") else 0.0
-            k = hazard.rescue_due(snap.state, buried=skillcore.head_buried_in(snap.region, snap.state),
-                                  unanswered=unanswered, afloat=afloat, fallen=fallen)
-            if k is not None and self.ready(f"rescue {k}"):
-                out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
-                    ctx, snap.state, self.attempt, self.ready, threatened=bool(threat.threats_seen()[0]),
-                    unanswered=unanswered, afloat=afloat, fallen=fallen)),
-                    key=f"rescue {k}"))
-            return out
+            try:
+                out = []
+                if arbiter.BODY.holder() is not None or api.mode() == "survival":
+                    out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
+                unanswered = fight_loop.unanswered_now(time.time())
+                afloat = self.reflexes.afloat
+                fallen = self.watch.fallen(snap.state) if hasattr(self, "watch") else 0.0
+                k = hazard.rescue_due(snap.state, buried=skillcore.head_buried_in(snap.region, snap.state),
+                                      unanswered=unanswered, afloat=afloat, fallen=fallen, ready=self.ready)
+                if k is not None and self.ready(f"rescue {k}"):
+                    out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
+                        ctx, snap.state, self.attempt, self.ready, threatened=bool(threat.threats_seen()[0]),
+                        unanswered=unanswered, afloat=afloat, fallen=fallen)),
+                        key=f"rescue {k}"))
+                return out
+            except Exception as e:
+                api.unexpected("brain.fast", e, "fast layer evaluation failed")
+                return []
 
         def upkeep():
             self.needs.propose(snap, ctx)
@@ -704,16 +710,21 @@ class Brain:
         if tasks.expire(items):
             tasks.save(items)
         live = [t for t in items if t["state"] in tasks.LIVE]
+        live_ids = {t["id"] for t in live}
+        for tid in list(self.held):
+            if tid not in live_ids:
+                self.held.pop(tid, None)
         closed = snap.night
         self.just_finished = False
         self.idle_why = ""
         self.step_whys = []            # D1: a queued task's own "no step can run" reason, named (not the bare default)
         entries, queued = [], []
-        for seq, task in enumerate(live):
+        sorted_live = sorted(enumerate(live), key=lambda it: (it[1].get("expires") or float("inf"), it[0]))
+        for rank, (seq, task) in enumerate(sorted_live):
             if goals.remainder(tasks.goal_of(task), snap, self.mem) == {}:
                 write(task, self._collecting(lambda t=task: self.finish(t, "done", ""))[1])
                 continue
-            entries.append((f"task {task['id']}", tasks.goal_of(task), seq))
+            entries.append((f"task {task['id']}", tasks.goal_of(task), rank))
             queued.append(task)
         barred = []
         for kind, goal, _why in (self.needs.needs_now if getattr(self, "planning", True) else ()):
@@ -837,6 +848,9 @@ class Brain:
                 return "under the open sky by night: no surface work"
             return None
         st = self.next_step(steps, snap, ctx, skip)
+        if st is not None:
+            bag.RESERVED.clear()
+            bag.RESERVED.update(bag.reserved_ids(steps))
         return None if st is None else craft_act("plan", f"round: {step_key(st)}", ctx, steps, st, snap.night, cost,
                                                  inv=snap.inv)
 

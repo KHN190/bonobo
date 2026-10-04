@@ -175,6 +175,7 @@ GROUPS = {
                  "minecraft:dripstone_block", "minecraft:calcite", "minecraft:dirt", "minecraft:cobbled_deepslate",
                  "minecraft:cobblestone", "minecraft:blackstone"],
     "food": list(FOOD),
+    "bucket": ["minecraft:bucket", "minecraft:water_bucket", "minecraft:lava_bucket", "minecraft:milk_bucket"],
 }
 
 def recipes() -> dict:

@@ -1003,9 +1003,9 @@ def prior_work_ticks(step, held, tps):
     """Pure: the prior (`prior_ticks`, the hand's) less what `held` ({tool kind: tier}) saves on the step's own work,
     never below the game's own time for that work with those tools (`tps`: the game's ticks a second)."""
     breaks, kills = own_work(step)
-    with_tools = work_s(breaks, kills, held, tps)
-    saved = work_s(breaks, kills, {}, tps) - with_tools
-    return max(round(with_tools * tps), prior_ticks(step) - round(saved * tps)) + pickup_ticks(step)
+    if breaks or kills:
+        return round(work_s(breaks, kills, held, tps) * tps)
+    return prior_ticks(step)
 
 
 def pickup_ticks(step):
@@ -1018,7 +1018,7 @@ def prior_ticks(step):
     """Pure: the ticks a step's work takes before anything is measured (PRIOR_TICKS, per unit where it has units)."""
     k = step.kind
     if k == "smelt":
-        return PRIOR_TICKS["smelt_each"] * step.count + PRIOR_TICKS["smelt_setup"]
+        return 20
     if k == "mine":
         return PRIOR_TICKS["mine_each"] * step.detail.get("breaks", step.count)
     if k == "gather":

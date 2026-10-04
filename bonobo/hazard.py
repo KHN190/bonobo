@@ -72,7 +72,7 @@ class Watch:
 
     def fallen(self, state):
         y = float(state.get("y", 0.0))
-        if state.get("onGround") or state.get("inWater") or state.get("inLava"):
+        if state.get("onGround") or state.get("inWater") or state.get("inLava") or state.get("climbing"):
             self.fall_top = None
             return 0.0
         self.fall_top = y if self.fall_top is None else max(self.fall_top, y)
@@ -186,18 +186,38 @@ def recover(ctx, k, state, threatened=False):
 STOP_ONLY = ()
 assert set(RECOVERY) | set(STOP_ONLY) == set(KINDS), "every hazard kind is recovered or declared stop-only"
 
-def rescue_due(state, buried=None, unanswered=None, afloat=False, fallen=0.0):
-    """The hazard the brain must answer before anything else this round, or None (`unanswered`: kind's)."""
+def active_hazards(state, buried=False, fallen=0.0, unanswered=None, afloat=False):
+    """All active hazards on the body now in priority order."""
+    out = []
+    if state.get("inLava"):
+        out.append("lava")
+    if state.get("onFire") and state.get("health", 20) <= BURNING_HP:
+        out.append("burning")
+    if drowning(state) or (state.get("inWater") and drowning_in(state) <= REFLEX_SLACK_S):
+        out.append("drowning")
+    if buried:
+        out.append("suffocating")
+    if not state.get("dead") and state.get("health", MAX_HP) <= critical_hp(state):
+        out.append("critical")
+    if unanswered:
+        out.append("threat")
+    if afloat:
+        out.append("swimming")
+    if falling(state, fallen):
+        out.append("falling")
+    return [k for k in out if k in RECOVERY]
 
-    if state.get("inWater") and drowning_in(state) <= REFLEX_SLACK_S:
-        return "drowning"
+def rescue_due(state, buried=None, unanswered=None, afloat=False, fallen=0.0, ready=None):
+    """The hazard the brain must answer before anything else this round, or None (`unanswered`: kind's)."""
     if buried is None:
         try:
             buried = head_buried(state)
         except api.McError:
             buried = False
-    k = kind(state, buried=buried, fallen=fallen, unanswered=unanswered, afloat=afloat)
-    return k if k in RECOVERY else None
+    actives = active_hazards(state, buried=buried, unanswered=unanswered, afloat=afloat, fallen=fallen)
+    if ready is not None:
+        return next((k for k in actives if ready(f"rescue {k}")), None)
+    return actives[0] if actives else None
 
 def handle(ctx, state, attempt, ready, threatened=False, unanswered=None, afloat=False, fallen=0.0):
     """Run the rescue for the hazard on the body, if there is one."""

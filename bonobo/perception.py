@@ -419,82 +419,99 @@ class Watcher(threading.Thread):
         self._ender_seen = any(e["type"] == "minecraft:enderman" and e.get("angry") for e in near)
         return self._ender_seen
 
+    def _tick(self):
+        time.sleep(api.READ_EVERY_S if fight_loop.active() else WATCH_S)
+        if STATE.paused:
+            return
+        try:
+            s = api.get("/state")
+        except (api.McError, api.PlayerTookControl, ValueError) as e:
+            api.swallowed("perception.run", e)
+            return        # game restarting, network hiccup, the player's turn: the main loop handles those
+        except Exception as e:  # guard: the only watcher for lava, drowning and mobs: a read failure never kills it
+            api.unexpected("perception: /state", e, "this tick is skipped")
+            return
+        note_hurt(s)
+        if api.mode() == "survival":
+            return
+        env_reason = hazard.kind(s, buried=self.hazard.buried(s), fallen=self.hazard.fallen(s))
+        throttle_s = 1.0 if env_reason in ("lava", "drowning", "suffocation", "falling") else REPEAT_S
+        if env_reason is not None and time.time() - self.last.get(env_reason, 0) >= throttle_s:
+            self.last[env_reason] = time.time()
+            if api.soft():
+                api.request_interrupt(env_reason)
+            else:
+                arbiter.BODY.preempt("safety", lambda: api.post("/stop"), f"hazard: {env_reason}")
+            return
+        # look once per tick and hand that one reading to everything below (rows were absent or seconds old)
+        self._look(s)
+        try:
+            self._answer_threats(s)
+        except Exception as e:  # guard: the only watcher for lava, drowning, mobs: a failing answer never kills it
+            if time.time() - getattr(self, "_answer_logged", 0) > 30:
+                self._answer_logged = time.time()
+                api.log(f"!! threat answer failed: {type(e).__name__}: {e}")
+                api.detail("".join(traceback.format_exception(type(e), e, e.__traceback__)).rstrip())
+        import os
+        if os.path.exists(FLAG):
+            try:
+                with open(FLAG) as f:
+                    why = f.read().strip() or "Claude asked"
+                os.remove(FLAG)
+            except OSError:
+                why = "Claude asked"
+            try:
+                # the message is ours to set; /stop goes through the one exit
+                arbiter.BODY.preempt("safety", lambda: api.post("/stop"), f"claude: {why}")
+            except Exception as e:  # guard: the watcher outlives a failed stop; said, and Claude may ask again
+                api.unexpected("perception: Claude's stop", e, "the task was not stopped")
+            api.log(f"!! perception: interrupt requested by Claude ({why})")
+            return
+        # a fight skill handles "hurt with hostiles close" itself: only life-or-death interrupts it
+        if _eating():
+            return        # a bite takes ~1.6 s and is what saves us: never interrupt it
+        # nightfall on the surface: once per night, a soft request honoured between tasks (api.at_boundary);
+        # the brain then takes the night's way and resumes the same target (arbiter.RESUME_OF "night")
+        told = getattr(self, "_night_told", False)
+        running = (s.get("control") or {}).get("task")
+        night = nightfall(s, lambda: running and not told and _enclosed_now(s), lambda: in_site_here(s))
+        if night is None:
+            self._night_told = False        # day, or sheltered: asked again when exposed next
+        elif not told and running:
+            self._night_told = True
+            api.request_boundary(night)
+            api.log("!! perception: night on the surface → the work stops at its next boundary")
+        # a fight skill handles breath and endermen itself: only life-or-death reasons, or every window is cut
+        fighting = fight_loop.active() or api.soft()
+        reason = danger(s, None if fighting else self._hostiles_within,
+                        None if fighting else self._breath_within,
+                        None if fighting else self._enderman_after_us,
+                        None if fighting else (lambda: self._time_to_die(s)),
+                        buried=self.hazard.buried(s), fallen=self.hazard.fallen(s), within_s=interrupt_within_s())
+        now = time.time()
+        if reason is None or now - self.last.get(reason, 0) < REPEAT_S:
+            return
+        if reason == "hostiles" and not answering(now):
+            # stopping the body is not an answer: only the layer about to answer a threat may stop the work
+            return
+        self.last[reason] = now
+        if api.soft():
+            api.request_interrupt(reason)     # soft skill: message only, no /stop — the skill takes cover itself
+            # a soft skill takes cover itself; cancelling its task stranded the player
+            api.log(f"!! perception: {reason} → handed to the running skill")
+            return
+        try:
+            arbiter.BODY.preempt("safety", lambda: api.post("/stop"), reason)
+        except Exception as e:  # guard: the watcher outlives a failed stop; said, the danger repeats after REPEAT_S
+            api.unexpected("perception: safety stop", e, "the task was not stopped")
+        api.log(f"!! perception: {reason} → interrupting the current task or the round's planning")
+
     def run(self):
         while not self.stopped:
-            time.sleep(api.READ_EVERY_S if fight_loop.active() else WATCH_S)
-            if api.mode() == "survival" or STATE.paused:
-                continue
             try:
-                s = api.get("/state")
-            except (api.McError, api.PlayerTookControl, ValueError) as e:
-                api.swallowed("perception.run", e)
-                continue        # game restarting, network hiccup, the player's turn: the main loop handles those
-            except Exception as e:  # guard: the only watcher for lava, drowning and mobs: a read failure never kills it
-                api.unexpected("perception: /state", e, "this tick is skipped")
-                continue
-            note_hurt(s)
-            # look once per tick and hand that one reading to everything below (rows were absent or seconds old)
-            self._look(s)
-            try:
-                self._answer_threats(s)
-            except Exception as e:  # guard: the only watcher for lava, drowning, mobs: a failing answer never kills it
-                if time.time() - getattr(self, "_answer_logged", 0) > 30:
-                    self._answer_logged = time.time()
-                    api.log(f"!! threat answer failed: {type(e).__name__}: {e}")
-                    api.detail("".join(traceback.format_exception(type(e), e, e.__traceback__)).rstrip())
-            import os
-            if os.path.exists(FLAG):
-                try:
-                    with open(FLAG) as f:
-                        why = f.read().strip() or "Claude asked"
-                    os.remove(FLAG)
-                except OSError:
-                    why = "Claude asked"
-                try:
-                    # the message is ours to set; /stop goes through the one exit
-                    arbiter.BODY.preempt("safety", lambda: api.post("/stop"), f"claude: {why}")
-                except Exception as e:  # guard: the watcher outlives a failed stop; said, and Claude may ask again
-                    api.unexpected("perception: Claude's stop", e, "the task was not stopped")
-                api.log(f"!! perception: interrupt requested by Claude ({why})")
-                continue
-            # a fight skill handles "hurt with hostiles close" itself: only life-or-death interrupts it
-            if _eating():
-                continue        # a bite takes ~1.6 s and is what saves us: never interrupt it
-            # nightfall on the surface: once per night, a soft request honoured between tasks (api.at_boundary);
-            # the brain then takes the night's way and resumes the same target (arbiter.RESUME_OF "night")
-            told = getattr(self, "_night_told", False)
-            running = (s.get("control") or {}).get("task")
-            night = nightfall(s, lambda: running and not told and _enclosed_now(s), lambda: in_site_here(s))
-            if night is None:
-                self._night_told = False        # day, or sheltered: asked again when exposed next
-            elif not told and running:
-                self._night_told = True
-                api.request_boundary(night)
-                api.log("!! perception: night on the surface → the work stops at its next boundary")
-            # a fight skill handles breath and endermen itself: only life-or-death reasons, or every window is cut
-            fighting = fight_loop.active() or api.soft()
-            reason = danger(s, None if fighting else self._hostiles_within,
-                            None if fighting else self._breath_within,
-                            None if fighting else self._enderman_after_us,
-                            None if fighting else (lambda: self._time_to_die(s)),
-                            buried=self.hazard.buried(s), fallen=self.hazard.fallen(s), within_s=interrupt_within_s())
-            now = time.time()
-            if reason is None or now - self.last.get(reason, 0) < REPEAT_S:
-                continue
-            if reason == "hostiles" and not answering(now):
-                # stopping the body is not an answer: only the layer about to answer a threat may stop the work
-                continue
-            self.last[reason] = now
-            if api.soft():
-                api.request_interrupt(reason)     # soft skill: message only, no /stop — the skill takes cover itself
-                # a soft skill takes cover itself; cancelling its task stranded the player
-                api.log(f"!! perception: {reason} → handed to the running skill")
-                continue
-            try:
-                arbiter.BODY.preempt("safety", lambda: api.post("/stop"), reason)
-            except Exception as e:  # guard: the watcher outlives a failed stop; said, the danger repeats after REPEAT_S
-                api.unexpected("perception: safety stop", e, "the task was not stopped")
-            api.log(f"!! perception: {reason} → interrupting the current task or the round's planning")
+                self._tick()
+            except Exception as e:
+                api.unexpected("perception.loop", e, "perception loop tick failed")
 
 ANSWERED_MAX = 500
 
@@ -623,6 +640,6 @@ def start_watching():
     return w
 
 def ensure_watching():
-    if STATE.watcher is None or not STATE.watcher.is_alive():
+    if STATE.watcher is not None and not STATE.watcher.is_alive():
         return start_watching()
     return STATE.watcher

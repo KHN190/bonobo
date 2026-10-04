@@ -6,7 +6,7 @@ import time
 from . import api
 from .api import Interrupted, McError
 from .data import SEARCH_LOOK_R
-from .data import MEASURED_BAND, MACHINE_PROVIDES, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, GROUPS, HARDNESS, HAZARD, NAV_NODES, bare, mid
+from .data import MEASURED_BAND, MACHINE_PROVIDES, ROUTE_FACTOR, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, GROUPS, HARDNESS, HAZARD, NAV_NODES, bare, mid
 from .knowledge import SURFACE_Y, find_class, sources, step_station, work_s, food_count, soil_depth, dawn_s, body_facts, expected_find_s, step_kinds, walk_ticks, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS, walk_ticks: re-exported)
 from .skillcore import ban_state, banned
 from .world import Region, Versioned, job_ready, route_key
@@ -152,7 +152,8 @@ class Cost:
         here, dim = self.snap.feet, self.snap.dimension
         skip = self.not_there(sources)
         spots = {tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if tuple(r["pos"]) not in skip}
-        got = self.workable([(math.dist(p, here), p) for p in spots], kind or stand_kind(kinds), fixable=sources)
+        target_kinds = [k for k in kinds if k != "tree"] or kinds
+        got = self.workable([(math.dist(p, here), p) for p in spots], kind or stand_kind(target_kinds), fixable=sources)
         return (got[1], got[0]) if got else None
 
     def seen(self, kinds, skip, radius=math.inf, kind=None, fixable=False):
@@ -316,11 +317,12 @@ class Cost:
         dim, mem = self.snap.dimension, self.mem
         sites = (lambda kind: bool(mem.sites(None, kinds=[kind])))
         lava_bucket = self.snap.inv.count("minecraft:lava_bucket")
+        lava_near = any(math.dist(r["pos"], snap.feet) <= 128 for r in mem.seen("lava", dim))
         return {**body_facts(self.snap.state),
                 "dimension": dim, "portal": portal_known(mem, dim),
                 "state:fortress_found": sites("fortress"), "state:stronghold_known": sites("stronghold"),
                 "state:portal_room_found": sites("portal_room"),
-                "lava": bool(lava_bucket) or bool(mem.seen("lava", dim))}
+                "lava": bool(lava_bucket) or bool(lava_near)}
 
     def fight_line(self, step, held=None):
         """(ok, why): an optional fight a step makes is planned only above the fight line (fight line) — the brain's one judge
@@ -703,17 +705,21 @@ class Cost:
             # the least over every place it may start from (step_state's `at`): the run prices it from one of them
             key = ("walk_lb_unknown", step.kind, tuple(step_kinds(step)), tuple(sorted((held or {}).items())))
             if key not in self.cache:
-                self.cache[key] = min(self._walk(step, at=p, held=held, dig=False)
-                                      for p in [None, *sorted(self.places())])
+                w = min(self._walk(step, at=p, held=held, dig=False)
+                        for p in [None, *sorted(self.places())])
+                self.cache[key] = int(w / ROUTE_FACTOR)
             return self.cache[key]
         key = ("walk_lb", tuple(site), step.kind, tuple(self._kinds_of(step) or ()))
         if key not in self.cache:
-            # from every place a plan may stand before it: remembered, a container, the look's (site's own answers)
             near = min((math.dist(p, site) for p in self.places() if tuple(p) != tuple(site)), default=math.inf)
             # and as priced from here, first in the plan: the nearest source, which need not be the site's
             parts = self._walk_parts(step, None, held, dig=False) if (step.kind in self.SOURCED or step.kind in ("goto", "withdraw", "look")) else {"seek": 1}
             here = parts["walk"] if not parts["seek"] else math.inf
-            self.cache[key] = min(walk_ticks(min(near, math.dist(self.snap.feet, site))), here)
+            min_dist = min(near, math.dist(self.snap.feet, site))
+            if min_dist <= 14.0:
+                self.cache[key] = 0
+            else:
+                self.cache[key] = min(walk_ticks(3.0), int(min(walk_ticks(min_dist), here) / ROUTE_FACTOR))
         return self.cache[key]
 
     def _points(self):
@@ -847,7 +853,13 @@ class Cost:
                           lambda d: walk_ticks(d) / TICKS_PER_S)
 
     def plan_s(self, steps):
-        """Seconds a whole plan takes: Σ Step.est."""
+        """Seconds a whole plan takes: Σ Step.est, with furnace smelting overlapping other work."""
+        smelt = [s for s in steps if s.kind == "smelt"]
+        if smelt:
+            smelt_setup = sum(s.est for s in smelt)
+            smelt_wait = sum(s.count * 200 for s in smelt)
+            other = sum(s.est for s in steps if s.kind != "smelt")
+            return (smelt_setup + max(smelt_wait, other)) / TICKS_PER_S
         return sum(s.est for s in steps) / TICKS_PER_S
 
     # -- seconds to a kind: where it is, the game's route to it, the chance a search finds one
@@ -924,7 +936,8 @@ def container_p(record, ids, age_s, rate):
     """Pure: the chance a container holds one of `ids`, from its record: held then, discounted by the change rate
     over the record's age; not held then, the chance it changed since."""
     held = any(record["items"].get(i, 0) > 0 for i in ids)
-    return math.exp(-rate * age_s) if held else 1.0 - math.exp(-rate * age_s)
+    decay = math.exp(-rate * age_s)
+    return max(0.05, decay) if held else min(0.95, 1.0 - decay)
 
 
 class Prices:
