@@ -39,7 +39,8 @@ from .world import Inventory, Snapshot
 # wired from the top so lower layers never import the skill library
 hazard.SKILLS.update(find_air=lambda ctx: survive.find_air(ctx), unbury=lambda ctx: survive.unbury(ctx),
                      cover=lambda ctx, s: needs.cover(ctx, s), eat=lambda ctx: survive.eat(ctx),
-                     dig_in=lambda ctx: survive.dig_in(ctx), reach_land=lambda ctx: survive.reach_land(ctx))
+                     dig_in=lambda ctx: survive.dig_in(ctx), reach_land=lambda ctx: survive.reach_land(ctx),
+                     water_clutch=lambda ctx: survive.water_clutch(ctx))
 decompose.NEEDS_OF.update({"wall in": survive.pod_needs})
 from . import fight_loop  # noqa: E402
 fight_loop.lend("wall_in", lambda option, state: survive.pod_commands(state) if state.get("region") is not None else [],

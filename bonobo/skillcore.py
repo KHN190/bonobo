@@ -32,7 +32,7 @@ def game_time_or_none():
     the api and catches nothing itself."""
     try:
         return game_tick()
-    except McError as e:
+    except (McError, AssertionError, Exception) as e:
         api.swallowed("skillcore.game_time_or_none", e)
         return None
 

@@ -914,3 +914,20 @@ def light_area(ctx, radius=10, limit=6, spots=None):
     if not lit:
         raise NotAvailable("no dark spot could be lit")
     log(f"lit {lit} dark spots")
+
+
+def water_clutch(ctx=None):
+    """Water clutch reflex: place water beneath feet before impact, then scoop it back."""
+    inv = Inventory()
+    if not inv.count("minecraft:water_bucket"):
+        raise NotAvailable("no water bucket for clutch")
+    log("reflex: water clutch triggered")
+    api.run_chain([
+        {"type": "look", "pitch": 90.0},
+        {"type": "use_item", "item": "minecraft:water_bucket", "onBlock": True},
+    ], stop_on_failure=False)
+    settle(lambda: api.get("/state"), lambda st: st.get("onGround") or st.get("inWater") or st.get("dead"),
+           timeout=3.0, stable_s=0.2, soft=True)
+    if Inventory().count("minecraft:bucket"):
+        api.run({"type": "use_item", "item": "minecraft:bucket", "onBlock": False}, wait=15)
+

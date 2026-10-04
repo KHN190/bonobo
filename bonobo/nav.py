@@ -1556,10 +1556,10 @@ def gap_jump_tasks(here, d, gap_len=1):
 def can_step_down(region, here, d, has_water=False, max_drop=3):
     """Pure: drop_depth (int >= 1) if a safe descent in direction `d` can be made, or 0.
     Drop <= 3: 0 fall damage in Minecraft.
-    With water bucket (has_water=True): vertical drop up to 20 blocks with gravity freefall."""
+    With water bucket (has_water=True): vertical drop of any height with water clutch."""
     x, y, z = here
     dx, dz = d
-    limit = 20 if has_water else max_drop
+    limit = 256 if has_water else max_drop
     for drop in range(1, limit + 1):
         target_stand = (x + dx, y - drop, z + dz)
         target_floor = (x + dx, y - drop - 1, z + dz)
@@ -1593,11 +1593,20 @@ def step_down_tasks(here, d, drop=1, has_water=False):
     if drop == 1:
         return [{"type": "goto", "x": tx, "y": ty, "z": tz, "range": 0.5, "sprint": True}]
     fall_ticks = max(8, int(math.sqrt(drop * 2 / 0.08) * 1.2))
-    return [
+    tasks = [
         {"type": "look", "x": tx + 0.5, "y": ty + 0.5, "z": tz + 0.5},
-        {"type": "input", "keys": ["forward"], "yaw": yaw, "ticks": fall_ticks},
-        {"type": "goto", "x": tx, "y": ty, "z": tz, "range": 0.5, "sprint": True},
+        {"type": "input", "keys": ["forward"], "yaw": yaw, "ticks": max(4, min(10, fall_ticks // 2))},
     ]
+    if has_water and drop > 3:
+        tasks.extend([
+            {"type": "look", "pitch": 90.0, "yaw": yaw},
+            {"type": "wait", "ticks": max(1, fall_ticks - 4)},
+            {"type": "use_item", "item": "minecraft:water_bucket", "onBlock": True},
+            {"type": "wait", "ticks": 4},
+            {"type": "use_item", "item": "minecraft:bucket", "onBlock": False},
+        ])
+    tasks.append({"type": "goto", "x": tx, "y": ty, "z": tz, "range": 0.5, "sprint": True})
+    return tasks
 
 
 def sprint_jump_transit_tasks(start, target, min_dist=6.0, food=20):

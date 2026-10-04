@@ -145,7 +145,12 @@ def _dig_in(ctx, s):
 def _reach_land(ctx, s):
     SKILLS["reach_land"](ctx)
 
-# each hazard's recovery, in order (S1): its rescue first, then the next way that answers the same hazard when one
+def _water_clutch(ctx, s):
+    fn = SKILLS.get("water_clutch")
+    if fn:
+        fn(ctx)
+
+# each hazard's recovery, in order (priority): its rescue first, then the next way that answers the same hazard when one
 # is spent (over its budget, or refused); the list spent → the reasons. The suffocation rescue may break a home block
 # at critical hp (survive.unbury): a life before a build. Water poured on lava sets it: the lava's second way.
 RECOVERY = {"lava": [_leave_lava, _extinguish], "drowning": [_surface, _into_cover], "suffocating": [_unbury],
@@ -154,7 +159,8 @@ RECOVERY = {"lava": [_leave_lava, _extinguish], "drowning": [_surface, _into_cov
             "critical": {"threatened": [_into_cover, _meal], "calm": [_meal, _into_cover]},
             # no threat answer (fight_loop.unanswered_now): out of its reach
             "threat": [_into_cover, _dig_in],
-            "swimming": [_reach_land]}
+            "swimming": [_reach_land],
+            "falling": [_water_clutch]}
 
 
 def ways(k, threatened=False):
@@ -176,8 +182,8 @@ def recover(ctx, k, state, threatened=False):
             tried.append(f"{way.__name__.lstrip('_')}: {type(e).__name__}: {e}")
             log(f"L0: {k}: {tried[-1]} → the next way")
     raise api.NotAvailable(f"{k}: every recovery spent — " + "; ".join(tried))
-# stopped and nothing more: a fall is over before a round acts; the landing is the jar's WaterClutch
-STOP_ONLY = ("falling",)
+# a fall is answered by the water clutch reflex when a water bucket is carried
+STOP_ONLY = ()
 assert set(RECOVERY) | set(STOP_ONLY) == set(KINDS), "every hazard kind is recovered or declared stop-only"
 
 def rescue_due(state, buried=None, unanswered=None, afloat=False):
@@ -191,7 +197,7 @@ def rescue_due(state, buried=None, unanswered=None, afloat=False):
         except api.McError:
             buried = False
     k = kind(state, buried=buried, unanswered=unanswered, afloat=afloat)
-    return k if k in RECOVERY else None
+    return k if k in RECOVERY and k != "falling" else None
 
 def handle(ctx, state, attempt, ready, threatened=False, unanswered=None, afloat=False):
     """Run the rescue for the hazard on the body, if there is one."""

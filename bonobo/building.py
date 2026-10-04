@@ -545,11 +545,15 @@ def cast_portal(ctx):
     region = Region(cell_add(origin, (-5, -2, -5)), cell_add(origin, (5, 6, 5)))
     todo, unlit = portal_todo(bp, origin, turns, region.name)
     for pos, part, *_ in blueprints.placed(bp, origin, turns):
-        if todo and part.item != "minecraft:obsidian" and not region.solid(pos):
-            place(block, pos)            # the corners: what the lava is held against
+        if todo and part.item != "minecraft:obsidian" and part.offset[1] == 0 and not region.solid(pos):
+            place(block, pos)            # the bottom corners: what the lava is held against
     access = blueprints.access_spot(bp, origin, turns)
     placed = []
     for cell, mould in [(c, m) for c, m in fluids.cast_frame_plan(bp, origin, turns, region.solid) if c in todo]:
+        if cell[1] == origin[1] + 4:
+            for pos, part, *_ in blueprints.placed(bp, origin, turns):
+                if todo and part.item != "minecraft:obsidian" and part.offset[1] > 0 and not Region(pos, pos).solid(pos):
+                    place(block, pos)    # the top corners: now supported by the pillars
         fluids._lava_bucket(ctx, feet())
         nav.arrive(access, ctx.policy, range_=1.5)
         mould = [m for m in mould if not Region(m, m).solid(m)]

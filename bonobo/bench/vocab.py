@@ -315,6 +315,10 @@ def _found_near(blocks, r=6):
         return bool(find(blocks, radius=r, limit=1))
     return check
 
+def portal_made(api=None, inv=None):
+    from ..world import find
+    return bool(find(["nether_portal"], radius=32, limit=1))
+
 def _on_rim(top):
     """Standing dry on the rim at `top` (the block under the feet is the rim, not water)."""
     def check(api, inv):

@@ -74,6 +74,17 @@ ROWS = [
          run=('do', 'bonobo.nav.go_to', [('@', 12, -8, 0), ('$ctx', 'policy')], {'range_': 1.0}),
          check=[('arrived', ('@', 12, -8, 0), 1.0), ('state', 'health', '>=', 15)],
          budget=25, point='B', skills=['travel_to']),
+    dict(name='slice_build_portal', module='brain',
+         doc='Slice: flat stone ground, 10 obsidian, cobblestone and flint carried, brain queues build nether_portal → autonomous cerebellum plans, places and lights the Nether portal.',
+         scene=[('floor', 'stone', 8, 2),
+                ('fill', ('@', -8, 0, -8), ('@', 8, 6, 8), 'air'),
+                ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'), ('time', 0),
+                ('give', 'obsidian', 10), ('give', 'cobblestone', 16), ('give', 'flint_and_steel'),
+                ('cmd', 'effect give @p saturation 60 255 true')],
+         run=('slice', ('!now', ('!blocks', ('@', -8, 0, -8), ('@', 8, 6, 8), 'nether_portal', 1)),
+              2.0, None, [{'goal': 'build', 'args': {'bp': 'nether_portal'}}], 30, True),
+         check=[('slice_check', ('!now', ('!blocks', ('@', -8, 0, -8), ('@', 8, 6, 8), 'nether_portal', 1)), 30)],
+         detail=('&slice_detail',), est=('step', 'build', 'nether_portal', 1, {}), point='C'),
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 from . import core
