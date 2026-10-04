@@ -193,10 +193,18 @@ def _cheapest_seed(ctx, hits, start, open_set):
     none asked once that least cannot beat the best priced (a buried vein near beat an exposed one a little
     farther); one reach refuses (no tread to place) is never picked; all refused: NotAvailable
     at the nearest's cause (E5: the round looks further, not walks into a known failure)."""
-    cells = sorted(((h["x"], h["y"], h["z"]) for h in hits), key=lambda c: nav.least_way_s(c, start))
+    def seed_lb(c):
+        walk = nav.least_way_s(c, start)
+        if c in open_set:
+            return walk
+        dy = start[1] - c[1]
+        vertical = (dy * 1.2) if dy > 0 else (abs(dy) * 0.8)
+        return walk + 1.5 + vertical
+
+    cells = sorted(((h["x"], h["y"], h["z"]) for h in hits), key=seed_lb)
     inv, priced, refused = Inventory(), [], []
     for c in cells:
-        lb = nav.least_way_s(c, start)
+        lb = seed_lb(c)
         if any(p[1] is not None and p[1] <= lb for p in priced):
             break                      # no farther one can be cheaper than one already priced
         region = region_around([start, c], pad=nav.SAFE_DROP + 2)
@@ -281,7 +289,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         noted = [h for h in noted_hits(notes, blocks, ctx.blocked, ctx.policy.protected)
                  if (h["x"], h["y"], h["z"]) not in no_cell]
         # every candidate, open or buried, remembered or seen: the way each takes is priced (_cheapest_seed)
-        exposed_hits = find(blocks, radius=radius, limit=60, exposed=True)
+        exposed_hits = find(blocks, radius=max(radius, SEARCH_LOOK_R), limit=60, exposed=True)
         raw = list({(h["x"], h["y"], h["z"]): h for h in noted + exposed_hits
                     + find(blocks, radius=radius, limit=60)}.values())
         open_set = {(h["x"], h["y"], h["z"]) for h in exposed_hits}

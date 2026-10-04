@@ -288,14 +288,17 @@ def craft_plan(recipes, inv):
                     raise
                 limit = max_craftable(pattern, rem - 1, bag)
                 k = 0
+                probe_err = None
                 for probe in range(limit, 0, -1):
                     try:
                         concrete = resolve_pattern(pattern, probe, bag)
                         k = probe
                         break
-                    except McError:
-                        continue
+                    except McError as e:
+                        probe_err = e
                 if k == 0:
+                    if probe_err is not None:
+                        raise probe_err
                     raise
             item = output_of(token, concrete)
             for c in concrete:
@@ -642,13 +645,13 @@ def start_smelt_job(ctx, output, input_token, count, fuel, next_use=None):
             move_into(fuels, 1, f)
         finally:
             api.post("/close")    # leave the furnace standing: that's the point
-        ready_at = time.time() + SMELT_S_PER_ITEM * k + 5
+        ready_at = time.time() + SMELT_S_PER_ITEM * k + 0.5
         tick = api.get("/state").get("gameTime")
         job = ctx.mem.add_job("furnace", pos, ctx.dimension, output, k, ready_at, pos == placed,
                               input=inputs[0] if inputs else None, input_count=k,
                               fuel=fuels[0] if fuels else None, fuel_count=f, next_use=next_use)
         if tick is not None:
-            job["ready_tick"] = tick + TICKS_PER_ITEM * k + 20
+            job["ready_tick"] = tick + TICKS_PER_ITEM * k + 1
             ctx.mem.save()
         ready.append(ready_at)
         yield k

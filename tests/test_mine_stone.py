@@ -279,5 +279,61 @@ class Overburden(unittest.TestCase):
                          (SOIL_DEPTH * STAIR_CELLS, True))
 
 
+class CheapestSeed(unittest.TestCase):
+    """gather._cheapest_seed: prioritize accessible exposed veins over deep buried ones."""
+
+    def test_exposed_vein_preferred_over_deep_buried_vein(self):
+        from bonobo import nav, skillcore
+        ctx = skillcore.Context(memory(), nav.Policy(), "minecraft:overworld")
+        start = (0, 64, 0)
+        exposed_cell = (25, 64, 0)
+        deep_buried_cell = (0, 44, 0)  # 20 blocks down through rock
+        hits = [{"x": exposed_cell[0], "y": exposed_cell[1], "z": exposed_cell[2]},
+                {"x": deep_buried_cell[0], "y": deep_buried_cell[1], "z": deep_buried_cell[2]}]
+        open_set = {exposed_cell}
+
+        calls = []
+
+        def mock_reach(region, s, target, mode, inv, protected, walks=None):
+            calls.append(target)
+            if target == exposed_cell:
+                return nav.Reached(stand=(24, 64, 0), why=None, seconds=6.0)
+            return nav.Reached(stand=(0, 44, 0), why=None, seconds=35.0)
+
+        with mock.patch.object(gather, "Inventory", lambda: bag(inventory())), \
+                mock.patch.object(gather, "region_around", lambda *a, **k: mock.Mock()), \
+                mock.patch.object(gather.nav, "reach", mock_reach):
+            picked = gather._cheapest_seed(ctx, hits, start, open_set)
+
+        self.assertEqual(picked, exposed_cell)
+        self.assertEqual(calls, [exposed_cell])
+
+    def test_shallow_buried_vein_preferred_over_far_exposed_vein_when_cheaper(self):
+        from bonobo import nav, skillcore
+        ctx = skillcore.Context(memory(), nav.Policy(), "minecraft:overworld")
+        start = (0, 64, 0)
+        far_exposed_cell = (45, 64, 0)
+        shallow_buried_cell = (1, 63, 0)  # 1 block below feet
+        hits = [{"x": far_exposed_cell[0], "y": far_exposed_cell[1], "z": far_exposed_cell[2]},
+                {"x": shallow_buried_cell[0], "y": shallow_buried_cell[1], "z": shallow_buried_cell[2]}]
+        open_set = {far_exposed_cell}
+
+        calls = []
+
+        def mock_reach(region, s, target, mode, inv, protected, walks=None):
+            calls.append(target)
+            if target == shallow_buried_cell:
+                return nav.Reached(stand=(0, 64, 0), why=None, seconds=2.5)
+            return nav.Reached(stand=(44, 64, 0), why=None, seconds=10.5)
+
+        with mock.patch.object(gather, "Inventory", lambda: bag(inventory())), \
+                mock.patch.object(gather, "region_around", lambda *a, **k: mock.Mock()), \
+                mock.patch.object(gather.nav, "reach", mock_reach):
+            picked = gather._cheapest_seed(ctx, hits, start, open_set)
+
+        self.assertEqual(picked, shallow_buried_cell)
+        self.assertEqual(calls, [shallow_buried_cell])
+
+
 if __name__ == "__main__":
     unittest.main()
