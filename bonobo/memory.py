@@ -462,10 +462,16 @@ class Memory:
     def pending_outputs(self, dimension):
         """Items on their way: machine outputs and furnace jobs left running while the agent works elsewhere."""
         out = {}
+        now = time.time()
+        tick = self.tick()
         for m in self.machines(dimension):
             for p in m.get("pending", []):
                 out[p["item"]] = out.get(p["item"], 0) + p["count"]
         for j in self.jobs(dimension):
+            if j.get("ready_tick") is not None and tick is not None and tick > j["ready_tick"] + 12000:
+                continue
+            if j.get("ready_at") is not None and now > j["ready_at"] + 600:
+                continue
             out[j["item"]] = out.get(j["item"], 0) + j["count"]
         return out
 
@@ -608,8 +614,29 @@ class Memory:
         return list(dict.fromkeys(cells))
 
     def remove_station(self, pos):
-        self.data["stations"] = [s for s in self.data["stations"] if s["pos"] != list(pos)]
-        self.save()
+        pos_list = [int(c) for c in pos]
+        before_len = len(self.data["stations"])
+        self.data["stations"] = [s for s in self.data["stations"] if s["pos"] != pos_list]
+        if len(self.data["stations"]) != before_len:
+            self.save()
+        homes = self.home_sites()
+        homes_changed = False
+        for h in homes:
+            parts = h.get("parts")
+            if not parts:
+                continue
+            stations = parts.get("stations", [])
+            kept_stations = [s for s in stations if s[1] != pos_list]
+            if len(kept_stations) != len(stations):
+                parts["stations"] = kept_stations
+                homes_changed = True
+            beds = parts.get("beds", [])
+            kept_beds = [b for b in beds if b != pos_list]
+            if len(kept_beds) != len(beds):
+                parts["beds"] = kept_beds
+                homes_changed = True
+        if homes_changed:
+            self._write_homes(homes)
 
     # -- sections looked over and what they held: explore's frontier
     def see_sections(self, dimension, pos, radius, found, looked=()):
@@ -618,10 +645,12 @@ class Memory:
         smap = self.data.setdefault("sections", {}).setdefault(dimension, {})
         now = self.tick()
         asked = {bare(k) for k in looked} | {bare(k) for k in found}
+        py = section_of(pos)[1]
         for c in sections_within(pos, radius):
             row = smap.setdefault(",".join(map(str, c)), {"t": now, "kinds": {}, "looked": {}})
             row["t"] = now
-            row.setdefault("looked", {}).update({k: now for k in asked})
+            if c[1] == py:
+                row.setdefault("looked", {}).update({k: now for k in asked})
         for kind, spots in found.items():
             for p in spots:
                 key = ",".join(map(str, section_of(p)))
@@ -814,6 +843,7 @@ class Memory:
         """Record a death and what was carried."""
 
         self.data["deaths"].append({"pos": list(pos), "dimension": dimension, "at": _tick_now(), "t": time.time(),
+                                    "tick": self.tick(),
                                     "carried": [[str(i), int(n)] for i, n in carried]})
         self.save()
 
@@ -829,14 +859,22 @@ class Memory:
                 return d
         return None
 
-    def recent_death(self, dimension, within_s=None, now=None):  # noqa: D401
+    def recent_death(self, dimension, within_s=None, now=None, tick=None):  # noqa: D401
         """The last death if its dropped items are still there (they despawn after 5 minutes), else None."""
         now = now or time.time()
         within_s = ITEM_DESPAWN_S if within_s is None else within_s
-        d = next((d for d in reversed(self.data["deaths"]) if d.get("t") and not d.get("recovered")), None)
-        if d and d["dimension"] == dimension and now - d["t"] < within_s:
-            d.setdefault("carried", [])      # deaths recorded before the bag was kept
-            return d
+        within_ticks = int(within_s * 20)
+        tick = tick if tick is not None else self.tick()
+        d = next((d for d in reversed(self.data["deaths"]) if (d.get("tick") is not None or d.get("t")) and not d.get("recovered")), None)
+        if d and d["dimension"] == dimension:
+            if tick is not None and d.get("tick") is not None:
+                if tick - d["tick"] < within_ticks:
+                    d.setdefault("carried", [])
+                    return d
+                return None
+            if d.get("t") and now - d["t"] < within_s:
+                d.setdefault("carried", [])
+                return d
         return None
 
     # -- nights: counted once, on the night→day transition

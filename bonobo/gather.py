@@ -272,16 +272,28 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     sent = set()         # cells sent to the jar: their notes are retired once the count is met
     shaftless = set()    # cells no shaft from here reaches: their vein is walked or tunnelled to instead (never banned)
     dug_out = False      # a batch that broke its cells but brought nothing in gets one dig-out and sweep
+    def _retire_spent():
+        if ctx.mem is None or not sent:
+            return
+        to_check = sorted(sent)
+        seen_now = region_around(to_check, pad=0)
+        if seen_now is not None:
+            to_forget = spent_cells(to_check, seen_now.name, blocks)
+        else:
+            to_forget = []
+            for c in to_check:
+                r = region_around([c], pad=0)
+                if r is not None and bare(r.name(c) or "air") not in {bare(b) for b in blocks}:
+                    to_forget.append(c)
+        for p in to_forget:
+            for b in blocks:
+                ctx.mem.forget_seen(b, p, ctx.dimension, radius=0.5)
+        sent.difference_update(to_forget)
+
     for _ in range(nav.MINE_PASSES):
         have = Inventory().count(drop)
         if have >= target:
-            # the count met: the notes of what was mined are spent (only a whole pass's end retires them — a count
-            # met at the top of the next pass would otherwise keep a mined vein's note as if still there)
-            if ctx.mem is not None and sent:
-                seen_now = region_around(sorted(sent), pad=0)
-                for p in spent_cells(sent, (lambda c: seen_now.name(c)) if seen_now is not None else None, blocks):
-                    for b in blocks:
-                        ctx.mem.forget_seen(b, p, ctx.dimension, radius=0.5)
+            _retire_spent()
             return
         yield None
         require_pickaxe(tier)
@@ -419,9 +431,12 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         before = Inventory().count(drop)
         sent |= set(vein)
         try:
-            batch = mine_segment_commands({"inv": Inventory(), "feet": here_now, "region": region.now()},
-                                          (vein, drop, tier))
-            r = nav.run_cells("mine_many", batch[:-1], then=batch[-1], wait=TASK_WAIT_S)
+            try:
+                batch = mine_segment_commands({"inv": Inventory(), "feet": here_now, "region": region.now()},
+                                              (vein, drop, tier))
+                r = nav.run_cells("mine_many", batch[:-1], then=batch[-1], wait=TASK_WAIT_S)
+            finally:
+                _retire_spent()
         except api.Unreachable as out:
             region = region.now()         # the batch broke what it could
             around = {c: region.name(c) for c in out.cells or ()}
@@ -503,6 +518,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         elif ctx.mem is not None:
             for b in blocks:                  # this vein is mined: its notes are spent
                 ctx.mem.forget_seen(b, seed, ctx.dimension, radius=4)
+    _retire_spent()
     raise McError(f"could not mine enough {bare(drop)}")
 
 STRIP_ORES = [("minecraft:diamond", ["diamond_ore", "deepslate_diamond_ore"], 2),

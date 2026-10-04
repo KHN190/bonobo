@@ -526,8 +526,16 @@ class Cost:
         key = ("site", k == "hunt", sources, tuple(kinds), self.not_there(sources), self.not_there(True))
         if key not in self.cache:
             hit = self._nearest(kinds, sources=sources)
-            seen = self.seen(kinds, self.not_there(True), fixable=sources) if hit is None and k != "hunt" else None
-            self.cache[key] = hit[0] if hit is not None else (seen[1] if seen is not None else None)
+            seen = self.seen(kinds, self.not_there(True), fixable=sources) if k != "hunt" else None
+            if hit is not None and seen is not None:
+                first = seen[1] if seen[0] < hit[1] else hit[0]
+            elif hit is not None:
+                first = hit[0]
+            elif seen is not None:
+                first = seen[1]
+            else:
+                first = None
+            self.cache[key] = first
         first = self.cache[key]
         refuted = self.refuted_ticks(step, first) if sources and first is not None else None
         return first if refuted is None else self._cheaper_source(step, kinds, first, refuted)

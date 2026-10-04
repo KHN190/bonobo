@@ -10,13 +10,17 @@ COLLECT = {}
 
 def start(mem, kind, pos, dimension, item=None, count=0, seconds=None, **extra):
     """Record a job; `seconds` defaults to the kind's typical duration."""
-    ready = time.time() + (seconds if seconds is not None else DURATION.get(kind, 600))
+    dur_s = seconds if seconds is not None else DURATION.get(kind, 600)
+    ready = time.time() + dur_s
     job = mem.add_job(kind, pos, dimension, item, count, ready, extra.pop("carried", False))
+    tick = mem.tick()
+    if tick is not None:
+        job["ready_tick"] = tick + int(dur_s * 20)
     if extra:
         for j in mem.data["jobs"]:
             if j["id"] == job["id"]:
                 j.update(extra)
-        mem.save()
+    mem.save()
     return job
 
 def collect(ctx, job):

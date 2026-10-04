@@ -690,12 +690,15 @@ def after_take(job, got, still_cooking, now, tick=None):
 def collect_job(ctx, job):
     """Go back to a background furnace job, take the output (and leftovers), pick the furnace up if it was ours."""
     pos = tuple(job["pos"])
-    if Region(pos, pos).name(pos) not in ("furnace", "blast_furnace", "smoker"):
+    if math.dist(feet(), pos) <= 4 and Region(pos, pos).name(pos) not in ("furnace", "blast_furnace", "smoker"):
         # Picked back up, broken or never placed there: the job is stale, not a navigation problem.
         ctx.mem.finish_job(job["id"])
         raise NotAvailable(f"no furnace at {pos} any more; job dropped", pos=pos)
     if not nav.arrived_near(pos, ctx.policy, range_=3, attempts=2):
         raise api.NavFailed(f"furnace job at {pos} not reachable", pos=pos)
+    if Region(pos, pos).name(pos) not in ("furnace", "blast_furnace", "smoker"):
+        ctx.mem.finish_job(job["id"])
+        raise NotAvailable(f"no furnace at {pos} any more; job dropped", pos=pos)
     before = Inventory().count(job["item"])
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=40, awaits="the furnace's slots read on its screen")
     if not opened(r):
