@@ -51,6 +51,32 @@ class GoFindOverrunTest(unittest.TestCase):
             self.assertIsNotNone(refuted_s)
             self.assertGreaterEqual(refuted_s, 73.0)
 
+    def test_overrun_with_target_pos_also_refutes_target_none(self):
+        mem = memory()
+        bag = world.Inventory(inventory(("stone_pickaxe", 1)))
+        ctx = skillcore.Context(mem, nav.Policy(), DIM)
+        step = Step("mine", "minecraft:raw_iron", 2, {"blocks": ["iron_ore"], "tier": 1}, 31 * TICKS_PER_S)
+        target_pos = (12995, 60, 12951)
+
+        def fake_run_step(ctx, step, night, seek=True):
+            raise api.Overrun(f"way to {target_pos} ~99s > the step's 45s left",
+                              pos=target_pos, remaining_s=99.0, spent=1.0)
+
+        kinds = frozenset(s["id"] for s in bag.slots if s.get("count"))
+        with mock.patch.object(dispatch, "run_step", fake_run_step), \
+                mock.patch.object(dispatch, "trace", lambda *a, **k: None), \
+                mock.patch.object(api, "get", lambda *a, **k: state(x=FEET[0] + .5, y=FEET[1], z=FEET[2] + .5)), \
+                mock.patch.object(api.STATE, "feet_seen", FEET), \
+                mock.patch.object(api.STATE, "kinds_seen", kinds):
+            with self.assertRaises(api.Overrun):
+                dispatch.execute(ctx, step, False)
+
+            state_sig = skillcore.ban_state(FEET, kinds)
+            # Both the specific target pos and target=None must be refuted
+            self.assertGreaterEqual(mem.refuted_s(step, target_pos, state_sig), 99.0)
+            self.assertGreaterEqual(mem.refuted_s(step, None, state_sig), 99.0)
+
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -170,8 +170,10 @@ def execute(ctx, step, night):
         # state it was measured in holds (E5); no outcome counted — an interruption, re-planned, nothing failed.
         # floored by what the step already spent plus its own price — a re-estimate can't undercut sunk cost
         price_s = max(e.remaining_s or 0.0, (e.spent or 0.0) + (getattr(step, "est", 0) or 0) / TICKS_PER_S)
-        ctx.mem.refute(step, e.pos, price_s,
-                       skillcore.ban_state(api.STATE.feet_seen, api.STATE.kinds_seen))
+        state = skillcore.ban_state(api.STATE.feet_seen, api.STATE.kinds_seen)
+        ctx.mem.refute(step, e.pos, price_s, state)
+        if e.pos is not None:
+            ctx.mem.refute(step, None, price_s, state)
         raise
     except api.INTERRUPTIONS:
         raise      # no statistics
