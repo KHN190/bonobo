@@ -195,11 +195,12 @@ def _cheapest_seed(ctx, hits, start, open_set):
     at the nearest's cause (E5: the round looks further, not walks into a known failure)."""
     def seed_lb(c):
         walk = nav.least_way_s(c, start)
-        if c in open_set:
-            return walk
         dy = start[1] - c[1]
+        if c in open_set and abs(dy) <= 3:
+            return walk
         vertical = (dy * 1.2) if dy > 0 else (abs(dy) * 0.8)
-        return walk + 1.5 + vertical
+        overburden = 0.0 if c in open_set else 1.5
+        return walk + overburden + vertical
 
     cells = sorted(((h["x"], h["y"], h["z"]) for h in hits), key=seed_lb)
     inv, priced, refused = Inventory(), [], []
@@ -289,7 +290,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         noted = [h for h in noted_hits(notes, blocks, ctx.blocked, ctx.policy.protected)
                  if (h["x"], h["y"], h["z"]) not in no_cell]
         # every candidate, open or buried, remembered or seen: the way each takes is priced (_cheapest_seed)
-        exposed_hits = find(blocks, radius=max(radius, SEARCH_LOOK_R), limit=60, exposed=True)
+        exposed_hits = find(blocks, radius=radius, limit=60, exposed=True)
         raw = list({(h["x"], h["y"], h["z"]): h for h in noted + exposed_hits
                     + find(blocks, radius=radius, limit=60)}.values())
         open_set = {(h["x"], h["y"], h["z"]) for h in exposed_hits}
