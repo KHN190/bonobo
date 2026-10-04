@@ -262,19 +262,48 @@ class _BagAfter:
         return self.inv.count(item_or_group) + sum(self.delta.get(i, 0)
                                                    for i in GROUPS.get(item_or_group, [mid(item_or_group)]))
 
+def max_craftable(pattern, rem, bag):
+    counts = {}
+    for tok in pattern:
+        if tok:
+            counts[tok] = counts.get(tok, 0) + 1
+    if not counts:
+        return rem
+    return min(rem, min(max([bag.count(m) for m in members(tok)] or [0]) // c for tok, c in counts.items()))
+
 def craft_plan(recipes, inv):
     """Pure: one sitting's crafts from the bag `inv` — ([(concrete pattern, item, count)], needs a table, net bag delta)."""
 
     delta, steps = {}, []
     for token, times in recipes:
         pattern, out = recipe_of(token)
-        concrete = resolve_pattern(pattern, times, _BagAfter(inv, delta))
-        item = output_of(token, concrete)
-        for c in concrete:
-            if c:
-                delta[c] = delta.get(c, 0) - times
-        delta[item] = delta.get(item, 0) + out * times
-        steps.append((concrete, item, out * times))
+        rem = times
+        while rem > 0:
+            bag = _BagAfter(inv, delta)
+            try:
+                concrete = resolve_pattern(pattern, rem, bag)
+                k = rem
+            except McError:
+                if rem <= 1:
+                    raise
+                limit = max_craftable(pattern, rem - 1, bag)
+                k = 0
+                for probe in range(limit, 0, -1):
+                    try:
+                        concrete = resolve_pattern(pattern, probe, bag)
+                        k = probe
+                        break
+                    except McError:
+                        continue
+                if k == 0:
+                    raise
+            item = output_of(token, concrete)
+            for c in concrete:
+                if c:
+                    delta[c] = delta.get(c, 0) - k
+            delta[item] = delta.get(item, 0) + out * k
+            steps.append((concrete, item, out * k))
+            rem -= k
     return steps, any(needs_table(c) for c, _, _ in steps), {i: n for i, n in delta.items() if n}
 
 def needs_table(concrete):

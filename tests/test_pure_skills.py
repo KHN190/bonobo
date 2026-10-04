@@ -444,6 +444,17 @@ class CraftPlan(unittest.TestCase):
                 else:
                     self.assertEqual(craft.craft_plan(recipes, inv), want)
 
+    def test_mixed_wood_craft_plan(self):
+        """Mixed log types (e.g. 3 oak + 1 birch) must successfully craft planks across batches."""
+        inv = bag(inventory(oak_log=3, birch_log=1))
+        steps, table, delta = craft.craft_plan([("planks", 4)], inv)
+        self.assertFalse(table)
+        self.assertEqual(len(steps), 2)
+        self.assertEqual(steps[0], (["minecraft:oak_log", None, None, None], "minecraft:oak_planks", 12))
+        self.assertEqual(steps[1], (["minecraft:birch_log", None, None, None], "minecraft:birch_planks", 4))
+        self.assertEqual(delta, {"minecraft:oak_log": -3, "minecraft:oak_planks": 12,
+                                 "minecraft:birch_log": -1, "minecraft:birch_planks": 4})
+
 
 class CraftCommands(unittest.TestCase):
     """craft.craft_commands: a crafting session as one chain — 2×2 in the bag, the table opened once, a placed
