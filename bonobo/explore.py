@@ -107,10 +107,14 @@ def _search(ctx, kinds, look, radius, legs):
                 continue
             tried += 1
             log(f"   looking for {bare(kinds[0])}: heading to section {section} ({tx}, {ty}, {tz})")
-            if nav.moved(nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1,
-                                   purpose="explore_deep" if deep else "explore")):
-                target = (tx, ty, tz)          # a surface search walks; only an underground one digs
-                break
+            try:
+                if nav.moved(nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1,
+                                       purpose="explore_deep" if deep else "explore")):
+                    target = (tx, ty, tz)          # a surface search walks; only an underground one digs
+                    break
+            except api.Overrun as e:
+                raise api.Overrun(f"search for {bare(kinds[0])} overran: {e}", pos=None,
+                                  remaining_s=e.remaining_s, spent=e.spent)
             # out of reach from here (walled in: the frontier lies past the walls) — the next candidate, never the
             # same one again next leg (a sealed bench arena walked into its walls six times, 20 s)
         if target is None:

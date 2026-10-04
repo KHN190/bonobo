@@ -21,7 +21,7 @@ class GoFindOverrunTest(unittest.TestCase):
     """When a local step cannot reach its target and fallback search exceeds the step's budget,
     dispatch.execute must raise NotAvailable so the task fails and cools down."""
 
-    def test_overrun_in_go_find_raises_not_available(self):
+    def test_overrun_in_go_find_refutes_step_price_globally(self):
         mem = memory()
         bag = world.Inventory(inventory(("stone_axe", 1)))
         ctx = skillcore.Context(mem, nav.Policy(), DIM)
@@ -41,10 +41,15 @@ class GoFindOverrunTest(unittest.TestCase):
                 mock.patch.object(api, "get", lambda *a, **k: state(x=FEET[0] + .5, y=FEET[1], z=FEET[2] + .5)), \
                 mock.patch.object(api.STATE, "feet_seen", FEET), \
                 mock.patch.object(api.STATE, "kinds_seen", kinds):
-            # Without the fix, this raises api.Overrun (interruption loop).
-            # With the fix, it must raise api.NotAvailable (clean failure + cooldown).
-            with self.assertRaises(api.NotAvailable):
+            # Overrun is raised to pause and replan with the refuted price
+            with self.assertRaises(api.Overrun):
                 dispatch.execute(ctx, step, False)
+
+            # Refutation must be recorded under target=None so Cost finds it
+            state_sig = skillcore.ban_state(FEET, kinds)
+            refuted_s = mem.refuted_s(step, None, state_sig)
+            self.assertIsNotNone(refuted_s)
+            self.assertGreaterEqual(refuted_s, 73.0)
 
 
 if __name__ == "__main__":

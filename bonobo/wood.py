@@ -74,10 +74,10 @@ def chop(ctx, n):
         logs = [t for t in find(GROUPS["log"], radius=SEARCH_LOOK_R, limit=80) if not ctx.blocked((t["x"], t["y"], t["z"]))
                 and (t["x"], t["y"], t["z"]) not in ctx.policy.protected]
         if not logs:
+            ctx.mem.forget_seen("tree", feet(), ctx.dimension, radius=SEARCH_LOOK_R)
             try:
                 seek_blocks(ctx, GROUPS["log"])
             except NotAvailable as e:
-                ctx.mem.forget_seen("tree", feet(), ctx.dimension, radius=SEARCH_LOOK_R)
                 raise NotAvailable(f"no trees found nearby, even after exploring ({e})")
             continue
         # by walk price, not the nearest seen
@@ -93,6 +93,7 @@ def chop(ctx, n):
             for t in seed:
                 ctx.ban((t["x"], t["y"], t["z"]))
         if trunk is None:
+            ctx.mem.forget_seen("tree", here, ctx.dimension, radius=SEARCH_LOOK_R)
             raise api.NavFailed("no tree in sight can be walked to on this ground")
         base = min(trunk, key=lambda t: t["y"])
         if math.dist(feet(), (base["x"], base["y"], base["z"])) > 2.5:   # stand beside the trunk (3.5 m was too far)
@@ -104,6 +105,7 @@ def chop(ctx, n):
                 elif not nav.reachable((base["x"], base["y"], base["z"]), ctx.policy, 2.0)[0]:
                     for t in trunk:   # genuinely no way in: never mine_many a trunk we cannot get to
                         ctx.ban((t["x"], t["y"], t["z"]))
+                    ctx.mem.forget_seen("tree", (base["x"], base["y"], base["z"]), ctx.dimension)
                     # One failure ends the skill; the brain's retry policy decides (the ban changes its state).
                     raise api.NavFailed(f"no way to the tree at {(base['x'], base['y'], base['z'])}",
                                         pos=(base["x"], base["y"], base["z"]))
@@ -136,8 +138,8 @@ def chop(ctx, n):
                 ctx.ban((t["x"], t["y"], t["z"]))
             log(f"   trunk at {(base['x'], base['y'], base['z'])} yielded no logs ({r['message']}); next tree")
             continue
-        # renewable wood: note the grove and replant once the trunk is all down (a sapling under standing logs blocked the way up)
-        ctx.mem.note_seen("tree", base_pos, ctx.dimension)
+        # felled tree: remove it from memory so planning knows the logs are gone
+        ctx.mem.forget_seen("tree", base_pos, ctx.dimension)
         if not felled(trunk, still):
             continue
         try:

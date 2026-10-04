@@ -151,8 +151,9 @@ def execute(ctx, step, night):
             s0, w0 = time.time(), nav.WALKED["s"]
             try:
                 found = go_find(ctx, step)
-            except api.Overrun:
-                found = False
+            except api.Overrun as e:
+                raise api.Overrun(f"go_find for {step} overran: {e}", pos=None,
+                                  remaining_s=e.remaining_s, spent=e.spent)
             finally:
                 PHASES["seek"] = PHASES.get("seek", 0.0) + time.time() - s0
                 PHASES["seek_walk"] = PHASES.get("seek_walk", 0.0) + nav.WALKED["s"] - w0
