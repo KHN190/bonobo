@@ -323,7 +323,7 @@ class Cost:
                 "lava": bool(lava_bucket) or bool(mem.seen("lava", dim))}
 
     def fight_line(self, step, held=None):
-        """(ok, why): an optional fight a step makes is planned only above the fight line (S5) — the brain's one judge
+        """(ok, why): an optional fight a step makes is planned only above the fight line (fight line) — the brain's one judge
         (knowledge.FIGHT_LINE ← brain.fight_line_holds) over this snapshot; (True, None) with no judge or body."""
         from . import knowledge, skill
         if knowledge.FIGHT_LINE is None or not getattr(skill.provider_of(step), "fights", None):
