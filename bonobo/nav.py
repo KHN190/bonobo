@@ -1611,7 +1611,7 @@ def sprint_jump_transit_tasks(start, target, min_dist=6.0, food=20):
     ]
 
 
-def parkour_way(region, feet, target, protected=(), max_steps=32, done=None, food=20, has_water=False):
+def parkour_way(region, feet, target, protected=(), max_steps=64, done=None, food=20, has_water=False):
     """Pure: (tasks, why) of a parkour path from `feet` to `target` using sprint-jumps,
     1-block ledge jumps, 1~2 block gap leaps, and safe vertical drops (<=3 blocks, or with water bucket)
     with 0 blocks mined and 0 blocks placed."""
