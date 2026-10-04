@@ -1018,7 +1018,9 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_gue
         if not locked and (how == "dig" or (plan_rep and plan_rep.get("found") and float(plan_rep.get("seconds", 0.0)) > (math.dist(was, pos) / PLAYER_SPEED) * 1.5 + 1.0)):
             region = _read_box([was, pos])
             if region is not None:
-                p_steps, p_why = parkour_way(region, was, pos, getattr(policy, "protected", ()), has_water=has_water)
+                b_item = building_item() if getattr(policy, "allow_build", True) else None
+                places = [b_item] * 8 if b_item else None
+                p_steps, p_why = parkour_way(region, was, pos, getattr(policy, "protected", ()), has_water=has_water, places=places)
                 if p_why is None and p_steps:
                     p_s = way_s(region, was, p_steps, Inventory())
                     if how == "dig" or p_s < float(plan_rep.get("seconds", 0.0)):
@@ -1611,24 +1613,228 @@ def sprint_jump_transit_tasks(start, target, min_dist=6.0, food=20):
     ]
 
 
-def parkour_way(region, feet, target, protected=(), max_steps=64, done=None, food=20, has_water=False):
+def can_corner_cut(region, here, d):
+    """Pure: True if diagonal 1-step move `d` ((dx, dz), both non-zero) can safely cut the corner without collision.
+    Requires target stand and head clear, target floor solid, and both orthogonal corner cells clear at feet and head."""
+    dx, dz = d
+    if dx == 0 or dz == 0:
+        return False
+    x, y, z = here
+    target_stand = (x + dx, y, z + dz)
+    target_head = (x + dx, y + 1, z + dz)
+    target_floor = (x + dx, y - 1, z + dz)
+    if not (region.inside(target_stand) and region.inside(target_head) and region.inside(target_floor)):
+        return False
+    floor_name = region.name(target_floor)
+    is_floor = region.solid(target_floor) or floor_name in ("water", "flowing_water", "minecraft:water", "minecraft:flowing_water")
+    if not is_floor or region.solid(target_stand) or region.solid(target_head):
+        return False
+    if region.hazard(target_stand) or region.hazard(target_floor):
+        return False
+    # Check both orthogonal corner pillars (feet and head)
+    for cx, cz in ((x + dx, z), (x, z + dz)):
+        for cy in (y, y + 1):
+            cell = (cx, cy, cz)
+            if region.inside(cell) and region.solid(cell):
+                return False
+    return True
+
+
+def corner_cut_tasks(here, d):
+    """Pure: tasks to execute a diagonal corner cut."""
+    dx, dz = d
+    tx, ty, tz = here[0] + dx, here[1], here[2] + dz
+    return [{"type": "goto", "x": tx, "y": ty, "z": tz, "range": 0.5, "sprint": True}]
+
+
+def can_dynamic_bridge(region, here, d, gap_len, places):
+    """Pure: True if a gap of length 3 or 4 can be bridged dynamically by placing minimal
+    (gap_len - 2) stepping blocks at the launching edge to turn the remainder into a 2-block sprint leap."""
+    if not places or gap_len not in (3, 4):
+        return False
+    needed = gap_len - 2
+    if len(places) < needed:
+        return False
+    x, y, z = here
+    dx, dz = d
+    landing_floor = (x + dx * (gap_len + 1), y - 1, z + dz * (gap_len + 1))
+    landing_stand = (x + dx * (gap_len + 1), y, z + dz * (gap_len + 1))
+    landing_head = (x + dx * (gap_len + 1), y + 1, z + dz * (gap_len + 1))
+    if not (region.inside(landing_floor) and region.inside(landing_stand) and region.inside(landing_head)):
+        return False
+    floor_name = region.name(landing_floor)
+    is_floor = region.solid(landing_floor) or floor_name in ("water", "flowing_water", "minecraft:water", "minecraft:flowing_water")
+    if not is_floor or region.solid(landing_stand) or region.solid(landing_head):
+        return False
+    if region.hazard(landing_stand) or region.hazard(landing_floor):
+        return False
+    for k in range(1, gap_len + 1):
+        for dy in (0, 1):
+            cell = (x + dx * k, y + dy, z + dz * k)
+            if region.inside(cell) and region.solid(cell):
+                return False
+            if region.hazard(cell):
+                return False
+    return True
+
+
+def dynamic_bridge_tasks(here, d, gap_len, places):
+    """Pure: minimal placement tasks to bridge gap_len (3 or 4) dynamically with a final 2-block sprint leap."""
+    dx, dz = d
+    x, y, z = here
+    needed = gap_len - 2
+    tasks = []
+    curr = (x, y, z)
+    for k in range(1, needed + 1):
+        place_cell = (x + dx * k, y - 1, z + dz * k)
+        stand_cell = (x + dx * k, y, z + dz * k)
+        item = places.pop(0) if (places and isinstance(places, list)) else "cobblestone"
+        tasks.append({"type": "place", "item": item, "x": place_cell[0], "y": place_cell[1], "z": place_cell[2]})
+        tasks.append({"type": "goto", "x": stand_cell[0], "y": stand_cell[1], "z": stand_cell[2], "range": 0.5, "sprint": True})
+        curr = stand_cell
+    tasks.extend(gap_jump_tasks(curr, d, gap_len=2))
+    return tasks
+
+
+def is_straight_walkable(region, p1, p2, width=0.6, step=0.3):
+    """Pure: True if a player with bounding box (width x 1.8 x width) can walk in a straight line from p1 to p2
+    without colliding with solid blocks and with solid (or water) ground underfoot throughout."""
+    c1 = (p1[0] + 0.5 if float(p1[0]).is_integer() else float(p1[0]),
+          float(p1[1]),
+          p1[2] + 0.5 if float(p1[2]).is_integer() else float(p1[2]))
+    c2 = (p2[0] + 0.5 if float(p2[0]).is_integer() else float(p2[0]),
+          float(p2[1]),
+          p2[2] + 0.5 if float(p2[2]).is_integer() else float(p2[2]))
+    dx = c2[0] - c1[0]
+    dy = c2[1] - c1[1]
+    dz = c2[2] - c1[2]
+    dist = math.hypot(dx, dz)
+    if dist < 1e-4:
+        return True
+    if abs(dy) > 1.0:
+        return False
+    steps = max(1, int(math.ceil(dist / step)))
+    half_w = width / 2.0 - 0.02
+    nx = -dz / dist * half_w
+    nz = dx / dist * half_w
+
+    for i in range(steps + 1):
+        t = i / steps
+        cx = c1[0] + dx * t
+        cy = c1[1] + dy * t
+        cz = c1[2] + dz * t
+
+        center_floor = (int(math.floor(cx)), int(math.floor(cy)) - 1, int(math.floor(cz)))
+        if not region.inside(center_floor):
+            return False
+        floor_name = region.name(center_floor)
+        is_floor = region.solid(center_floor) or floor_name in ("water", "flowing_water", "minecraft:water", "minecraft:flowing_water")
+        if not is_floor or region.hazard(center_floor):
+            return False
+
+        for side in (-1.0, 0.0, 1.0):
+            sx = cx + nx * side
+            sz = cz + nz * side
+            bx = int(math.floor(sx))
+            by = int(math.floor(cy))
+            bz = int(math.floor(sz))
+
+            feet_cell = (bx, by, bz)
+            head_cell = (bx, by + 1, bz)
+
+            if not (region.inside(feet_cell) and region.inside(head_cell)):
+                return False
+            if region.solid(feet_cell) or region.solid(head_cell):
+                return False
+            if region.hazard(feet_cell):
+                return False
+    return True
+
+
+def smooth_way(region, tasks, start=None):
+    """Pure: smooths a chain of tasks using straight-line collision checking (string pulling).
+    Reduces redundant zigzag or step-by-step waypoints into direct sprint segments."""
+    if not tasks:
+        return tasks
+
+    out = []
+    current_pos = start
+    i = 0
+    n = len(tasks)
+    while i < n:
+        t = tasks[i]
+        if t.get("type") != "goto":
+            out.append(t)
+            i += 1
+            continue
+
+        gotos = []
+        while i < n and tasks[i].get("type") == "goto":
+            gotos.append(tasks[i])
+            i += 1
+
+        if len(gotos) <= 1:
+            out.extend(gotos)
+            current_pos = (gotos[0]["x"], gotos[0]["y"], gotos[0]["z"])
+            continue
+
+        origin = current_pos if current_pos is not None else (gotos[0]["x"], gotos[0]["y"], gotos[0]["z"])
+        pts = [origin] if current_pos is not None else []
+        pts.extend([(g["x"], g["y"], g["z"]) for g in gotos])
+
+        idx = 0
+        while idx < len(pts) - 1:
+            farthest = idx + 1
+            for k in range(len(pts) - 1, idx + 1, -1):
+                if is_straight_walkable(region, pts[idx], pts[k]):
+                    farthest = k
+                    break
+            target_pt = pts[farthest]
+            dist = math.hypot(target_pt[0] - pts[idx][0], target_pt[2] - pts[idx][2])
+            if dist >= 6.0 and target_pt[1] == pts[idx][1]:
+                out.extend(sprint_jump_transit_tasks(pts[idx], target_pt))
+            else:
+                out.append({"type": "goto", "x": target_pt[0], "y": target_pt[1], "z": target_pt[2], "range": 0.5, "sprint": True})
+            idx = farthest
+            current_pos = target_pt
+
+    return out
+
+
+def parkour_way(region, feet, target, protected=(), max_steps=64, done=None, food=20, has_water=False, places=None):
     """Pure: (tasks, why) of a parkour path from `feet` to `target` using sprint-jumps,
-    1-block ledge jumps, 1~2 block gap leaps, and safe vertical drops (<=3 blocks, or with water bucket)
-    with 0 blocks mined and 0 blocks placed."""
+    1-block ledge jumps, 1~2 block gap leaps, safe vertical drops (<=3 blocks, or with water bucket),
+    diagonal corner cuts, and dynamic parkour bridging."""
     done = done or (lambda here: stands_for("stand", region, here, target))
     if done(tuple(feet)):
         return [], None
     here = tuple(feet)
     tasks = []
     been = {here}
+    places_list = list(places) if places else []
     for _ in range(max_steps):
         if done(here):
+            tasks = smooth_way(region, tasks, start=feet)
             return tasks, None
+
+        # 1. Try diagonal corner cutting if target has diagonal offset
+        dx_t = target[0] - here[0]
+        dz_t = target[2] - here[2]
+        if dx_t != 0 and dz_t != 0:
+            diag_d = (1 if dx_t > 0 else -1, 1 if dz_t > 0 else -1)
+            if can_corner_cut(region, here, diag_d):
+                diag_target = (here[0] + diag_d[0], here[1], here[2] + diag_d[1])
+                if diag_target not in protected and diag_target not in been:
+                    been.add(diag_target)
+                    tasks.extend(corner_cut_tasks(here, diag_d))
+                    here = diag_target
+                    continue
+
         d = stair_dir(here, target)
         if d == (0, 0):
             break
         x, y, z = here
-        # 1. Try flat walk
+        # 2. Try flat walk
         forward_stand = (x + d[0], y, z + d[1])
         forward_floor = (x + d[0], y - 1, z + d[1])
         floor_name = region.name(forward_floor)
@@ -1639,15 +1845,11 @@ def parkour_way(region, feet, target, protected=(), max_steps=64, done=None, foo
                 and not region.hazard(forward_stand)
                 and forward_stand not in protected and forward_stand not in been):
             been.add(forward_stand)
-            if tasks and tasks[-1]["type"] == "goto" and tasks[-1]["y"] == y:
-                tasks[-1]["x"] = forward_stand[0]
-                tasks[-1]["z"] = forward_stand[2]
-            else:
-                tasks.append({"type": "goto", "x": forward_stand[0], "y": y, "z": forward_stand[2], "range": 0.5, "sprint": True})
+            tasks.append({"type": "goto", "x": forward_stand[0], "y": y, "z": forward_stand[2], "range": 0.5, "sprint": True})
             here = forward_stand
             continue
 
-        # 2. Try 1-block step up
+        # 3. Try 1-block step up
         if can_step_up(region, here, d):
             step_target = (x + d[0], y + 1, z + d[1])
             if step_target not in protected and step_target not in been:
@@ -1656,7 +1858,7 @@ def parkour_way(region, feet, target, protected=(), max_steps=64, done=None, foo
                 here = step_target
                 continue
 
-        # 3. Try 1-block or 2-block gap jump
+        # 4. Try 1-block or 2-block gap jump
         jumped = False
         for gap_len in (1, 2):
             if can_gap_jump(region, here, d, gap_len=gap_len, food=food):
@@ -1670,7 +1872,22 @@ def parkour_way(region, feet, target, protected=(), max_steps=64, done=None, foo
         if jumped:
             continue
 
-        # 4. Try vertical drop (1~3 blocks safe drop, or up to 20 with water bucket)
+        # 5. Try dynamic bridging (3 or 4 block gap)
+        if places_list:
+            bridged = False
+            for gap_len in (3, 4):
+                if can_dynamic_bridge(region, here, d, gap_len, places_list):
+                    landing = (x + d[0] * (gap_len + 1), y, z + d[1] * (gap_len + 1))
+                    if landing not in protected and landing not in been:
+                        been.add(landing)
+                        tasks.extend(dynamic_bridge_tasks(here, d, gap_len, places_list))
+                        here = landing
+                        bridged = True
+                        break
+            if bridged:
+                continue
+
+        # 6. Try vertical drop (1~3 blocks safe drop, or up to 20 with water bucket)
         if target[1] < y:
             drop = can_step_down(region, here, d, has_water=has_water)
             if drop > 0:

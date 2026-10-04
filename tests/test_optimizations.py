@@ -308,6 +308,64 @@ class ParkourNavigation(unittest.TestCase):
         self.assertEqual([t for t in tasks if t["type"] in ("mine", "place")], [])
         self.assertTrue(any(t.get("type") == "goto" and (t.get("x"), t.get("y")) == (12, -8) for t in tasks))
 
+    def test_can_corner_cut(self):
+        # Open corner from (0, 64, 0) to (1, 64, 1): corner cells (1, 0) and (0, 1) are air
+        blocks = {
+            (0, 63, 0): "stone", (0, 64, 0): "air", (0, 65, 0): "air",
+            (1, 63, 1): "stone", (1, 64, 1): "air", (1, 65, 1): "air",
+            (1, 63, 0): "stone", (1, 64, 0): "air", (1, 65, 0): "air",
+            (0, 63, 1): "stone", (0, 64, 1): "air", (0, 65, 1): "air",
+        }
+        reg = FakeRegion((-1, 60, -1), (3, 70, 3), blocks)
+        self.assertTrue(nav.can_corner_cut(reg, (0, 64, 0), (1, 1)))
+
+        # Blocked corner: cell (1, 64, 0) is a solid stone wall
+        blocked_blocks = dict(blocks)
+        blocked_blocks[(1, 64, 0)] = "stone"
+        reg_blocked = FakeRegion((-1, 60, -1), (3, 70, 3), blocked_blocks)
+        self.assertFalse(nav.can_corner_cut(reg_blocked, (0, 64, 0), (1, 1)))
+
+    def test_can_dynamic_bridge(self):
+        # 3-block gap at x=1..3 between x=0 and x=4
+        blocks = {
+            (0, 63, 0): "stone", (0, 64, 0): "air", (0, 65, 0): "air",
+            (1, 63, 0): "air", (1, 64, 0): "air", (1, 65, 0): "air",
+            (2, 63, 0): "air", (2, 64, 0): "air", (2, 65, 0): "air",
+            (3, 63, 0): "air", (3, 64, 0): "air", (3, 65, 0): "air",
+            (4, 63, 0): "stone", (4, 64, 0): "air", (4, 65, 0): "air",
+        }
+        reg = FakeRegion((-1, 60, -1), (6, 70, 2), blocks)
+        places = ["dirt"]
+        self.assertTrue(nav.can_dynamic_bridge(reg, (0, 64, 0), (1, 0), gap_len=3, places=places))
+
+        tasks = nav.dynamic_bridge_tasks((0, 64, 0), (1, 0), gap_len=3, places=list(places))
+        self.assertEqual(len([t for t in tasks if t["type"] == "place"]), 1)
+        self.assertEqual(tasks[0]["x"], 1)
+        self.assertEqual(tasks[0]["y"], 63)
+        self.assertEqual(tasks[-1]["x"], 4)
+
+    def test_is_straight_walkable_and_smooth_way(self):
+        # Straight stone path x=0..6
+        blocks = {
+            **{(x, 63, 0): "stone" for x in range(7)},
+            **{(x, y, 0): "air" for x in range(7) for y in (64, 65)},
+        }
+        reg = FakeRegion((-1, 60, -1), (8, 70, 2), blocks)
+        self.assertTrue(nav.is_straight_walkable(reg, (0, 64, 0), (6, 64, 0)))
+
+        # Pit at x=3 makes it not straight walkable
+        pit_blocks = dict(blocks)
+        pit_blocks[(3, 63, 0)] = "air"
+        reg_pit = FakeRegion((-1, 60, -1), (8, 70, 2), pit_blocks)
+        self.assertFalse(nav.is_straight_walkable(reg_pit, (0, 64, 0), (6, 64, 0)))
+
+        # Waypoint smoothing: 6-block run collapses into sprint jump
+        step_tasks = [{"type": "goto", "x": x, "y": 64, "z": 0, "range": 0.5, "sprint": True} for x in range(1, 7)]
+        smoothed = nav.smooth_way(reg, step_tasks, start=(0, 64, 0))
+        types = [t["type"] for t in smoothed]
+        self.assertIn("input", types)
+        self.assertEqual(smoothed[-1]["x"], 6)
+
 
 if __name__ == "__main__":
     unittest.main()
