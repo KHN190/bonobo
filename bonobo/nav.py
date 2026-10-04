@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
-from .data import DOOR_NEAR, ENTITY_REACH, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH, bare, OUTLINE_PASSABLE, OUTLINE_PASSABLE_SUFFIX  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .data import DOOR_NEAR, ENTITY_REACH, HAZARD, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH, bare, OUTLINE_PASSABLE, OUTLINE_PASSABLE_SUFFIX  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .game import EYE_HEIGHT, PLAYER_SPRINT, PLAYER_SPRINT_JUMP
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
 from .knowledge import WAY_BLOCKS, dig_ticks, find_class
@@ -795,6 +795,12 @@ def landing(region, here, spot, max_drop=None, least=2):
 
     def far_enough(cell):
         return cell if cell is not None and math.dist((cell[0], cell[2]), (x0, z0)) >= least else None
+
+    def is_hazard(c):
+        if hasattr(region, "hazard"):
+            return region.hazard(c) and not region.name(c).endswith("water")
+        return region.name(c) in HAZARD and not region.name(c).endswith("water")
+
     for k in range(1, steps + 1):
         cx, cz = int(math.floor(here[0] + dx * k / steps)), int(math.floor(here[2] + dz * k / steps))
         if (cx, cz) in seen:
@@ -807,6 +813,8 @@ def landing(region, here, spot, max_drop=None, least=2):
                 return far_enough(best)
             if region.solid(feet_c) or region.solid(head_c):
                 continue
+            if is_hazard(feet_c) or is_hazard(head_c) or is_hazard(below):
+                continue
             if region.solid(below) or region.name(below).endswith("water"):
                 floor = fy
                 break
@@ -814,7 +822,7 @@ def landing(region, here, spot, max_drop=None, least=2):
             # Nothing within a safe drop: only water further down makes the step survivable.
             for fy in range(y - max_drop - 1, region.lo[1], -1):
                 c = (cx, fy - 1, cz)
-                if not region.inside(c) or region.solid(c):
+                if not region.inside(c) or region.solid(c) or is_hazard(c):
                     break
                 if region.name(c).endswith("water"):
                     floor = fy

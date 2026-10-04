@@ -281,11 +281,14 @@ class Motion:
         """Is the calling thread allowed to drive the body right now?"""
 
         holder = self.holder()
-        if holder is not None and self.current() is not holder:
+        current = self.current()
+        if holder is not None and current is not holder:
+            if current is not None and current.scale < holder.scale:
+                return True
             self.violations.append((time.time(), what))
             self._log(f"?? {what} drove the body while '{holder.reason}' held it (refused)")
             return False
-        if not self.engaged or self.current() is not None:
+        if not self.engaged or current is not None:
             return True
         self.violations.append((time.time(), what))
         self._log(f"?? {what} drove the body outside the arbiter (refused)")
@@ -331,6 +334,8 @@ class Motion:
             if release is not None:
                 # take the body and record the lease in one step, or the woken planner posts into the gap
                 self.lease = (intent, release, now if seen_at is None else seen_at)
+            elif holder is not None and intent.scale < holder.scale:
+                self.lease = None
             if intent.scale <= SAFETY:
                 # the message channel has one writer, a preemption; the running slow action reads it and abandons itself
                 if WIRE["tell"] is not None:

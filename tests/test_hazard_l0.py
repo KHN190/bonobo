@@ -43,7 +43,8 @@ HAZARDS = [
      False, 0.0, "drowning", "drowning"),
     ("buried by sand", {}, True, 0.0, "suffocating", "suffocating"),
     ("buried and standing in water", {"inWater": True, "air": 300}, True, 0.0, "suffocating", "suffocating"),
-    ("falling off a cliff edge", {"onGround": False}, False, hazard.FALL_BLOCKS + 6, "falling", None),
+    ("falling off a cliff edge", {"onGround": False}, False, hazard.FALL_BLOCKS + 6, "falling", "falling"),
+    ("climbing down ladder is not falling", {"onGround": False, "climbing": True}, False, hazard.FALL_BLOCKS + 6, None, None),
     ("must fail: a hop is not a fall", {"onGround": False}, False, hazard.FALL_BLOCKS - 1, None, None),
     ("falling into water is a landing", {"onGround": False, "inWater": True}, False, 30.0, None, None),
     ("lava beats everything else on the body", {"inLava": True, "onFire": True, "health": 3.0}, True, 20.0,
@@ -79,7 +80,7 @@ class Hazards(unittest.TestCase):
             s = state(**changes)
             with self.subTest(name):
                 self.assertEqual(hazard.kind(s, buried=buried, fallen=fallen), kind)
-                self.assertEqual(hazard.rescue_due(s, buried=buried), due)
+                self.assertEqual(hazard.rescue_due(s, buried=buried, fallen=fallen), due)
                 if kind is not None:
                     self.assertIn(kind, hazard.KINDS)
                 # What perception interrupts for is the same judgment, environment first.

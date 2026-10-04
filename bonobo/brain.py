@@ -258,6 +258,7 @@ class Brain:
         self.wake = None              # fn() → True ends an idle wait at once (a bench row's `until`: its outcome)
         api.GUARD = self.home_guard   # every task posted passes the home's rules
         self.committed = None
+        self.watch = hazard.Watch()
         self.task_writes = None       # while task_act / after_step decide: the task's fields they change (writes)
         self.last_failure = None
         self.last_cause = None        # the cause of the last attempt's failure (an act's record)
@@ -450,6 +451,8 @@ class Brain:
         first = arbiter.resume_of(source)[1] if source is not None else None
         if outcome == "ok":
             self.retry.succeeded(name)
+            for key in also:
+                self.retry.succeeded(key)
             self.mem.record_outcome(name, True)
         elif first == "handback":
             api.wait_for_handback()
@@ -490,6 +493,7 @@ class Brain:
         plan layer takes the body only after the fight ends."""
         intent.clear()
         self.planning = plan
+        perception.ensure_watching()
         try:
             self._round()
         finally:
@@ -634,12 +638,13 @@ class Brain:
                 out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
             unanswered = fight_loop.unanswered_now(time.time())
             afloat = self.reflexes.afloat
+            fallen = self.watch.fallen(snap.state) if hasattr(self, "watch") else 0.0
             k = hazard.rescue_due(snap.state, buried=skillcore.head_buried_in(snap.region, snap.state),
-                                  unanswered=unanswered, afloat=afloat)
+                                  unanswered=unanswered, afloat=afloat, fallen=fallen)
             if k is not None and self.ready(f"rescue {k}"):
                 out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
                     ctx, snap.state, self.attempt, self.ready, threatened=bool(threat.threats_seen()[0]),
-                    unanswered=unanswered, afloat=afloat)),
+                    unanswered=unanswered, afloat=afloat, fallen=fallen)),
                     key=f"rescue {k}"))
             return out
 

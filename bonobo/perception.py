@@ -45,6 +45,7 @@ class PerceptionState(lifecycle.State):
     paused: bool = False              # the scenario bench sets this while it rebuilds the world
     failed: set = _dc_field(default_factory=set)       # what perceived() already logged once
     lock: Any = _dc_field(default_factory=threading.RLock, repr=False, compare=False)
+    watcher: Any = None
 
     LIFE = ("hurt_rate", "hp_seen", "seen", "last_here", "answered", "grid", "grid_at", "grid_at_pos", "ground",
             "reach", "region", "kit", "kit_sig", "damage_at")
@@ -618,4 +619,10 @@ def kit(signature) -> dict:
 def start_watching():
     w = Watcher()
     w.start()
+    STATE.watcher = w
     return w
+
+def ensure_watching():
+    if STATE.watcher is None or not STATE.watcher.is_alive():
+        return start_watching()
+    return STATE.watcher

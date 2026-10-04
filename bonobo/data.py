@@ -583,7 +583,7 @@ MINE_YIELD = {"minecraft:flint": 0.12, "minecraft:redstone": 4.5, "minecraft:lap
 
 def place_signature(feet, night, bin_size=16):
     """Where we are, coarsely, and whether it is dark. What a cause is cooled against."""
-    return tuple(int(c) // bin_size for c in feet), bool(night)
+    return tuple(math.floor(c) // bin_size for c in feet), bool(night)
 
 
 def state_signature(place, bag_kinds, target_present):

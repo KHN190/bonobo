@@ -540,7 +540,8 @@ class AHeldPlanIsReplayedHonestly(unittest.TestCase):
 
     def test_a_fact_asked_is_replayed_by_the_steps_that_make_it(self):
         search = planner.Search(NullCost())
-        root = planner.Node(planner.from_bag(bag(inventory()), facts=NullCost().facts()), [], [])
+        inv = inventory(("minecraft:obsidian", 10), ("minecraft:flint_and_steel", 1), ("minecraft:cobblestone", 4))
+        root = planner.Node(planner.from_bag(bag(inv), facts=NullCost().facts()), [], [])
         held = [planner.Step("build", "nether_portal", 1, {})]
         # must fail: a held plan for a fact never replayed (searched again from nothing each round)
         self.assertIsNotNone(search.replay(root, [("fact", "portal", True)], held))

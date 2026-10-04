@@ -873,10 +873,15 @@ class Search:
             station = self.station_of(st)
             if station and inv.available(station) <= 0 and not self.near(station):
                 return None             # its station neither carried, made before it, nor standing near
-            for dim in self.call(st):
-                if dim.startswith("tool:") and not inv.has_tool(dim.split(":")[1], int(dim.split(":")[2]), 0):
-                    return None
-            # the hard gates the search's own steps pass (prep's `when`, emit's S5 line): none skipped on a replay
+            for dim, n in self.call(st).items():
+                if dim.startswith("tool:"):
+                    if not inv.has_tool(dim.split(":")[1], int(dim.split(":")[2]), 0):
+                        return None
+                else:
+                    if inv.available(dim) < n:
+                        return None
+                    inv.consume(dim, n, awaits=False)
+            # the hard gates the search's own steps pass (prep's `when`, emit's fight line): none skipped on a replay
             when = self.when(st, facts)
             if isinstance(when, str) or any(facts.get(f) != v for f, v in when):
                 return None
@@ -1034,8 +1039,19 @@ class Search:
             return self.dead(f"{token} asked again while it is being made (a cycle)")
         opts = self.ways(node, token, missing + extra, depth)
         if extra:
-            opts = [(tie, [("use", token, missing) if t == ("use", token, missing + extra) else t for t in tasks])
-                    for tie, tasks in opts]
+            new_opts = []
+            for tie, tasks in opts:
+                if any(t[0] == "use" and t[1] == token for t in tasks):
+                    new_tasks = [("use", token, missing) if t == ("use", token, missing + extra) else t for t in tasks]
+                else:
+                    emit_task = next((t for t in tasks if t[0] == "emit"), None)
+                    if emit_task and emit_task[1].kind in ("mine", "smelt"):
+                        emit_idx = tasks.index(emit_task)
+                        new_tasks = tasks[:emit_idx + 1] + [("add", token, extra)] + tasks[emit_idx + 1:]
+                    else:
+                        new_tasks = tasks
+                new_opts.append((tie, new_tasks))
+            opts = new_opts
         if not opts:
             return self.dead(self.no_way(token))
         node.open = node.open + (token,)

@@ -36,7 +36,7 @@ def drowning(state):
 
 def falling(state, fallen):
     """Pure: in the air, not in water or lava, and already `fallen` blocks below where the fall began."""
-    if state.get("onGround") or state.get("inWater") or state.get("inLava"):
+    if state.get("onGround") or state.get("inWater") or state.get("inLava") or state.get("climbing"):
         return False
     return fallen >= FALL_BLOCKS
 
@@ -186,7 +186,7 @@ def recover(ctx, k, state, threatened=False):
 STOP_ONLY = ()
 assert set(RECOVERY) | set(STOP_ONLY) == set(KINDS), "every hazard kind is recovered or declared stop-only"
 
-def rescue_due(state, buried=None, unanswered=None, afloat=False):
+def rescue_due(state, buried=None, unanswered=None, afloat=False, fallen=0.0):
     """The hazard the brain must answer before anything else this round, or None (`unanswered`: kind's)."""
 
     if state.get("inWater") and drowning_in(state) <= REFLEX_SLACK_S:
@@ -196,13 +196,13 @@ def rescue_due(state, buried=None, unanswered=None, afloat=False):
             buried = head_buried(state)
         except api.McError:
             buried = False
-    k = kind(state, buried=buried, unanswered=unanswered, afloat=afloat)
-    return k if k in RECOVERY and k != "falling" else None
+    k = kind(state, buried=buried, fallen=fallen, unanswered=unanswered, afloat=afloat)
+    return k if k in RECOVERY else None
 
-def handle(ctx, state, attempt, ready, threatened=False, unanswered=None, afloat=False):
+def handle(ctx, state, attempt, ready, threatened=False, unanswered=None, afloat=False, fallen=0.0):
     """Run the rescue for the hazard on the body, if there is one."""
 
-    k = rescue_due(state, unanswered=unanswered, afloat=afloat)
+    k = rescue_due(state, unanswered=unanswered, afloat=afloat, fallen=fallen)
     if k is None or not ready(f"rescue {k}"):
         return False
     log(f"L0: {k} → rescue")
