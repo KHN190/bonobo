@@ -861,7 +861,7 @@ def _go_to(pos, policy, range_=ARRIVE_RANGE, attempts=3, min_hp: float | None = 
         return _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began, y_guess)
     for _ in range(attempts):
         # a jar without `travel`: one step at a time, the same rule
-        api.run({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_, "partial": True}, awaits="whether the step arrived (`there`) decides the next attempt")
+        api.run({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_, "partial": True, "sprint": True}, awaits="whether the step arrived (`there`) decides the next attempt")
         if there(api.get("/state"), pos, range_):
             return _arrived(_from, pos, _began, True)
     return _arrived(_from, pos, _began, False)
@@ -970,6 +970,8 @@ def way_kind(walk, boxes, here, pos):
 def _leg(task, awaits):
     """One travel leg: its answer, a refusal ("target unreachable") read as a leg that got no further — the walk
     judges it (no nearer → not there), never raised past the caller's own no-way handling."""
+    if task.get("type") in ("travel", "goto") and "sprint" not in task:
+        task["sprint"] = True
     try:
         return api.run(task, wait=TASK_WAIT_S, awaits=awaits)
     except api.Unreachable as e:

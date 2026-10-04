@@ -296,6 +296,11 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             _retire_spent()
             return
         yield None
+        inv = Inventory()
+        free = inv.free_slots()
+        if isinstance(free, (int, float)) and free < 2:
+            from . import craft as _craft
+            _craft.make_bag_room(ctx, int(2 - free))
         require_pickaxe(tier)
         # remembered and seen alike (one look a pass); a buried cell's way is planned (nav.plan_way)
         notes = [n for b in blocks for n in ctx.mem.seen(b, ctx.dimension)] if ctx.mem is not None else []

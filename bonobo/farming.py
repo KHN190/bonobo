@@ -384,6 +384,7 @@ def crop_ages(centre):
             for dx, dz in RING]
 
 AWAIT_MAX_S = 45        # longest an await step waits in place for a job; longer, it steps aside (NotAvailable)
+ASYNC_JOB_WAIT_S = 3    # furnace / async job: only wait in place if due within 3s; otherwise walk away and do other work
 
 def job_due(job, tick=None):
     """A job's output can be taken now: a crop when ripe wheat stands on its plot (the world, not the clock: crops
@@ -394,10 +395,16 @@ def job_due(job, tick=None):
     return job_ready(job, tick)
 
 def awaitable(mem, dimension, item, now=None):
-    """Pure over memory: a job making `item` is due by its own clock within AWAIT_MAX_S (world.job_ready on its
+    """Pure over memory: a job making `item` is due by its own clock within the wait threshold (world.job_ready on its
     ready_at) — waiting in place for it pays; later, the plan's other work goes first (no round spent standing)."""
-    at = (time.time() if now is None else now) + AWAIT_MAX_S
-    return any(world.job_ready(j, now=at) for j in mem.jobs(dimension) if j.get("item") == item)
+    cur = time.time() if now is None else now
+    for j in mem.jobs(dimension):
+        if j.get("item") != item:
+            continue
+        max_wait = ASYNC_JOB_WAIT_S if j.get("kind") == "furnace" else AWAIT_MAX_S
+        if world.job_ready(j, now=cur + max_wait):
+            return True
+    return False
 
 
 @skill(gives=["state:job_collected"], remaining=_k.more_than_at_start(lambda c: c.args[1], lambda c: c.args[2]),
@@ -417,7 +424,8 @@ def await_job(ctx, item, count):
         if due is not None:
             jobs.collect(ctx, due)
             return
-        if time.time() - began > AWAIT_MAX_S:
+        max_wait = ASYNC_JOB_WAIT_S if any(j.get("kind") == "furnace" for j in mine) else AWAIT_MAX_S
+        if time.time() - began > max_wait:
             raise NotAvailable(f"{bare(item)} not ready yet")
         for j in mine:                     # instrumented: each wait's crop ages, the tick speed once
             if j.get("kind") == "crop":

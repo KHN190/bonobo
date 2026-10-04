@@ -461,9 +461,11 @@ def _sitting(ctx, recipes, next_use=None):
     on, never whether the table stays standing."""
 
     inv = Inventory()
-    if inv.used_slots() >= BAG_SLOTS:
-        # the result needs a slot: drop the least valuable stack first
-        if make_bag_room(ctx, 1):
+    free = inv.free_slots()
+    if (isinstance(free, (int, float)) and free < 2) or inv.used_slots() >= BAG_SLOTS:
+        # the result needs slots: drop the least valuable stack first
+        need = max(1, int(2 - free)) if isinstance(free, (int, float)) else 1
+        if make_bag_room(ctx, need):
             log("   dropped a stack to make room for crafting")
         inv = Inventory()
     steps, _, _ = craft_plan(recipes, inv)

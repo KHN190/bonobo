@@ -1587,11 +1587,36 @@ def forward(entries, cost, tools=None):
                           if "inputs" in step.detail else dict(step.detail)))
         held.append(h)
     order = walk_order(steps, cost)
-    out = [steps[i] for i in order]
-    ests = price_as_run(out, tools, cost) if tools is not None else price_as_run(out, None, cost, [held[i] for i in order])
+    out = _cluster_crafts([steps[i] for i in order])
+    ests = price_as_run(out, tools, cost) if tools is not None else price_as_run(out, None, cost)
     for step, est in zip(out, ests):
         step.est = est
     return out, sum(ests)
+
+
+def _cluster_crafts(steps):
+    """Pure: group ready crafts next to preceding craft steps so craft_run batches them in one table sitting."""
+    out = list(steps)
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(out)):
+            if out[i].kind != "craft":
+                continue
+            needed_ids = _ids_used(out[i])
+            earliest = 0
+            for k in range(i):
+                if _ids_made(out[k]) & needed_ids:
+                    earliest = k + 1
+            for j in range(earliest, i):
+                if out[j].kind == "craft" and (j + 1 < i and out[j + 1].kind != "craft"):
+                    craft_step = out.pop(i)
+                    out.insert(j + 1, craft_step)
+                    changed = True
+                    break
+            if changed:
+                break
+    return out
 
 
 def price_as_run(steps, tools, cost, held=None) -> list:

@@ -247,7 +247,7 @@ class PlaceTask(TypedDict):
 TravelTask = TypedDict("TravelTask", {
     "type": Literal["travel"], "x": float, "y": float, "z": float, "avoid": NotRequired[Any], "break": NotRequired[bool],
     "item": NotRequired[str], "place": NotRequired[bool], "placeBudget": NotRequired[int], "range": NotRequired[float],
-    "voidBridge": NotRequired[bool]})
+    "voidBridge": NotRequired[bool], "sprint": NotRequired[bool]})
 
 
 class UseTask(TypedDict):
