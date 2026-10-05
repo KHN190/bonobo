@@ -184,6 +184,22 @@ def plan_machine_spot(bp, near, policy, radius=8, body=None):
     _cost, origin, turns, prepare = options[0]
     return origin, turns, prepare
 
+def plan_cast_spot(bp, near, policy, radius=8, body=None):
+    """(origin, turns, prepare) for the cheapest spot the poured water cannot run from onto a lava source
+    (fluids.spill_safe over the lava read around): a cast beside the pool it drinks from turns the pool to stone."""
+    nx, ny, nz = near
+    height = max(p.offset[1] for p in bp.parts) + 2
+    region = Region((nx - radius - 3, ny - 4, nz - radius - 3), (nx + radius + 3, ny + height + 3, nz + radius + 3),
+                    props=True)
+    lava = [p for p in region.blocks if fluids.is_source(region, p, "lava")]
+    options = spot_options(bp, near, region, policy, radius=radius, body=body, inv=Inventory())
+    safe = [o for o in options if fluids.spill_safe(bp, o[1], o[2], lava)]
+    if not safe:
+        raise NotAvailable(f"no ground for {bp.name} within {radius} blocks clear of the lava's spill")
+    _cost, origin, turns, prepare = safe[0]
+    return origin, turns, prepare
+
+
 def prepare_spot(ctx, prepare):
     """Do what the ground needs before a build: break what is in the way, fill what nothing stands on."""
 
@@ -538,8 +554,7 @@ def cast_portal(ctx):
     block = nav.building_item()          # its needs (water, flint and steel, 16 blocks) held: the runner checked
     bp = blueprints.NETHER_PORTAL
     here = feet()
-    # a partly standing frame is picked first and only its missing cells are cast
-    origin, turns, prepare = plan_machine_spot(bp, here, ctx.policy, body=here)
+    origin, turns, prepare = plan_cast_spot(bp, here, ctx.policy, body=here)
     prepare_spot(ctx, prepare)
     _CAST.update(origin=origin)
     region = Region(cell_add(origin, (-5, -2, -5)), cell_add(origin, (5, 6, 5)))
@@ -556,15 +571,16 @@ def cast_portal(ctx):
                     place(block, pos)    # the top corners: now supported by the pillars
         fluids._lava_bucket(ctx, feet())
         nav.arrive(access, ctx.policy, range_=1.5)
-        mould = [m for m in mould if not Region(m, m).solid(m)]
-        # one chain, no round trips: mould, lava, water on it, set, water back
+        box = Region(cell_add(cell, (-4, -3, -4)), cell_add(cell, (4, 4, 4)))
+        order, _supports = fluids.placeable_order([m for m in mould if not box.solid(m)], box.solid)
+        # one chain, no round trips: mould (each against a face already there), lava, water on it, set, water back
         done = api.run_chain(
-            [{"type": "place", "item": block, "x": m[0], "y": m[1], "z": m[2]} for m in mould]
+            [{"type": "place", "item": block, "x": m[0], "y": m[1], "z": m[2]} for m in order]
             + [fluids.use_task("minecraft:lava_bucket", fluids.floor_aim(cell), True),
                fluids.use_task("minecraft:water_bucket", fluids.floor_aim(cell), True),
-               {"type": "wait", "ticks": 10},
+               {"type": "wait", "ticks": fluids.SET_TICKS},
                fluids.use_task("minecraft:bucket", fluids.surface_aim(cell_add(cell, (0, 1, 0))), False)])
-        placed += mould
+        placed += order
         if Region(cell, cell).name(cell) != "obsidian":
             bad = next((t["message"] for t in done if t["status"] != "succeeded"), "")
             raise McError(f"no obsidian formed at {cell} {bad}".rstrip(), pos=cell)

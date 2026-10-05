@@ -1,4 +1,4 @@
-"""K1/P2 (docs/refactor.md 问题 1 站位, item 0): terrain x act x way-blocks carried, plan verdict == run verdict.
+"""terrain x act x way-blocks carried, plan verdict == run verdict.
 
 Run-side ground truth is now one production function: nav.reach (nav.py:1468) -- the gate's own loop (stands_for,
 nav.py:341, else plan_way's way, its place_budget/building_of, nav.py:233/256, tried up to nav.ways_for(act, block),

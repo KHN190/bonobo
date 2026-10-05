@@ -80,7 +80,7 @@ def _plan_s(needs, world, dimension):
     from ... import planner
     cost = scene_cost(world, dimension)
     steps = planner.plan_needs(cost.snap.inv, [tuple(n) for n in needs], cost)
-    return sum(s.est for s in steps) / TICKS_PER_S
+    return cost.plan_s(steps)
 
 
 def _detail(detail):

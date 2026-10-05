@@ -3,7 +3,7 @@ import functools
 import math
 
 from .game import BREAK_COOLDOWN, COVERED_SKY, DAYLIT_SKY, EAT_TICKS, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
-from .data import ANIMAL_HP, BASE_MARKERS, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, HARDNESS, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
+from .data import TOOL_USES, ANIMAL_HP, BASE_MARKERS, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, HARDNESS, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
 from .data import TAKEABLE
 from .data import BIOME_CREATURES, BIOME_PATCH, TREES_PER_CHUNK, VILLAGE_BIOMES
 from .data import SEARCH_RINGS
@@ -605,6 +605,17 @@ def attack_weapon(inv, foe_hp):
     w = weapon_for(inv, foe_hp)
     return None if w == "hand" else w
 
+FURNACE_REACH = 16          # every furnace this close shares a batch
+
+
+def wear_ticks(breaks, tool, price_ticks):
+    """Pure: what `breaks` uses of `tool` cost in ticks of its own price — each use one TOOL_USES-th of making it
+    again (TOOL_USES by material); 0 for the hand or a tool no table prices."""
+    material = bare(tool or "").rpartition("_")[0]
+    uses = TOOL_USES.get(material)
+    return 0 if not uses or not price_ticks else breaks * float(price_ticks) / uses
+
+
 def held_count(inv, token):
     """How many of `token` the bag holds, groups and "food" (cooked meals) included."""
     if token == "food":
@@ -1006,12 +1017,6 @@ def prior_work_ticks(step, held, tps):
     with_tools = work_s(breaks, kills, held, tps)
     saved = work_s(breaks, kills, {}, tps) - with_tools
     return max(round(with_tools * tps), prior_ticks(step) - round(saved * tps))
-
-
-def pickup_ticks(step):
-    """Pure: the walk onto each drop the step's own breaks leave (PRIOR_TICKS pickup_each a break)."""
-    breaks, _kills = own_work(step)
-    return PRIOR_TICKS["pickup_each"] * len(breaks)
 
 
 def prior_ticks(step):

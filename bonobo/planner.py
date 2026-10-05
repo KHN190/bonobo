@@ -11,7 +11,7 @@ from . import api, lifecycle
 from .api import McError
 from .data import GROUPS, NIGHT_WORK, OVERWORLD, TIER_OF_MATERIAL, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_USES, bare, mid
 from .beliefs import CONFIG, TICKS_PER_S, fights_back
-from .knowledge import (ALL_FOOD, CONTRACT_FACTS, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
+from .knowledge import (ALL_FOOD, CONTRACT_FACTS, FURNACE_REACH, PRIOR_TICKS, tool_ok, body_facts, dig_to_ticks, have_remainder, members, needs_rows, own_work, prior_work_ticks, sources, step_call, step_station, tool_item, tool_kind, spare_uses, work_s, working)
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 
 DIVE_NODES = 600      # nodes the dive weighs DIVE_WIDTH ways a choice (~0.07 s measured); then the first that can be had
@@ -804,7 +804,7 @@ class Search:
 
     def least(self, token, n, inv):
         """Bound.least of `n` token from `inv`, once a search per what of its derivation the bag holds."""
-        relevant = self.lb.reach[token] | {token, mid(token)}
+        relevant = self.lb.reach.get(token, self.lb.reach.get(mid(token), set())) | {token, mid(token)}
         had = (tuple(sorted((k, v) for k, v in inv.counts.items() if v > 0 and k in relevant)),
                tuple(sorted((k, v) for k, v in inv.produced.items() if v > 0 and k in relevant)))
         key = (token, n, had)
@@ -869,7 +869,7 @@ class Search:
         facts = dict(inv.facts)
         for st in steps:
             st = Step(st.kind, st.token, st.count, dict(st.detail))
-            own = st.detail.get("inputs") or self.recipe_inputs(st)
+            own = {} if st.kind == "await" else st.detail.get("inputs") or self.recipe_inputs(st)
             for tok, c in own.items():
                 if inv.available(tok) < c:
                     return None
@@ -914,7 +914,7 @@ class Search:
                     return None             # a fact asked that its steps do not make
             elif n[0] == "tool" and not inv.has_tool(n[1], int(n[2]), 0) or n[0] != "tool" and inv.available(n[0]) < int(n[1]):
                 return None
-        out, ticks = forward(entries, self.cost, self.start_tools)
+        out, ticks = forward(entries, self.cost, self.start_tools, getattr(self, "goal_needs", ()))
         return ticks, (), out
 
     def recipe_inputs(self, step):
@@ -1455,7 +1455,7 @@ class Search:
 
     # -- the whole search
     def finish(self, node):
-        steps, ticks = forward(node.steps, self.cost, self.start_tools)
+        steps, ticks = forward(node.steps, self.cost, self.start_tools, getattr(self, "goal_needs", ()))
         self.considered.append((plan_name(steps), ticks / TICKS_PER_S, steps))
         self.paths[id(steps)] = node.path
         return ticks, node.tie, steps
@@ -1559,6 +1559,7 @@ class Search:
         return None if node is None else self.finish(node)
 
     def plan(self, root, needs, incumbent=None, cap=math.inf):
+        self.goal_needs = tuple(tuple(n) for n in needs)
         held, after = [], []
         stations_run, other_run = [], []
         for need in needs:
@@ -1578,11 +1579,7 @@ class Search:
                 held.append(("add", need[0], int(need[1])))
         # Crafting table must come before furnace if both are in goals (furnace requires table)
         stations_run.sort(key=lambda t: 0 if "crafting_table" in t[1] else 1)
-        tools_run = [t for t in other_run if t[0] == "tool"]
-        tools_run.sort(key=lambda t: t[2])
-        items_run = [t for t in other_run if t[0] != "tool"]
-        items_run.sort(key=lambda t: (self.least(t[1], 1, root.inv), str(t[1])))
-        run = stations_run + tools_run + items_run
+        run = stations_run + other_run
         root.stack.extend(reversed(run + held + after))
         self.start_tools = list(root.inv.tools)   # what the plan's steps are priced as run from (price_as_run)
         if self.h(root) == math.inf:
@@ -1641,8 +1638,8 @@ class Search:
         return best[2]
 
 
-def forward(entries, cost, tools=None):
-    """The plan as it will run:"""
+def forward(entries, cost, tools=None, needs=()):
+    """The plan as it will run: merged, walked in order, scheduled (schedule); a goal item a smelt makes and no step takes in is awaited at the end."""
     steps, held = [], []
     index, where = {}, []        # key → its first step's place; each entry's place among the merged steps
     for i, (step, h, start) in enumerate(entries):
@@ -1666,21 +1663,71 @@ def forward(entries, cost, tools=None):
                           if "inputs" in step.detail else dict(step.detail)))
         held.append(h)
     order = walk_order(steps, cost)
-    out = _defer_awaits(_cluster_crafts([steps[i] for i in order]))
+    out = _cluster_crafts([steps[i] for i in order])
     ests = price_as_run(out, tools, cost) if tools is not None else price_as_run(out, None, cost)
-    for step, est in zip(out, ests):
-        step.est = est
-    return out, sum(ests)
+    by = {id(st): est for st, est in zip(out, ests)}
+    out, waits, makespan = schedule(out, ests, furnaces=furnaces_of(cost))
+    tail = makespan - sum(ests) - sum(waits)
+    wanted = {mid(n[0]) for n in needs if n and n[0] not in ("tool", "fact", "do")} | \
+        set().union(*(_ids(n[0]) for n in needs if n and n[0] not in ("tool", "fact", "do")))
+    smelted = [st for st in out if st.kind == "smelt" and _ids_made(st) & wanted]
+    if out and tail > 0 and smelted:
+        last = smelted[-1]
+        step = Step("await", last.token, last.count, {"inputs": {last.token: last.count}})
+        step.est = 0
+        out.append(step)
+        waits = list(waits) + [tail]
+        by[id(step)] = 0
+    for step, wait in zip(out, waits):
+        step.est = (COLLECT_TICKS if step.kind == "await" else by[id(step)]) + wait
+        if wait:
+            step.parts = {**(getattr(step, "parts", None) or {}), "wait": wait}
+    return out, sum(st.est for st in out)
 
 
-def _defer_awaits(steps):
-    """Pure: move steps that do not depend on an await step before it so independent work runs while waiting."""
+def furnaces_of(cost):
+    """Furnaces a plan's smelts spread over: ours standing within reach (craft.FURNACE_REACH) of the feet, at least
+    one (the plan places one when none stands)."""
+    snap, mem = getattr(cost, "snap", None), getattr(cost, "mem", None)
+    if snap is None or mem is None or not hasattr(mem, "known_stations"):
+        return 1
+    return max(1, len(mem.known_stations("minecraft:furnace", snap.dimension, near=snap.feet, within=FURNACE_REACH)))
+
+
+COLLECT_TICKS = 20      # taking a job's output out: the furnace opened, two clicks
+
+
+def schedule(steps, ests, per_item=None, furnaces=1):
+    """Pure: the plan on two clocks — the body's, one step after another, and the furnaces' (each burns one item at a
+    time, `per_item` ticks each, from the moment its smelt is loaded): list scheduling over the step graph
+    (step_needs) — of the steps whose makers are all emitted, the one that can start soonest, ties by the plan's own
+    order. ([steps in run order], [ticks each stands waiting for a furnace], the makespan: when the last step and the
+    last furnace are both done). The body works while the furnace burns; a step never runs before what it needs."""
+    per = PRIOR_TICKS["smelt_each"] if per_item is None else per_item
+    n, k = len(steps), max(1, furnaces)
     needs = step_needs(steps)
-    waits = {i for i, s in enumerate(steps) if s.kind == "await"}
-    if not waits:
-        return steps
-    dep = {j for j in range(len(steps)) if j in waits or bool(waits & needs[j])}
-    return [s for j, s in enumerate(steps) if j not in dep] + [s for j, s in enumerate(steps) if j in dep]
+    done, order, waits = set(), [], []
+    body, furnace_free, ready = 0, 0, {}
+    while len(done) < n:
+        candidates = []
+        for j in range(n):
+            if j in done or not needs[j] <= done:
+                continue
+            due = max([ready[i] for i in _ids_used(steps[j]) if i in ready] or [0])
+            if steps[j].kind == "await":
+                due = max(due, ests[j])       # a job already running: its output lands at its own time, not after the body's work
+            candidates.append((max(body, due), j))
+        start, j = min(candidates) if candidates else (body, min(set(range(n)) - done))
+        step = steps[j]
+        waits.append(start - body)
+        body = start + (COLLECT_TICKS if step.kind == "await" else ests[j])
+        if step.kind == "smelt":
+            furnace_free = max(furnace_free, body) + per * math.ceil(step.count / k)
+            for i in _ids_made(step):
+                ready[i] = max(ready.get(i, 0), furnace_free)
+        done.add(j)
+        order.append(step)
+    return order, waits, max([body] + list(ready.values()))
 
 
 def _cluster_crafts(steps):
@@ -1761,10 +1808,10 @@ def _ids_made(step):
 def _ids_used(step):
     """Pure: the item ids a step takes or must have: its inputs, its container, its input, its station (the recipe's
     or its contract's)."""
-    return set().union(*(_ids(t) for t in list(step.detail.get("inputs", {})) + [step.detail.get("container"),
-                                                                                    step.detail.get("input"),
-                                                                                    step.detail.get("station"),
-                                                                                    step_station(step)]))
+    call = [k for k in step_call(step) if not k.startswith("tool:")]
+    return set().union(*(_ids(t) for t in list(step.detail.get("inputs", {})) + call
+                         + [step.detail.get("container"), step.detail.get("input"), step.detail.get("station"),
+                            step_station(step)]))
 
 
 def step_needs(steps):
@@ -2145,6 +2192,9 @@ def runnable(step, inv):
 
     needs = step_call(step)
     if have_remainder(inv, needs_rows(needs)):
+        return False
+    tier = step.detail.get("tier") if step.kind == "mine" else None
+    if tier is not None and not tool_ok(inv, "pickaxe", int(tier)):
         return False
     return all(inv.count(tok) >= n for tok, n in step.detail.get("inputs", {}).items())
 

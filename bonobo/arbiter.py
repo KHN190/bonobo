@@ -85,7 +85,8 @@ RESUME_OF: dict[str, Rule] = {      # every key a shapes.Source (tests/test_type
                                     "leave the pit")},
     "row:empty the bag": "recheck", "row:leave the Nether": "dimension",
     "manual": "stand down", "player": "handback", "game lost": "game", "jar reflex": "same", "death": "recover",
-    "dimension change": "dimension", "night": "night", "user cancel": "none", "stuck": "cooled", "crash": "crashed",
+    "dimension change": "dimension", "night": "night", "slice": "same", "user cancel": "none", "stuck": "cooled",
+    "crash": "crashed",
 }
 
 def resume_of(source: Source) -> tuple[bool, str | None]:

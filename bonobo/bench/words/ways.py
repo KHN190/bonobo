@@ -185,15 +185,6 @@ def home_box(lo, hi):
     return hook
 
 
-def place_into(pos, item):
-    """run: one place of `item` into `pos` through the door (the home guard judges it first)."""
-    def run(ctx):
-        from ... import api
-        return api.run({"type": "place", "item": item, "x": pos[0], "y": pos[1], "z": pos[2]},
-                       awaits="the block placed, or refused before the jar")
-    return run
-
-
 DROP_HEIGHT = 15          # the drop: past nav.SAFE_DROP, so a landing without the clutch hurts
 FALL_WATCH_S = 8.0
 
@@ -238,6 +229,6 @@ def fall_row(name, taken):
 TEMPLATES = {"way": way_row, "dirt_tool": dirt_tool_row, "home_night": home_night_row, "fall": fall_row}
 NAMES = {t: (lambda name, *p: name) for t in TEMPLATES}
 
-__all__ = ["EST", "sleep_est", "SPECS", "SHOVEL_KIT", "PICK", "budget", "dirt_counts", "dirt_tool_row", "home_box", "home_night_row", "place_into", "DROP_HEIGHT",
+__all__ = ["EST", "sleep_est", "SPECS", "SHOVEL_KIT", "PICK", "budget", "dirt_counts", "dirt_tool_row", "home_box", "home_night_row", "DROP_HEIGHT",
            "FALL_WATCH_S", "fall", "fall_row",
            "shovel_break_even", "spec_blocks", "spec_scene", "way_est_s", "way_row"]

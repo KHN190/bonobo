@@ -10,7 +10,7 @@ from . import world
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, log, swallowed
 from .data import TICKS_PER_S, bare, mid, seen_class
-from .knowledge import FIND_AT, PRICE_SOURCE, PRIOR_TICKS, find_class, step_kinds
+from .knowledge import FIND_AT, PRICE_SOURCE, PRIOR_TICKS, find_class, step_kinds, tool_ok
 
 SEEK_KINDS = ("mine", "gather", "hunt", "fill")      # steps whose "nothing in range" is answered by looking elsewhere
 
@@ -236,6 +236,12 @@ def go_find(ctx, step):
     """Where to look when nothing is in range: memory's sightings, then the kind's richest depth, then a spiral."""
 
     here, dim, mem = world.feet(), ctx.dimension, ctx.mem
+    if step.kind == "mine" and step.detail.get("tier") is not None:
+        given = getattr(ctx, "inv", None)
+        inv = given if isinstance(given, world.Inventory) else world.Inventory(given) if isinstance(given, dict) \
+            else world.Inventory()
+        if not tool_ok(inv, "pickaxe", int(step.detail["tier"])):
+            return False
     blocks = list(step.detail.get("blocks", ()))
     names = {"gather": ["tree"], "mine": blocks, "hunt": list(step.detail.get("types", ())), "fill": ["water"]}.get(step.kind, [])
     notes = sorted(((r["kind"], tuple(r["pos"])) for n in names for r in mem.seen(n, dim)),

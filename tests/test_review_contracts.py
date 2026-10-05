@@ -10,6 +10,7 @@ import random
 import sys
 import tempfile
 import threading
+import time
 import types
 import unittest
 from unittest import mock
@@ -57,6 +58,7 @@ def route_index(name):
 
 
 class Milestones(unittest.TestCase):
+    """[G6]"""
     ROWS = [
         ("rods consumed into eyes held: no trip back for rods",
          kit(add=(("blaze_rod", 1), ("ender_eye", 12))), {}, "not before", "eyes of ender"),
@@ -87,6 +89,7 @@ class Milestones(unittest.TestCase):
 
 
 class TaskFile(unittest.TestCase):
+    """[G8]"""
     def setUp(self):
         self.path = os.path.join(tempfile.mkdtemp(prefix="tasks-"), "tasks.json")
         patcher = mock.patch.object(tasks, "FILE", self.path)
@@ -137,6 +140,7 @@ def made(steps, kind, token):
 
 
 class SameTokenTwice(unittest.TestCase):
+    """[D10]"""
     ROWS = [
         ("stone for the kit and the food's furnace", [("food", 8), ("stone", 32)], (("beef", 8),),
          "mine", "cobblestone"),
@@ -161,6 +165,7 @@ class SameTokenTwice(unittest.TestCase):
 
 
 class SmeltFuel(unittest.TestCase):
+    """[K5]"""
     ROWS = [
         ("six iron on coal", [("minecraft:iron_ingot", 6)], (("raw_iron", 6), ("coal", 4), ("furnace", 1))),
         ("three iron and three copper on coal: two sessions",
@@ -183,6 +188,7 @@ class SmeltFuel(unittest.TestCase):
 
 
 class HeldReplay(unittest.TestCase):
+    """[D10]"""
     def replay(self, items, needs, held, pending=None):
         c = NullCost()
         root = Node(from_bag(bag(inventory(*items)), pending=pending, facts=c.facts()), [], [])
@@ -220,6 +226,7 @@ class HeldReplay(unittest.TestCase):
 
 
 class WalkLowerBound(unittest.TestCase):
+    """[D9]"""
     def test_never_above_the_price_from_any_place(self):
         for d in (3.0, 8.0, 20.0):
             c = cost(None, None, stone=d)
@@ -240,6 +247,7 @@ class WalkLowerBound(unittest.TestCase):
 
 
 class RememberedTree(unittest.TestCase):
+    """[P2]"""
     def test_a_walled_in_log_is_no_source_remembered_or_seen(self):
         st = state()
         f = (st["blockX"], st["blockY"], st["blockZ"])
@@ -282,6 +290,7 @@ class View(dict):
 
 
 class NightMeal(unittest.TestCase):
+    """[S8]"""
     def view(self, **kw):
         return View(dict(food=6, hp=MAX_HP, meal="minecraft:cooked_beef", night=True, bed_works=True,
                          bed_carried=True, shelter_ready=True), **kw)
@@ -300,6 +309,7 @@ class NightMeal(unittest.TestCase):
 
 
 class Driving(unittest.TestCase):
+    """[K3]"""
     def test_interleaved_runs_leave_no_stale_driver(self):
         motion = arbiter.Motion()
         a_in, a_out, b_in, b_out = (threading.Event() for _ in range(4))
@@ -325,6 +335,7 @@ class Driving(unittest.TestCase):
 
 
 class PlaceBins(unittest.TestCase):
+    """[E8]"""
     def test_rows(self):
         rows = [
             ("negative x, inside a block", (-16.3, 64.0, 5.2), (-17, 64, 5), True),
@@ -351,6 +362,7 @@ def chain_runner(bad):
 
 
 class RunCells(unittest.TestCase):
+    """[E6]"""
     def run_cells(self, n, bad):
         cells = [{"type": "mine", "x": i, "y": 64, "z": 0} for i in range(n)]
         with mock.patch.object(nav.api, "run_chain", chain_runner(bad)), \
@@ -373,6 +385,7 @@ class RunCells(unittest.TestCase):
 
 
 class StationsLeftStanding(unittest.TestCase):
+    """[G6]"""
     def test_rows(self):
         st = state()
         dim, near = st["dimension"], (st["blockX"] + 2, st["blockY"], st["blockZ"])
@@ -396,6 +409,7 @@ class StationsLeftStanding(unittest.TestCase):
 
 
 class RescueFallback(unittest.TestCase):
+    """[S9]"""
     def test_rows(self):
         dying, threat = state(health=2.0), ["zombie"]
         rows = [
@@ -412,6 +426,7 @@ class RescueFallback(unittest.TestCase):
 
 
 class Landing(unittest.TestCase):
+    """[E3]"""
     def test_rows(self):
         rows = [
             ("a lava floor ahead", "lava", 63, False),
@@ -442,6 +457,7 @@ def priced(c):
 
 
 class MeasuredWork(unittest.TestCase):
+    """[D6]"""
     def test_a_run_is_priced_as_it_ran_from_where_it_ran(self):
         rows = [("near", 3.0, 3.0), ("far", 20.0, 20.0), ("measured far, priced near", 20.0, 3.0),
                 ("measured near, priced far", 3.0, 20.0)]
@@ -457,6 +473,7 @@ class MeasuredWork(unittest.TestCase):
 
 
 class FastLayer(unittest.TestCase):
+    """[S1]"""
     def decide(self, **patches):
         b = brain_fixture(planning=False)
         snap = snapshot(state(inLava=True, onGround=False), inventory())
@@ -484,6 +501,7 @@ class FastLayer(unittest.TestCase):
 
 
 class PerceptionTick(unittest.TestCase):
+    """[S7]"""
     def tick(self, mode, changes, last=None):
         w, body, posts = perception.Watcher(), Recorder(), []
         w.last.update(last or {})
@@ -536,6 +554,7 @@ def route_place(inv):
 
 
 class FuzzMilestones(unittest.TestCase):
+    """[G7]"""
     def test_more_in_the_bag_never_moves_the_run_back(self):
         rng = random.Random(SEED)
         pool = list(KIT) + list(CONSUMABLES)
@@ -606,6 +625,7 @@ def got_raw(steps):
 
 
 class FuzzPlans(unittest.TestCase):
+    """[D10]"""
     def cases(self, seed, n):
         rng = random.Random(seed)
         for case in range(n):
@@ -628,6 +648,7 @@ class FuzzPlans(unittest.TestCase):
 
 
 class FuzzPlaceBins(unittest.TestCase):
+    """[E8]"""
     def test_a_float_position_bins_with_its_block(self):
         rng = random.Random(SEED + 4)
         for case in range(500):
@@ -638,6 +659,7 @@ class FuzzPlaceBins(unittest.TestCase):
 
 
 class FuzzRunCells(unittest.TestCase):
+    """[E6]"""
     def test_every_cell_is_mined_or_given_back_and_lone_failures_skip_nothing(self):
         rng = random.Random(SEED + 5)
         messages = [nav.STEP_UNREACHABLE[0], nav.STEP_UNREACHABLE[1], nav.NO_STAND, "mine timed out"]
@@ -653,6 +675,7 @@ class FuzzRunCells(unittest.TestCase):
 
 
 class FuzzLanding(unittest.TestCase):
+    """[E3]"""
     def test_never_on_or_over_fire_and_lava(self):
         rng = random.Random(SEED + 6)
         hot = ("lava", "magma_block", "fire")
@@ -683,6 +706,7 @@ class FuzzLanding(unittest.TestCase):
 
 
 class FuzzRescue(unittest.TestCase):
+    """[S9]"""
     def test_the_first_ready_hazard_is_answered_and_none_starves(self):
         rng = random.Random(SEED + 7)
         for case in range(300):
@@ -710,6 +734,7 @@ REFLEX_KEYS = ("night", "bed_works", "bed_carried", "bed_near", "shelter_ready",
 
 
 class FuzzNightMeal(unittest.TestCase):
+    """[S8]"""
     def test_a_due_meal_waits_only_for_a_cover_row_that_runs(self):
         rng = random.Random(SEED + 8)
         names = [n for n, _t, _a in reflexes.TABLE]
@@ -726,6 +751,7 @@ class FuzzNightMeal(unittest.TestCase):
 
 
 class FuzzWalkLowerBound(unittest.TestCase):
+    """[D9]"""
     def test_never_above_the_price(self):
         rng = random.Random(SEED + 9)
         for case in range(25):
@@ -743,6 +769,7 @@ class FuzzWalkLowerBound(unittest.TestCase):
 
 
 class FuzzDriving(unittest.TestCase):
+    """[K3]"""
     def test_any_finish_order_leaves_no_driver(self):
         layers = [("tactic", "fight"), ("plan", "mine"), ("safety", "lava")]
         for order in itertools.permutations(range(3)):
@@ -767,6 +794,7 @@ class FuzzDriving(unittest.TestCase):
 
 
 class FuzzRouteCrafting(unittest.TestCase):
+    """[G7]"""
     def test_crafting_along_the_route_never_moves_the_run_back(self):
         rng = random.Random(SEED + 10)
         crafts = [("blaze_rod", 1, "blaze_powder", 2), ("blaze_powder", 1, "ender_eye", 1)]
@@ -814,6 +842,7 @@ def realise(need):
 
 
 class FuzzMilestoneProgress(unittest.TestCase):
+    """[G6]"""
     def test_getting_what_the_next_milestone_asks_moves_past_it(self):
         rng = random.Random(SEED + 12)
         pool = list(KIT) + list(CONSUMABLES)
@@ -836,6 +865,7 @@ def route_place_in(inv, dim):
 
 
 class FuzzTaskFile(unittest.TestCase):
+    """[G8]"""
     def test_no_task_is_lost_and_no_plan_outlives_its_task(self):
         rng = random.Random(SEED + 13)
         pool = [goals.have(("minecraft:torch", 1)), goals.have(("minecraft:stick", 4)),
@@ -876,6 +906,7 @@ class FuzzTaskFile(unittest.TestCase):
 
 
 class FuzzCostShape(unittest.TestCase):
+    """[D9]"""
     def test_farther_is_never_cheaper(self):
         rng = random.Random(SEED + 14)
         for case in range(25):
@@ -952,6 +983,7 @@ class FuzzCostShape(unittest.TestCase):
 
 
 class FuzzPlanShape(unittest.TestCase):
+    """[D10]"""
     def secs(self, steps):
         return sum(st.est for st in steps) / TICKS_PER_S
 
@@ -1015,6 +1047,7 @@ class FuzzPlanShape(unittest.TestCase):
 
 
 class FuzzWatchFall(unittest.TestCase):
+    """[P1]"""
     def test_fallen_is_the_drop_since_last_support(self):
         rng = random.Random(SEED + 27)
         for case in range(100):
@@ -1037,6 +1070,7 @@ class FuzzWatchFall(unittest.TestCase):
 
 
 class FuzzPerception(unittest.TestCase):
+    """[P3]"""
     def test_a_danger_is_stopped_unless_our_own_rescue_runs(self):
         rng = random.Random(SEED + 28)
         for case in range(120):
@@ -1091,6 +1125,7 @@ class FuzzPerception(unittest.TestCase):
 
 
 class FuzzFastLayer(unittest.TestCase):
+    """[S1]"""
     def test_any_one_reading_failing_still_rescues_lava(self):
         rng = random.Random(SEED + 30)
         targets = [(fight_loop, "unanswered_now"), (skillcore, "head_buried_in"), (threat, "threats_seen")]
@@ -1117,6 +1152,7 @@ class FuzzFastLayer(unittest.TestCase):
 
 
 class PreemptMatrix(unittest.TestCase):
+    """[K3]"""
     def tearDown(self):
         api.consume_interrupt()
 
@@ -1130,6 +1166,7 @@ class PreemptMatrix(unittest.TestCase):
 
 
 class FuzzReflexTable(unittest.TestCase):
+    """[P3]"""
     def test_triggers_only_read_the_view(self):
         rng = random.Random(SEED + 31)
         for case in range(200):
@@ -1147,6 +1184,7 @@ def hot(name):
 
 
 class FuzzWays(unittest.TestCase):
+    """[P2]"""
     def test_a_planned_way_stands_where_it_says_and_breaks_nothing_kept(self):
         rng = random.Random(SEED + 32)
         for case in range(80):
@@ -1192,6 +1230,7 @@ class FuzzWays(unittest.TestCase):
 
 
 class FuzzRetry(unittest.TestCase):
+    """[E5b]"""
     def test_cooling_follows_failures_and_ends_with_success_or_time(self):
         rng = random.Random(SEED + 33)
         causes = ["nav", "error", "unavailable", "tool", "game", "replan", "interrupt"]
@@ -1226,6 +1265,7 @@ def ours(cls=Exception):
 
 
 class ErrorClasses(unittest.TestCase):
+    """[K2]"""
     def test_every_resume_or_replan_error_is_not_counted_as_a_failure(self):
         from bonobo import data
         for cls in sorted(set(ours()), key=lambda c: c.__name__):
@@ -1237,6 +1277,7 @@ class ErrorClasses(unittest.TestCase):
 
 
 class FuzzBans(unittest.TestCase):
+    """[E8]"""
     def test_a_ban_made_standing_anywhere_in_a_block_holds_in_that_block(self):
         rng = random.Random(SEED + 34)
         kinds = frozenset({"minecraft:cobblestone", "minecraft:iron_pickaxe"})
@@ -1253,6 +1294,7 @@ DESTROY_DELAY_TICKS, USE_DELAY_TICKS, SMELT_TICKS, LOW_DELAY_TICKS = 5, 4, 200, 
 
 
 class SmeltingRunsBeside(unittest.TestCase):
+    """[D6]"""
     def plan_s(self, iron, stone):
         c = cost(snapshot(state(), inventory(("raw_iron", iron), ("furnace", 1), ("coal", 4), ("iron_pickaxe", 1))),
                  None, stone=4.0)
@@ -1297,6 +1339,7 @@ class SmeltingRunsBeside(unittest.TestCase):
 
 
 class InventoryCrafts(unittest.TestCase):
+    """[E7]"""
     def test_a_two_by_two_recipe_never_stops_at_a_table(self):
         from bonobo.craft import recipe_needs_table
         from bonobo.knowledge import RECIPES
@@ -1314,6 +1357,7 @@ class InventoryCrafts(unittest.TestCase):
 
 
 class ActionCadence(unittest.TestCase):
+    """[E7]"""
     def test_a_block_in_reach_costs_its_break_and_the_vanilla_delay(self):
         rows = [({"pickaxe": 0}, "minecraft:wooden_pickaxe"), ({"pickaxe": 1}, "minecraft:stone_pickaxe"),
                 ({"pickaxe": 2}, "minecraft:iron_pickaxe"), ({"pickaxe": 3}, "minecraft:diamond_pickaxe"),
@@ -1365,6 +1409,1016 @@ class ActionCadence(unittest.TestCase):
             with self.subTest(case=case, n=n):
                 self.assertEqual(len(sent), 1)
                 self.assertFalse([t for t in sent[0] if t.get("type") == "wait"])
+
+
+
+class ReflexAdmission(unittest.TestCase):
+    """[D1]"""
+    TRIGGERS = {"leave the Nether": dict(nether_bad=True), "leave the pit": dict(in_pit=True),
+                "unstuck": dict(stuck=True),
+                "path blocked": dict(blocked=True, building=reflexes.BRIDGE_MIN, blocked_at={"pos": (5, 64, 0)})}
+    LACKING = {"leave the Nether": dict(portal_known=False), "leave the pit": dict(pit_way=False),
+               "unstuck": dict(unstuck_way=False), "path blocked": dict(blocked_at={"pos": None})}
+    HAVING = {"leave the Nether": dict(portal_known=True), "leave the pit": dict(pit_way=True),
+              "unstuck": dict(unstuck_way=True), "path blocked": {}}
+
+    def view(self, **kw):
+        return View(dict(food=20, hp=MAX_HP, meal=None, night=False, sheltered=True, used_slots=0, building=0,
+                         blocked_at=None), **kw)
+
+    def test_rows(self):
+        for name in self.TRIGGERS:
+            for state_, fires in (("lacking", False), ("having", True)):
+                extra_ = (self.LACKING if state_ == "lacking" else self.HAVING)[name]
+                with self.subTest(row=name, what=state_):
+                    v = self.view(**{**self.TRIGGERS[name], **extra_})
+                    self.assertEqual(name in [n for _i, n in reflexes.due(v)], fires)
+
+    def test_a_reading_with_no_provider_admits(self):
+        v = reflexes.View({}, nether_bad=True, food=20, hp=MAX_HP, meal=None, night=False, sheltered=True,
+                          used_slots=0, building=0, blocked=False, blocked_at=None, enclosed=False,
+                          died_recently=False, job_ready=False, machine_ready=False, stuck=False, bed_works=False,
+                          bed_carried=False, bed_near=False, shelter_ready=False)
+        self.assertIn("leave the Nether", [n for _i, n in reflexes.due(v)])
+
+    def test_fuzz_a_row_short_of_its_act_never_fires(self):
+        rng = random.Random(SEED + 38)
+        keys = ("portal_known", "pit_way", "unstuck_way")
+        for case in range(300):
+            v = View({k: rng.random() < 0.5 for k in REFLEX_KEYS + keys}, food=rng.randint(0, 20),
+                     hp=rng.choice([20.0, 4.0]), meal=rng.choice([None, "minecraft:bread"]),
+                     used_slots=rng.randint(0, 36), building=rng.choice([0, reflexes.BRIDGE_MIN]),
+                     nether_bad=rng.random() < 0.5, in_pit=rng.random() < 0.5,
+                     blocked_at=rng.choice([None, {"pos": None}, {"pos": (1, 64, 0)}]))
+            fired = {n for _i, n in reflexes.due(v)}
+            with self.subTest(case=case, fired=sorted(fired)):
+                self.assertFalse("leave the Nether" in fired and not v["portal_known"])
+                self.assertFalse("leave the pit" in fired and not v["pit_way"])
+                self.assertFalse("unstuck" in fired and not v["unstuck_way"])
+                self.assertFalse("path blocked" in fired and not (v["blocked_at"] or {}).get("pos"))
+
+
+class UnstuckWay(unittest.TestCase):
+    """[E5d]"""
+    def test_rows(self):
+        st = state()
+        snap = snapshot(st, inventory())
+        rows = [("every way cooling, no site", False, None, False),
+                ("must fail: a way not cooling", True, None, True),
+                ("every way cooling, a site far off", False, (st["blockX"] + 40, st["blockY"], st["blockZ"]), True),
+                ("every way cooling, a site too near", False, (st["blockX"] + 3, st["blockY"], st["blockZ"]), False)]
+        for name, ready, site, want in rows:
+            with self.subTest(name):
+                b = brain_fixture()
+                b.ready = lambda key, _r=ready: _r or not key.startswith("unstuck:")
+                with mock.patch.object(b.mem, "nearest_site",
+                                       lambda feet, dim, _s=site: {"pos": list(_s)} if _s else None):
+                    self.assertEqual(b.reflexes.unstuck_way(snap), want)
+
+
+class LightNeedsTorches(unittest.TestCase):
+    """[D1]"""
+    def test_fuzz_no_torch_no_light_and_never_a_world_scan_to_ask(self):
+        rng = random.Random(SEED + 39)
+        for case in range(80):
+            torches = rng.choice([0, 0, 1, 5])
+            st = state(skyLight=rng.choice([0, 15]), blockLight=rng.choice([0, 7]),
+                       timeOfDay=rng.choice([1000, 18000]))
+            items = [("torch", torches)] if torches else []
+            snap = snapshot(st, inventory(*items, ("iron_pickaxe", 1)))
+            b = brain_fixture()
+            with mock.patch.object(brain.world, "dark_spots", side_effect=AssertionError("scanned to ask")):
+                got = b.light_intent(snap, None)
+            with self.subTest(case=case, torches=torches, sky=st["skyLight"], block=st["blockLight"]):
+                if torches == 0:
+                    self.assertIsNone(got)
+
+
+def round_with(mobs, chest=None, contents=None, bag_=()):
+    from tests.test_enroute import proposals
+    calls = {"replan_in_enroute": 0, "hidden": 0, "inside": False}
+    real_replan, real_enroute, real_hidden = brain.replan, brain.Brain.enroute_plan, brain.Brain.prices_without
+
+    def replan(*a, **k):
+        if calls["inside"]:
+            calls["replan_in_enroute"] += 1
+        return real_replan(*a, **k)
+
+    def enroute_plan(self, *a, **k):
+        calls["inside"] = True
+        try:
+            return real_enroute(self, *a, **k)
+        finally:
+            calls["inside"] = False
+
+    def prices_without(self, *a, **k):
+        if calls["inside"]:
+            calls["hidden"] += 1
+        return real_hidden(self, *a, **k)
+    with mock.patch.object(brain, "replan", replan), \
+            mock.patch.object(brain.Brain, "enroute_plan", enroute_plan), \
+            mock.patch.object(brain.Brain, "prices_without", prices_without):
+        got, b = proposals(mobs, chest, contents, bag_)
+    return got, b, calls
+
+
+class EnrouteOnePass(unittest.TestCase):
+    """[G3]"""
+    def scenes(self, seed, n):
+        from tests.test_enroute import sheep
+        rng = random.Random(seed)
+        for case in range(n):
+            kind = rng.choice(["sheep", "chest", "none"])
+            if kind == "sheep":
+                yield case, kind, ([sheep(rng.randint(5, 35), rng.randint(-6, 6))], None, None, ())
+            elif kind == "chest":
+                yield case, kind, ([], (rng.randint(5, 35), 64, rng.choice([-2, 1, 2])),
+                                   rng.choice([[("minecraft:diamond", 2)], [("minecraft:oak_log", 10)],
+                                               [("minecraft:diamond", 1), ("minecraft:oak_log", 5)], None]),
+                                   rng.choice([(), (("oak_log", 64),)]))
+            else:
+                yield case, kind, ([], None, None, ())
+
+    def test_fuzz_no_second_search(self):
+        for case, kind, args in self.scenes(SEED + 40, 12):
+            with self.subTest(case=case, kind=kind):
+                _got, _b, calls = round_with(*args)
+                self.assertEqual(calls["replan_in_enroute"], 0)
+
+    def test_fuzz_c_is_a_with_the_candidate_put_first_and_pays(self):
+        for case, kind, args in self.scenes(SEED + 41, 12):
+            _got, b, _calls = round_with(*args)
+            held_ = b.needs_plan or {}
+            choice = b.enroute_choice
+            with self.subTest(case=case, kind=kind, choice=choice):
+                if not held_.get("enroute"):
+                    continue
+                self.assertIsNotNone(choice)
+                self.assertTrue(choice.chosen)
+                self.assertLess(choice.C_s - choice.A_s - (choice.furnace_wait_s or 0.0), choice.P * choice.value)
+                steps = held_["steps"]
+                self.assertTrue(held_["enroute"].startswith(f"en-route: {steps[0].kind} "))
+
+    def test_a_candidate_the_tools_held_cannot_run_is_never_offered(self):
+        rng = random.Random(SEED + 42)
+        for case in range(60):
+            tier = rng.choice([None, 0, 1, 2, 3])
+            pick = rng.choice([None, "wooden_pickaxe", "stone_pickaxe", "iron_pickaxe", "diamond_pickaxe"])
+            held_tier = {None: -1, "wooden_pickaxe": 0, "stone_pickaxe": 1, "iron_pickaxe": 2, "diamond_pickaxe": 3}[pick]
+            step = Step("mine", "minecraft:raw_iron", 1, {"blocks": ["minecraft:iron_ore"], "tier": tier})
+            inv = bag(inventory(*(((pick, 1),) if pick else ())))
+            with self.subTest(case=case, tier=tier, pick=pick):
+                self.assertEqual(brain.enroute_runnable(step, inv), tier is None or held_tier >= tier)
+
+    def test_the_inserted_plan_is_the_candidate_then_a_unchanged(self):
+        rng = random.Random(SEED + 43)
+        pool = [Step("mine", "minecraft:cobblestone", 3, {"blocks": ["minecraft:stone"]}),
+                Step("craft", "minecraft:stick", 4, {"times": 1}), Step("gather", "log", 2, {}),
+                Step("goto", "pos", 1, {"pos": [5, 64, 0]})]
+        for case in range(40):
+            a = rng.sample(pool, rng.randint(0, len(pool)))
+            cand = Step("hunt", "minecraft:mutton", 1, {"types": ["minecraft:sheep"]})
+            got = brain.enroute_inserted(cand, a)
+            with self.subTest(case=case):
+                self.assertIs(got[0], cand)
+                self.assertEqual([st.key() for st in got[1:]], [st.key() for st in a])
+                self.assertTrue(all(x is not y for x, y in zip(got[1:], a)))
+
+
+
+class SmeltedOutputsAreWaitedFor(unittest.TestCase):
+    """[D6]"""
+    def plan_for(self, needs, items, stone_at=4.0):
+        c = cost(snapshot(state(), inventory(*items)), None, stone=stone_at)
+        steps = plan_needs(c.snap.inv, needs, c)
+        return steps, c.plan_s(steps)
+
+    def test_fuzz_the_ingots_are_never_had_before_they_are_smelted(self):
+        rng = random.Random(SEED + 46)
+        for case in range(15):
+            iron, stone = rng.randint(1, 16), rng.randint(0, 48)
+            needs = [("minecraft:iron_ingot", iron)] + ([("stone", stone)] if stone else [])
+            steps, planned = self.plan_for(needs, [("raw_iron", iron), ("furnace", 1), ("coal", 4),
+                                                   ("iron_pickaxe", 1)])
+            with self.subTest(case=case, iron=iron, stone=stone):
+                self.assertGreaterEqual(planned, iron * SMELT_TICKS / TICKS_PER_S)
+
+    def test_fuzz_work_not_needing_the_furnace_runs_while_it_burns(self):
+        rng = random.Random(SEED + 47)
+        for case in range(12):
+            stone = rng.randint(8, 48)
+            steps, planned = self.plan_for([("minecraft:bucket", 1), ("stone", stone)],
+                                           [("raw_iron", 3), ("furnace", 1), ("coal", 4), ("iron_pickaxe", 1),
+                                            ("crafting_table", 1)])
+            kinds = [st.kind for st in steps]
+            with self.subTest(case=case, stone=stone, plan=[str(st) for st in steps]):
+                self.assertIn("smelt", kinds)
+                smelt, bucket = kinds.index("smelt"), next(i for i, st in enumerate(steps) if bare(st.token) == "bucket")
+                mines = [i for i, k in enumerate(kinds) if k == "mine"]
+                self.assertTrue(all(smelt < i < bucket for i in mines) or not mines)
+                body = sum(st.est - (st.parts or {}).get("wait", 0) for st in steps) / TICKS_PER_S
+                self.assertLessEqual(planned, body + 3 * SMELT_TICKS / TICKS_PER_S + 1.0)
+
+    def test_the_wait_is_a_part_of_the_step_that_waits(self):
+        steps, planned = self.plan_for([("minecraft:bucket", 1)], [("raw_iron", 3), ("furnace", 1), ("coal", 4),
+                                                                   ("crafting_table", 1)])
+        waits = [(st.parts or {}).get("wait", 0) for st in steps]
+        self.assertGreater(sum(waits), 0)
+        self.assertAlmostEqual(planned * TICKS_PER_S, sum(st.est for st in steps), delta=1)
+
+
+class DesignMilestoneCredit(unittest.TestCase):
+    """[G6] A: a consumable milestone is met by what is held plus what its product embodies (recipes), floored once."""
+
+    def rods_met(self, rods, powder, eyes):
+        got = goals.remainder(goals.make("milestone", name="blaze rods"),
+                              snapshot(state(), kit(add=(("blaze_rod", rods), ("blaze_powder", powder),
+                                                         ("ender_eye", eyes)))), memory())
+        return got == {}
+
+    def pearls_met(self, pearls, eyes):
+        got = goals.remainder(goals.make("milestone", name="ender pearls"),
+                              snapshot(state(), kit(add=(("ender_pearl", pearls), ("ender_eye", eyes)))), memory())
+        return got == {}
+
+    def test_fuzz_rods_credit_is_the_recipe_math_floored_once(self):
+        rng = random.Random(SEED + 50)
+        for case in range(300):
+            rods, powder, eyes = rng.randint(0, 8), rng.randint(0, 14), rng.randint(0, 13)
+            want = int(rods + powder / 2 + eyes / 2) >= 7 or eyes >= 12
+            with self.subTest(case=case, rods=rods, powder=powder, eyes=eyes):
+                self.assertEqual(self.rods_met(rods, powder, eyes), want)
+
+    def test_fuzz_pearls_credit(self):
+        rng = random.Random(SEED + 51)
+        for case in range(200):
+            pearls, eyes = rng.randint(0, 13), rng.randint(0, 13)
+            with self.subTest(case=case, pearls=pearls, eyes=eyes):
+                self.assertEqual(self.pearls_met(pearls, eyes), pearls + eyes >= 12)
+
+    def test_rows(self):
+        rows = [("one rod, nine powder, one eye: 1 + 4.5 + .5 = 6, short", 1, 9, 1, False),
+                ("one rod, ten powder, one eye: 6.5 → 6, short", 1, 10, 1, False),
+                ("two rods, ten powder: 7", 2, 10, 0, True),
+                ("twelve eyes alone: the eyes milestone met, no rod wanted past it", 0, 0, 12, True),
+                ("must fail: eleven eyes alone: 5.5 rods", 0, 0, 11, False),
+                ("twelve eyes and a rod", 1, 0, 12, True)]
+        for name, rods, powder, eyes, met in rows:
+            with self.subTest(name):
+                self.assertEqual(self.rods_met(rods, powder, eyes), met)
+
+    def test_credit_is_derived_from_the_recipes(self):
+        self.assertAlmostEqual(goals.credit(bag(inventory(("blaze_rod", 1))), "minecraft:blaze_rod"), 1.0)
+        self.assertAlmostEqual(goals.credit(bag(inventory(("blaze_powder", 1))), "minecraft:blaze_rod"), 0.5)
+        self.assertAlmostEqual(goals.credit(bag(inventory(("ender_eye", 1))), "minecraft:blaze_rod"), 0.5)
+        self.assertAlmostEqual(goals.credit(bag(inventory(("ender_eye", 1))), "minecraft:ender_pearl"), 1.0)
+        self.assertAlmostEqual(goals.credit(bag(inventory(("iron_pickaxe", 1))), "minecraft:stone_pickaxe"), 0.0)
+
+
+class DesignDurablesLive(unittest.TestCase):
+    """[G6] A: durable kit is judged live — carried, worn, in the offhand, or standing where walking back beats remaking."""
+
+    def test_an_iron_pickaxe_alone_leaves_stone_tools_unmet(self):
+        self.assertEqual(next_name(inventory(("iron_pickaxe", 1))), "stone tools")
+
+    def test_fuzz_a_lost_durable_resets_its_milestone_whatever_else_is_held(self):
+        rng = random.Random(SEED + 52)
+        firsts = {"iron_pickaxe": "iron pickaxe", "iron_sword": "iron tools", "stone_axe": "stone tools",
+                  "shield": "iron tools", "flint_and_steel": "iron tools", "white_bed": "bed",
+                  "iron_chestplate": "iron armor"}
+        pool = list(CONSUMABLES) + [("ender_eye", 12), ("blaze_rod", 7), ("ender_pearl", 12)]
+        for case in range(80):
+            lost = rng.choice(sorted(firsts))
+            extra = [e for e in rng.sample(pool, rng.randint(0, 5)) if e[0] != lost]
+            with self.subTest(case=case, lost=lost, extra=extra):
+                self.assertLessEqual(route_place(kit(without=(lost,), add=extra)), route_index(firsts[lost]))
+
+    def test_rows_a_station_counts_when_walking_back_beats_remaking(self):
+        st = state()
+        dim, f = st["dimension"], (st["blockX"], st["blockY"], st["blockZ"])
+        rows = [("our furnace 10 blocks off", 10, (), True),
+                ("our furnace 40 blocks off, no pickaxe to remake one fast", 40, ("iron_pickaxe",), True),
+                ("must fail: our furnace 2000 blocks off: remaking is cheaper", 2000, (), False)]
+        for name, dist, without, met in rows:
+            with self.subTest(name):
+                mem = memory()
+                mem.add_station("minecraft:furnace", (f[0] + dist, f[1], f[2]), dim)
+                got = goals.remainder(goals.make("milestone", name="station kit"),
+                                      snapshot(st, kit(without=("furnace",) + without)), mem)
+                self.assertEqual("minecraft:furnace" not in got, met)
+                self.assertEqual(goals.station_had("minecraft:furnace", snapshot(st, kit(without=("furnace",) + without)),
+                                                   mem), met)
+
+    def test_must_fail_an_iron_pickaxe_is_no_furnace(self):
+        got = goals.remainder(goals.make("milestone", name="station kit"),
+                              snapshot(state(), kit(without=("furnace",))), memory())
+        self.assertIn("minecraft:furnace", got)
+
+
+class DesignEndPortalFact(unittest.TestCase):
+    """[G6] A: the end portal milestone is a remembered fact, not the dimension of the moment."""
+
+    def test_rows(self):
+        rows = [("remembered open, in the Overworld", True, "minecraft:overworld", True),
+                ("in the End, nothing remembered", False, "minecraft:the_end", True),
+                ("must fail: nothing remembered, in the Overworld", False, "minecraft:overworld", False)]
+        for name, remembered, dim, met in rows:
+            with self.subTest(name):
+                mem = memory()
+                if remembered:
+                    mem.add_site("end_portal_open", (100, 30, 100), "minecraft:overworld")
+                got = goals.remainder(goals.make("milestone", name="end portal"),
+                                      snapshot(state(dimension=dim), kit()), mem)
+                self.assertEqual(got == {}, met)
+                if not met:
+                    self.assertIsNone(got)
+
+    def test_the_route_ends_after_the_portal_and_beds(self):
+        mem = memory()
+        mem.add_site("end_portal_open", (100, 30, 100), "minecraft:overworld")
+        self.assertIsNone(brain.next_milestone(snapshot(state(), kit(add=(("white_bed", 8),))), mem))
+
+    def test_the_eyes_in_the_frame_embody_the_rods_and_pearls_spent_on_them(self):
+        mem = memory()
+        mem.add_site("end_portal_open", (100, 30, 100), "minecraft:overworld")
+        for name in ("blaze rods", "ender pearls", "eyes of ender"):
+            with self.subTest(name):
+                self.assertEqual(goals.remainder(goals.make("milestone", name=name), snapshot(state(), kit()), mem), {})
+
+
+class DesignNoHandWrittenRoute(unittest.TestCase):
+    """[G6] A: no ancestor table, no leap table, no night rule in the milestone layer."""
+
+    def test_rows(self):
+        for name in ("MILESTONE_PREREQS", "RESOURCE_CAPS", "resource_cap", "SLICE_MAX_S"):
+            with self.subTest(name):
+                self.assertFalse(hasattr(brain, name))
+        self.assertFalse(hasattr(goals, "OPTIONAL_MILESTONES"))
+
+    def test_fuzz_the_next_milestone_is_the_first_unmet_by_day_or_night(self):
+        rng = random.Random(SEED + 53)
+        pool = list(KIT) + list(CONSUMABLES)
+        for case in range(120):
+            inv = inventory(*rng.sample(pool, rng.randint(0, len(pool))))
+            st = state(timeOfDay=rng.choice([1000, 18000]), skyLight=rng.choice([0, 15]))
+            mem = memory()
+            snap = snapshot(st, inv)
+            got = brain.next_milestone(snap, mem)
+            first = next((n for n in goals.MILESTONES if n not in goals.OFF_ROUTE
+                          and goals.remainder(goals.make("milestone", name=n), snap, mem) != {}), None)
+            with self.subTest(case=case, time=st["timeOfDay"]):
+                self.assertEqual(got and got["args"]["name"], first)
+
+
+def simulate(order, ests, per_item, furnaces):
+    """Oracle: a body and `furnaces` furnaces; a step starts when the body is free and every smelted input is done."""
+    body, free_at, ready, waits = 0, [0] * furnaces, {}, []
+    for st, est in zip(order, ests):
+        due = max([ready[i] for i in set(st.detail.get("inputs", {})) if i in ready] or [0])
+        waits.append(max(0, due - body))
+        body = max(body, due) + est
+        if st.kind == "smelt":
+            k = free_at.index(min(free_at))
+            free_at[k] = max(free_at[k], body) + per_item * st.count
+            ready[st.token] = max(ready.get(st.token, 0), free_at[k])
+    return waits, max([body] + list(ready.values()))
+
+
+class DesignSchedule(unittest.TestCase):
+    """[D6] B: one list scheduler over the step graph with a body clock and furnace clocks."""
+
+    def smelt_chain(self, rng):
+        coal = Step("mine", "minecraft:coal", 1, {"blocks": ["minecraft:coal_ore"]})
+        ore = Step("mine", "minecraft:raw_iron", 3, {"blocks": ["minecraft:iron_ore"]})
+        smelt = Step("smelt", "minecraft:iron_ingot", 3, {"input": "minecraft:raw_iron",
+                                                          "inputs": {"minecraft:raw_iron": 3, "minecraft:coal": 1}})
+        bucket = Step("craft", "minecraft:bucket", 1, {"times": 1, "inputs": {"minecraft:iron_ingot": 3}})
+        stone = Step("mine", "minecraft:cobblestone", rng.randint(4, 30), {"blocks": ["minecraft:stone"]})
+        logs = Step("gather", "log", rng.randint(1, 4), {})
+        steps = [coal, ore, smelt, bucket]
+        for free in (stone, logs):
+            steps.insert(rng.randint(0, len(steps)), free)
+        return steps, [coal, ore, smelt, bucket]
+
+    def test_fuzz_topological_and_fuel_before_its_smelt(self):
+        from bonobo.planner import schedule, step_needs
+        rng = random.Random(SEED + 54)
+        for case in range(200):
+            steps, _ = self.smelt_chain(rng)
+            ests = [rng.randint(10, 600) for _ in steps]
+            order, waits, makespan = schedule(steps, ests)
+            idx = {id(s): i for i, s in enumerate(order)}
+            needs = step_needs(steps)
+            with self.subTest(case=case, order=[str(s) for s in order]):
+                self.assertEqual(sorted(map(id, order)), sorted(map(id, steps)))
+                for j, deps in enumerate(needs):
+                    for i in deps:
+                        self.assertLess(idx[id(steps[i])], idx[id(steps[j])])
+                smelt = next(i for i, s in enumerate(order) if s.kind == "smelt")
+                coal = next(i for i, s in enumerate(order) if bare(s.token) == "coal")
+                bucket = next(i for i, s in enumerate(order) if bare(s.token) == "bucket")
+                self.assertLess(coal, smelt)
+                self.assertLess(smelt, bucket)
+
+    def test_fuzz_makespan_is_the_simulator_and_free_work_fills_the_burn(self):
+        from bonobo.planner import schedule
+        rng = random.Random(SEED + 55)
+        for case in range(200):
+            steps, _ = self.smelt_chain(rng)
+            ests = [rng.randint(10, 600) for _ in steps]
+            by = {id(s): e for s, e in zip(steps, ests)}
+            order, waits, makespan = schedule(steps, ests, per_item=SMELT_TICKS)
+            want_waits, want_span = simulate(order, [by[id(s)] for s in order], SMELT_TICKS, 1)
+            with self.subTest(case=case, order=[str(s) for s in order]):
+                self.assertEqual(list(waits), want_waits)
+                self.assertEqual(makespan, want_span)
+                smelt, bucket = (next(i for i, s in enumerate(order) if s.kind == k) for k in ("smelt", "craft"))
+                free = [i for i, s in enumerate(order) if s.kind in ("mine", "gather") and bare(s.token)
+                        in ("cobblestone", "log")]
+                self.assertTrue(all(i < bucket for i in free), "free work goes before the wait on the furnace")
+                self.assertGreaterEqual(makespan, sum(ests))
+
+    def test_fuzz_more_furnaces_never_wait_longer(self):
+        from bonobo.planner import schedule
+        rng = random.Random(SEED + 56)
+        for case in range(100):
+            n = rng.randint(2, 16)
+            smelt = Step("smelt", "minecraft:iron_ingot", n, {"input": "minecraft:raw_iron",
+                                                              "inputs": {"minecraft:raw_iron": n}})
+            use = Step("craft", "minecraft:bucket", 1, {"inputs": {"minecraft:iron_ingot": 3}})
+            ests = [40, 60]
+            one = schedule([smelt, use], ests, per_item=SMELT_TICKS, furnaces=1)[2]
+            two = schedule([smelt, use], ests, per_item=SMELT_TICKS, furnaces=2)[2]
+            with self.subTest(case=case, n=n):
+                self.assertLessEqual(two, one)
+                self.assertGreaterEqual(one - two, SMELT_TICKS * (n // 2) - 1)
+
+    def test_the_tail_waits_on_an_await_step_not_the_smelt(self):
+        c = cost(snapshot(state(), inventory(("raw_iron", 8), ("furnace", 1), ("coal", 4))), None)
+        steps = plan_needs(c.snap.inv, [("minecraft:iron_ingot", 8)], c)
+        self.assertEqual(steps[-1].kind, "await")
+        self.assertGreaterEqual(steps[-1].parts.get("wait", 0), 8 * SMELT_TICKS - 20)
+        smelt = next(s for s in steps if s.kind == "smelt")
+        self.assertLessEqual(smelt.est, 2 * LOW_DELAY_TICKS + (smelt.parts or {}).get("walk", 0) + 20)
+        self.assertAlmostEqual(c.plan_s(steps) * TICKS_PER_S, sum(s.est for s in steps), delta=1)
+
+    def test_two_furnaces_of_ours_halve_the_wait(self):
+        st = state()
+        dim, f = st["dimension"], (st["blockX"], st["blockY"], st["blockZ"])
+        plans = {}
+        for n in (1, 2):
+            mem = memory()
+            for k in range(n):
+                mem.add_station("minecraft:furnace", (f[0] + 2 + k, f[1], f[2]), dim)
+            c = cost(snapshot(st, inventory(("raw_iron", 16), ("coal", 4))), mem)
+            plans[n] = c.plan_s(plan_needs(c.snap.inv, [("minecraft:iron_ingot", 16)], c))
+        self.assertLess(plans[2], plans[1] - 6 * SMELT_TICKS / TICKS_PER_S)
+
+
+class DesignSliceDue(unittest.TestCase):
+    """[E6] C: a long act is handed back for a furnace done only when the detour costs less than the wait it saves."""
+
+    def test_fuzz(self):
+        from bonobo.brain import slice_due
+        rng = random.Random(SEED + 57)
+        tick = 100_000
+        for case in range(400):
+            jobs_ = [{"id": f"j{i}", "kind": rng.choice(["furnace", "crop"]), "pos": [i, 64, 0],
+                      "ready_tick": tick + rng.choice([-500, -1, 20, 2000])} for i in range(rng.randint(0, 3))]
+            layer = rng.choice(["task", "plan", "upkeep", "L0", "idle"])
+            mode = rng.choice(["normal", "survival"])
+            detour, saved = rng.choice([0.0, 3.0, 12.0, 40.0]), rng.choice([0.0, 5.0, 20.0, 60.0])
+            got = slice_due(jobs_, tick, layer, mode, detour, saved)
+            done = [j for j in jobs_ if j["kind"] == "furnace" and j["ready_tick"] <= tick]
+            want = bool(done) and layer in ("task", "plan") and mode != "survival" and detour < saved
+            with self.subTest(case=case, layer=layer, mode=mode, detour=detour, saved=saved, done=len(done)):
+                self.assertEqual(got is not None, want)
+
+    def test_rows(self):
+        from bonobo.brain import slice_due
+        done = [{"id": "f", "kind": "furnace", "pos": [1, 64, 0], "ready_tick": 10}]
+        rows = [("furnace done beside the leg, the plan waits 30 s on it", done, 3.0, 30.0, True),
+                ("must fail: the furnace 40 s off the leg, 30 s waited: not worth it", done, 40.0, 30.0, False),
+                ("must fail: nothing in the plan waits on it: the reflex collects it later", done, 3.0, 0.0, False),
+                ("must fail: still burning", [dict(done[0], ready_tick=10 ** 9)], 3.0, 30.0, False)]
+        for name, jobs_, detour, saved, cut in rows:
+            with self.subTest(name):
+                self.assertEqual(slice_due(jobs_, 100, "task", "normal", detour, saved) is not None, cut)
+
+    def test_the_brain_reads_the_detour_and_the_saved_wait_off_its_plan(self):
+        st = state()
+        dim, f = st["dimension"], (st["blockX"], st["blockY"], st["blockZ"])
+        for name, furnace_off, want in (("beside the leg", 3, True), ("must fail: far off the leg", 400, False)):
+            with self.subTest(name):
+                b = brain_fixture()
+                b.round_snap = snapshot(st, inventory(("iron_pickaxe", 1)), stone=20.0)
+                site = (f[0] + 20, f[1] - 1, f[2])
+                b.mem.add_job("furnace", (f[0], f[1], f[2] + furnace_off), dim, "minecraft:iron_ingot", 3, 0.0, False)
+                for j in b.mem.data["jobs"]:
+                    j["ready_tick"] = 0
+                use = Step("craft", "minecraft:bucket", 1, {"inputs": {"minecraft:iron_ingot": 3}})
+                use.parts = {"wait": 30 * TICKS_PER_S}
+                mine = Step("mine", "minecraft:cobblestone", 20, {"blocks": ["minecraft:stone"]})
+                b.needs_plan = {"steps": [mine, use]}
+                b.act_now = ("plan", "round: mine:minecraft:cobblestone", 0.0)
+                with mock.patch.object(api, "mode", lambda: "normal"), \
+                        mock.patch.object(b.mem, "tick", lambda: 10 ** 6), \
+                        mock.patch.object(brain.Cost, "site", lambda self_, step: site if step.kind == "mine" else None):
+                    self.assertEqual(b.slice_reason() is not None, want)
+
+
+class DesignWearAndTier(unittest.TestCase):
+    """[R1] D: wear is priced per use from the tool's own price; a step a held tool cannot run is not runnable."""
+
+    def test_fuzz_wear_is_linear_in_uses_and_price(self):
+        from bonobo.data import TOOL_USES
+        from bonobo.knowledge import wear_ticks
+        rng = random.Random(SEED + 58)
+        for case in range(200):
+            breaks, price = rng.randint(0, 200), rng.randint(0, 5000)
+            material = rng.choice(sorted(TOOL_USES))
+            with self.subTest(case=case, breaks=breaks, price=price, material=material):
+                got = wear_ticks(breaks, f"minecraft:{material}_pickaxe", price)
+                self.assertAlmostEqual(got, breaks * price / TOOL_USES[material], delta=1.0)
+                self.assertEqual(wear_ticks(breaks, "hand", price), 0)
+
+    def test_fuzz_a_mine_step_runs_only_with_the_tier_held(self):
+        from bonobo.planner import runnable
+        rng = random.Random(SEED + 59)
+        tiers = {None: -1, "wooden_pickaxe": 0, "stone_pickaxe": 1, "iron_pickaxe": 2, "diamond_pickaxe": 3}
+        for case in range(120):
+            pick, tier = rng.choice(sorted(tiers, key=str)), rng.randint(0, 3)
+            inv = bag(inventory(*(((pick, 1),) if pick else ())))
+            step = Step("mine", "minecraft:raw_iron", 1, {"blocks": ["minecraft:iron_ore"], "tier": tier})
+            with self.subTest(case=case, pick=pick, tier=tier):
+                self.assertEqual(runnable(step, inv), tiers[pick] >= tier)
+
+    def test_the_plan_makes_the_tool_before_the_ore_and_upkeep_adds_no_second_path(self):
+        steps = plan([("minecraft:diamond", 1)], ("stone_pickaxe", 1), ("iron_ingot", 3), ("stick", 4),
+                     ("crafting_table", 1))
+        kinds = [(s.kind, bare(s.token)) for s in steps]
+        self.assertIn(("craft", "iron_pickaxe"), kinds)
+        self.assertLess(kinds.index(("craft", "iron_pickaxe")), next(i for i, k in enumerate(kinds) if k[0] == "mine"
+                                                                    and k[1] == "diamond"))
+        b = brain_fixture()
+        b.needs_plan = {"steps": [Step("mine", "minecraft:diamond", 1, {"blocks": ["minecraft:diamond_ore"],
+                                                                        "tier": 2})]}
+        snap = snapshot(state(), inventory(("stone_pickaxe", 1), ("iron_ingot", 3), ("stick", 4),
+                                           ("crafting_table", 1)))
+        b.needs.observe(snap)
+        b.needs.propose(snap, None, {"enclosed": False, "bed_near": False, "soft_ground": False, "in_pit": False})
+        self.assertNotIn("tool tier", [k for k, _g, _w in b.needs.needs_now])
+
+
+class DesignQuotaFromTheRoute(unittest.TestCase):
+    """[G5] D: what en-route wants is the route's own demand less the bag — no cap table."""
+
+    def test_fuzz_lacked_is_route_demand_less_held_and_a_full_bag_takes_no_new_kind(self):
+        rng = random.Random(SEED + 60)
+        from bonobo.bag import FREE_SLOTS_TARGET
+        for case in range(60):
+            items = [("cobblestone", rng.randint(0, 80)), ("coal", rng.randint(0, 30)), ("oak_log", rng.randint(0, 30))]
+            items = [(k, n) for k, n in items if n]
+            filler = rng.choice([0, 20, 34])
+            inv = inventory(*items, *[("feather", 1)] * filler)
+            snap = snapshot(state(), inv)
+            b = brain_fixture()
+            c = cost(snap, b.mem)
+            wanted = b.enroute_wanted(snap, c, [], [])
+            demand = {}
+            for name in goals.MILESTONES:
+                g = goals.make("milestone", name=name)
+                if goals.remainder(g, snap, b.mem) == {}:
+                    continue
+                rows = goals.MILESTONES[name]
+                for need in rows if isinstance(rows, list) else ():
+                    token, n = (tool_item(need[1], need[2]), 1) if need[0] == "tool" else (need[0], need[1])
+                    for t, m in c.raw_needs(token, n).items():
+                        demand[t] = demand.get(t, 0) + m
+            with self.subTest(case=case, items=items, filler=filler):
+                for token, (p, lacked) in wanted.items():
+                    self.assertGreater(lacked, 0)
+                    self.assertLessEqual(lacked, max(0, demand.get(token, 0) - snap.inv.count(token)) + 1)
+                    if snap.inv.free_slots() < FREE_SLOTS_TARGET:
+                        self.assertGreater(snap.inv.count(token), 0, token)
+
+
+class SliceBoundary(unittest.TestCase):
+    """[E6]"""
+    def boundary(self, reason, soft=False, exempt=False, night=None):
+        with mock.patch.object(api, "SLICE_DUE", lambda: reason), mock.patch.object(api.STATE, "soft", soft), \
+                mock.patch.object(api, "BOUNDARY_EXEMPT", lambda: exempt), \
+                mock.patch.object(api.STATE, "at_boundary", night):
+            try:
+                api.at_boundary()
+                return None
+            except api.Interrupted as e:
+                return type(e).__name__
+
+    def test_rows(self):
+        rows = [("something due: the act hands back", "furnace done", False, False, None, "SliceEnded"),
+                ("nightfall first", "furnace done", False, False, "night", "NightFell"),
+                ("must fail: nothing due", None, False, False, None, None),
+                ("must fail: a soft act (a fight) is never cut", "furnace done", True, False, None, None),
+                ("must fail: the night's way is never cut", "furnace done", False, True, None, None)]
+        for name, reason, soft, exempt, night, want in rows:
+            with self.subTest(name):
+                self.assertEqual(self.boundary(reason, soft, exempt, night), want)
+
+    def test_a_slice_resumes_the_same_target_and_is_no_failure(self):
+        from bonobo import brain as b_
+        err = api.SliceEnded("furnace done")
+        self.assertEqual(b_.outcome_of(err), ("interrupted", "slice"))
+        self.assertEqual(arbiter.resume_of("slice"), (True, None))
+        self.assertIn(type(err), api.INTERRUPTIONS)
+        self.assertIsNone(retry.Retry().failed("task t1", retry.cause_of(err), str(err), 0.0))
+
+    def test_fuzz_a_chain_stops_only_between_tasks(self):
+        rng = random.Random(SEED + 49)
+        for case in range(40):
+            n = rng.randint(1, 12)
+            flip = rng.randint(0, n)
+            sent = []
+            due = {"reason": None}
+
+            def post_chain(tasks_, **_k):
+                sent.extend(tasks_)
+                if len(sent) >= flip:
+                    due["reason"] = "furnace done"
+                return [{"status": "succeeded"} for _ in tasks_]
+            chain = [{"type": "mine", "x": i, "y": 64, "z": 0} for i in range(n)]
+            with mock.patch.object(api, "SLICE_DUE", lambda: due["reason"]), \
+                    mock.patch.object(api, "BOUNDARY_EXEMPT", lambda: False), \
+                    mock.patch.object(api.STATE, "soft", False), mock.patch.object(api.STATE, "at_boundary", None):
+                for t in chain:
+                    try:
+                        api.at_boundary()
+                    except api.SliceEnded:
+                        break
+                    post_chain([t])
+            with self.subTest(case=case, n=n, flip=flip):
+                self.assertEqual(len(sent), min(n, max(flip, 1)))
+
+
+class SlicedActs(unittest.TestCase):
+    """[K2]"""
+    def test_a_sliced_act_is_neither_cooled_nor_counted(self):
+        b = brain_fixture()
+        b.last_light, b.lit_place = 0.0, None
+
+        def act():
+            raise api.SliceEnded("furnace done at (1, 64, 0)")
+        with mock.patch.object(api, "post", lambda *a, **k: None), mock.patch.object(api, "mode", lambda: "normal"):
+            try:
+                b.attempt("task t1", act, also=("step:mine:minecraft:cobblestone",))
+            except api.SliceEnded:
+                pass
+        self.assertEqual(b.retry.causes("task t1"), [])
+        self.assertEqual(b.retry.causes("step:mine:minecraft:cobblestone"), [])
+
+
+
+class ReviewCredit(unittest.TestCase):
+    """[G6] Review of goals.credit: durables embody no stock, names decide durability, the scan is cached."""
+
+    def test_rows(self):
+        rows = [("a furnace carried is no building stone", (("furnace", 1),), "stone", 0.0),
+                ("a crafting table carried is no planks", (("crafting_table", 1),), "minecraft:oak_planks", 0.0),
+                ("an iron pickaxe carried is no ingot", (("iron_pickaxe", 1),), "minecraft:iron_ingot", 0.0),
+                ("two eyes and a powder: 1.5 rods", (("ender_eye", 2), ("blaze_powder", 1)), "minecraft:blaze_rod", 1.5),
+                ("must fail: nothing held", (), "minecraft:blaze_rod", 0.0)]
+        for name, items, token, want in rows:
+            with self.subTest(name):
+                self.assertAlmostEqual(goals.credit(bag(inventory(*items)), token), want)
+
+    def test_fuzz_durability_is_by_name_never_by_the_last_word(self):
+        rng = random.Random(SEED + 61)
+        durable = ["minecraft:flint_and_steel", "minecraft:shield", "bed", "minecraft:white_bed",
+                   "minecraft:golden_helmet", "minecraft:iron_chestplate", "minecraft:crafting_table",
+                   "minecraft:furnace", "minecraft:bucket", "minecraft:water_bucket", "minecraft:diamond_pickaxe"]
+        stock = ["minecraft:blaze_rod", "minecraft:blaze_powder", "minecraft:ender_pearl", "minecraft:ender_eye",
+                 "minecraft:torch", "stone", "minecraft:cobblestone", "food", "minecraft:cooked_beef", "log"]
+        for case in range(100):
+            token, want = rng.choice([(t, True) for t in durable] + [(t, False) for t in stock])
+            with self.subTest(case=case, token=token):
+                self.assertEqual(goals.durable(token), want)
+
+    def test_the_recipe_scan_is_paid_once(self):
+        inv = bag(inventory(("ender_eye", 3)))
+        goals.credit(inv, "minecraft:blaze_rod")
+        t0 = time.perf_counter()
+        for _ in range(300):
+            goals.credit(inv, "minecraft:blaze_rod")
+        self.assertLess(time.perf_counter() - t0, 0.5)
+
+
+class ReviewSchedule(unittest.TestCase):
+    """[D6] Review of planner.schedule: without a furnace the plan's order stands; waits land on what takes the output in."""
+
+    def test_fuzz_no_smelt_no_reorder_no_wait(self):
+        from bonobo.planner import schedule
+        rng = random.Random(SEED + 62)
+        pool = [lambda: Step("mine", "minecraft:cobblestone", rng.randint(1, 9), {"blocks": ["minecraft:stone"]}),
+                lambda: Step("gather", "log", rng.randint(1, 4), {}),
+                lambda: Step("craft", "minecraft:stick", 4, {"inputs": {"minecraft:oak_planks": 2}}),
+                lambda: Step("goto", "pos", 1, {"pos": [5, 64, 0]})]
+        for case in range(100):
+            steps = [rng.choice(pool)() for _ in range(rng.randint(1, 8))]
+            ests = [rng.randint(1, 300) for _ in steps]
+            order, waits, makespan = schedule(steps, ests)
+            with self.subTest(case=case):
+                self.assertEqual([id(s) for s in order], [id(s) for s in steps])
+                self.assertEqual(list(waits), [0] * len(steps))
+                self.assertEqual(makespan, sum(ests))
+
+    def test_fuzz_a_plan_with_a_furnace_replays_by_bag_arithmetic(self):
+        rng = random.Random(SEED + 63)
+        for case in range(25):
+            iron, stone = rng.randint(1, 9), rng.randint(0, 40)
+            needs = [("minecraft:bucket", 1)] + ([("stone", stone)] if stone else [])
+            items = [("raw_iron", iron), ("coal", 2), ("iron_pickaxe", 1)] + rng.choice([[("furnace", 1)], []])
+            steps = plan(needs, *items)
+            with self.subTest(case=case, iron=iron, stone=stone, items=items):
+                bad, unmet = replay(items, steps, needs)
+                self.assertEqual((bad, unmet), ([], []))
+                for st in steps:
+                    self.assertGreaterEqual(st.est, 0)
+
+
+class ReviewSliceReason(unittest.TestCase):
+    """[E6] Review of brain.slice_reason: the saved wait is read off the step that takes the furnace's output in."""
+
+    def reason(self, consumer, furnace_off, waiting_ticks):
+        st = state()
+        dim, f = st["dimension"], (st["blockX"], st["blockY"], st["blockZ"])
+        b = brain_fixture()
+        b.round_snap = snapshot(st, inventory(("iron_pickaxe", 1)), stone=20.0)
+        site = (f[0] + 20, f[1] - 1, f[2])
+        b.mem.add_job("furnace", (f[0], f[1], f[2] + furnace_off), dim, "minecraft:iron_ingot", 3, 0.0, False)
+        for j in b.mem.data["jobs"]:
+            j["ready_tick"] = 0
+        consumer.parts = {"wait": waiting_ticks}
+        mine = Step("mine", "minecraft:cobblestone", 20, {"blocks": ["minecraft:stone"]})
+        b.needs_plan = {"steps": [mine, consumer]}
+        b.act_now = ("plan", "round: mine", 0.0)
+        with mock.patch.object(api, "mode", lambda: "normal"), mock.patch.object(b.mem, "tick", lambda: 10 ** 6), \
+                mock.patch.object(brain.Cost, "site", lambda self_, step: site if step.kind == "mine" else None):
+            return b.slice_reason()
+
+    def test_rows(self):
+        bucket = lambda: Step("craft", "minecraft:bucket", 1, {"inputs": {"minecraft:iron_ingot": 3}})  # noqa: E731
+        await_ = lambda: Step("await", "minecraft:iron_ingot", 3, {})  # noqa: E731
+        rows = [("a craft taking the ingots in, beside the leg", bucket, 3, 30 * TICKS_PER_S, True),
+                ("an await of the ingots, beside the leg", await_, 3, 30 * TICKS_PER_S, True),
+                ("must fail: nothing waits", bucket, 3, 0, False),
+                ("must fail: far off the leg", bucket, 400, 30 * TICKS_PER_S, False)]
+        for name, make, off, wait, cut in rows:
+            with self.subTest(name):
+                self.assertEqual(self.reason(make(), off, wait) is not None, cut)
+
+    def test_a_job_is_offered_once(self):
+        got = []
+        st = state()
+        b = brain_fixture()
+        b.round_snap = snapshot(st, inventory(), stone=5.0)
+        b.mem.add_job("furnace", (st["blockX"], st["blockY"], st["blockZ"] + 2), st["dimension"],
+                      "minecraft:iron_ingot", 3, 0.0, False)
+        for j in b.mem.data["jobs"]:
+            j["ready_tick"] = 0
+        use = Step("craft", "minecraft:bucket", 1, {"inputs": {"minecraft:iron_ingot": 3}})
+        use.parts = {"wait": 600}
+        b.needs_plan = {"steps": [use]}
+        b.act_now = ("plan", "round", 0.0)
+        with mock.patch.object(api, "mode", lambda: "normal"), mock.patch.object(b.mem, "tick", lambda: 10 ** 6):
+            got = [b.slice_reason() is not None for _ in range(3)]
+        self.assertEqual(got, [True, False, False])
+
+
+class ReviewWearPricing(unittest.TestCase):
+    """[R1] Review of cost.enroute's wear: a tool's price is asked once a round, and wear only lowers a candidate's bound."""
+
+    def test_the_tool_price_is_asked_once_a_round(self):
+        c = cost(snapshot(state(), inventory(("iron_pickaxe", 1))), None, stone=4.0)
+        calls = []
+        real = brain.Prices.get
+
+        def counting(self_, item, default=None):
+            calls.append(item)
+            return real(self_, item, default)
+        with mock.patch.object(brain.Prices, "get", counting):
+            for _ in range(5):
+                c._tool_price_s("minecraft:iron_pickaxe")
+        self.assertEqual(len(calls), 1)
+
+    def test_fuzz_wear_never_raises_a_bound(self):
+        from bonobo.knowledge import wear_ticks
+        rng = random.Random(SEED + 64)
+        for case in range(200):
+            breaks, price = rng.randint(0, 100), rng.uniform(0, 3000)
+            with self.subTest(case=case):
+                self.assertGreaterEqual(wear_ticks(breaks, "minecraft:iron_pickaxe", price), 0)
+                self.assertLessEqual(wear_ticks(breaks, "minecraft:iron_pickaxe", price), breaks * price)
+
+
+class ReviewGeminiLeftovers(unittest.TestCase):
+    """[S4a] Review of what the other session left uncommitted: open-air night, go_find's tier refusal, propose's plans."""
+
+    def test_fuzz_open_air_night_is_night_under_the_sky_and_nothing_else(self):
+        rng = random.Random(SEED + 65)
+        for case in range(60):
+            night, sky = rng.random() < 0.5, rng.choice([0, 4, 15])
+            b = brain_fixture()
+            snap = snapshot(state(timeOfDay=18000 if night else 1000, skyLight=sky), inventory())
+            with mock.patch.object(b.reflexes, "sheltered", lambda s, e=None, sky=sky: sky < 15):
+                open_air = snap.night and b.under_sky(snap)
+            with self.subTest(case=case, night=night, sky=sky):
+                self.assertEqual(open_air, night and sky == 15)
+
+    def test_fuzz_go_find_refuses_before_any_search_when_the_pickaxe_is_short(self):
+        from bonobo import dispatch
+        rng = random.Random(SEED + 66)
+        tiers = {None: -1, "wooden_pickaxe": 0, "stone_pickaxe": 1, "iron_pickaxe": 2, "diamond_pickaxe": 3}
+        for case in range(60):
+            pick, tier = rng.choice(sorted(tiers, key=str)), rng.randint(0, 3)
+            ctx = mock.Mock()
+            ctx.dimension, ctx.mem = "minecraft:overworld", memory()
+            ctx.inv = inventory(*(((pick, 1),) if pick else ()))
+            step = Step("mine", "minecraft:raw_iron", 1, {"tier": tier, "blocks": ["minecraft:iron_ore"]})
+            looked = []
+            with mock.patch("bonobo.world.feet", return_value=(0, 64, 0)), \
+                    mock.patch.object(ctx.mem, "seen", lambda *a, **k: looked.append(a) or []):
+                if tiers[pick] < tier:
+                    with self.subTest(case=case, pick=pick, tier=tier):
+                        self.assertFalse(dispatch.go_find(ctx, step))
+                        self.assertEqual(looked, [])
+
+    def test_propose_reads_the_queue_s_plans_and_the_round_s_alike(self):
+        for where in ("held", "needs_plan"):
+            with self.subTest(where):
+                b = brain_fixture()
+                plan_ = {"steps": [Step("mine", "minecraft:cobblestone", 4, {"blocks": ["minecraft:stone"], "tier": 0})]}
+                if where == "held":
+                    b.held = {"t1": plan_}
+                else:
+                    b.needs_plan = plan_
+                b.needs.broken, b.needs.wear = {"pickaxe"}, {}
+                snap = snapshot(state(), inventory(("cobblestone", 3), ("stick", 2)))
+                b.needs.propose(snap, None, {"enclosed": False, "bed_near": False, "soft_ground": False,
+                                             "in_pit": False})
+                self.assertIn("broken tool", [k for k, _g, _w in b.needs.needs_now])
+
+
+
+AROUND6 = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
+SIDES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1))
+
+
+def add3(a, b):
+    return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
+
+
+class CastWorld:
+    """A voxel world the cast runs in: flat ground at `floor`, a lava pool, blocks placed and broken as the skill would."""
+
+    def __init__(self, floor, pool):
+        self.floor, self.blocks = floor, {}
+        for c in pool:
+            self.blocks[c] = "lava"
+
+    def name(self, c):
+        if c in self.blocks:
+            return self.blocks[c]
+        return "stone" if c[1] <= self.floor else "air"
+
+    def solid(self, c):
+        return self.name(c) not in ("air", "lava", "water")
+
+    def place(self, c):
+        if self.solid(c) or not any(self.solid(add3(c, d)) for d in AROUND6):
+            return False
+        self.blocks[c] = "mould"
+        return True
+
+    def pour_lava(self, c):
+        if self.name(c) != "air":
+            return False
+        if not self.solid(add3(c, (0, -1, 0))) or not all(self.solid(add3(c, d)) for d in SIDES):
+            return False
+        self.blocks[c] = "lava"
+        return True
+
+    def pour_water(self, c, run):
+        """Water on the lava at `c`: obsidian; the rest runs `run` cells flat at c+1 and down a level: over any lava
+        source it reaches, that lava is spent (obsidian or stone). Returns the lava cells spent beside c."""
+        if self.name(c) != "lava":
+            return None
+        self.blocks[c] = "obsidian"
+        spent, seen, frontier = [], {add3(c, (0, 1, 0))}, [add3(c, (0, 1, 0))]
+        for _ in range(run):
+            nxt = []
+            for w in frontier:
+                for d in SIDES:
+                    n = add3(w, d)
+                    if n in seen or self.solid(n):
+                        continue
+                    seen.add(n)
+                    below = add3(n, (0, -1, 0))
+                    if self.name(below) == "lava":
+                        spent.append(below)
+                    nxt.append(below if self.name(below) == "air" else n)
+            frontier = nxt
+        for c2 in spent:
+            self.blocks[c2] = "obsidian"
+        return spent
+
+
+def cast_run(world, bp, origin, turns, run):
+    """The cast as the skill chains it, judged by the world: every cell obsidian, nothing spilled, the inside free."""
+    from bonobo import blueprints, fluids
+    frame = list(blueprints.placed(bp, origin, turns))
+    for pos, part, *_ in frame:
+        if part.item != "minecraft:obsidian" and part.offset[1] == 0:
+            assert world.place(pos), f"bottom corner {pos} has no face"
+    placed, spilled = [], []
+    for cell, mould in fluids.cast_frame_plan(bp, origin, turns, world.solid):
+        if cell[1] == origin[1] + 4:
+            for pos, part, *_ in frame:
+                if part.item != "minecraft:obsidian" and part.offset[1] > 0 and not world.solid(pos):
+                    assert world.place(pos), f"top corner {pos} has no face"
+        order, _supports = fluids.placeable_order([m for m in mould if not world.solid(m)], world.solid)
+        for m in order:
+            assert world.place(m), f"mould {m} for {cell} has no face"
+        placed += order
+        assert world.pour_lava(cell), f"lava at {cell} would run"
+        spilled += world.pour_water(cell, run)
+        for m in fluids.mould_to_break(bp, origin, turns, placed):
+            if world.name(m) == "mould":
+                world.blocks[m] = "air"
+    obsidian = [pos for pos, part, *_ in frame if part.item == "minecraft:obsidian"]
+    inside = blueprints.clear_cells(bp, origin, turns)
+    return (all(world.name(c) == "obsidian" for c in obsidian), spilled,
+            [c for c in inside if world.name(c) != "air"])
+
+
+class CastGeometry(unittest.TestCase):
+    """[E2] The cast as geometry: every mould block has a face to go against, the lava is held, the water spills on no pool, the frame ends obsidian with its inside free."""
+
+    def test_fuzz_the_cast_closes_on_flat_ground(self):
+        from bonobo import blueprints, fluids
+        rng = random.Random(SEED + 67)
+        bp = blueprints.NETHER_PORTAL
+        for case in range(60):
+            floor = 63
+            origin = (rng.randint(-5, 5), floor + 1, rng.randint(-5, 5))
+            turns = rng.randint(0, 3)
+            pool = [(origin[0] + rng.choice([-1, 1]) * rng.randint(2, 12) + dx, floor, origin[2] + dz)
+                    for dx in range(3) for dz in range(-1, 2)]
+            world = CastWorld(floor, pool)
+            safe = fluids.spill_safe(bp, origin, turns, pool)
+            if not safe:
+                continue
+            with self.subTest(case=case, origin=origin, turns=turns, pool=pool[0]):
+                closed, spilled, left = cast_run(world, bp, origin, turns, run=3)
+                self.assertTrue(closed)
+                self.assertEqual(left, [])
+                self.assertEqual(spilled, [])
+
+    def test_must_fail_a_pool_beside_the_frame_is_spent(self):
+        from bonobo import blueprints, fluids
+        bp, origin = blueprints.NETHER_PORTAL, (0, 64, 0)
+        pool = [(5 + dx, 63, dz) for dx in range(3) for dz in range(-1, 2)]
+        self.assertFalse(fluids.spill_safe(bp, origin, 0, pool))
+        _closed, spilled, _left = cast_run(CastWorld(63, pool), bp, origin, 0, run=3)
+        self.assertTrue(spilled)
+
+    def test_fuzz_placeable_order_gives_every_cell_a_face(self):
+        from bonobo import fluids
+        rng = random.Random(SEED + 68)
+        for case in range(200):
+            ground = {(x, 63, z) for x in range(-6, 7) for z in range(-6, 7)}
+            solid_cells = set(ground)
+            for _ in range(rng.randint(0, 6)):
+                solid_cells.add((rng.randint(-4, 4), rng.randint(64, 67), rng.randint(-4, 4)))
+            cells = {(rng.randint(-3, 3), rng.randint(64, 68), rng.randint(-3, 3)) for _ in range(rng.randint(1, 8))}
+            cells -= solid_cells
+            order, supports = fluids.placeable_order(sorted(cells), lambda c: c in solid_cells)
+            placed = set()
+            with self.subTest(case=case, cells=sorted(cells), order=order):
+                for c in order:
+                    self.assertTrue(any(add3(c, d) in solid_cells or add3(c, d) in placed for d in AROUND6), c)
+                    placed.add(c)
+                self.assertTrue(cells <= placed)
+                self.assertEqual(set(supports), placed - cells)
+
+    def test_spill_safe_rows(self):
+        from bonobo import blueprints, fluids
+        bp, origin = blueprints.NETHER_PORTAL, (0, 64, 0)
+        rows = [("no lava", [], True), ("a pool 8 east", [(8, 63, 0)], True), ("a pool 2 east", [(2, 63, 0)], False),
+                ("a pool under the frame", [(1, 63, 0)], False), ("lava high above", [(1, 80, 0)], True),
+                ("a pool 5 south", [(1, 63, 5)], True), ("a pool 4 south", [(1, 63, 4)], False)]
+        for name, lava, want in rows:
+            with self.subTest(name):
+                self.assertEqual(fluids.spill_safe(bp, origin, 0, lava), want)
 
 
 if __name__ == "__main__":

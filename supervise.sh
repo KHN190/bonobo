@@ -47,7 +47,7 @@ import sys
 from bonobo import api
 try:
     api.get('/state')
-    v = api.status()['version'].split('+')[0]
+    v = api.game_status()['version'].split('+')[0]
 except api.McError as e:
     print(e); sys.exit(1)
 want = '$MIN_VERSION'

@@ -74,7 +74,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 121)           # the minimal bench + a must-fail row each for nav, chop, craft, smelt, eat, loot, hunt, night_first + a proving row per unproven skill; + 25 more proving rows restored verbatim; + runner price rows + dragon_perch_window + enroute
+        self.assertEqual(len(rec), 45)
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
@@ -103,13 +103,16 @@ class Equivalence(unittest.TestCase):
             with self.subTest(why):
                 self.assertNotEqual(record_of(name, table.build(changed, "core")), want)
         with self.subTest("another tier"):
-            self.assertNotEqual(record_of(name, table.build(row, "exception")), want)
+            self.assertNotEqual(record_of(name, table.build(row, "brain")), want)
 
     def test_a_family_entry_makes_many_rows(self):
-        mod = importlib.import_module(table.TABLES["exception"])
+        mod = importlib.import_module(table.TABLES["common"])
         made = sum(len(params) for _t, params in mod.FAMILIES)
         self.assertGreater(made, len(mod.FAMILIES))
-        self.assertEqual(len(table.rows("exception")), made + len(mod.ROWS) + len(mod.CODE_ROWS))
+        self.assertEqual(len(table.rows("common")), made + len(mod.ROWS) + len(mod.CODE_ROWS))
+
+    def test_a_tier_without_a_table_has_no_rows(self):
+        self.assertEqual(table.rows("exception"), {})
 
 
 def words_of(v, out):

@@ -18,6 +18,7 @@ from .world import BAG_SLOTS, Inventory, Region, nearest
 from .bag import FREE_SLOTS_TARGET, bag_signature, empty_how
 from .decompose import cooled_ways, way_key
 from .planner import Step
+from .cost import portal_known
 
 
 def in_sight(snap, kinds, radius):
@@ -132,13 +133,35 @@ class View(dict):
         self[key] = value
         return value
 
+ADMIT = {
+    "leave the Nether": lambda v: v["portal_known"],
+    "leave the pit": lambda v: v["pit_way"],
+    "unstuck": lambda v: v["unstuck_way"],
+    "path blocked": lambda v: isinstance(v["blocked_at"], dict) and v["blocked_at"].get("pos") is not None,
+}
+ADMIT_READS = {"leave the Nether": {"portal_known"}, "leave the pit": {"pit_way"}, "unstuck": {"unstuck_way"},
+               "path blocked": {"blocked_at"}}
+
+
+def admitted(name, view):
+    """Pure over the round's readings: what a fired row's act cannot run without is there (ADMIT: a portal known to
+    walk to, a way out of the pit, an unstuck way not cooling, a place the blocked walk was going) — a row short of
+    it is never offered, rather than run to fail and cool. A reading the view has no provider for admits."""
+    check = ADMIT.get(name)
+    if check is None:
+        return True
+    known = set(view) | set(getattr(view, "providers", ()))
+    return bool(check(view)) if ADMIT_READS[name] <= known else True
+
+
 def due(view, ready=lambda name: True):
     """[(seq, name)] of reflexes that fire in table order, skipping cooling ones."""
     global CURRENT_READY
     prev = CURRENT_READY
     CURRENT_READY = ready
     try:
-        return [(i, name) for i, (name, trigger, _act) in enumerate(TABLE) if ready(name) and trigger(view)]
+        return [(i, name) for i, (name, trigger, _act) in enumerate(TABLE)
+                if ready(name) and trigger(view) and admitted(name, view)]
     finally:
         CURRENT_READY = prev
 
@@ -249,6 +272,10 @@ class Maintain:
             "machine_ready": lambda: self.ready_machine(snap) is not None,
             "stuck": lambda: self.stuck_in_place(snap, enclosed),
             # a hole open to the sky, deeper than a jump (travel's shaft, a dug pit): read only under open sky
+            "portal_known": lambda: portal_known(b.mem, snap.dimension),
+            "pit_way": lambda: snap.region is None or bool(nav.pit_exit_tasks(snap.region, snap.feet,
+                                                                              nav.building_of(inv))),
+            "unstuck_way": lambda: self.unstuck_way(snap),
             "in_pit": lambda: s.get("skyLight", 0) >= OPEN_SKY and not _k.swimming(s)
             and _once(reads, "in_pit", lambda: nav.in_pit(snap.region, snap.feet) if snap.region is not None
                       else self.stuck_in_place(snap))(),      # ground not read: the body's own record (held in place)
@@ -428,6 +455,15 @@ class Maintain:
         region = snap.region
         return stuck_situation(survive.is_enclosed(region, snap.feet), nav.in_pit(region, snap.feet),
                                on_column(region, snap.feet), _k.under_rock(snap.state.get("skyLight", 15)))
+
+    def unstuck_way(self, snap):
+        """A way `unstuck` would still try here: a site far enough to head for, or a way of the situation's order not
+        cooling (each `unstuck:<label>` fails and cools on its own)."""
+        b = self.brain
+        site = b.mem.nearest_site(snap.feet, snap.dimension)
+        if site and math.dist(site["pos"], snap.feet) >= 12:
+            return True
+        return any(b.ready(f"unstuck:{label}") for label in unstuck_order(self.situation(snap)))
 
     def unstuck(self, snap, ctx):
         """One way out per call — the nearest site, then the ways in the order the situation asks (unstuck_order) —

@@ -158,6 +158,31 @@ def repriced_s(steps, cost, inv):
         st.est = by_key.get(st.key(), st.est)
     return ticks / TICKS_PER_S
 
+def slice_due(jobs, tick, layer, mode, detour_s, saved_s):
+    """Pure: why the queue's or the round's act (`layer` task or plan) hands the body back at its next task boundary —
+    a furnace job of this plan done (`ready_tick` past) whose collecting now costs less walking (`detour_s`: the leg
+    through the furnace less the leg itself) than the wait the held plan still has on its output (`saved_s`, the
+    consumer step's parts["wait"]) — or None: never a rescue, an upkeep row or an idle wait, never in survival mode,
+    never when nothing in the plan waits on it (the collect-job reflex takes it in passing)."""
+    if layer not in ("task", "plan") or mode == "survival" or not saved_s or detour_s >= saved_s:
+        return None
+    done = [j for j in jobs if j.get("kind") == "furnace" and j.get("ready_tick", math.inf) <= tick]
+    if not done:
+        return None
+    return f"furnace done at {tuple(done[0].get('pos') or ())}: {saved_s:.0f}s waited on it, {detour_s:.0f}s round"
+
+
+def enroute_runnable(step, inv):
+    """Pure: the tools held run an en-route candidate as it is — a mine step's pickaxe tier carried (no plan made
+    for it: an en-route step is inserted, never planned for)."""
+    tier = step.detail.get("tier") if step.kind == "mine" else None
+    return tier is None or _k.held_tiers(inv).get("pickaxe", -1) >= int(tier)
+
+def enroute_inserted(step, steps):
+    """Pure: `steps` (fresh copies) with the en-route `step` put before the first leg they walk."""
+    from .planner import Step
+    return [step] + [Step(st.kind, st.token, st.count, dict(st.detail)) for st in steps]
+
 def thrown_s(now=None):
     """Seconds of the running plan act a switch throws away (0 when none runs or it is done)."""
     cur = arbiter.BODY.current()
@@ -224,6 +249,7 @@ class Act:
     def __repr__(self):
         return f"{self.layer}: {self.name}" + (f" → {self.step}" if self.step else "")
 
+
 class Brain:
     def __init__(self):
         self.mem = Memory()
@@ -257,6 +283,8 @@ class Brain:
         self.just_finished = False    # set by plan_proposals; idle_wait reads it on any round, a plan-less one too
         self.wake = None              # fn() → True ends an idle wait at once (a bench row's `until`: its outcome)
         api.GUARD = self.home_guard   # every task posted passes the home's rules
+        self.act_now, self.sliced_for = None, set()
+        api.SLICE_DUE = self.slice_reason
         self.committed = None
         self.watch = hazard.Watch()
         self.task_writes = None       # while task_act / after_step decide: the task's fields they change (writes)
@@ -586,9 +614,13 @@ class Brain:
             return
         box = {}
         also = (step_key(act.step),) if getattr(act, "step", None) is not None else ()
-        ran = self._running(lambda: arbiter.BODY.drive(
-            "plan", lambda: box.update(outcome=self.attempt(act.name, act.run, also, act.site)),
-            act.name, commit_s=act_commit_s(act)))
+        self.act_now = (act.layer, act.name, time.time())
+        try:
+            ran = self._running(lambda: arbiter.BODY.drive(
+                "plan", lambda: box.update(outcome=self.attempt(act.name, act.run, also, act.site)),
+                act.name, commit_s=act_commit_s(act)))
+        finally:
+            self.act_now = None
         outcome = box.get("outcome", "interrupted") if ran else "interrupted"
         ACTS.append(act_record(act, began, time.time(), outcome, self.last_cause if outcome == "failed" else None))
         tape.event(act.name, outcome, str(self.last_failure.__dict__) if self.last_failure else "")
@@ -660,7 +692,8 @@ class Brain:
                     def is_threatened():
                         try:
                             return bool(threat.threats_seen()[0])
-                        except Exception:
+                        except Exception as e:  # guard: the fast layer answers lava with or without the threat model
+                            api.swallowed("brain.fast threats", e)
                             return False
                     out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
                         ctx, snap.state, self.attempt, self.ready, threatened=is_threatened(),
@@ -738,6 +771,7 @@ class Brain:
             if tid not in live_ids:
                 self.held.pop(tid, None)
         closed = snap.night
+        open_air = closed and self.under_sky(snap)
         self.just_finished = False
         self.idle_why = ""
         self.step_whys = []            # D1: a queued task's own "no step can run" reason, named (not the bare default)
@@ -760,7 +794,7 @@ class Brain:
                 barred.append(f"{name}: {why}")       # D1: said where the round proposes nothing
                 continue
             entries.append((name, goal, len(live) + len(entries)))
-        milestone = next_milestone(snap, self.mem) if not live and not closed else None
+        milestone = next_milestone(snap, self.mem) if not live and not open_air else None
         if milestone is not None and self.ready(f"milestone: {goals.describe(milestone)}"):
             entries.append((f"milestone: {goals.describe(milestone)}", milestone, len(entries)))
         if entries:
@@ -1095,18 +1129,20 @@ class Brain:
                 token, n = (_k.tool_item(need[1], need[2]), 1) if need[0] == "tool" else (need[0], need[1])
                 for t, m in cost.raw_needs(token, n).items():
                     lacked = m - after.count(t)
+                    if snap.inv.free_slots() < bag.FREE_SLOTS_TARGET and after.count(t) == 0:
+                        continue          # a bag nearly full takes no new kind on the way (room is for the plan's own)
                     if lacked > 0 and 1.0 / (1 + k) > wanted.get(t, (0.0, 0))[0]:
                         wanted[t] = (1.0 / (1 + k), lacked)
         return wanted
 
     def enroute_plan(self, entries, snap, cost, held):
-        """En-route (G3, K4) as the planner's choice, once a round: A the round's plan; C it planned again with the one
-        best thing beside the leg its first walk takes (Cost.enroute's cheap bound) asked as well — an unopened
-        chest's look put first. C is held when its seconds over A's are less than P × the item's bag value
-        (knowledge.side_saving), else A; held, it runs like any plan (dispatch.run_priced: its budget covers every
-        walk). A plan already chosen so is kept until it is planned again. Said and kept (enroute_choice)."""
+        """En-route (G3, K4) as one pass over the round's plan, never a second search: A the round's plan; C A with the
+        one best thing beside the leg its first walk takes (Cost.enroute, each worth with its own source hidden) put
+        before that leg — a step the tools held cannot run is never offered. Both priced as held plans (repriced_s); C is held
+        when its seconds over A's are less than P × the item's bag value with its source hidden (knowledge.side_saving),
+        else A. A plan already chosen so is kept until it is planned again. Said and kept (enroute_choice)."""
         self.enroute_choice = None
-        if "enroute" in held:          # already checked (round_for's own cache: unchanged since), not asked twice
+        if "enroute" in held:
             return held
         sites = [at for at in map(cost.site, held["steps"]) if at is not None]
         hidden_by = {}
@@ -1116,30 +1152,18 @@ class Brain:
             if key not in hidden_by:
                 hidden_by[key] = self.hidden_prices(snap, st, at).get
             return hidden_by[key]
-        # a running furnace is waited on anyway: C's extra seconds within that wait are free
         wait_s = furnace_wait_s(self.mem.jobs(snap.dimension))
-        # a plan worked where the body stands (await, craft) still looks beside the feet
         got = cost.enroute(snap.feet, sites[0] if sites else snap.feet,
                            self.enroute_wanted(snap, cost, entries, held["steps"]), hidden, wait_s)
-        # one candidate: the best not already a place the plan works (its yield is A's)
-        _bound, step, where, item, n, p = next((r for r in got if tuple(r[2]) not in map(tuple, sites)),
-                                               (None,) * 6)
+        worked = set(map(tuple, sites))
+        _bound, step, where, item, n, p = next((r for r in got if tuple(r[2]) not in worked
+                                                and enroute_runnable(r[1], snap.inv)), (None,) * 6)
         if step is None:
             return dict(held, enroute=None)
         name = f"en-route: {step.kind} {bare(step.token)} at {where}"
-        if step.kind == "look":
-            a = [planner.Step(st.kind, st.token, st.count, dict(st.detail)) for st in held["steps"]]
-            steps = [step] + [planner.Step(st.kind, st.token, st.count, dict(st.detail)) for st in held["steps"]]
-            a_s, c_s = repriced_s(a, cost, snap.inv), repriced_s(steps, cost, snap.inv)
-        else:
-            c, _why = replan(entries + [(name, goals.have((item, n)), len(entries))], snap, cost,
-                             self.mem.pending_outputs(snap.dimension))
-            if c is None:
-                self.enroute_choice = EnrouteChoice(name, sum(st.est for st in held["steps"]) / TICKS_PER_S, None, p,
-                                                    None, False, None)
-                return dict(held, enroute=None)
-            steps = c["steps"]
-            a_s, c_s = (sum(st.est for st in s) / TICKS_PER_S for s in (held["steps"], steps))
+        steps = enroute_inserted(step, held["steps"])
+        a = [planner.Step(st.kind, st.token, st.count, dict(st.detail)) for st in held["steps"]]
+        a_s, c_s = repriced_s(a, cost, snap.inv), repriced_s(steps, cost, snap.inv)
         value = bag.item_value(item, n, hidden(step, where))
         chosen = _k.side_saving(p, value or 0.0, 0.0, max(0.0, c_s - a_s - wait_s)) > 0
         self.enroute_choice = EnrouteChoice(name, a_s, c_s, p, value, chosen, wait_s)
@@ -1185,6 +1209,8 @@ class Brain:
         starts, then a torch a segment — a side act priced (K4): the hostiles a held plan's work here would meet
         (knowledge.hostile_s), less the torches' placing."""
         s = snap.state
+        if snap.inv.usable("minecraft:torch") < 1:
+            return None
         enclosed = reflexes.ground(None, snap)[0]
         if time.time() - self.last_light <= 5 or not _k.under_rock(s.get("skyLight", 15)) or not _k.dark_here(s) \
                 or enclosed():
@@ -1201,6 +1227,38 @@ class Brain:
                 self.lit_place = self.place
                 survive.light_area(ctx, survive.LIGHT_R, torches, spots=spots)
         return arbiter.Intent("maintain", Act("upkeep", "light", run), key="light", side=True, saving=saving)
+
+    def slice_reason(self):
+        """api.SLICE_DUE: what the act running now hands back for at its next task boundary (slice_due): a furnace job
+        done whose output a held step still waits on (its parts["wait"]), the detour through the furnace priced on the
+        round's snapshot; once per job, never while collecting is cooling here."""
+        act, snap = getattr(self, "act_now", None), getattr(self, "round_snap", None)
+        if act is None or snap is None or not self.ready("collect job"):
+            return None
+        tick = self.mem.tick()
+        if tick is None:
+            return None
+        sliced = self.__dict__.setdefault("sliced_for", set())
+        jobs_ = [j for j in self.mem.jobs(snap.dimension) if j.get("kind") == "furnace" and j.get("id") not in sliced
+                 and j.get("ready_tick", math.inf) <= tick]
+        if not jobs_:
+            return None
+        waits = {}
+        for st in self.held_steps():
+            wait = (getattr(st, "parts", None) or {}).get("wait", 0)
+            for tok in [st.token, *st.detail.get("inputs", {})]:
+                waits[bare(tok)] = max(waits.get(bare(tok), 0), wait)     # the wait is on what the step takes in
+        saved_s = max([waits.get(bare(j.get("item") or ""), 0) for j in jobs_] + [0]) / TICKS_PER_S
+        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache)
+        site = next((at for at in map(cost.site, self.held_steps()) if at is not None), tuple(snap.feet))
+        feet = tuple(snap.feet)
+        furnace = min((tuple(j["pos"]) for j in jobs_), key=lambda p: math.dist(feet, p))
+        detour_s = (_k.walk_ticks(math.dist(feet, furnace)) + _k.walk_ticks(math.dist(furnace, site))
+                    - _k.walk_ticks(math.dist(feet, site))) / TICKS_PER_S
+        why = slice_due(jobs_, tick, act[0], api.mode(), detour_s, saved_s)
+        if why is not None:
+            sliced |= {j.get("id") for j in jobs_}
+        return why
 
     def held_steps(self):
         """Every step of the plans held this round (the queue's and the round's), each once."""
@@ -1305,7 +1363,9 @@ def armour_gain(inv):
 
 
 def next_milestone(snap, mem):
-    """The run's first milestone the world does not meet yet (goals.MILESTONES, OFF_ROUTE skipped), or None."""
+    """The run's first milestone the world does not meet yet (goals.MILESTONES in route order, OFF_ROUTE skipped), or
+    None: what is met is the remainder's to say (durables live, consumables with what their products embody); what
+    can run by night is the round's (round_act's skip), never this."""
     for name in (n for n in goals.MILESTONES if n not in goals.OFF_ROUTE):
         goal = goals.make("milestone", name=name)
         if goals.remainder(goal, snap, mem) != {}:

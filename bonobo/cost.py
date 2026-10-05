@@ -7,7 +7,7 @@ from . import api
 from .api import Interrupted, McError
 from .data import SEARCH_LOOK_R
 from .data import MEASURED_BAND, MACHINE_PROVIDES, ROUTE_FACTOR, STATION_R, TOOL_KINDS, DEEPSLATE_TOP, GROUPS, HARDNESS, HAZARD, NAV_NODES, bare, mid
-from .knowledge import SURFACE_Y, find_class, sources, step_station, work_s, food_count, soil_depth, dawn_s, body_facts, expected_find_s, step_kinds, walk_ticks, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS, walk_ticks: re-exported)
+from .knowledge import SURFACE_Y, find_class, tool_kind, tool_item, wear_ticks, sources, step_station, work_s, food_count, soil_depth, dawn_s, body_facts, expected_find_s, step_kinds, walk_ticks, dig_to_ticks, members, held_tiers, own_work, prior_work_ticks, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS, walk_ticks: re-exported)
 from .skillcore import ban_state, banned
 from .world import Region, Versioned, job_ready, route_key
 from .skill import MIN_SAMPLES
@@ -629,8 +629,23 @@ class Cost:
         def detour(c):
             return (walk_ticks(math.dist(here, c)) + walk_ticks(math.dist(c, there))) / TICKS_PER_S - leg
 
+        def tool_wear_s(step):
+            # each break one use of the tool it takes, priced as a share of making that tool again (knowledge.wear_ticks)
+            breaks, _kills = own_work(step)
+            kinds = {k for k in map(tool_kind, breaks) if k is not None}
+            tiers = held_tiers(self.snap.inv)
+            total = 0.0
+            for kind in kinds:
+                if kind not in tiers:
+                    continue
+                tool = tool_item(kind, tiers[kind])
+                price_s = self._tool_price_s(tool)
+                total += wear_ticks(sum(1 for b in breaks if tool_kind(b) == kind), tool, price_s * TICKS_PER_S) \
+                    / TICKS_PER_S
+            return total
+
         def bound(p, later, step, c):
-            return side_saving(p, later, 0.0, max(0.0, self.work(step) / TICKS_PER_S + detour(c) - free_s))
+            return side_saving(p, later, 0.0, max(0.0, self.work(step) / TICKS_PER_S + detour(c) + tool_wear_s(step) - free_s))
 
         def want(item):
             return next((pn for w, pn in wanted.items() if w == item or mid(item) in members(w)), (0.0, 0))
@@ -691,6 +706,14 @@ class Cost:
                     chance = p * p_unknown(held, len(records))
                     out.append((bound(chance, later, look, c), look, c, item, n, chance))
         return sorted((r for r in out if r[0] > 0), key=lambda r: -r[0])
+
+    def _tool_price_s(self, tool):
+        """Seconds one `tool` costs to make from what the bag's tools alone allow (Prices), once a round; 0 unpriced."""
+        key = ("tool_price", tool)
+        if key not in self.cache:
+            got = Prices(self, self.snap.inv).get(tool)
+            self.cache[key] = float(got) if got else 0.0
+        return self.cache[key]
 
     def _kinds_of(self, step):
         """A site's kinds: a search has none, its place is what it finds."""

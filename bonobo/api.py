@@ -200,6 +200,11 @@ def afford(seconds, target):
 class Interrupted(McError):
     """The perception thread stopped the running task because of a danger; survival mode takes over next round."""
 
+class SliceEnded(Interrupted):
+    """A long act handed back between two tasks for what is now due (a furnace done): that first, then the same
+    target (arbiter RESUME_OF "slice"); never counted, cooled or banned."""
+
+
 class NightFell(Interrupted):
     """Nightfall on the surface, taken between two tasks: the night's way first, then the same target (arbiter
     RESUME_OF "night"); never counted, cooled or banned."""
@@ -256,14 +261,22 @@ def last_segment_s():
 BOUNDARY_EXEMPT = lambda: False          # noqa: E731  (skill.py: is the night's way what runs now?)
 
 
+SLICE_DUE = lambda: None                 # noqa: E731  (brain.slice_reason: what a long act hands back for, or None)
+
+
 def at_boundary():
-    """Between two tasks: raise Interrupted for a pending boundary request (cleared), unless exempt."""
-    if not STATE.at_boundary or STATE.soft or BOUNDARY_EXEMPT():
+    """Between two tasks: raise Interrupted for a pending boundary request (cleared), else for what is due now
+    (SLICE_DUE: a long act's slice), unless exempt."""
+    if STATE.soft or BOUNDARY_EXEMPT():
         return
-    with STATE.lock:
-        reason, STATE.at_boundary = STATE.at_boundary, None
-    if reason:
-        raise NightFell(reason)
+    if STATE.at_boundary:
+        with STATE.lock:
+            reason, STATE.at_boundary = STATE.at_boundary, None
+        if reason:
+            raise NightFell(reason)
+    due = SLICE_DUE()
+    if due:
+        raise SliceEnded(due)
 
 
 CLOCK_HOOK = None      # bench: (seconds) → the game's clock run ahead (tick sprint); production: nothing
@@ -587,6 +600,8 @@ def post(path, body=None):
 
 def game_status():
     return get("/status")
+
+status = game_status
 
 def wait_for_game(poll=10):
     announced = False

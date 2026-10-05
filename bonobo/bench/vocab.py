@@ -48,53 +48,6 @@ from .words import brain, checks, door, fight, runs, ways, scene as _scene_words
 
 _BEFORE = set(globals())
 # real structures in the test world (seed 1234): no box; /locate gives the truth
-LEG_START = (10400, 200, 10400)
-
-STRONGHOLD_LEG = 200        # nether.locate_stronghold's sideways leg between the two throws
-
-LEG_PAD = 12     # the eye's reading is a few degrees off /locate's: the plane is wider than the line
-
-def _leg_box(start, stronghold):
-    """Pure: (x0, z0, x1, z1) around the leg the skill walks, perpendicular to the line to the stronghold, padded."""
-    x, z = start
-    d = math.dist(stronghold, start) or 1.0
-    ex, ez = round(x - (stronghold[1] - z) / d * STRONGHOLD_LEG), round(z + (stronghold[0] - x) / d * STRONGHOLD_LEG)
-    return (min(x, ex) - LEG_PAD, min(z, ez) - LEG_PAD, max(x, ex) + LEG_PAD, max(z, ez) + LEG_PAD)
-
-def _stronghold_leg(ctx):
-    """The walk between throws on a flat stone plane at sky height (real hills were most of a 60 s row)."""
-    real = locate_reply(LAST_FEEDBACK)
-    if not real:
-        raise SetupInvalid("no /locate answer for the stronghold")
-    x, y, z = LEG_START
-    box = _leg_box((x, z), real)
-    _load_area(*box)
-    _overworld(_flat(*box, y, "stone") + [f"tp @p {x} {y + 1} {z}", "effect give @p speed 60 3 true"])
-    time.sleep(1)
-
-def _broken_hut(ctx):
-    """The hut in the arena as a remembered site whose snapshot is the whole wall (taken before it was broken)."""
-    lo, hi = at(2, 0, -2), at(6, 2, 2)
-    blocks = {f"{x},{y},{z}": "cobblestone" for x in range(lo[0], hi[0] + 1) for y in range(lo[1], hi[1] + 1)
-              for z in range(lo[2], hi[2] + 1) if x in (lo[0], hi[0]) or y in (lo[1], hi[1]) or z in (lo[2], hi[2])}
-    site = ctx.mem.add_site("shelter", at(4, 0, 0), "minecraft:overworld", name="bench-hut",
-                            snapshot={"lo": list(lo), "hi": list(hi), "blocks": blocks})
-    return site
-
-
-
-
-def _load_area(x0, z0, x1, z1):
-    """Force-load a footprint and wait until its corners answer ("That position is not loaded" otherwise)."""
-    _command(f"execute in minecraft:overworld run forceload add {x0} {z0} {x1} {z1}", [])
-    probes = [(px, pz) for px in (x0, x1) for pz in (z0, z1)]
-    for _ in range(60):
-        if not any("not loaded" in l for px, pz in probes for l in
-                   _command(f"execute in minecraft:overworld run fill {px} 300 {pz} {px} 300 {pz} air", [])):
-            return
-        time.sleep(0.5)
-    raise SetupInvalid(f"area {x0},{z0}..{x1},{z1} never loaded")
-
 def _overworld(cmds):
     """Commands run in the Overworld from a hook; a refused one is a setup that did not happen."""
     for cmd in cmds:
@@ -109,52 +62,14 @@ def _flat(x0, z0, x1, z1, y, block):
 
 
 
-STRONGHOLD_AT = (20000, 150, 20000)     # a built stronghold piece, in a sealed stone block in the sky
-ROOM_OFF = 64          # the ring's centre along +x: past the skill's 48-block scan, so the bricks are followed first
-def _stronghold_piece(x, y, z):
-    """Commands for a sealed stone-brick corridor ending in a portal room with 12 empty frames, without a /place structure."""
-    f = lambda a, b, block: f"fill {a[0]} {a[1]} {a[2]} {b[0]} {b[1]} {b[2]} {block}"   # noqa: E731
-    cx = x + ROOM_OFF
-    return [f((x - 3, y - 2, z - 6), (cx + 6, y + 5, z + 6), "stone"),
-            f((x - 1, y - 1, z - 2), (x + 58, y + 3, z + 2), "stone_bricks"),
-            f((x, y, z - 1), (x + 58, y + 2, z + 1), "air"),
-            f((cx - 5, y - 1, z - 5), (cx + 5, y + 4, z + 5), "stone_bricks"),
-            f((cx - 4, y, z - 4), (cx + 4, y + 3, z + 4), "air"),
-            f((x + 58, y, z - 1), (cx - 4, y + 2, z + 1), "air"),
-            f((cx - 1, y, z - 2), (cx + 1, y, z - 2), "end_portal_frame[facing=south]"),
-            f((cx - 1, y, z + 2), (cx + 1, y, z + 2), "end_portal_frame[facing=north]"),
-            f((cx - 2, y, z - 1), (cx - 2, y, z + 1), "end_portal_frame[facing=east]"),
-            f((cx + 2, y, z - 1), (cx + 2, y, z + 1), "end_portal_frame[facing=west]"),
-            f"tp @p {x + 1} {y} {z}"]
-
-def _built_stronghold(ctx):
-    """The piece built fresh every run (a run digs it up), the estimate at the corridor's start where we stand."""
-    x, y, z = STRONGHOLD_AT
-    _load_area(x - 8, z - 8, x + ROOM_OFF + 8, z + 8)
-    _overworld(_stronghold_piece(x, y, z))
-    ctx.mem.add_site("stronghold", (x + 1, y, z), "minecraft:overworld", name="stronghold")
-    time.sleep(1)
-
 PORTAL_ROOM_OK = []
 
-
-def _portal_room_run(ctx):
-    """Run the search and note whether the skill itself succeeded (a frame in range is not success)."""
-    from ..end import find_portal_room
-    PORTAL_ROOM_OK.clear()
-    find_portal_room(ctx)
-    PORTAL_ROOM_OK.append(True)
-    return True
 
 def _portal_room_found():
     from ..end import ROOM_REACH
     from ..world import find as _find
     # the same radius as the skill contract (three different radii let a failed verify pass)
     return bool(PORTAL_ROOM_OK) and bool(_find(["end_portal_frame"], radius=ROOM_REACH, limit=1))
-
-def _worn_head():
-    from ..world import Inventory
-    return ((bag_now().equipment.get("head") or {}).get("id") or "")
 
 def _wait_landed(ctx, seconds=10):
     from .. import api
@@ -286,27 +201,9 @@ def _trek_check(api):
     s = api.get("/state")
     return bool(TREK.get("end")) and nav.there(s, TREK["target"], TREK_RANGE) and not s["dead"]
 
-def _road_reuse(ctx):
-    """There, back, and there again over 150 blocks: the third trip follows the remembered legs, no slower than the first."""
-    from .. import api, nav
-    s = api.get("/state")
-    a = (s["blockX"], s["blockY"], s["blockZ"])
-    b = (a[0] + ROAD_LEG, a[1], a[2])
-    times = []
-    for target in (b, a, b):
-        t0 = time.time()
-        if not nav.go_to(target, ctx.policy, range_=12, attempts=1):
-            raise api.NavFailed(f"road trip to {target} stopped short")
-        times.append(time.time() - t0)
-    ROAD_TIMES[:] = times
-    return True
-
 ROAD_TIMES = []
 from .. import lifecycle as _lifecycle  # noqa: E402
 _lifecycle.in_place(__name__, "PORTAL_ROOM_OK", "FORTRESS_RUN", "TREK", "ROAD_TIMES", "GHAST")     # a row's own records
-
-ROAD_LEG = 10      # three legs of 10 blocks: the reuse is what is judged, not the distance
-
 
 # searching needs real terrain: raw rows, judged by what they found
 def _found_near(blocks, r=6):
@@ -314,10 +211,6 @@ def _found_near(blocks, r=6):
         from ..world import find
         return bool(find(blocks, radius=r, limit=1))
     return check
-
-def portal_made(api=None, inv=None):
-    from ..world import find
-    return bool(find(["nether_portal"], radius=32, limit=1))
 
 def _on_rim(top):
     """Standing dry on the rim at `top` (the block under the feet is the rim, not water)."""
@@ -364,10 +257,6 @@ def _queue(goal):
     return hook
 
 # -- where things come from (decompose.SOURCES): the plan is under test. A frame with its bottom two cells missing, resumed by the cast
-PORTAL_8_OF_10 = [f"fill {_c(at(-3, 0, 2))} {_c(at(0, 4, 2))} obsidian",
-                  f"fill {_c(at(-2, 0, 2))} {_c(at(-1, 3, 2))} air"] + \
-                 [f"setblock {_c(at(x, y, 2))} cobblestone" for x in (-3, 0) for y in (0, 4)]
-
 # -- the producers skills' `gives` added (farm, villager, bucket), console-built, judged by the bag
 def _villager(pos, buy, n_buy, sell, n_sell, profession="farmer"):
     """A villager that stays put (NoAI) with one offer: `n_buy` of `buy` → `n_sell` of `sell`."""
@@ -395,9 +284,9 @@ COMMON_CONDITIONS = ("night", "canopy", "cave", "full_bag", "interrupt_mid_work"
 
 # upkeep's rows and point-B hazards are everyday: common
 COMMON = ("dig_in_night", "reach_land_swim", "chest_or_tree", "cross_lava_8", "cave_escape",
-          "slice_nether_kit", "ore_buried", "hand_spare_slot", "furnace_on_slab")
+          "slice_nether_kit", "ore_buried", "hand_spare_slot", "furnace_on_slab", "eat_while_walking")
 
-ACCEPTANCE = (ACCEPTANCE_D,)
+ACCEPTANCE = (ACCEPTANCE_D, "accept_smelt_beside_mining", "accept_furnace_done_mid_mining")
 
 def tier_of(name, row):
     """Pure: the tier a row belongs to (a row that states its own tier keeps it)."""

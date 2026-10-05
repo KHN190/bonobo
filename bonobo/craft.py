@@ -3,6 +3,7 @@
 import math
 import time
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
+from .knowledge import FURNACE_REACH
 from . import bag as _bag
 from . import knowledge as K
 from . import api, nav, world
@@ -585,7 +586,6 @@ def smelt(ctx, output, input_token, count, fuel, next_use=None):
 # every smelt runs in the background: standing at a furnace was the iron bench's main time sink
 ASYNC_SMELT_MIN = 1
 
-FURNACE_REACH = 16          # every furnace this close shares a batch
 
 ITEMS_PER_FUEL = {"coal": 8, "charcoal": 8, "planks": 1.5, "log": 1.5}
 

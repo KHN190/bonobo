@@ -196,10 +196,12 @@ class Needs:
             if way is not None and any(st.kind != "shelter" for st in steps):
                 self.prepare_night(way, steps, snap)
         # upkeep only replaces a tool that broke under a held plan still wanting it (a blanket "no pickaxe" put one before every task)
-        wanted = tool_kinds([st for h in getattr(b, "held", {}).values() for st in h["steps"]])
+        active_plans = [*getattr(b, "held", {}).values(), *([b.needs_plan] if getattr(b, "needs_plan", None) else [])]
+        active_steps = [st for h in active_plans for st in h.get("steps", ())]
+        wanted = tool_kinds(active_steps)
         for kind in sorted(self.broken & wanted):
             self.need("broken tool", goals.have(("tool", kind, craftable_tier(inv, kind, bag.RESERVED))), f"the {kind} broke")
-        if needs_water_bucket(snap, [h["steps"] for h in getattr(b, "held", {}).values()],
+        if needs_water_bucket(snap, [h["steps"] for h in active_plans if "steps" in h],
                               lambda st: known_ore_y(b.mem, snap, st)):
             self.need("water bucket", goals.have(("minecraft:water_bucket", 1)),
                       "a plan with a fall in it and no water to land in")

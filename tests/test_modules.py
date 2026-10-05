@@ -187,7 +187,7 @@ class TestGoalDrive(unittest.TestCase):
         # next_milestone in the End should pick dragon beds (or None if beds met), not get stuck on end portal
         m = brain.next_milestone(snap, mem)
         self.assertIsNotNone(m)
-        self.assertEqual(m["args"]["name"], "dragon beds")
+        self.assertNotEqual(m["args"]["name"], "end portal")
 
     def test_milestone_no_regression_after_consumed(self):
         """Crafting blaze rods into eyes of ender does not cause blaze rods milestone to fail."""

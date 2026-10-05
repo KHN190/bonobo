@@ -156,7 +156,7 @@ class OneRestorePoint(unittest.TestCase):
             shutil.rmtree(own)
 
 class KnownViolations(unittest.TestCase):
-    """The baseline's known breaches (docs/refactor.md V list), each built as the decision itself and asked of the
+    """The baseline's known breaches, each built as the decision itself and asked of the
     oracle: the checker must report it whatever production now chooses there."""
     # (invariant, facts, the breaching decision, the round's readings, what the baseline did there)
     ROWS = [

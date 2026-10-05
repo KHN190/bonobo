@@ -46,6 +46,18 @@ ROWS = [
          check=[('slice_check', ('!now', ('!all', ('!call', 'nether_kit_ready', []), ('!call', 'in_overworld', []))))],
          detail=('&slice_detail',), expect=[(('@', 1, 0, -1), ('@', 1, 1, 1), 'stone', 6, 6)],
          expect_entities=[('minecraft:cow', 1)], point='C', chain=2),
+    dict(name='cast_portal', module='building',
+         doc=('A 3×3 lava pool 8 blocks east of the body; water bucket, bucket, 32 cobblestone, flint and steel → a '
+              'portal frame cast in place and lit (no obsidian carried, no diamond pickaxe), the pool still lava.'),
+         scene=[('floor',), ('fill', ('@', 8, -1, -1), ('@', 10, -1, 1), 'lava'), ('tp', ('@', 0, 0, 0)),
+                ('cmd', 'clear @p'), ('give', 'water_bucket'), ('give', 'bucket'), ('give', 'cobblestone', 32),
+                ('give', 'flint_and_steel')],
+         run=('do', 'bonobo.building.cast_portal', ['$ctx'], {}),
+         check=[('call', 'count_blocks', ['$api', ('@', -12, -1, -12), ('@', 12, 6, 12), 'nether_portal'], '>=', 1),
+                ('call', 'count_blocks', ['$api', ('@', 8, -1, -1), ('@', 10, -1, 1), 'lava'], '>=', 9)],
+         est=('step', 'cast', 'nether_portal', 1, {}), tier_fixed='exception',
+         expect=[(('@', 8, -1, -1), ('@', 10, -1, 1), 'lava', 9, 9), (('@', -12, 0, -12), ('@', 12, 4, 12), '*', 0, 0)],
+         skills=['cast_portal']),
     dict(name='eat_while_walking', module='skills',
          doc=('Hungry, cooked beef carried, a walk east until fed → fed on the way without an eat task, still walking '
               "forward while it chewed (ate_on_the_way over the walk's trace)"),

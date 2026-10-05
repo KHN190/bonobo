@@ -98,7 +98,7 @@ class UpkeepNeeds(unittest.TestCase):
 
 class LightingArmourShield(unittest.TestCase):
     def test_lighting(self):
-        dark = snapshot(state(skyLight=0, blockLight=0), inventory())
+        dark = snapshot(state(skyLight=0, blockLight=0), inventory(("torch", 8)))
         for name, held, want in [("a plan worked here", (GATHER,) * 10, "pays"),
                                  ("must fail: nothing to work here", (), "neither")]:
             with self.subTest(name):

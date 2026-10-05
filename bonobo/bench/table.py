@@ -3,13 +3,14 @@ dicts (setup, run, check, before, budget, tier, …) — SCENARIOS, built here a
 decides; it reads the words back into vocab's helpers and predicates. The bench's other names (the runner's, the
 helpers') are reached through here too: `from bonobo.bench import table as sheet`."""
 import importlib
+import importlib.util
 from typing import Any
 from . import core, vocab
 from .core import bag_now, kit_jobs
 from .words.scene import resolve
 from .words import checks as words_checks, runs as words_runs, scene as words_scene
 TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
-TABLES = {t: f"bonobo.bench.bench_{t}" for t in TIERS}
+TABLES = {t: f"bonobo.bench.bench_{t}" for t in TIERS if importlib.util.find_spec(f"bonobo.bench.bench_{t}")}
 RUNS = ("skill", "skill_bare", "do", "seq", "remember", "pause")          # the run words a lambda was written in (the rest: sheet factories)
 WORDS = ("hooks", "named_all", "interrupt_when", "iter", "constant", "now_api", "thunk", "api_only")    # the interpreter's own words
 
@@ -271,6 +272,8 @@ def expand_families(families):
 
 def rows(tier):
     """{name: row data} of one tier's table: its families expanded, its rows in words, its rows in code."""
+    if tier not in TABLES:
+        return {}
     mod = importlib.import_module(TABLES[tier])
     out = expand_families(getattr(mod, "FAMILIES", ()))
     code = getattr(mod, "CODE_ROWS", ())      # a list, or a fn building it

@@ -1,5 +1,5 @@
-"""En-route as a planner choice: each round A is the normal held plan; C is
-A's goal needs plus one en-route candidate's item (planner.plan_needs); C is held only when its seconds cost less
+"""En-route as one pass over the round's plan: each round A is the normal held plan; C is A with the one en-route
+candidate's step put before A's first leg (never a second search); C is held only when its seconds cost less
 than A's by more than P x bag.item_value(item) (P: 1 for the held plan's own want, discounted for a later
 milestone). Rows go through the production round
 (brain.Brain.plan_proposals/round_for), not a helper function."""

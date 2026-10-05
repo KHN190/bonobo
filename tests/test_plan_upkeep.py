@@ -1216,8 +1216,8 @@ class Row:
 
     def __init__(self, name, row, queued=(), time_of_day=DAY, inv=WELL_FED, seen=None, enclosed=False,
                  bed_seen=False, last_round=None, blocked=None, stuck=False, died=False, cooling=(), place=None,
-                 job=None, machine=None, held=(), **st):
-        self.job, self.machine = job, machine        # (pos, seconds until ready): a furnace job / a smelter order
+                 job=None, machine=None, held=(), portal=None, **st):
+        self.job, self.machine, self.portal = job, machine, portal        # (pos, seconds until ready): a furnace job / a smelter order
         # `queued`: the exact set of goals put in front, or a check(set) for rows whose tier is the planner's call
         self.name, self.row = name, row
         self.queued = queued if callable(queued) else {tuple(map(tuple, q)) for q in queued}
@@ -1237,10 +1237,12 @@ UPKEEP = [
         food=4, inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={}),
     Row("eating failed here a moment ago: the next row", None, food=10, cooling=("eat",)),
     Row("in the Nether with two meals left", "leave the Nether", dimension=NETHER, skyLight=0,
-        inv=[("cooked_beef", 2), ("stone_pickaxe", 1)]),
+        inv=[("cooked_beef", 2), ("stone_pickaxe", 1)], portal=(20, 64, 0)),
     Row("the Nether at the Overworld's midnight, a bed carried: no sleep (data.is_night, can_sleep)", None,
         dimension=NETHER, skyLight=0, time_of_day=NIGHT, inv=[("white_bed", 1), ("cooked_beef", 8), ("stone_pickaxe", 1)]),
-    Row("in the Nether at 6 hp", "leave the Nether", dimension=NETHER, skyLight=0, health=6.0),
+    Row("in the Nether at 6 hp", "leave the Nether", dimension=NETHER, skyLight=0, health=6.0, portal=(20, 64, 0)),
+    Row("must fail: in the Nether at 6 hp, no portal known: nothing to walk into", None, dimension=NETHER,
+        skyLight=0, health=6.0),
     Row("morning in a sealed pod", "dig out", enclosed=True),
     Row("night, a bed carried", "sleep", time_of_day=NIGHT),
     Row("night, a site bed in sight", "sleep", time_of_day=NIGHT, inv=[("cooked_beef", 8), ("stone_pickaxe", 1)],
@@ -1342,6 +1344,8 @@ def run_upkeep(row, tmp):
         b.retry.failed(name, "error", "failed here", now, PLACE)
     if row.died:
         b.mem.log_death((6, 64, 0), row.state["dimension"], carried=row.died if isinstance(row.died, list) else ())
+    if row.portal:
+        b.mem.add_site("portal", row.portal, row.state["dimension"])
     if row.job:
         b.mem.add_job("smelt", row.job[0], row.state["dimension"], "minecraft:iron_ingot", 3, now + row.job[1], [])
     if row.machine:
@@ -2712,7 +2716,7 @@ class StationGone(unittest.TestCase):
                     m.add_station(station, (1, 64, 1), OVER)
                 snap = snapshot(state(), inventory(*carried))
                 steps = decompose.decompose(snap.inv, goals.have(need), cost(snap, mem=m, **seen))
-                made = [(st.kind, st.token) for st in steps]
+                made = [(st.kind, st.token) for st in steps if st.kind != "await"]
                 # the invariant: the goal is made last, and the station made in the plan exactly when memory lost it
                 self.assertEqual(made[-1], want[-1])
                 lost = [t for k, t in want if k == "craft" and t in ("minecraft:crafting_table", "minecraft:furnace")]
@@ -2834,7 +2838,10 @@ class FoodFromTheBag(unittest.TestCase):
                 m.add_station("minecraft:furnace", (1, 64, 1), OVER)
                 snap = snapshot(state(food=6), inventory(*carried))
                 steps = decompose.decompose(snap.inv, goals.have(("food", n)), cost(snap, mem=m, **seen))
-                self.assertEqual([(st.kind, st.token, st.count) for st in steps], want)
+                work = [st for st in steps if st.kind != "await"]
+                self.assertEqual([(st.kind, st.token, st.count) for st in work], want)
+                if any(st.kind == "smelt" for st in work):
+                    self.assertEqual(steps[-1].kind, "await")
 
 
 class TheToolTheBagMakes(unittest.TestCase):

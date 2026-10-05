@@ -1,8 +1,9 @@
 """Goals as data: what a task asks for, how to tell it is done, what the planner needs for it. No decisions here. A goal is `{"goal": template, "args": {...}}` — JSON, because it lives in tasks.json and is written by the cerebrum. have(needs)          hold these: [[token, n], ...] or [["tool", kind, tier], ...]   done = the bag says so craft(needs)         the same as `have`: crafting is how most things are had milestone(name)      a named set of `have`s (MILESTONES), in the order the run needs them goto(pos, range)     be there                                                        done = standing there road(a, b)           walk a → b once, so the leg becomes a known road (roads.py)      done = its plan ran build(bp, at)        a blueprint standing at `at` (or near home / here)              done = memory has the machine sleep()              skip the night in a bed                                         done = it is day skill(name, args)    run one registered skill                                        done = its plan ran effect(effect, n)    whatever skill provides `effect` (skill.providers: "breed", "light", "repair:pickaxe", "state:sheltered", …), with `detail` for its adapter                done = its plan ran Done is asked of the WORLD (bag, position, memory of what was built), never of a plan: a plan can be empty because the work is finished, because it is under way somewhere else (a furnace), or because nothing can be planned."""
 
+import functools
 import math
 
-from .data import STATION_R, TIER_OF_MATERIAL, TOOL_KINDS, bare
+from .data import TIER_OF_MATERIAL, TOOL_KINDS, bare
 from .game import WAYPOINT_R
 from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held_count, kit_needs, reconcile,  # noqa: F401
                         tool_ok)
@@ -104,58 +105,158 @@ def remainder(goal, snap, mem):
     return DESIRED[goal["goal"]](goal, snap, mem)
 
 # the shared remainder math is knowledge's; goals and skills' `remaining` both read it there
+DURABLE_KINDS = TOOL_KINDS + ("helmet", "chestplate", "leggings", "boots", "shield", "bucket", "flint_and_steel", "bed",
+                              "crafting_table", "furnace")
+STATIONS = ("minecraft:crafting_table", "minecraft:furnace")
+END_PORTAL_OPEN = "end_portal_open"     # the site kind memory keeps once the end portal is lit (end.activate_end_portal)
+
+
+def durable(token):
+    """Pure: a thing had as itself — a tool, armour, a station, a bed… (DURABLE_KINDS by name or kind), never a stock."""
+    name = bare(token)
+    return name in DURABLE_KINDS or name.rpartition("_")[2] in DURABLE_KINDS or mid_(token) in STATIONS
+
+
+def mid_(token):
+    return token if ":" in token else f"minecraft:{token}"
+
+
+def credit(inv, token, placed=None):
+    """Pure over the bag and the recipes (knowledge.sources): how many of `token` the bag holds counting what its
+    products embody — a product P made from k of `token` with output o credits held(P) × k / o, down the recipe chain
+    (a rod: 1; a powder: ½; an eye: ½). Durables embody nothing (a product is a different thing, never a spare)."""
+    placed = placed or {}
+    seen, out = {bare(token)}, float(held_count(inv, token) + placed.get(mid_(token), 0))
+
+    def embodied(target, ratio, depth):
+        total = 0.0
+        if depth > 4:
+            return total
+        for made, src in _products_of(target):
+            if src[0] != "craft" or bare(made) in seen or durable(made):
+                continue          # a furnace carried embodies no building stone: a durable is itself, not a stock
+            pattern, o = _recipe(made)
+            k = sum(1 for cell in pattern if cell and bare(cell) == bare(target))
+            if not k:
+                continue
+            seen.add(bare(made))
+            r = ratio * k / o
+            total += (held_count(inv, made) + placed.get(mid_(made), 0)) * r + embodied(made, r, depth + 1)
+        return total
+    if durable(token):
+        return out
+    return out + embodied(token, 1.0, 0)
+
+
+def _recipe(token):
+    from .data import RECIPES, mid
+    from .knowledge import GROUP_RECIPES
+    return GROUP_RECIPES[token] if token in GROUP_RECIPES else RECIPES[mid(token)]
+
+
+@functools.lru_cache(maxsize=256)
+def _products_of(token):
+    """[(product, craft source)] whose recipe uses `token` (knowledge's craft tables), once per token."""
+    from .knowledge import producers
+    out = []
+    for g in producers():
+        if g.kind not in ("craft", "craft_group"):
+            continue
+        for made in g.keys():
+            src = g.get(made)
+            if src is not None and any(cell and bare(cell) == bare(token) for cell in src[1]):
+                out.append((made, src))
+    return out
+
+
+STATION_REMAKE = {"minecraft:furnace": ("mine", "minecraft:cobblestone", 8, ["minecraft:stone"]),
+                  "minecraft:crafting_table": ("gather", "log", 1, None)}
+
+
+def remake_ticks(block, inv):
+    """Pure: ticks to make `block` again from nothing near (its raw material got with the tools held, then crafted) —
+    what a station left standing is weighed against (knowledge priors, the same the planner prices by)."""
+    from types import SimpleNamespace
+    from .knowledge import PRIOR_TICKS, held_tiers, prior_work_ticks
+    from .data import TICKS_PER_S
+    kind, token, n, blocks = STATION_REMAKE[block]
+    step = SimpleNamespace(kind=kind, token=token, count=n, detail={"blocks": blocks} if blocks else {})
+    return prior_work_ticks(step, held_tiers(inv), TICKS_PER_S) + PRIOR_TICKS["craft"]
+
+
+def station_had(block, snap, mem):
+    """Carried, or ours standing nearer than making another (walk_ticks there < remake_ticks)."""
+    from .knowledge import walk_ticks
+    if snap.inv.count(block) > 0:
+        return True
+    if mem is None:
+        return False
+    limit = remake_ticks(block, snap.inv)
+    return any(walk_ticks(math.dist(pos, snap.feet)) < limit for pos in mem.known_stations(block, snap.dimension))
+
+
+def portal_opened(snap, mem):
+    return snap.dimension == "minecraft:the_end" or bool(mem is not None and mem.sites(kinds=[END_PORTAL_OPEN]))
+
+
+def _milestone_remainder(name, goal, snap, mem):
+    if name in RUN_AFTER:
+        return {} if portal_opened(snap, mem) else None
+    placed = {"minecraft:ender_eye": 12} if portal_opened(snap, mem) else {}
+    out = {}
+    for need in needs(goal, snap.inv):
+        if need[0] == "tool":
+            if not tool_ok(snap.inv, need[1], int(need[2])):
+                out[f"tool:{need[1]}"] = int(need[2])
+            continue
+        token, n = need[0], int(need[1])
+        if token in STATIONS:
+            if not station_had(token, snap, mem):
+                out[token] = 1
+            continue
+        if token == "bed" and mem is not None and mem.home_part("beds", snap.dimension, snap.feet, anywhere=True) \
+                is not None:
+            continue
+        if durable(token):
+            have = snap.inv.count(token, include_worn=True)
+            if token == "minecraft:bucket":
+                have += snap.inv.count("minecraft:water_bucket") + snap.inv.count("minecraft:lava_bucket")
+        else:
+            have = int(credit(snap.inv, token, placed)) if token != "food" else held_count(snap.inv, token)
+            if have < n and spent_into_a_later_milestone(name, token, snap, mem, placed):
+                continue
+        if have < n:
+            out[token] = n - have
+    return out
+
+
+def spent_into_a_later_milestone(name, token, snap, mem, placed):
+    """A stock short because a later milestone's product took it, that milestone met: nothing more of it is wanted."""
+    later = list(MILESTONES)[list(MILESTONES).index(name) + 1:]
+    for other in later:
+        rows = MILESTONES[other]
+        if not isinstance(rows, list) or other in OFF_ROUTE:
+            continue
+        products = [r[0] for r in rows if r[0] != "tool" and (mid_(r[0]) == mid_(token) or embodies(r[0], token))]
+        if products and _milestone_remainder(other, make("milestone", name=other), snap, mem) == {}:
+            return True
+    return False
+
+
+def embodies(product, token, depth=0):
+    """Pure over the recipes: `product` is made from `token`, down the chain."""
+    if depth > 4 or durable(product):
+        return False
+    for made, _src in _products_of(token):
+        if bare(made) == bare(product) or embodies(product, made, depth + 1):
+            return True
+    return False
+
+
 @desired(*ITEM_GOALS)
 def _held_remainder(goal, snap, mem):
     if goal["goal"] == "milestone":
-        mname = goal.get("args", {}).get("name")
-        if snap.dimension == "minecraft:the_end" and mname != "dragon beds":
-            return {}
-        if mname in RUN_AFTER:
-            return None                       # its plan ends in doing (find the stronghold, light the portal)
-        if mname == "blaze rods":
-            eyes = held_count(snap.inv, "minecraft:ender_eye")
-            powder = held_count(snap.inv, "minecraft:blaze_powder")
-            rods = held_count(snap.inv, "minecraft:blaze_rod")
-            equiv_powder = rods * 2 + powder + eyes
-            if rods >= 7 or eyes >= 12 or equiv_powder >= 12:
-                return {}
-            needed = math.ceil(max(0, 14 - equiv_powder) / 2)
-            return {"minecraft:blaze_rod": max(1, needed)}
-        if mname == "ender pearls":
-            eyes = held_count(snap.inv, "minecraft:ender_eye")
-            pearls = held_count(snap.inv, "minecraft:ender_pearl")
-            if pearls + eyes >= 12:
-                return {}
-            return {"minecraft:ender_pearl": 12 - (pearls + eyes)}
-        if mname == "station kit":
-            rem = {}
-            for blk in ("minecraft:crafting_table", "minecraft:furnace"):
-                has_item = snap.inv.count(blk) > 0
-                has_station = any(mem.known_stations(blk, snap.dimension, near=snap.feet, within=STATION_R)) if mem is not None else False
-                if not has_item and not has_station:
-                    rem[blk] = 1
-            return rem
-        if mname == "bed":
-            if snap.inv.count("bed") > 0:
-                return {}
-            if mem is not None and mem.home_part("beds", snap.dimension, snap.feet, anywhere=True) is not None:
-                return {}
-            return {"bed": 1}
-        rem = have_remainder(snap.inv, needs(goal, snap.inv))
-        if rem:
-            cleaned = {}
-            for item, count in rem.items():
-                if item == "minecraft:bucket":
-                    filled = snap.inv.count("minecraft:water_bucket") + snap.inv.count("minecraft:lava_bucket")
-                    count = max(0, count - filled)
-                    if count <= 0:
-                        continue
-                worn = snap.inv.count(item, include_worn=True) - snap.inv.count(item)
-                needed = max(0, count - worn)
-                if needed > 0:
-                    cleaned[item] = needed
-            return cleaned
-        return rem
+        return _milestone_remainder(goal.get("args", {}).get("name"), goal, snap, mem)
     return have_remainder(snap.inv, needs(goal, snap.inv))
 
 @desired("goto")

@@ -289,8 +289,8 @@ Source = Literal[
     "row:eat", "row:dig out", "row:sleep", "row:shelter", "row:collect job", "row:collect machine",
     "row:path blocked", "row:unstuck", "row:recover items", "row:leave the pit", "row:empty the bag",
     "row:leave the Nether",
-    "manual", "player", "game lost", "jar reflex", "death", "dimension change", "night", "user cancel", "stuck",
-    "crash"]
+    "manual", "player", "game lost", "jar reflex", "death", "dimension change", "night", "slice", "user cancel",
+    "stuck", "crash"]
 # what arbiter.RESUME_RULES does about a source
 Rule = Literal["same", "recheck", "recover", "dimension", "handback", "stand down", "fight", "game", "night", "none",
                "cooled", "crashed"]

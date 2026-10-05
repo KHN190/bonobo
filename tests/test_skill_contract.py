@@ -319,6 +319,7 @@ OUTCOMES = [
     (api.PlayerTookControl(), "interrupt", "interrupted"),
     (api.Died("chop: died"), "interrupt", "interrupted"),
     (api.NightFell("night"), "interrupt", "interrupted"),
+    (api.SliceEnded("furnace done"), "interrupt", "interrupted"),
     (api.DimensionChanged("mine: now in the Nether"), "interrupt", "interrupted"),
     (api.CommitmentExpired("a faster layer took the body"), "replan", "interrupted"),
     (api.Overrun("the step ran 20s > its 15s", pos=(1, 64, 1), remaining_s=20.0), "replan", "interrupted"),
@@ -631,7 +632,7 @@ class Outcomes(unittest.TestCase):
                    api.Died: ("interrupted", "death"), api.DimensionChanged: ("interrupted", "dimension change"),
                    api.CommitmentExpired: ("interrupted", "layer:plan"), api.Overrun: ("interrupted", "layer:plan"),
                    api.Interrupted: ("interrupted", "layer:safety"),
-                   api.NightFell: ("interrupted", "night")}
+                   api.NightFell: ("interrupted", "night"), api.SliceEnded: ("interrupted", "slice")}
         rows = [(err, special.get(type(err), ("failed", "stuck"))) for err, _cause, cls in OUTCOMES]
         rows += [(None, ("ok", None)), (ValueError("a bug of ours"), ("failed", "crash"))]
         for err, want in rows:

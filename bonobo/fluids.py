@@ -139,6 +139,63 @@ def cast_frame_plan(bp, origin, turns, solid):
         done.add(c)
     return out
 
+SET_TICKS = 16         # water poured on a lava source: obsidian within a tick or two; the bucket back after
+SPILL_R = 4            # cells poured water runs before it is taken back: no lava source nearer a frame cell than this
+
+
+def placeable_order(cells, solid, depth=8):
+    """Pure: `cells` in an order each can be placed in — against a face already solid (`solid`, or placed before) —
+    with the supports that lets a floating one be reached: a chain of cells from a solid one, the block below first.
+    ([cells to place, in order], [the supports among them])."""
+    placed, order, supports, todo = set(), [], [], sorted(cells, key=lambda c: (c[1], c[0], c[2]))
+    asked = set(cells)
+    around = ((0, -1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0))
+
+    def held(c):
+        return solid(c) or c in placed
+
+    def chain(c, left):
+        """The cells to place before `c` so it has a solid face: [] when it has one, None when none is found."""
+        if any(held(cell_add(c, d)) for d in around):
+            return []
+        if left == 0:
+            return None
+        for d in around:
+            n = cell_add(c, d)
+            if held(n):
+                continue
+            below = chain(n, left - 1)
+            if below is not None:
+                return below + [n]
+        return None
+    while todo:
+        c = todo.pop(0)
+        if held(c):
+            continue
+        for sup in chain(c, depth) or []:
+            if sup not in placed:
+                placed.add(sup)
+                order.append(sup)
+                if sup not in asked:
+                    supports.append(sup)
+        placed.add(c)
+        order.append(c)
+    return order, supports
+
+
+def spill_safe(bp, origin, turns, lava):
+    """Pure: no lava source (`lava` cells) within SPILL_R of a frame cell, counted flat and from the frame's base up —
+    water poured on a cell runs that far before it is taken back, and over lava it is obsidian and cobble."""
+    frame = [pos for pos, *_ in blueprints.placed(bp, origin, turns)]
+    base = min(p[1] for p in frame)
+    for c in lava:
+        if c[1] > base + 5:
+            continue
+        if any(max(abs(c[0] - p[0]), abs(c[2] - p[2])) <= SPILL_R for p in frame):
+            return False
+    return True
+
+
 def mould_to_break(bp, origin, turns, placed_mould):
     """Pure: mould blocks to break again: inside the frame, or on a frame cell still to be cast."""
 
