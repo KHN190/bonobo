@@ -50,14 +50,20 @@ def scene_world(setup):
             "slots": slots, "mobs": mobs, "time": clock}
 
 
+TORCH_LIGHT, TORCH_REACH = 14, 4      # a torch's light level and the blocks it lights the feet from (Minecraft Wiki, Light)
+
+
 def scene_cost(world, dimension="minecraft:overworld"):
     """The production cost model over the scene."""
     from ...cost import Cost
     from ...world import Snapshot
     fx, fy, fz = world["feet"]
+    roofed = any(c[0] == fx and c[2] == fz and c[1] > fy and bare(b) != "air" for c, b in world["blocks"].items())
+    lit = any(bare(b) == "torch" and math.dist(c, world["feet"]) <= TORCH_REACH for c, b in world["blocks"].items())
     state = {"x": fx + 0.5, "y": float(fy), "z": fz + 0.5, "blockX": fx, "blockY": fy, "blockZ": fz,
              "dimension": dimension, "timeOfDay": world["time"] if world["time"] is not None else 1000,
-             "health": 20.0, "maxHealth": 20.0, "food": 20, "saturation": 5.0, "air": 300, "armor": 0}
+             "health": 20.0, "maxHealth": 20.0, "food": 20, "saturation": 5.0, "air": 300, "armor": 0,
+             "skyLight": 0 if roofed else 15, "blockLight": TORCH_LIGHT if lit else 0}
     import tempfile
     from ...memory import Memory
     hits: dict = {}

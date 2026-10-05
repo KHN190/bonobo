@@ -2459,8 +2459,8 @@ class NeedsBeforeTheirDeadline(unittest.TestCase):
             self.fail("a target carries no deadline yet")
         _first, steps, _secs = plan_round(inv, [long_task, bed], NullCost())
         kinds = [(st.kind, bare(st.token)) for st in steps]
-        self.assertIn(("craft", "white_bed"), kinds)
-        self.assertLess(kinds.index(("craft", "white_bed")), next(i for i, k in enumerate(kinds) if k[0] == "mine"))
+        bed_at = next(i for i, k in enumerate(kinds) if k[0] == "craft" and k[1] in ("bed", "white_bed"))
+        self.assertLess(bed_at, next(i for i, k in enumerate(kinds) if k[0] == "mine"))
 
     def test_must_fail_no_deadline_the_cheapest_order_stands(self):
         from bonobo.planner import Target, plan_round
@@ -2468,6 +2468,53 @@ class NeedsBeforeTheirDeadline(unittest.TestCase):
         _first, steps, _secs = plan_round(inv, [Target("task t1", [("stone", 64)], 0), Target("bed", [("bed", 1)], 1)],
                                           NullCost())
         self.assertTrue(steps)
+
+
+
+class HeldWhileNothingChanged(unittest.TestCase):
+    """[D5] The round keeps its plan while nothing it was made from changed; a changed bag plans again."""
+
+    def test_rows(self):
+        b = brain_fixture()
+        snap = snapshot(state(), inventory(("oak_log", 4), ("crafting_table", 1)))
+        entries = [("task t1", goals.have(("minecraft:stick", 4)), 0)]
+        c = cost(snap, b.mem)
+        first = b.round_for(entries, snap, c)
+        self.assertIsNotNone(first)
+        with self.subTest("the same world: the same plan, not planned again"):
+            self.assertIs(b.round_for(entries, snap, c, old=first), first)
+        with self.subTest("must fail: the bag changed: planned again"):
+            changed = snapshot(state(), inventory(("oak_log", 4), ("crafting_table", 1), ("stick", 4)))
+            again = b.round_for(entries, changed, cost(changed, b.mem), old=first)
+            self.assertIsNot(again, first)
+
+
+class LateOrders(unittest.TestCase):
+    """[G9] An order that carries a target past its deadline yields to any that does not."""
+
+    def test_fuzz(self):
+        from bonobo.planner import Target, late
+        rng = random.Random(SEED + 70)
+        for case in range(200):
+            targets = [Target(f"t{i}", [], i, due_s=rng.choice([None, None, 10.0, 60.0])) for i in range(rng.randint(1, 4))]
+            rng.shuffle(targets)
+            ticks = rng.choice([100, 1000, 3000])
+            got = late(targets, ticks)
+            want = any(t.due_s is not None and ticks / TICKS_PER_S > t.due_s and any(u.due_s is None for u in targets[:i])
+                       for i, t in enumerate(targets))
+            with self.subTest(case=case, order=[(t.name, t.due_s) for t in targets], ticks=ticks):
+                self.assertEqual(got, want)
+
+    def test_rows(self):
+        from bonobo.planner import Target, late
+        bed, task = Target("bed", [], 1, due_s=20.0), Target("task", [], 0)
+        rows = [("the bed first: never late", [bed, task], 3000, False),
+                ("the task first, the level past dusk: late", [task, bed], 3000, True),
+                ("must fail: the task first but the level short of dusk: in time", [task, bed], 100, False),
+                ("no deadline anywhere", [task, Target("more", [], 1)], 3000, False)]
+        for name, order, ticks, want in rows:
+            with self.subTest(name):
+                self.assertEqual(late(order, ticks), want)
 
 
 if __name__ == "__main__":

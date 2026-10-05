@@ -851,7 +851,8 @@ class Brain:
             return old
         same = old is not None and not old.get("ran") and old.get("want") == key and old["dim"] == snap.dimension
         held, why = replan(entries, snap, cost, self.mem.pending_outputs(snap.dimension),
-                           held=old["steps"] if old is not None and old.get("want") == key else None)
+                           held=old["steps"] if old is not None and old.get("want") == key else None,
+                           due={name: self.needs.due_of(goal) for name, goal, _rank in entries})
         if held is None:
             self.unplannable["round"] = why or "unplannable"
             return None
@@ -1480,15 +1481,16 @@ def round_key(entries, snap, mem) -> tuple:
     return tuple((name, json.dumps(goal, sort_keys=True), json.dumps(goals.remainder(goal, snap, mem), sort_keys=True))
                  for name, goal, _rank in entries)
 
-def replan(entries, snap, cost, pending=None, held=None):
-    """Pure given the cost: (held, None) or (None, why) for `entries` [(name, goal, queue place)]."""
+def replan(entries, snap, cost, pending=None, held=None, due=None):
+    """Pure given the cost: (held, None) or (None, why) for `entries` [(name, goal, queue place)]; `due`: {name:
+    seconds it must be had within}."""
     try:
         # an unopened home chest is looked into first when the look pays
         steps = next((look for name, goal, _rank in entries if name.startswith("task ") and goal["goal"] in goals.ITEM_GOALS
                       for look in [planner.look_first(snap.inv, goals.needs(goal, snap.inv), cost, pending)] if look),
                      None)
         if steps is None:
-            targets = [planner.Target(name, decompose.round_needs(goal, snap.inv, cost), rank)
+            targets = [planner.Target(name, decompose.round_needs(goal, snap.inv, cost), rank, due_s=(due or {}).get(name))
                        for name, goal, rank in entries]
             _first, steps, _secs = planner.plan_round(snap.inv, targets, cost, pending, held=held)
     except Unplannable as e:

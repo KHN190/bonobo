@@ -6,7 +6,8 @@ from ..survive import DIG_IN_DEPTH
 
 FAMILIES = [
     ('lava_strip', [('cross_lava_8', 8, 25, 'B')]),
-    ('base', [('mine_stone', 'full_bag'), ('mine_iron', None, 'ore_buried'), ('smelt', None, 'furnace_on_slab')]),
+    ('base', [('mine_stone', 'full_bag'), ('mine_iron', None, 'ore_buried'), ('smelt', None, 'furnace_on_slab'),
+              ('nav', 'player_takeover')]),
     ('one', [
          ('reach_land_swim', ['reach:land'], 'night, treading water 10 blocks from shore → on dry land',
           [('tank', -8, 9, -8, 8, 1, -1, -4, 'glass', 'east'), ('fill', ('@', 10, -3, -8), ('@', 14, -1, 8), 'stone'),
@@ -31,7 +32,7 @@ ROWS = [
          run=('do', 'bonobo.nav.go_to', [('@', 3, 0, 3), ('$ctx', 'policy')], {'range_': 0.6}),
          check=[('arrived', ('@', 3, 0, 3), 0.6)], est=('way', ('@', 3, 0, 3)),
          expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'stone', 169, 169)], mod=['travel'], point='B',
-         tags={'proves': 'S1'}, skills=['travel_to']),
+         skills=['travel_to']),
     dict(name='slice_nether_kit', module='brain',
          doc=('Slice: at a lit portal, the kit two steps short (one block, the gold helmet) → kit complete (food, '
               'blocks, gold helmet) without stepping into the Nether early, no loops, idle ≤ 15 s.'),
@@ -57,7 +58,19 @@ ROWS = [
                 ('call', 'count_blocks', ['$api', ('@', 8, -1, -1), ('@', 10, -1, 1), 'lava'], '>=', 9)],
          est=('step', 'cast', 'nether_portal', 1, {}),
          expect=[(('@', 8, -1, -1), ('@', 10, -1, 1), 'lava', 9, 9), (('@', -12, 0, -12), ('@', 12, 4, 12), '*', 0, 0)],
-         tags={'proves': 'E2'}, skills=['cast_portal']),
+         skills=['cast_portal']),
+    dict(name='night_lit_work', module='brain',
+         doc=('Night, a torch-lit stone room with the body and a crafting table inside, 4 logs carried → the sticks '
+              'crafted and the night not waited out: a lit room is a workplace by night.'),
+         scene=[('floor', 'stone', 6, 3), ('fill', ('@', -3, 0, -3), ('@', 3, 4, 3), 'stone'),
+                ('fill', ('@', -2, 0, -2), ('@', 2, 3, 2), 'air'), ('fill', ('@', 2, 0, 2), ('@', 2, 0, 2), 'crafting_table'),
+                ('fill', ('@', -2, 2, -2), ('@', -2, 2, -2), 'torch'), ('fill', ('@', 2, 2, -2), ('@', 2, 2, -2), 'torch'),
+                ('tp', ('@', 0, 0, 0)), ('time', 18000), ('cmd', 'clear @p'), ('give', 'oak_log', 4),
+                ('give', 'cooked_beef', 4)],
+         run=('slice', ('!now', ('!count', 'minecraft:stick', '>=', 4)), 1.0, None,
+              [{'goal': 'have', 'args': {'needs': [['minecraft:stick', 4]]}}], 20),
+         check=[('slice_check', ('!now', ('!count', 'minecraft:stick', '>=', 4)), 20)],
+         detail=('&slice_detail',), est=('plan', [('minecraft:stick', 4)]), skills=['craft']),
     dict(name='eat_while_walking', module='skills',
          doc=('Hungry, cooked beef carried, a walk east until fed → fed on the way without an eat task, still walking '
               "forward while it chewed (ate_on_the_way over the walk's trace)"),

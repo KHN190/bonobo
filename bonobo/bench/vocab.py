@@ -284,7 +284,16 @@ COMMON_CONDITIONS = ("night", "canopy", "cave", "full_bag", "interrupt_mid_work"
 
 # upkeep's rows and point-B hazards are everyday: common
 COMMON = ("dig_in_night", "reach_land_swim", "chest_or_tree", "cross_lava_8", "cave_escape",
-          "slice_nether_kit", "ore_buried", "hand_spare_slot", "furnace_on_slab", "eat_while_walking", "cast_portal")
+          "slice_nether_kit", "ore_buried", "hand_spare_slot", "furnace_on_slab", "eat_while_walking", "cast_portal",
+          "nav__player_takeover", "night_lit_work")
+
+PROVES = {"water_clutch": "S7", "reach_land_swim": "S7", "lava_edge_walk": "S1", "buried_by_sand": "S1",
+          "drowning_in_a_pit": "S1", "cave_escape": "S1", "cross_lava_8": "S1", "dig_in_night": "S4a",
+          "night_first__low": "S4a", "night_lit_work": "S4b", "nav__player_takeover": "S6", "fight_zombie_3": "S5",
+          "fight_blaze_3": "S5", "fight_skeleton_1": "S5", "fight_creeper_1": "S5", "collect_blaze_rods": "S5",
+          "slice_nether_kit": "D7", "slice_start_tools": "D7", "nav__base": "E3", "press_door_to_chest": "G4",
+          "sleep__base": "S3", "cast_portal": "E2", "accept_smelt_beside_mining": "D2",
+          "accept_furnace_done_mid_mining": "E2"}
 
 ACCEPTANCE = (ACCEPTANCE_D, "accept_smelt_beside_mining", "accept_furnace_done_mid_mining")
 

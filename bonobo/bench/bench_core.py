@@ -48,7 +48,7 @@ stochastic=False, expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'stone', 169, 169
          run=('skill', 'travel_to', ('@', 14, 0, 0), 1.5), before=[('start', 'lava_edge_walk')],
          check=[('arrived', ('@', 14, 0, 0), 1.5), ('alive', 16)],
          est=('step', 'goto', '', 1, {'pos': ('@', 14, 0, 0)}), point='B', skills=['goto'],
-         tags={'base': 'nav', 'hazard': 'lava', 'proves': 'S1'}),
+         tags={'base': 'nav', 'hazard': 'lava'}),
     dict(name='buried_by_sand', module='brain',
          doc="Sand dropped on the body mid-task → L0 rescues (unbury) through the brain's own round, then alive",
          scene=[('floor',), ('stand',), ('give', 'stone_pickaxe')], run=('brain_rounds', 15, ('&head_clear',)),
@@ -58,7 +58,7 @@ stochastic=False, expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'stone', 169, 169
                                 ('fill', ('@', 0, 0, 0), ('@', 0, 3, 0), 'sand')]),
                  ('&buried_first',)],
          check=[('call', 'head_clear', []), ('alive', KEPT_HP)], point='B', skills=['unbury'],
-         tags={'base': 'l0', 'hazard': 'suffocating', 'proves': 'S1'}),
+         tags={'base': 'l0', 'hazard': 'suffocating'}),
     dict(name='drowning_in_a_pit', module='brain',
          doc=('Deep in a flooded shaft with little air → L0 surfaces (find_air / surface) before anything else: on the '
               'rim, or breathing with the head out for 2 s'),
@@ -68,5 +68,5 @@ stochastic=False, expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'stone', 169, 169
                 ('stand', 0, -3)],
          run=('brain_rounds', 28, ('!now_api', ('!surfaced', 4, 0))), before=[('start', 'drowning_in_a_pit'), ('&drowning_first',)],
          check=[('alive', KEPT_HP), ('surfaced', 4)], point='B', skills=['reach:air'],
-         tags={'base': 'l0', 'hazard': 'drowning', 'proves': 'S1'}),
+         tags={'base': 'l0', 'hazard': 'drowning'}),
 ]

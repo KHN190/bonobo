@@ -282,7 +282,14 @@ def rows(tier):
         if r["name"] in out:
             raise ValueError(f"{r['name']} made twice in the {tier} table")
         out[r["name"]] = r
-    return out
+    return {name: proving(name, r) for name, r in out.items()}
+
+
+def proving(name, row):
+    """The row with the invariant it proves in its tags (vocab.PROVES, the one place a row's proof is declared)."""
+    if name not in vocab.PROVES:
+        return row
+    return {**row, "tags": {**row.get("tags", {}), "proves": vocab.PROVES[name]}}
 
 def sheet():
     """{name: runner row} of every table."""

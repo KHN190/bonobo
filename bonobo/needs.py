@@ -167,6 +167,7 @@ class Needs:
         self.wear = {}                # tool kind -> least durability left last round
         self.broken = set()           # tool kinds that broke and are not replaced yet
         self.needs_now = []           # [(kind, goal, why)] this round proposes getting (need)
+        self.due = {}                 # goal json -> seconds it must be had within (the night's prep by dusk)
         self._facts = None            # (snapshot, its night facts): read once a round
 
     def observe(self, snap):
@@ -184,7 +185,7 @@ class Needs:
         self.night_facts(snap, reads)
         # a bed from what is carried skips the night: before any shelter and the night's work
         bed_tonight = _once(reads, "bed_tonight", lambda: self.bed_tonight(snap))
-        self.needs_now = []
+        self.needs_now, self.due = [], {}
         if bed_tonight():
             self.need("night prep", goals.have(("bed", 1)), "a bed skips the night")
         # the night's way from here: the shelter reflex runs it when its parts are carried, else its parts are this round's need
@@ -281,21 +282,27 @@ class Needs:
         """Dark comes before the chosen way could be had: its missing parts to the front."""
 
         if way == "bed":
-            self.need("night prep", goals.have(("bed", 1)), "dark before a bed could be made")
+            self.need("night prep", goals.have(("bed", 1)), "dark before a bed could be made", due_s=dusk_s(snap))
             return
         src = next(s for k in ("overnight bed", "overnight") for s in decompose.SOURCES[k] if s["name"] == way)
         if any(st.kind != "shelter" for st in steps):
-            self.need("night prep", goals.have(*decompose.source_needs(src, snap)), f"dark before {way} could be had")
+            self.need("night prep", goals.have(*decompose.source_needs(src, snap)), f"dark before {way} could be had",
+                      due_s=dusk_s(snap))
 
     def cost(self, snap):
         return Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache, reserved=bag.RESERVED,
                     stop=api.stop_asked)
 
-    def need(self, kind, goal, why):
-        """Propose getting `goal` (`kind` names it)."""
+    def need(self, kind, goal, why, due_s=None):
+        """Propose getting `goal` (`kind` names it), by `due_s` seconds when it has a deadline."""
 
         if all(g != goal for _k, g, _w in self.needs_now):
             self.needs_now.append((kind, goal, why))
+        if due_s is not None:
+            self.due[json.dumps(goal, sort_keys=True)] = due_s
+
+    def due_of(self, goal):
+        return self.due.get(json.dumps(goal, sort_keys=True))
 
     def plan(self, goal, snap):
         """(seconds the plan for `goal` takes from this bag, whether every place it goes is known), kept briefly."""

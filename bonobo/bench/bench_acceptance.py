@@ -11,7 +11,7 @@ KIT = [('cmd', 'clear @p'), ('floor', 'stone', 8, 4), ('stand',), ('time', 1000)
        ('give', 'cooked_beef', 16)]
 
 
-def overlap_row(name, iron, stone, doc, proves):
+def overlap_row(name, iron, stone, doc):
     """Smelt `iron` and mine `stone` stone as one goal: done within the furnace's own seconds plus the slack (the body
     mines while it burns, the furnace emptied when done) — serial work (wait at the furnace, then mine) runs past it."""
     needs = [['minecraft:iron_ingot', iron], ['stone', stone]]
@@ -23,7 +23,7 @@ def overlap_row(name, iron, stone, doc, proves):
                 run=('slice', done, limit_s / 60, None, [{'goal': 'have', 'args': {'needs': needs}}], 60),
                 check=[('slice_check', done, 60)],
                 detail=('&slice_detail',), est=('plan', [tuple(n) for n in needs]), raw=True, release=True, point='D',
-                tags={'base': 'acceptance', 'proves': proves})
+                tags={'base': 'acceptance'})
 
 FAMILIES = [
 
@@ -31,11 +31,11 @@ FAMILIES = [
 ROWS = [
     overlap_row('accept_smelt_beside_mining', 8, 32,
                 'Acceptance: 8 raw iron and a furnace, 32 stone wanted too → the furnace burns while the body mines; '
-                'both had within the furnace\'s 80 s plus the slack, never 80 s waited and the mining after', 'D2'),
+                'both had within the furnace\'s 80 s plus the slack, never 80 s waited and the mining after'),
     overlap_row('accept_furnace_done_mid_mining', 8, 96,
                 'Acceptance: a long mine (96 stone) with 8 iron in the furnace → the mine hands the body back when the '
                 'furnace is done (a slice), the ingots taken and the mine resumed; all within the mining\'s seconds '
-                'plus the slack', 'E2'),
+                'plus the slack'),
     dict(name='accept_fresh_iron_pickaxe', module='brain',
          doc=('Acceptance: a fresh spot of a real world, empty-handed, the whole cerebellum → an iron pickaxe within '
               f'{ACCEPT_LIMIT_S // 60} minutes (stone tools → iron pickaxe milestones)'),

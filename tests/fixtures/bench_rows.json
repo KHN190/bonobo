@@ -329,7 +329,7 @@
       "give @p diamond_axe"
     ],
     "tier": "core",
-    "budget": 3,
+    "budget": 18,
     "target_s": 15.0,
     "skills": [
       "item:log"
@@ -637,8 +637,8 @@
       "give @p cobblestone 64",
       "give @p diamond_pickaxe"
     ],
-    "budget": 25,
     "tier": "common",
+    "budget": 25,
     "expect": [
       [
         [
@@ -690,6 +690,9 @@
     "skills": [
       "travel_to"
     ],
+    "tags": {
+      "proves": "S1"
+    },
     "check_words": [
       "!all",
       [
@@ -920,9 +923,25 @@
       "scoreboard players set @p bk_blaze 0",
       "give @p diamond_sword"
     ],
-    "budget": 25,
     "tier": "combat",
+    "budget": 25,
     "point": "B",
+    "combat": true,
+    "skills": [],
+    "tier_fixed": "exception",
+    "tags": {
+      "base": "fight",
+      "enemy": "blaze",
+      "count": 3,
+      "proves": "S5"
+    },
+    "expect_entities": [
+      [
+        "minecraft:blaze",
+        3,
+        3
+      ]
+    ],
     "expect": [
       [
         [
@@ -968,21 +987,6 @@
         "glass",
         288,
         288
-      ]
-    ],
-    "combat": true,
-    "skills": [],
-    "tier_fixed": "exception",
-    "tags": {
-      "base": "fight",
-      "enemy": "blaze",
-      "count": 3
-    },
-    "expect_entities": [
-      [
-        "minecraft:blaze",
-        3,
-        3
       ]
     ],
     "expect_gear": {
@@ -1043,8 +1047,8 @@
       "scoreboard players set @p bk_creeper 0",
       "give @p iron_sword"
     ],
-    "budget": 25,
     "tier": "combat",
+    "budget": 25,
     "point": "B",
     "combat": true,
     "skills": [],
@@ -1052,7 +1056,8 @@
     "tags": {
       "base": "fight",
       "enemy": "creeper",
-      "count": 1
+      "count": 1,
+      "proves": "S5"
     },
     "expect_entities": [
       [
@@ -1385,9 +1390,25 @@
       "scoreboard players set @p bk_skeleton 0",
       "give @p iron_sword"
     ],
-    "budget": 25,
     "tier": "combat",
+    "budget": 25,
     "point": "B",
+    "combat": true,
+    "skills": [],
+    "tier_fixed": "common",
+    "tags": {
+      "base": "fight",
+      "enemy": "skeleton",
+      "count": 1,
+      "proves": "S5"
+    },
+    "expect_entities": [
+      [
+        "minecraft:skeleton",
+        1,
+        1
+      ]
+    ],
     "expect": [
       [
         [
@@ -1433,21 +1454,6 @@
         "glass",
         288,
         288
-      ]
-    ],
-    "combat": true,
-    "skills": [],
-    "tier_fixed": "common",
-    "tags": {
-      "base": "fight",
-      "enemy": "skeleton",
-      "count": 1
-    },
-    "expect_entities": [
-      [
-        "minecraft:skeleton",
-        1,
-        1
       ]
     ],
     "expect_gear": {
@@ -1513,9 +1519,25 @@
       "scoreboard players set @p bk_zombie 0",
       "give @p iron_sword"
     ],
-    "budget": 25,
     "tier": "combat",
+    "budget": 25,
     "point": "B",
+    "combat": true,
+    "skills": [],
+    "tier_fixed": "exception",
+    "tags": {
+      "base": "fight",
+      "enemy": "zombie",
+      "count": 3,
+      "proves": "S5"
+    },
+    "expect_entities": [
+      [
+        "minecraft:zombie",
+        3,
+        3
+      ]
+    ],
     "expect": [
       [
         [
@@ -1561,21 +1583,6 @@
         "glass",
         288,
         288
-      ]
-    ],
-    "combat": true,
-    "skills": [],
-    "tier_fixed": "exception",
-    "tags": {
-      "base": "fight",
-      "enemy": "zombie",
-      "count": 3
-    },
-    "expect_entities": [
-      [
-        "minecraft:zombie",
-        3,
-        3
       ]
     ],
     "expect_gear": {
@@ -2004,14 +2011,15 @@
       "fill 10008 197 9997 10010 199 10003 stone",
       "tp @p 10000.5 200 10000.5"
     ],
-    "budget": 3,
     "tier": "core",
+    "budget": 3,
     "skills": [
       "goto"
     ],
     "point": "A",
     "tags": {
-      "base": "nav"
+      "base": "nav",
+      "proves": "E3"
     },
     "expect": [
       [
@@ -2167,7 +2175,8 @@
       "tool": "fresh",
       "head": "surface",
       "seen": "none",
-      "bag": "room"
+      "bag": "room",
+      "proves": "S4a"
     },
     "expect": [
       [
@@ -2370,9 +2379,18 @@
       "tp @p 10000.5 200 10000.5",
       "clear @p"
     ],
-    "budget": 25,
     "tier": "common",
+    "budget": 25,
     "point": "A",
+    "skills": [
+      "press_mechanism"
+    ],
+    "stochastic": false,
+    "tier_fixed": "common",
+    "tags": {
+      "base": "door",
+      "proves": "G4"
+    },
     "expect": [
       [
         [
@@ -2390,14 +2408,6 @@
         1
       ]
     ],
-    "skills": [
-      "press_mechanism"
-    ],
-    "stochastic": false,
-    "tier_fixed": "common",
-    "tags": {
-      "base": "door"
-    },
     "check_words": [
       "!all",
       [
@@ -2463,14 +2473,15 @@
       "tp @p 10000.5 200 10000.5",
       "time set 18000"
     ],
-    "budget": 25,
     "tier": "common",
+    "budget": 25,
     "point": "A",
     "skills": [
       "reach:land"
     ],
     "tags": {
-      "base": "reach:land"
+      "base": "reach:land",
+      "proves": "S7"
     },
     "expect": [
       [
@@ -2528,14 +2539,15 @@
       "give @p white_bed",
       "time set 18000"
     ],
-    "budget": 25,
     "tier": "core",
+    "budget": 25,
     "skills": [
       "sleep"
     ],
     "point": "A",
     "tags": {
-      "base": "sleep"
+      "base": "sleep",
+      "proves": "S3"
     },
     "expect": [
       [
@@ -2559,28 +2571,27 @@
     ]
   },
   "slice_nether_kit": {
-    "budget": 25,
-    "chain": 2,
-    "check_words": [
-      "!slice_check",
-      [
-        "!now",
-        [
-          "!all",
-          [
-            "!call",
-            "nether_kit_ready",
-            []
-          ],
-          [
-            "!call",
-            "in_overworld",
-            []
-          ]
-        ]
-      ]
-    ],
     "doc": "Slice: at a lit portal, the kit two steps short (one block, the gold helmet) → kit complete (food, blocks, gold helmet) without stepping into the Nether early, no loops, idle ≤ 15 s.",
+    "module": "brain",
+    "setup": [
+      "fill 9992 198 9992 10008 199 10008 grass_block",
+      "fill 10001 200 9999 10001 201 10001 stone",
+      "tp @p 10000 200 10000",
+      "clear @p",
+      "time set day",
+      "give @p iron_pickaxe",
+      "give @p iron_sword",
+      "give @p bucket",
+      "give @p flint_and_steel",
+      "give @p gold_ingot 5",
+      "give @p crafting_table",
+      "give @p cooked_beef 8",
+      "give @p cobblestone 31",
+      "summon cow 9998 200 10001"
+    ],
+    "tier": "common",
+    "budget": 25,
+    "limit": 24,
     "expect": [
       [
         [
@@ -2604,38 +2615,48 @@
         1
       ]
     ],
-    "module": "brain",
     "point": "C",
-    "setup": [
-      "fill 9992 198 9992 10008 199 10008 grass_block",
-      "fill 10001 200 9999 10001 201 10001 stone",
-      "tp @p 10000 200 10000",
-      "clear @p",
-      "time set day",
-      "give @p iron_pickaxe",
-      "give @p iron_sword",
-      "give @p bucket",
-      "give @p flint_and_steel",
-      "give @p gold_ingot 5",
-      "give @p crafting_table",
-      "give @p cooked_beef 8",
-      "give @p cobblestone 31",
-      "summon cow 9998 200 10001"
-    ],
+    "chain": 2,
+    "tags": {
+      "proves": "D7"
+    },
     "skills": [],
-    "tier": "common",
-    "limit": 24
-  },
-  "slice_start_tools": {
-    "budget": 25,
-    "chain": 0,
     "check_words": [
       "!slice_check",
       [
-        "&has_stone_pickaxe"
+        "!now",
+        [
+          "!all",
+          [
+            "!call",
+            "nether_kit_ready",
+            []
+          ],
+          [
+            "!call",
+            "in_overworld",
+            []
+          ]
+        ]
       ]
-    ],
+    ]
+  },
+  "slice_start_tools": {
     "doc": "Slice: the whole cerebellum, a crafting table beside it, planks, sticks and 3 cobblestone carried, a pickaxe asked → the wooden-then-stone chain by crafting alone, a stone pickaxe in the bag, no loops (core: what gathering costs is the other rows' job).",
+    "module": "brain",
+    "setup": [
+      "fill 9994 198 9994 10006 199 10006 stone",
+      "setblock 10001 200 10001 crafting_table",
+      "tp @p 10000 200 10000",
+      "clear @p",
+      "time set day",
+      "give @p oak_planks 6",
+      "give @p stick 4",
+      "give @p cobblestone 3"
+    ],
+    "tier": "core",
+    "budget": 25,
+    "limit": 25,
     "expect": [
       [
         [
@@ -2653,21 +2674,18 @@
         1
       ]
     ],
-    "module": "brain",
     "point": "C",
-    "setup": [
-      "fill 9994 198 9994 10006 199 10006 stone",
-      "setblock 10001 200 10001 crafting_table",
-      "tp @p 10000 200 10000",
-      "clear @p",
-      "time set day",
-      "give @p oak_planks 6",
-      "give @p stick 4",
-      "give @p cobblestone 3"
-    ],
+    "chain": 0,
+    "tags": {
+      "proves": "D7"
+    },
     "skills": [],
-    "tier": "core",
-    "limit": 25
+    "check_words": [
+      "!slice_check",
+      [
+        "&has_stone_pickaxe"
+      ]
+    ]
   },
   "smelt__base": {
     "doc": "a furnace, 1 raw iron, coal → 1 iron ingot — as is",
@@ -2781,8 +2799,8 @@
       "give @p dirt 576",
       "give @p water_bucket"
     ],
-    "budget": 25,
     "tier": "core",
+    "budget": 25,
     "stochastic": false,
     "expect": [
       [
@@ -2806,6 +2824,9 @@
       "use"
     ],
     "point": "B",
+    "tags": {
+      "proves": "S7"
+    },
     "skills": [],
     "check_words": [
       "!all",
@@ -3197,8 +3218,8 @@
       "summon blaze 9997 201 10002 {PersistenceRequired:1b,Health:4f}",
       "summon blaze 10000 201 9997 {PersistenceRequired:1b,Health:4f}"
     ],
-    "budget": 16,
     "tier": "combat",
+    "budget": 16,
     "dimension": "minecraft:the_nether",
     "combat": true,
     "expect": [
@@ -3227,6 +3248,9 @@
     "skills": [
       "collect_blaze_rods"
     ],
+    "tags": {
+      "proves": "S5"
+    },
     "point": "A",
     "check_words": [
       "!all",
@@ -3256,14 +3280,15 @@
       "give @p diamond_pickaxe",
       "give @p diamond_shovel"
     ],
-    "budget": 25,
     "tier": "common",
+    "budget": 25,
     "point": "A",
     "skills": [
       "shelter:dig in"
     ],
     "tags": {
-      "base": "shelter:dig in"
+      "base": "shelter:dig in",
+      "proves": "S4a"
     },
     "expect": [
       [
@@ -3496,6 +3521,131 @@
         ">=",
         9
       ]
+    ]
+  },
+  "nav__player_takeover": {
+    "doc": "walk 8 blocks east over the arena — the player takes control mid-run: stand down, no failure counted",
+    "module": "skills",
+    "setup": [
+      "fill 9992 197 9992 10008 199 10008 stone",
+      "fill 10008 197 9997 10010 199 10003 stone",
+      "tp @p 10000.5 200 10000.5"
+    ],
+    "tier": "common",
+    "budget": 3,
+    "skills": [
+      "goto"
+    ],
+    "point": "A",
+    "tags": {
+      "base": "nav",
+      "timing": "player_takeover",
+      "proves": "S6"
+    },
+    "expect": [
+      [
+        [
+          9992,
+          197,
+          9992
+        ],
+        [
+          10010,
+          199,
+          10008
+        ],
+        "stone",
+        909,
+        909
+      ]
+    ],
+    "check_words": [
+      "!all",
+      [
+        "!arrived",
+        [
+          "@",
+          8,
+          0,
+          0
+        ],
+        2
+      ],
+      [
+        "!interrupted"
+      ]
+    ]
+  },
+  "night_lit_work": {
+    "doc": "Night, a torch-lit stone room with the body and a crafting table inside, 4 logs carried → the sticks crafted and the night not waited out: a lit room is a workplace by night.",
+    "module": "brain",
+    "setup": [
+      "fill 9994 197 9994 10006 199 10006 stone",
+      "fill 9997 200 9997 10003 204 10003 stone",
+      "fill 9998 200 9998 10002 203 10002 air",
+      "fill 10002 200 10002 10002 200 10002 crafting_table",
+      "fill 9998 202 9998 9998 202 9998 torch",
+      "fill 10002 202 9998 10002 202 9998 torch",
+      "tp @p 10000 200 10000",
+      "time set 18000",
+      "clear @p",
+      "give @p oak_log 4",
+      "give @p cooked_beef 4"
+    ],
+    "tier": "common",
+    "budget": 2,
+    "limit": 25,
+    "skills": [
+      "craft"
+    ],
+    "tags": {
+      "proves": "S4b"
+    },
+    "expect": [
+      [
+        [
+          10002,
+          200,
+          10002
+        ],
+        [
+          10002,
+          200,
+          10002
+        ],
+        "crafting_table",
+        1,
+        1
+      ],
+      [
+        [
+          9994,
+          197,
+          9994
+        ],
+        [
+          10006,
+          204,
+          10006
+        ],
+        "stone",
+        652,
+        652
+      ]
+    ],
+    "point": "A",
+    "check_words": [
+      "!slice_check",
+      [
+        "!now",
+        [
+          "!count",
+          "minecraft:stick",
+          ">=",
+          4
+        ]
+      ],
+      20
     ]
   }
 }

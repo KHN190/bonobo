@@ -1967,6 +1967,7 @@ class Target:
     needs: list
     rank: int = 0
     options: tuple = ()     # one of: ((way, its needs, seconds it adds beyond its steps), …) — the cheapest whole plan's
+    due_s: float | None = None     # seconds this target must be done within (dusk's bed): an order past it is late
 
 def food_left_s(cost) -> float | None:
     """Seconds the body's bar lasts with nothing eaten (beliefs risk.food_drain_s a point), None when food is carrie…"""
@@ -2060,6 +2061,17 @@ def _orders(group):
             itertools.product(*[itertools.permutations([group[i] for i in sorted(p)]) for p in parts]))
 
 
+def late(order, ticks):
+    """Pure: an order of targets that would carry one with a deadline (due_s) past it — the whole level's seconds
+    beyond its due and a target without one taken before it — is late; a late order yields to any that is not."""
+    whole = ticks / TICKS_PER_S
+    for i, t in enumerate(order):
+        due = t.due_s if isinstance(t.due_s, (int, float)) else None
+        if due is not None and whole > due and any(not isinstance(u.due_s, (int, float)) for u in order[:i]):
+            return True
+    return False
+
+
 def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False, cap=math.inf):
     """One level's steps in the order of its targets whose whole plan takes fewest seconds (forward's price:"""
     group = sorted(group, key=lambda t: t.rank)
@@ -2069,12 +2081,12 @@ def _cheapest_order(inv, group, cost, pending, jobs, held=None, exact=False, cap
     for order in orders:
         needs = [n for t in order for n in t.needs]
         try:
-            bar = cap if best is None else min(cap, best[0][0] + 1)
+            bar = cap if best is None else min(cap, best[0][1] + 1)
             steps = plan_needs(inv, needs, cost, pending, jobs, held=held, exact=exact, cap=bar) if needs else []
         except Dearer as e:
             dearer = e
             continue
-        key = (sum(s.est for s in steps), tuple(t.rank for t in order))
+        key = (late(order, sum(s.est for s in steps)), sum(s.est for s in steps), tuple(t.rank for t in order))
         if best is None or key < best[0]:
             best = (key, steps)
     if best is None:

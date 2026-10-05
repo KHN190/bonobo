@@ -74,7 +74,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 46)
+        self.assertEqual(len(rec), 48)
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
@@ -201,6 +201,24 @@ def fights(setup, row):
     text = " ".join(map(str, setup)) + repr(row.get("before", ())) + repr(row.get("run", ()))
     summons = re.findall(r"summon[ ',]+(?:minecraft:)?(\w+)", text)
     return any(HOSTILE.fullmatch(m) for m in summons) or "slay_dragon" in repr(row.get("run", ()))
+
+
+class Proves(unittest.TestCase):
+    """[K6] vocab.PROVES names rows that exist and invariants that are declared; the built row carries the proof in its tags."""
+
+    def test_rows(self):
+        from tests.test_invariants import INVARIANTS
+        names = {n for rows in tables().values() for n in rows}
+        self.assertEqual(sorted(set(vocab.PROVES) - names), [])
+        self.assertEqual(sorted(set(vocab.PROVES.values()) - set(INVARIANTS)), [])
+        for name, pid in vocab.PROVES.items():
+            with self.subTest(name):
+                row = next(rows[name] for rows in tables().values() if name in rows)
+                self.assertEqual(row["tags"]["proves"], pid)
+                self.assertEqual(table.build(row, "core")["tags"]["proves"], pid)
+
+    def test_must_fail_a_row_outside_the_map_proves_nothing(self):
+        self.assertNotIn("proves", table.proving("iron_ingots", {"name": "iron_ingots"}).get("tags", {}))
 
 
 class TierRules(unittest.TestCase):
