@@ -29,6 +29,7 @@ def indexes(source, path):
 
 
 class OneReader(unittest.TestCase):
+    """[D3]"""
     def test_rows(self):
         rows = [("perception reads them", 'x = e.get("ignited")\n', READER, []),
                 ("must fail: threat reads ignited", 'x = e.get("ignited")\n', "bonobo/threat.py",

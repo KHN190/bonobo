@@ -31,7 +31,7 @@ ROWS = [
          run=('do', 'bonobo.nav.go_to', [('@', 3, 0, 3), ('$ctx', 'policy')], {'range_': 0.6}),
          check=[('arrived', ('@', 3, 0, 3), 0.6)], est=('way', ('@', 3, 0, 3)),
          expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'stone', 169, 169)], mod=['travel'], point='B',
-         skills=['travel_to']),
+         tags={'proves': 'S1'}, skills=['travel_to']),
     dict(name='slice_nether_kit', module='brain',
          doc=('Slice: at a lit portal, the kit two steps short (one block, the gold helmet) → kit complete (food, '
               'blocks, gold helmet) without stepping into the Nether early, no loops, idle ≤ 15 s.'),
@@ -55,9 +55,9 @@ ROWS = [
          run=('do', 'bonobo.building.cast_portal', ['$ctx'], {}),
          check=[('call', 'count_blocks', ['$api', ('@', -12, -1, -12), ('@', 12, 6, 12), 'nether_portal'], '>=', 1),
                 ('call', 'count_blocks', ['$api', ('@', 8, -1, -1), ('@', 10, -1, 1), 'lava'], '>=', 9)],
-         est=('step', 'cast', 'nether_portal', 1, {}), tier_fixed='exception',
+         est=('step', 'cast', 'nether_portal', 1, {}),
          expect=[(('@', 8, -1, -1), ('@', 10, -1, 1), 'lava', 9, 9), (('@', -12, 0, -12), ('@', 12, 4, 12), '*', 0, 0)],
-         skills=['cast_portal']),
+         tags={'proves': 'E2'}, skills=['cast_portal']),
     dict(name='eat_while_walking', module='skills',
          doc=('Hungry, cooked beef carried, a walk east until fed → fed on the way without an eat task, still walking '
               "forward while it chewed (ate_on_the_way over the walk's trace)"),

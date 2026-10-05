@@ -421,7 +421,7 @@ def plan_ctx(b, act, snap, mem, world, spent):
     for st in held["steps"] if held is not None else ():
         cost.estimate(st)          # warm the cache while the stub answers
     from bonobo.game import TICKS_PER_S
-    from bonobo.planner import from_bag, price_as_run
+    from bonobo.planner import from_bag, price_as_run, run_prices
     tools = list(from_bag(snap.inv, reserved=cost.reserved).tools)
     out = {"plan": list(held["steps"]) if held is not None else None, "price": cost.estimate, "inv": snap.inv,
            "price_run": None,
@@ -452,9 +452,9 @@ def plan_ctx(b, act, snap, mem, world, spent):
                                   f"{names[0] if names else '?'} ({out['exact_s']:.1f} s)")
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
     # the plan and the chosen candidate priced as they run, now (D6): a later reading would see another world
-    priced = {tuple(map(id, steps)): price_as_run(list(steps), tools, cost)
+    priced = {tuple(map(id, steps)): run_prices(list(steps), tools, cost)
               for steps in [out["plan"] or []] + [c[2] for c in (out["candidates"] or [])[:1]]}
-    out["price_run"] = lambda steps: priced.get(tuple(map(id, steps))) or price_as_run(list(steps), tools, cost)
+    out["price_run"] = lambda steps: priced.get(tuple(map(id, steps))) or run_prices(list(steps), tools, cost)
     out["plan_switch"] = getattr(b, "plan_switch", None)
     from bonobo.planner import food_left_s
     out["food_left_s"] = food_left_s(cost)

@@ -74,7 +74,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 45)
+        self.assertEqual(len(rec), 46)
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
@@ -175,7 +175,7 @@ class Coverage(unittest.TestCase):
                 return all(isinstance(k, str) and plain(x) for k, x in v.items())
             return v is None or isinstance(v, (bool, int, float, str))
         from bonobo.bench import bench_bases
-        for t in table.TIERS:
+        for t in table.TABLES:
             mod = importlib.import_module(table.TABLES[t])
             with self.subTest(t):
                 self.assertTrue(plain(mod.FAMILIES) and plain(mod.ROWS))
@@ -188,7 +188,7 @@ class Coverage(unittest.TestCase):
         def code(t):          # a table may build its one-off rows lazily (bench_combat: when the sheet is built)
             rows = getattr(importlib.import_module(table.TABLES[t]), "CODE_ROWS", ())
             return rows() if callable(rows) else rows
-        n = sum(len(code(t)) for t in table.TIERS)
+        n = sum(len(code(t)) for t in table.TABLES)
         self.assertLessEqual(n, 24)
 
 
@@ -209,7 +209,7 @@ class TierRules(unittest.TestCase):
     def test_names_unique(self):
         names = [n for rows in tables().values() for n in rows]
         self.assertEqual(len(names), len(set(names)))
-        for t in table.TIERS:
+        for t in table.TABLES:
             mod = importlib.import_module(table.TABLES[t])
             listed = [r["name"] for r in mod.ROWS] + [vocab.NAMES[tm](*p) for tm, ps in mod.FAMILIES for p in ps]
             self.assertEqual(len(listed), len(set(listed)), t)

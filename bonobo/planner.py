@@ -865,7 +865,7 @@ class Search:
         if any(n[0] == "do" for n in needs):
             return None
         inv = root.inv.clone()
-        entries = []
+        entries, smelted = [], set()
         facts = dict(inv.facts)
         for st in steps:
             st = Step(st.kind, st.token, st.count, dict(st.detail))
@@ -898,8 +898,10 @@ class Search:
                     all(inv.has_tool(r[1], int(r[2]), 0) if r[0] == "tool" else inv.available(r[0]) >= int(r[1])
                         for r in rows) for rows in self.cost.line_kit(st, inv.held())):
                 return None             # under the line, and no kit that clears it made before it (emit's rule)
-            if st.kind == "await" and getattr(inv, "pending", {}).get(st.token, 0) < st.count:
-                return None
+            if st.kind == "await" and st.token not in smelted and getattr(inv, "pending", {}).get(st.token, 0) < st.count:
+                return None             # a job the plan waited on is gone: nothing lands
+            if st.kind == "smelt":
+                smelted.add(st.token)
             entries.append((st, inv.held(), len(entries)))
             facts.update(self.sets(st))
             material, _, kind = bare(st.token).rpartition("_")
@@ -1666,7 +1668,9 @@ def forward(entries, cost, tools=None, needs=()):
     out = _cluster_crafts([steps[i] for i in order])
     ests = price_as_run(out, tools, cost) if tools is not None else price_as_run(out, None, cost)
     by = {id(st): est for st, est in zip(out, ests)}
-    out, waits, makespan = schedule(out, ests, furnaces=furnaces_of(cost))
+    done_keys = {n[1].key() for n in needs if n and n[0] == "do"}
+    out, waits, makespan = schedule(out, ests, furnaces=furnaces_of(cost),
+                                    barriers={i for i, st in enumerate(out) if st.key() in done_keys})
     tail = makespan - sum(ests) - sum(waits)
     wanted = {mid(n[0]) for n in needs if n and n[0] not in ("tool", "fact", "do")} | \
         set().union(*(_ids(n[0]) for n in needs if n and n[0] not in ("tool", "fact", "do")))
@@ -1685,6 +1689,14 @@ def forward(entries, cost, tools=None, needs=()):
     return out, sum(st.est for st in out)
 
 
+def run_prices(steps, tools, cost) -> list:
+    """Pure given the cost: each step's ticks as the plan runs in this order — its work and walk (price_as_run) plus
+    the furnace wait it stands (schedule, the order kept) — the one pricing a held plan and its checker read."""
+    ests = price_as_run(list(steps), tools, cost)
+    _order, waits, _makespan = schedule(list(steps), ests, furnaces=furnaces_of(cost), barriers=set(range(len(steps))))
+    return [(COLLECT_TICKS if st.kind == "await" else est) + wait for st, est, wait in zip(steps, ests, waits)]
+
+
 def furnaces_of(cost):
     """Furnaces a plan's smelts spread over: ours standing within reach (craft.FURNACE_REACH) of the feet, at least
     one (the plan places one when none stands)."""
@@ -1694,10 +1706,13 @@ def furnaces_of(cost):
     return max(1, len(mem.known_stations("minecraft:furnace", snap.dimension, near=snap.feet, within=FURNACE_REACH)))
 
 
-COLLECT_TICKS = 20      # taking a job's output out: the furnace opened, two clicks
+COLLECT_TICKS = 12      # taking a job's output out: the furnace opened, two clicks
 
 
-def schedule(steps, ests, per_item=None, furnaces=1):
+MOVABLE = ("mine", "gather", "hunt", "take", "craft", "smelt", "await", "fill", "withdraw", "look", "seek", "trade")
+
+
+def schedule(steps, ests, per_item=None, furnaces=1, barriers=()):
     """Pure: the plan on two clocks — the body's, one step after another, and the furnaces' (each burns one item at a
     time, `per_item` ticks each, from the moment its smelt is loaded): list scheduling over the step graph
     (step_needs) — of the steps whose makers are all emitted, the one that can start soonest, ties by the plan's own
@@ -1706,6 +1721,9 @@ def schedule(steps, ests, per_item=None, furnaces=1):
     per = PRIOR_TICKS["smelt_each"] if per_item is None else per_item
     n, k = len(steps), max(1, furnaces)
     needs = step_needs(steps)
+    for j, step in enumerate(steps):
+        if step.kind not in MOVABLE or j in barriers:
+            needs[j] = needs[j] | set(range(j))     # a skill's step, or the goal's own, stays after everything before it
     done, order, waits = set(), [], []
     body, furnace_free, ready = 0, 0, {}
     while len(done) < n:

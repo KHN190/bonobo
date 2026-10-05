@@ -2068,6 +2068,8 @@ class Queue(unittest.TestCase):
         if not steps or not all(handles(s) for s in steps):
             return False
         end = steps[-1]
+        if end.kind == "await" and kind != "await" and len(steps) > 1:
+            end = steps[-2]           # the goal's smelted food lands last, after the smelt that is the chain's end
         tokens = {bare(token)} | {bare(m) for m in members(token)}
         return (end.kind == kind and bare(end.token) in tokens
                 and all(end.detail.get(k) == v for k, v in detail.items()))

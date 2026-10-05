@@ -169,19 +169,37 @@ def _products_of(token):
     return out
 
 
-STATION_REMAKE = {"minecraft:furnace": ("mine", "minecraft:cobblestone", 8, ["minecraft:stone"]),
-                  "minecraft:crafting_table": ("gather", "log", 1, None)}
+def raw_steps(token, n, depth=0):
+    """Pure over the recipes and the producing tables: [(kind, raw token, count)] making `n` of `token` from nothing —
+    a craft folded through its inputs, a mined or gathered thing as it is (the planner's own tables, read here)."""
+    from .knowledge import sources
+    from .data import mid
+    for made, src in sources(token):
+        if src[0] == "craft" and depth < 4:
+            pattern, out = _recipe(made)
+            times = -(-n // out)
+            counts = {}
+            for cell in pattern:
+                if cell:
+                    counts[cell] = counts.get(cell, 0) + times
+            return [r for cell, k in counts.items() for r in raw_steps(cell, k, depth + 1)]
+        if src[0] in ("mine", "gather"):
+            blocks = list(src[1]) if src[0] == "mine" and len(src) > 1 else None
+            return [(src[0], mid(made) if src[0] == "mine" else made, n, blocks)]
+    return [("mine", mid(token), n, None)]
 
 
 def remake_ticks(block, inv):
-    """Pure: ticks to make `block` again from nothing near (its raw material got with the tools held, then crafted) —
-    what a station left standing is weighed against (knowledge priors, the same the planner prices by)."""
+    """Pure: ticks to make `block` again from nothing near — its raw things got with the tools held (raw_steps),
+    each craft on the way — what a station left standing is weighed against (knowledge's priors, the planner's)."""
     from types import SimpleNamespace
     from .knowledge import PRIOR_TICKS, held_tiers, prior_work_ticks
     from .data import TICKS_PER_S
-    kind, token, n, blocks = STATION_REMAKE[block]
-    step = SimpleNamespace(kind=kind, token=token, count=n, detail={"blocks": blocks} if blocks else {})
-    return prior_work_ticks(step, held_tiers(inv), TICKS_PER_S) + PRIOR_TICKS["craft"]
+    ticks = PRIOR_TICKS["craft"]
+    for kind, token, n, blocks in raw_steps(block, 1):
+        step = SimpleNamespace(kind=kind, token=token, count=n, detail={"blocks": blocks} if blocks else {})
+        ticks += prior_work_ticks(step, held_tiers(inv), TICKS_PER_S)
+    return ticks
 
 
 def station_had(block, snap, mem):

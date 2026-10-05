@@ -1,6 +1,22 @@
 {
   "accept_fresh_iron_pickaxe": {
-    "budget": 320,
+    "doc": "Acceptance: a fresh spot of a real world, empty-handed, the whole cerebellum → an iron pickaxe within 5 minutes (stone tools → iron pickaxe milestones)",
+    "module": "brain",
+    "setup": [
+      "spreadplayers 13000 13000 0 4 false @p",
+      "clear @p",
+      "time set 0"
+    ],
+    "tier": "acceptance",
+    "budget": 246,
+    "limit": 300,
+    "raw": true,
+    "release": true,
+    "point": "D",
+    "tags": {
+      "base": "acceptance"
+    },
+    "skills": [],
     "check_words": [
       "!slice_check",
       [
@@ -13,23 +29,7 @@
         ]
       ],
       60
-    ],
-    "doc": "Acceptance: a fresh spot of a real world, empty-handed, the whole cerebellum → an iron pickaxe within 5 minutes (stone tools → iron pickaxe milestones)",
-    "module": "brain",
-    "point": "D",
-    "raw": true,
-    "release": true,
-    "setup": [
-      "spreadplayers 13000 13000 0 4 false @p",
-      "clear @p",
-      "time set 0"
-    ],
-    "skills": [],
-    "tags": {
-      "base": "acceptance"
-    },
-    "tier": "acceptance",
-    "limit": 300
+    ]
   },
   "bed_in_nether": {
     "doc": "night, a bed carried → morning — night in the Nether, a bed carried: must refuse (it explodes)",
@@ -111,15 +111,16 @@
       "give @p stone_pickaxe",
       "give @p diamond_shovel"
     ],
-    "budget": 23,
     "tier": "core",
+    "budget": 23,
     "point": "B",
     "skills": [
       "unbury"
     ],
     "tags": {
       "base": "l0",
-      "hazard": "suffocating"
+      "hazard": "suffocating",
+      "proves": "S1"
     },
     "expect": [
       [
@@ -162,8 +163,8 @@
       "give @p stone_pickaxe",
       "give @p cobblestone 32"
     ],
-    "budget": 17,
     "tier": "common",
+    "budget": 17,
     "expect": [
       [
         [
@@ -185,6 +186,9 @@
       "travel"
     ],
     "point": "B",
+    "tags": {
+      "proves": "S1"
+    },
     "skills": [
       "travel_to"
     ],
@@ -213,8 +217,8 @@
       "item replace block 10001 200 10001 container.0 with oak_log 4",
       "give @p diamond_axe"
     ],
-    "budget": 8,
     "tier": "common",
+    "budget": 5,
     "skills": [
       "item:log"
     ],
@@ -324,8 +328,8 @@
       "tp @p 10000.5 200 10000.5",
       "give @p diamond_axe"
     ],
-    "budget": 6,
     "tier": "core",
+    "budget": 3,
     "target_s": 15.0,
     "skills": [
       "item:log"
@@ -586,8 +590,8 @@
       "give @p stick 4",
       "give @p crafting_table"
     ],
-    "budget": 11,
     "tier": "core",
+    "budget": 7,
     "target_s": 12.0,
     "skills": [
       "craft"
@@ -768,15 +772,16 @@
       "fill 9996 205 9996 10004 207 10004 air",
       "tp @p 10000.5 197 10000.5"
     ],
-    "budget": 25,
     "tier": "core",
+    "budget": 25,
     "point": "B",
     "skills": [
       "reach:air"
     ],
     "tags": {
       "base": "l0",
-      "hazard": "drowning"
+      "hazard": "drowning",
+      "proves": "S1"
     },
     "expect": [
       [
@@ -856,18 +861,11 @@
       "tp @p 9998.5 200 10000.5",
       "give @p cooked_beef 4"
     ],
-    "budget": 8,
     "tier": "common",
+    "budget": 8,
     "skills": [
       "goto"
     ],
-    "tier_fixed": "common",
-    "combat": false,
-    "stochastic": false,
-    "tags": {
-      "base": "nav",
-      "state": "hungry"
-    },
     "expect": [
       [
         [
@@ -1626,8 +1624,8 @@
       "give @p iron_sword",
       "give @p iron_sword"
     ],
-    "budget": 22,
     "tier": "core",
+    "budget": 21,
     "skills": [
       "hunt"
     ],
@@ -1680,24 +1678,19 @@
     ]
   },
   "iron_ingots": {
-    "budget": 23,
-    "chain": 1,
-    "check_words": [
-      "!all",
-      [
-        "!count",
-        "minecraft:iron_ingot",
-        ">=",
-        3
-      ],
-      [
-        "!count",
-        "minecraft:raw_iron",
-        "==",
-        0
-      ]
-    ],
     "doc": "Stone room, 3 furnaces placed side by side, 3 raw iron + 3 coal carried → 3 iron ingots, one per furnace in parallel (load, start, wait, collect).",
+    "module": "skills",
+    "setup": [
+      "fill 9992 196 9992 10008 199 10008 stone",
+      "fill 10002 200 9999 10002 200 10001 furnace",
+      "tp @p 10000 200 10000",
+      "clear @p",
+      "give @p raw_iron 3",
+      "give @p coal 3",
+      "give @p diamond_pickaxe"
+    ],
+    "tier": "core",
+    "budget": 16,
     "expect": [
       [
         [
@@ -1715,24 +1708,29 @@
         3
       ]
     ],
-    "module": "skills",
+    "tick_rate": 60,
     "point": "C",
-    "setup": [
-      "fill 9992 196 9992 10008 199 10008 stone",
-      "fill 10002 200 9999 10002 200 10001 furnace",
-      "tp @p 10000 200 10000",
-      "clear @p",
-      "give @p raw_iron 3",
-      "give @p coal 3",
-      "give @p diamond_pickaxe"
-    ],
+    "chain": 1,
     "skills": [
       "load_smelter",
       "start_smelt_job",
       "smelt"
     ],
-    "tick_rate": 60,
-    "tier": "core"
+    "check_words": [
+      "!all",
+      [
+        "!count",
+        "minecraft:iron_ingot",
+        ">=",
+        3
+      ],
+      [
+        "!count",
+        "minecraft:raw_iron",
+        "==",
+        0
+      ]
+    ]
   },
   "lava_edge_walk": {
     "doc": "A 1-wide stone path between two lava pools to a target 12 blocks on → there, not burnt",
@@ -1744,15 +1742,16 @@
       "tp @p 9999.5 200 10000.5",
       "give @p cobblestone 32"
     ],
-    "budget": 4,
     "tier": "core",
+    "budget": 4,
     "point": "B",
     "skills": [
       "goto"
     ],
     "tags": {
       "base": "nav",
-      "hazard": "lava"
+      "hazard": "lava",
+      "proves": "S1"
     },
     "expect": [
       [
@@ -1857,8 +1856,8 @@
       "give @p stone_pickaxe",
       "give @p diamond_pickaxe"
     ],
-    "budget": 3,
     "tier": "core",
+    "budget": 2,
     "skills": [
       "mine"
     ],
@@ -1913,8 +1912,8 @@
       "give @p wooden_pickaxe",
       "give @p diamond_pickaxe"
     ],
-    "budget": 8,
     "tier": "core",
+    "budget": 3,
     "target_s": 12.0,
     "skills": [
       "mine"
@@ -1956,8 +1955,8 @@
       "give @p dirt 2304",
       "give @p diamond_pickaxe"
     ],
-    "budget": 12,
     "tier": "common",
+    "budget": 7,
     "skills": [
       "mine"
     ],
@@ -2140,7 +2139,6 @@
       "tp @p 10000.5 200 10000.5",
       "give @p diamond_axe"
     ],
-    "budget": 25,
     "tier": "brain",
     "queue": [
       {
@@ -2155,6 +2153,8 @@
         }
       }
     ],
+    "budget": 25,
+    "limit": 24,
     "point": "C",
     "skills": [],
     "tier_fixed": "brain",
@@ -2276,7 +2276,33 @@
         2932
       ]
     ],
-    "limit": 24
+    "check_words": [
+      "!named_all",
+      [
+        "hungry: never starved, food secured (cooking counts), the task done",
+        [
+          "!all",
+          [
+            "&never_starved"
+          ],
+          [
+            "&food_secured"
+          ],
+          [
+            "!gain",
+            "log",
+            1
+          ]
+        ]
+      ],
+      [
+        "the slice",
+        [
+          "!slice_check",
+          null
+        ]
+      ]
+    ]
   },
   "place_furnace_north": {
     "doc": "Place furnace asking facing=north (the jar turns the body by the block's own rule) → the block reports facing=north",
@@ -2654,8 +2680,8 @@
       "give @p coal 1",
       "give @p diamond_pickaxe"
     ],
-    "budget": 25,
     "tier": "core",
+    "budget": 18,
     "skills": [
       "smelt"
     ],
@@ -2699,8 +2725,8 @@
       "give @p raw_iron 6",
       "give @p coal 3"
     ],
-    "budget": 25,
     "tier": "common",
+    "budget": 18,
     "point": "A",
     "skills": [
       "start_smelt_job"
@@ -2808,8 +2834,8 @@
       "setblock 10004 200 10000 iron_ore",
       "give @p dirt 16"
     ],
-    "budget": 10,
     "tier": "common",
+    "budget": 9,
     "skills": [
       "mine"
     ],
@@ -2900,8 +2926,8 @@
       "tp @p 10000.5 200 10000.5",
       "give @p diamond_pickaxe"
     ],
-    "budget": 25,
     "tier": "common",
+    "budget": 18,
     "skills": [
       "smelt"
     ],
@@ -3287,7 +3313,7 @@
       "give @p raw_iron 8"
     ],
     "tier": "acceptance",
-    "budget": 122,
+    "budget": 123,
     "limit": 105,
     "raw": true,
     "release": true,
@@ -3336,7 +3362,7 @@
       "give @p raw_iron 8"
     ],
     "tier": "acceptance",
-    "budget": 122,
+    "budget": 123,
     "limit": 169,
     "raw": true,
     "release": true,
@@ -3367,6 +3393,109 @@
         ]
       ],
       60
+    ]
+  },
+  "cast_portal": {
+    "doc": "A 3×3 lava pool 8 blocks east of the body; water bucket, bucket, 32 cobblestone, flint and steel → a portal frame cast in place and lit (no obsidian carried, no diamond pickaxe), the pool still lava.",
+    "module": "building",
+    "setup": [
+      "fill 9992 197 9992 10008 199 10008 stone",
+      "fill 10008 199 9999 10010 199 10001 lava",
+      "tp @p 10000 200 10000",
+      "clear @p",
+      "give @p water_bucket",
+      "give @p bucket",
+      "give @p cobblestone 32",
+      "give @p flint_and_steel",
+      "give @p diamond_pickaxe"
+    ],
+    "tier": "common",
+    "budget": 25,
+    "expect": [
+      [
+        [
+          10008,
+          199,
+          9999
+        ],
+        [
+          10010,
+          199,
+          10001
+        ],
+        "lava",
+        9,
+        9
+      ],
+      [
+        [
+          9988,
+          200,
+          9988
+        ],
+        [
+          10012,
+          204,
+          10012
+        ],
+        "*",
+        0,
+        0
+      ]
+    ],
+    "tags": {
+      "proves": "E2"
+    },
+    "skills": [
+      "cast_portal"
+    ],
+    "point": "A",
+    "check_words": [
+      "!all",
+      [
+        "!call",
+        "count_blocks",
+        [
+          "$api",
+          [
+            "@",
+            -12,
+            -1,
+            -12
+          ],
+          [
+            "@",
+            12,
+            6,
+            12
+          ],
+          "nether_portal"
+        ],
+        ">=",
+        1
+      ],
+      [
+        "!call",
+        "count_blocks",
+        [
+          "$api",
+          [
+            "@",
+            8,
+            -1,
+            -1
+          ],
+          [
+            "@",
+            10,
+            -1,
+            1
+          ],
+          "lava"
+        ],
+        ">=",
+        9
+      ]
     ]
   }
 }

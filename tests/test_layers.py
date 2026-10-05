@@ -132,7 +132,7 @@ def closure(m, pkg=PKG):
 
 
 class Direction(unittest.TestCase):
-    """Asked of the bench's own key (`runner.module_deps`), which is what an upward edge damages."""
+    """[K7] Asked of the bench's own key (`runner.module_deps`), which is what an upward edge damages."""
 
     # fixture: (situation, {module: source} of a package, the module asked) → its key's closure
     KEYS = [("a fact alone", {"data": "X = 1\n"}, "data", ["data"]),

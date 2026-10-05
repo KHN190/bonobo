@@ -9,6 +9,7 @@ import static_check  # noqa: E402
 
 
 class Rules(unittest.TestCase):
+    """[K5]"""
     def test_rows(self):
         for rule, srcs, fires in static_check.ROWS:
             with self.subTest(rule=rule, srcs=srcs):
@@ -20,6 +21,7 @@ class Rules(unittest.TestCase):
 
 
 class Bonobo(unittest.TestCase):
+    """[K5][K7][E5a]"""
     def test_no_rule_over_its_known_count(self):
         self.assertEqual(static_check.grew(static_check.hits(), static_check.known()), [])
 

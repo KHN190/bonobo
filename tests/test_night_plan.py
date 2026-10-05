@@ -24,6 +24,7 @@ def state(**kw):
 
 
 class BedRoom(unittest.TestCase):
+    """[R3]"""
     def test_rows(self):
         flat = ground()
         trees = ground({(x, y, z): "oak_log" for x in range(-4, 5) for z in range(-4, 5) for y in (64, 65)

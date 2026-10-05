@@ -63,7 +63,7 @@ def _reads(st, inv_payload):
 
 
 class HuntChaseOverrun(unittest.TestCase):
-    """The production path (dispatch.run_priced → gather.hunt → skill._drive): a prey that never closes in (nav.chase
+    """[E4] The production path (dispatch.run_priced → gather.hunt → skill._drive): a prey that never closes in (nav.chase
     stubbed "moved" every try, a fake clock 10 s a chase). Priced 10 s, its budget 15 s: stopped after 2 chases, before
     a 3rd is ever tried (must fail: every one of count*3+3 tries runs)."""
 
@@ -97,7 +97,7 @@ class HuntChaseOverrun(unittest.TestCase):
 
 
 class SeekLegOverrun(unittest.TestCase):
-    """The production path (dispatch.run_priced → explore.seek → seek_blocks → skill._drive): nothing in sight or
+    """[E4] The production path (dispatch.run_priced → explore.seek → seek_blocks → skill._drive): nothing in sight or
     remembered, so seek falls through to seek_blocks's `_search`, stubbed to legs that find nothing (a fake clock
     +30 s each). Priced 20 s, its budget 30 s: stopped after 2 legs, never the SEARCH_LEGS (must fail: every leg runs).
     The skill runner reads the bag (its needs, the bag check): served like the body's /state."""

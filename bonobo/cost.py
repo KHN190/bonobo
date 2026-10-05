@@ -875,13 +875,7 @@ class Cost:
                           lambda d: walk_ticks(d) / TICKS_PER_S)
 
     def plan_s(self, steps):
-        """Seconds a whole plan takes: Σ Step.est, with furnace smelting overlapping other work."""
-        smelt = [s for s in steps if s.kind == "smelt"]
-        if smelt:
-            smelt_setup = sum(s.est for s in smelt)
-            smelt_wait = sum(s.count * PRIOR_TICKS["smelt_each"] for s in smelt)
-            other = sum(s.est for s in steps if s.kind != "smelt")
-            return (smelt_setup + max(smelt_wait, other)) / TICKS_PER_S
+        """Seconds a whole plan takes: Σ Step.est (planner.schedule put each wait on the step that stands it)."""
         return sum(s.est for s in steps) / TICKS_PER_S
 
     # -- seconds to a kind: where it is, the game's route to it, the chance a search finds one

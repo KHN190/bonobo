@@ -56,7 +56,7 @@ class TheContractsStation(unittest.TestCase):
 
 
 class TheRoundsOnePlan(unittest.TestCase):
-    """planner.plan_round: every target in one plan — a target that waits on another after it (hard), the queue's
+    """[R4] planner.plan_round: every target in one plan — a target that waits on another after it (hard), the queue's
     rank a tie-break only, the bar never run out along the plan's clock (hard)."""
 
     def test_the_order_is_the_fewest_seconds(self):
@@ -228,7 +228,7 @@ class TheChainIsTheGraphs(unittest.TestCase):
 
 
 class TheBoundNeverOverprices(unittest.TestCase):
-    """Bound.least (what is held credited at every level) is at most what the plan the planner finds pays: A* and
+    """[D9] Bound.least (what is held credited at every level) is at most what the plan the planner finds pays: A* and
     the incumbent's pruning drop nothing cheaper."""
 
     ROWS = [("a stone pickaxe from nothing", [], [("tool", "pickaxe", 1)]),
@@ -311,6 +311,7 @@ class TheAlternativesAreReported(unittest.TestCase):
 
 
 class ARoundThinksWithinItsCap(unittest.TestCase):
+    """[D11]"""
     def test_rows(self):
         saved = dict(planner.SPENT)
         # (where the round began, steps now) → spent? — None: no round open (a test, a bench estimate)

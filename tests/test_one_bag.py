@@ -63,6 +63,7 @@ def package_violations():
 
 
 class OneBag(unittest.TestCase):
+    """[E1][D3]"""
     def test_rows(self):
         # (source, path) → what breaks the rule
         rows = [("world reads /inventory", 'def f():\n    return api.get("/inventory")\n', "bonobo/world.py", []),

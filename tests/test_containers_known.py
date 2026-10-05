@@ -14,6 +14,7 @@ IRON = "minecraft:iron_ingot"
 
 
 class Chance(unittest.TestCase):
+    """[P4]"""
     def test_record(self):
         rec = {"items": {IRON: 9}}
         # (situation, record, age s, rate per s) → P
@@ -42,7 +43,7 @@ class Chance(unittest.TestCase):
 
 
 class TheLookPricesTheTake(unittest.TestCase):
-    """planner.look_first: look + p·take + (1 − p)·make against make — the take out of the chest is part of what the
+    """[D12] planner.look_first: look + p·take + (1 − p)·make against make — the take out of the chest is part of what the
     look buys (no chest opened: p = 1/2)."""
 
     def test_rows(self):

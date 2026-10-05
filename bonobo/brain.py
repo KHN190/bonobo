@@ -143,20 +143,11 @@ def furnace_wait_s(jobs):
 
 
 def repriced_s(steps, cost, inv):
-    """Seconds left of a held plan, priced as a fresh one (planner.forward); each est updated."""
-    from .knowledge import held_tiers
-    from .planner import Step, forward
-    held, entries = held_tiers(inv), []
-    for i, st in enumerate(steps):
-        entries.append((Step(st.kind, st.token, st.count, dict(st.detail)), dict(held), i))
-        material, _, kind = bare(st.token).rpartition("_")
-        if st.kind == "craft" and kind in TOOL_KINDS and material in TIER_OF_MATERIAL:
-            held[kind] = max(held.get(kind, -1), TIER_OF_MATERIAL[material])
-    priced, ticks = forward(entries, cost)
-    by_key = {p.key(): p.est for p in priced}
-    for st in steps:
-        st.est = by_key.get(st.key(), st.est)
-    return ticks / TICKS_PER_S
+    """Seconds left of a held plan, priced as it will run in its own order (planner.run_prices); each est updated."""
+    from .planner import run_prices
+    for st, est in zip(steps, run_prices(steps, None, cost)):
+        st.est = est
+    return sum(st.est for st in steps) / TICKS_PER_S
 
 def slice_due(jobs, tick, layer, mode, detour_s, saved_s):
     """Pure: why the queue's or the round's act (`layer` task or plan) hands the body back at its next task boundary —
@@ -178,10 +169,12 @@ def enroute_runnable(step, inv):
     tier = step.detail.get("tier") if step.kind == "mine" else None
     return tier is None or _k.held_tiers(inv).get("pickaxe", -1) >= int(tier)
 
+
 def enroute_inserted(step, steps):
     """Pure: `steps` (fresh copies) with the en-route `step` put before the first leg they walk."""
     from .planner import Step
     return [step] + [Step(st.kind, st.token, st.count, dict(st.detail)) for st in steps]
+
 
 def thrown_s(now=None):
     """Seconds of the running plan act a switch throws away (0 when none runs or it is done)."""

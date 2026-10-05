@@ -25,6 +25,7 @@ def kinds(mem):
 
 
 class TheCap(unittest.TestCase):
+    """[P4]"""
 
     def test_the_151st_evicts_the_cheapest(self):
         mem = capped()

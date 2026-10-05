@@ -55,6 +55,7 @@ def unbound(invariants, tested, proved):
 
 
 class Bound(unittest.TestCase):
+    """[K6]"""
     def test_the_unbound_set_only_shrinks(self):
         now = unbound(INVARIANTS, bound_in_tests(), proved_in_bench())
         if not os.path.exists(BASELINE):

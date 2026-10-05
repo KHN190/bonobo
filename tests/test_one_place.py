@@ -67,7 +67,7 @@ class RoomClicks(unittest.TestCase):
 
 
 class MemoTtl(unittest.TestCase):
-    """data.memo_ttl: the one short-lived memo (perception's ground, needs' plan prices)."""
+    """[D8] data.memo_ttl: the one short-lived memo (perception's ground, needs' plan prices)."""
 
     def test_rows(self):
         # (situation, cache before, key, now, one) → (value returned, made again?, keys after)
@@ -125,7 +125,7 @@ def duplicate_defs(source):
 
 
 class OneNameOneDefinition(unittest.TestCase):
-    """No module defines a top-level name twice: skills.make_room (a station spot dug in the world) was shadowed by a
+    """[K5] No module defines a top-level name twice: skills.make_room (a station spot dug in the world) was shadowed by a
     second make_room (room in the bag), and every one-argument call became a TypeError."""
 
     ROWS = [("two different names", "def a(x):\n    pass\ndef b(x):\n    pass\n", []),

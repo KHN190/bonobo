@@ -58,6 +58,7 @@ def sweep(seed, ticks=40):
 
 
 class OnlyOneDrives(unittest.TestCase):
+    """[K3][D3]"""
     SEEDS = range(300)
 
     def test_two_layers_never_drive_at_once(self):
@@ -100,7 +101,7 @@ class OnlyOneDrives(unittest.TestCase):
 
 
 class TheLease(unittest.TestCase):
-    """A preemption holds the body until holding it stops being worth more than working — not for a guessed
+    """[K3] A preemption holds the body until holding it stops being worth more than working — not for a guessed
     number of seconds. While it holds, nobody else's task goes out at all: not by courtesy, by refusal."""
 
     SEEDS = range(200)
@@ -167,7 +168,7 @@ class TheLease(unittest.TestCase):
 
 
 class TwoRealThreads(unittest.TestCase):
-    """The gap this file kept missing: everything here held in one thread, and the failure lived between two.
+    """[K3] The gap this file kept missing: everything here held in one thread, and the failure lived between two.
 
     A planner thread posts tasks in a loop, as the brain does; a watcher thread preempts at random moments, as
     perception does. The invariant is what the log kept violating — no task of anyone else's goes out while a

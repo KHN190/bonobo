@@ -75,6 +75,7 @@ def _raised(call):
 
 
 class RulesAreWired(unittest.TestCase):
+    """[K1]"""
     # The wiring rules (planner, bunker, threat model, safe step, bids, interrupts, the answer loop, rows) are
     # shown by behaviour in tests/test_wiring.py.
 
@@ -150,7 +151,7 @@ class RulesAreWired(unittest.TestCase):
                 self.assertEqual((asked, wire.called), (want_asked, reached))
 
 class TheSafetyLayerStopsTheBody(unittest.TestCase):
-    """The message (INTERRUPT) is perception's; the command (/stop) is the arbiter's — two direct stops were two of
+    """[S1][K1] The message (INTERRUPT) is perception's; the command (/stop) is the arbiter's — two direct stops were two of
     the commanders a multi-threat fight cannot afford. It is run here over a recording arbiter."""
 
     RUNNING = {"active": True, "paused": False, "allowed": True, "task": {"type": "mine"}, "queued": 0}
@@ -214,7 +215,7 @@ ENDERMEN = [{"type": "minecraft:enderman", "id": 7, "x": 6, "y": 64, "z": 0, "an
 
 
 class EveryLookIsVetted(unittest.TestCase):
-    """Looking at an enderman provokes it: the task funnel warns of such an aim, the bow refuses one. Standing at
+    """[K1] Looking at an enderman provokes it: the task funnel warns of such an aim, the bow refuses one. Standing at
     (0, 64, 0), endermen at 3 and 6 blocks east; a rising line to (12, 69, 0) crosses the head band."""
 
     END = {"dimension": "minecraft:the_end", "x": 0, "y": 64, "z": 0}
@@ -257,7 +258,7 @@ class EveryLookIsVetted(unittest.TestCase):
 
 
 class OneDecisionPoint(unittest.TestCase):
-    """A fixed order, no scores: the first layer that has something to do takes the round (brain.py docstring).
+    """[K3] A fixed order, no scores: the first layer that has something to do takes the round (brain.py docstring).
     Asked of `Brain.decide` itself, with each layer replaced by a recorder that says whether it has work."""
 
     LAYERS = ("hazard", "upkeep", "queue")
@@ -322,7 +323,7 @@ class OneDecisionPoint(unittest.TestCase):
 
 
 class SafetyIsNotOptIn(unittest.TestCase):
-    """A guard that each call site must remember to ask for is a guard whose coverage decays."""
+    """[S1] A guard that each call site must remember to ask for is a guard whose coverage decays."""
 
     def test_guards_are_on_by_default(self):
         """A guard each caller must remember to ask for is a guard whose coverage decays: the safe value is the

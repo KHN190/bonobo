@@ -284,7 +284,7 @@ COMMON_CONDITIONS = ("night", "canopy", "cave", "full_bag", "interrupt_mid_work"
 
 # upkeep's rows and point-B hazards are everyday: common
 COMMON = ("dig_in_night", "reach_land_swim", "chest_or_tree", "cross_lava_8", "cave_escape",
-          "slice_nether_kit", "ore_buried", "hand_spare_slot", "furnace_on_slab", "eat_while_walking")
+          "slice_nether_kit", "ore_buried", "hand_spare_slot", "furnace_on_slab", "eat_while_walking", "cast_portal")
 
 ACCEPTANCE = (ACCEPTANCE_D, "accept_smelt_beside_mining", "accept_furnace_done_mid_mining")
 

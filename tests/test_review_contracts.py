@@ -1230,7 +1230,7 @@ class FuzzWays(unittest.TestCase):
 
 
 class FuzzRetry(unittest.TestCase):
-    """[E5b]"""
+    """[E5c] [E5b]"""
     def test_cooling_follows_failures_and_ends_with_success_or_time(self):
         rng = random.Random(SEED + 33)
         causes = ["nav", "error", "unavailable", "tool", "game", "replan", "interrupt"]
@@ -1523,7 +1523,7 @@ def round_with(mobs, chest=None, contents=None, bag_=()):
 
 
 class EnrouteOnePass(unittest.TestCase):
-    """[G3]"""
+    """[R2] [G3]"""
     def scenes(self, seed, n):
         from tests.test_enroute import sheep
         rng = random.Random(seed)
@@ -1676,7 +1676,7 @@ class DesignMilestoneCredit(unittest.TestCase):
 
 
 class DesignDurablesLive(unittest.TestCase):
-    """[G6] A: durable kit is judged live — carried, worn, in the offhand, or standing where walking back beats remaking."""
+    """[K4] [G6] A: durable kit is judged live — carried, worn, in the offhand, or standing where walking back beats remaking."""
 
     def test_an_iron_pickaxe_alone_leaves_stone_tools_unmet(self):
         self.assertEqual(next_name(inventory(("iron_pickaxe", 1))), "stone tools")
@@ -1708,6 +1708,17 @@ class DesignDurablesLive(unittest.TestCase):
                 self.assertEqual("minecraft:furnace" not in got, met)
                 self.assertEqual(goals.station_had("minecraft:furnace", snapshot(st, kit(without=("furnace",) + without)),
                                                    mem), met)
+
+    def test_rows_a_station_s_remake_price_follows_its_recipe_and_the_tools_held(self):
+        rows = [("a furnace by hand costs more than with an iron pickaxe", "minecraft:furnace", (), ("iron_pickaxe",), True),
+                ("a table costs the same whatever pickaxe is held", "minecraft:crafting_table", (), ("iron_pickaxe",), False)]
+        for name, block, bare_, tooled, dearer in rows:
+            with self.subTest(name):
+                by_hand = goals.remake_ticks(block, bag(inventory(*[(t, 1) for t in bare_])))
+                tooled_ = goals.remake_ticks(block, bag(inventory(*[(t, 1) for t in tooled])))
+                self.assertEqual(by_hand > tooled_, dearer)
+        self.assertEqual(goals.raw_steps("minecraft:furnace", 1)[0][:3], ("mine", "minecraft:cobblestone", 8))
+        self.assertEqual(goals.raw_steps("minecraft:crafting_table", 1)[0][:3], ("gather", "log", 1))
 
     def test_must_fail_an_iron_pickaxe_is_no_furnace(self):
         got = goals.remainder(goals.make("milestone", name="station kit"),
@@ -1865,12 +1876,12 @@ class DesignSchedule(unittest.TestCase):
     def test_two_furnaces_of_ours_halve_the_wait(self):
         st = state()
         dim, f = st["dimension"], (st["blockX"], st["blockY"], st["blockZ"])
-        plans = {}
+        plans, mems = {}, []
         for n in (1, 2):
-            mem = memory()
+            mems.append(memory())
             for k in range(n):
-                mem.add_station("minecraft:furnace", (f[0] + 2 + k, f[1], f[2]), dim)
-            c = cost(snapshot(st, inventory(("raw_iron", 16), ("coal", 4))), mem)
+                mems[-1].add_station("minecraft:furnace", (f[0] + 2 + k, f[1], f[2]), dim)
+            c = cost(snapshot(st, inventory(("raw_iron", 16), ("coal", 4))), mems[-1])
             plans[n] = c.plan_s(plan_needs(c.snap.inv, [("minecraft:iron_ingot", 16)], c))
         self.assertLess(plans[2], plans[1] - 6 * SMELT_TICKS / TICKS_PER_S)
 
@@ -2419,6 +2430,44 @@ class CastGeometry(unittest.TestCase):
         for name, lava, want in rows:
             with self.subTest(name):
                 self.assertEqual(fluids.spill_safe(bp, origin, 0, lava), want)
+
+
+
+class SwitchPays(unittest.TestCase):
+    """[D4] A held plan is dropped only when the new plan's seconds plus what the switch throws away beat its rest."""
+
+    def test_fuzz(self):
+        rng = random.Random(SEED + 69)
+        for case in range(300):
+            held, chosen, lost = (rng.uniform(0, 300) for _ in range(3))
+            with self.subTest(case=case):
+                self.assertEqual(brain.pays_switch(held, chosen, lost), chosen + lost < held)
+                self.assertFalse(brain.pays_switch(held, held, 0.0))
+                self.assertTrue(brain.pays_switch(held + 1.0, held, 0.0))
+
+
+class NeedsBeforeTheirDeadline(unittest.TestCase):
+    """[G9] A need with a deadline (dusk's bed) runs before a queued task that would carry the body past it."""
+
+    def test_the_bed_goes_before_a_long_task_that_would_miss_dusk(self):
+        from bonobo.planner import Target, plan_round
+        inv = bag(inventory(("white_wool", 3), ("oak_planks", 3), ("iron_pickaxe", 1)))
+        long_task = Target("task t1", [("stone", 64)], 0)
+        try:
+            bed = Target("night prep: bed", [("bed", 1)], 1, due_s=20.0)
+        except TypeError:
+            self.fail("a target carries no deadline yet")
+        _first, steps, _secs = plan_round(inv, [long_task, bed], NullCost())
+        kinds = [(st.kind, bare(st.token)) for st in steps]
+        self.assertIn(("craft", "white_bed"), kinds)
+        self.assertLess(kinds.index(("craft", "white_bed")), next(i for i, k in enumerate(kinds) if k[0] == "mine"))
+
+    def test_must_fail_no_deadline_the_cheapest_order_stands(self):
+        from bonobo.planner import Target, plan_round
+        inv = bag(inventory(("white_wool", 3), ("oak_planks", 3), ("iron_pickaxe", 1)))
+        _first, steps, _secs = plan_round(inv, [Target("task t1", [("stone", 64)], 0), Target("bed", [("bed", 1)], 1)],
+                                          NullCost())
+        self.assertTrue(steps)
 
 
 if __name__ == "__main__":

@@ -67,11 +67,10 @@ def open_night(v):
 def sleep_due(v):
     return v["night"] and v["bed_works"] and (v["bed_carried"] or v["bed_near"])
 
-CURRENT_READY = lambda name: True
-
 def cover_due(v):
-    """Pure: sleep or shelter is due and ready to run; a non-critical meal waits for it."""
-    return (sleep_due(v) and CURRENT_READY("sleep")) or (bool(v.get("shelter_ready")) and CURRENT_READY("shelter"))
+    """Pure: sleep or shelter is due and ready to run (the view's `ready`); a non-critical meal waits for it."""
+    ready = getattr(v, "ready", lambda name: True)
+    return (sleep_due(v) and ready("sleep")) or (bool(v.get("shelter_ready")) and ready("shelter"))
 
 
 TABLE = [
@@ -154,16 +153,34 @@ def admitted(name, view):
     return bool(check(view)) if ADMIT_READS[name] <= known else True
 
 
+class _Asked(dict):
+    """The round's view with the round's `ready` beside it for the triggers that ask (cover_due); reads fall through."""
+
+    def __init__(self, view, ready):
+        super().__init__()
+        self.view, self.ready, self.providers = view, ready, getattr(view, "providers", {})
+
+    def __missing__(self, key):
+        return self.view[key]
+
+    def __contains__(self, key):
+        return key in self.view
+
+    def __iter__(self):
+        return iter(self.view)
+
+    def __len__(self):
+        return len(self.view)
+
+    def get(self, key, default=None):
+        return self.view.get(key, default)
+
+
 def due(view, ready=lambda name: True):
     """[(seq, name)] of reflexes that fire in table order, skipping cooling ones."""
-    global CURRENT_READY
-    prev = CURRENT_READY
-    CURRENT_READY = ready
-    try:
-        return [(i, name) for i, (name, trigger, _act) in enumerate(TABLE)
-                if ready(name) and trigger(view) and admitted(name, view)]
-    finally:
-        CURRENT_READY = prev
+    asked = _Asked(view, ready)
+    return [(i, name) for i, (name, trigger, _act) in enumerate(TABLE)
+            if ready(name) and trigger(asked) and admitted(name, asked)]
 
 def nether_retreat(snap):
     """In the Nether, head home through the portal when food, health or bag room run low. Pure."""

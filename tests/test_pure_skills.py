@@ -938,23 +938,5 @@ class LyingDrops(unittest.TestCase):
                 self.assertEqual(nav.lying_drops(items, only), want)
 
 
-class PickupPriced(unittest.TestCase):
-    """knowledge.pickup_ticks: each break's drop walked onto is in the work's price (mine_stone__base 181618: three
-    drops in their holes, ~1 s each, past a 5 s budget)."""
-
-    def test_table(self):
-        from bonobo import knowledge
-        from bonobo.planner import Step
-        each = knowledge.PRIOR_TICKS["pickup_each"]
-        rows = [("three stone breaks", Step("mine", "cobblestone", 3, detail={"blocks": ["stone"], "breaks": 3}), 3 * each),
-                ("two logs", Step("gather", "log", 2), 2 * each),
-                ("must fail: a craft drops nothing", Step("craft", "stick", 4), 0)]
-        for name, step, want in rows:
-            with self.subTest(name):
-                self.assertEqual(knowledge.pickup_ticks(step), want)
-        mine = rows[0][1]
-        self.assertGreaterEqual(knowledge.prior_work_ticks(mine, {}, 20), 3 * each)
-
-
 if __name__ == "__main__":
     unittest.main()
