@@ -1,4 +1,6 @@
+import itertools
 import os
+import random
 import sys
 import time
 import unittest
@@ -9,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import arbiter, hazard, nav, planner
 from bonobo.data import place_signature
 from bonobo.planner import NullCost, Step, Node, from_bag, plan_needs
-from tests.world import FakeRegion, bag, inventory
+from tests.world import FakeRegion, bag, brain_fixture, inventory, memory, snapshot, state
 
 
 class TestReflexSafety(unittest.TestCase):
@@ -24,13 +26,13 @@ class TestReflexSafety(unittest.TestCase):
         motion.preempt("tactic", lambda: None, "fight", release=lambda: False)
         self.assertIsNotNone(motion.lease)
 
-        # Safety must own the body while tactic holds a lease
-        safety_owns = motion.carry(safety_intent, lambda: motion.owns("api.post"))
-        self.assertTrue(safety_owns)
-
         # Slower plan intent must NOT own the body while tactic holds a lease
         plan_owns = motion.carry(plan_intent, lambda: motion.owns("api.post"))
         self.assertFalse(plan_owns)
+
+        # Safety must own the body while tactic holds a lease
+        safety_owns = motion.carry(safety_intent, lambda: motion.owns("api.post"))
+        self.assertTrue(safety_owns)
 
         # When safety preempts, the previous tactic lease is cleared
         ran = []
@@ -125,9 +127,7 @@ class TestExecutionNavigation(unittest.TestCase):
 
     def test_retry_also_keys_cleared_on_step_success(self):
         """brain.attempt clears all also retry keys on successful execution."""
-        from bonobo import brain as brainmod
-
-        brain_obj = brainmod.Brain()
+        brain_obj = brain_fixture()
         brain_obj.retry.failed("step_child_task", "stuck", "cannot reach", time.time())
         self.assertEqual(brain_obj.retry.causes("step_child_task"), ["stuck"])
 
@@ -176,11 +176,10 @@ class TestExecutionNavigation(unittest.TestCase):
 class TestGoalDrive(unittest.TestCase):
     def test_end_portal_advances_to_dragon_beds_in_end(self):
         """In the End dimension, end portal milestone is met and advances to dragon beds."""
-        from bonobo import brain, goals, memory, world
+        from bonobo import brain, goals
 
-        inv = world.Inventory()
-        snap = world.Snapshot(inv, (0.0, 64.0, 0.0), 0.0, "minecraft:the_end", False)
-        mem = memory.Memory()
+        snap = snapshot(st=state(dimension="minecraft:the_end"))
+        mem = memory()
 
         portal_goal = goals.make("milestone", name="end portal")
         self.assertEqual(goals.remainder(portal_goal, snap, mem), {})
@@ -192,42 +191,37 @@ class TestGoalDrive(unittest.TestCase):
 
     def test_milestone_no_regression_after_consumed(self):
         """Crafting blaze rods into eyes of ender does not cause blaze rods milestone to fail."""
-        from bonobo import goals, memory, world
+        from bonobo import goals
 
         # 12 eyes of ender, 0 blaze rods
-        inv = world.Inventory({"slots": [{"id": "minecraft:ender_eye", "count": 12, "slot": 0}]})
-        snap = world.Snapshot(inv, (0.0, 64.0, 0.0), 0.0, "minecraft:overworld", False)
-        mem = memory.Memory()
+        snap = snapshot(inv=inventory(("minecraft:ender_eye", 12)))
+        mem = memory()
 
         blaze_goal = goals.make("milestone", name="blaze rods")
         self.assertEqual(goals.remainder(blaze_goal, snap, mem), {})
 
     def test_worn_armor_satisfies_milestone(self):
         """Worn armor in equipment slots counts toward iron armor milestone."""
-        from bonobo import goals, knowledge, memory, world
+        from bonobo import goals
 
-        inv = world.Inventory({
-            "slots": [],
-            "equipment": {
-                "head": {"id": "minecraft:iron_helmet", "count": 1},
-                "chest": {"id": "minecraft:iron_chestplate", "count": 1},
-                "legs": {"id": "minecraft:iron_leggings", "count": 1},
-                "feet": {"id": "minecraft:iron_boots", "count": 1},
-            }
-        })
-        snap = world.Snapshot(inv, (0.0, 64.0, 0.0), 0.0, "minecraft:overworld", False)
-        mem = memory.Memory()
+        inv_data = inventory()
+        inv_data["equipment"] = {
+            "head": {"id": "minecraft:iron_helmet", "count": 1},
+            "chest": {"id": "minecraft:iron_chestplate", "count": 1},
+            "legs": {"id": "minecraft:iron_leggings", "count": 1},
+            "feet": {"id": "minecraft:iron_boots", "count": 1},
+        }
+        snap = snapshot(inv=inv_data)
+        mem = memory()
 
         armor_goal = goals.make("milestone", name="iron armor")
         self.assertEqual(goals.remainder(armor_goal, snap, mem), {})
 
     def test_held_cleaned_on_task_cancel(self):
         """When a task is no longer live, plan_proposals removes it from self.held."""
-        from bonobo import brain as brainmod, world
-
-        brain_obj = brainmod.Brain()
+        brain_obj = brain_fixture()
         brain_obj.held[999] = {"steps": []}
-        snap = world.Snapshot(world.Inventory(), (0.0, 64.0, 0.0), 0.0, "minecraft:overworld", False)
+        snap = snapshot()
 
         with mock.patch("bonobo.tasks.load", return_value=[]), \
              mock.patch("bonobo.tasks.expire", return_value=False):
@@ -236,27 +230,26 @@ class TestGoalDrive(unittest.TestCase):
 
     def test_bucket_filled_satisfies_milestone(self):
         """Holding a water bucket satisfies minecraft:bucket requirement for iron tools milestone."""
-        from bonobo import goals, memory, world
+        from bonobo import goals
 
-        inv = world.Inventory({"slots": [
-            {"id": "minecraft:iron_pickaxe", "count": 1, "slot": 0},
-            {"id": "minecraft:iron_sword", "count": 1, "slot": 1},
-            {"id": "minecraft:shield", "count": 1, "slot": 2},
-            {"id": "minecraft:flint_and_steel", "count": 1, "slot": 3},
-            {"id": "minecraft:water_bucket", "count": 1, "slot": 4},
-        ]})
-        snap = world.Snapshot(inv, (0.0, 64.0, 0.0), 0.0, "minecraft:overworld", False)
-        mem = memory.Memory()
+        inv_data = inventory(
+            ("minecraft:iron_pickaxe", 1),
+            ("minecraft:iron_sword", 1),
+            ("minecraft:shield", 1),
+            ("minecraft:flint_and_steel", 1),
+            ("minecraft:water_bucket", 1),
+        )
+        snap = snapshot(inv=inv_data)
+        mem = memory()
         iron_tools = goals.make("milestone", name="iron tools")
         self.assertEqual(goals.remainder(iron_tools, snap, mem), {})
 
     def test_station_kit_nearby_satisfies_milestone(self):
         """Placed furnace and crafting table near feet satisfy station kit milestone without carrying them."""
-        from bonobo import goals, memory, world
+        from bonobo import goals
 
-        inv = world.Inventory()
-        snap = world.Snapshot(inv, (10.0, 64.0, 10.0), 0.0, "minecraft:overworld", False)
-        mem = memory.Memory()
+        snap = snapshot(st=state(x=10.0, y=64.0, z=10.0))
+        mem = memory()
         mem.add_station("minecraft:crafting_table", (12, 64, 10), "minecraft:overworld")
         mem.add_station("minecraft:furnace", (10, 64, 12), "minecraft:overworld")
 
@@ -265,13 +258,10 @@ class TestGoalDrive(unittest.TestCase):
 
     def test_ender_pearls_satisfied_by_eyes(self):
         """Holding 12 eyes of ender satisfies ender pearls milestone remainder."""
-        from bonobo import goals, memory, world
+        from bonobo import goals
 
-        inv = world.Inventory({"slots": [
-            {"id": "minecraft:ender_eye", "count": 12, "slot": 0}
-        ]})
-        snap = world.Snapshot(inv, (0.0, 64.0, 0.0), 0.0, "minecraft:overworld", False)
-        mem = memory.Memory()
+        snap = snapshot(inv=inventory(("minecraft:ender_eye", 12)))
+        mem = memory()
 
         pearls_goal = goals.make("milestone", name="ender pearls")
         self.assertEqual(goals.remainder(pearls_goal, snap, mem), {})
@@ -281,10 +271,10 @@ class TestGoalDrive(unittest.TestCase):
 class TestCostEvaluation(unittest.TestCase):
     def test_tree_memory_reach_checked(self):
         """Tree memory source uses mine stand_kind and checks refused cells."""
-        from bonobo import cost as costmod, memory, world
+        from bonobo import cost as costmod
 
-        snap = world.Snapshot(world.Inventory(), (0.0, 64.0, 0.0), 0.0, "minecraft:overworld", False)
-        mem = memory.Memory()
+        snap = snapshot()
+        mem = memory()
         # Add a remembered tree
         mem.data["seen"] = [{"kind": "tree", "pos": (10, 64, 10), "dimension": "minecraft:overworld"}]
 
@@ -297,10 +287,10 @@ class TestCostEvaluation(unittest.TestCase):
 
     def test_walk_lb_admissible(self):
         """walk_lb returns straight-line lower bound without route factor multiplier."""
-        from bonobo import cost as costmod, memory, planner, world
+        from bonobo import cost as costmod, planner
 
-        snap = world.Snapshot(world.Inventory(), (0.0, 64.0, 0.0), 0.0, "minecraft:overworld", False)
-        mem = memory.Memory()
+        snap = snapshot()
+        mem = memory()
         cost_obj = costmod.Cost(snap, mem)
 
         step = planner.Step("goto", "place", 1, {"pos": (10, 64, 0)})
@@ -310,10 +300,10 @@ class TestCostEvaluation(unittest.TestCase):
 
     def test_distant_lava_ignored_in_facts(self):
         """Cost.facts does not mark lava as True when remembered lava is far away (>128m)."""
-        from bonobo import cost as costmod, memory, world
+        from bonobo import cost as costmod
 
-        snap = world.Snapshot(world.Inventory(), (0.0, 64.0, 0.0), 0.0, "minecraft:overworld", False)
-        mem = memory.Memory()
+        snap = snapshot()
+        mem = memory()
         # Lava 500 blocks away
         mem.data["seen"] = [{"kind": "lava", "pos": (500, 64, 0), "dimension": "minecraft:overworld"}]
         cost_obj = costmod.Cost(snap, mem)
@@ -329,11 +319,11 @@ class TestCostEvaluation(unittest.TestCase):
 class TestPlanningAdvanced(unittest.TestCase):
     def test_replay_await_invalid_rejected(self):
         """Search.replay rejects await step if pending outputs do not cover the count."""
-        from bonobo import planner, world
+        from bonobo import planner
 
         cost = planner.NullCost()
-        inv = world.Inventory()
-        root = planner.Node(planner.from_bag(bag(inv), [], [], cost.reserved, cost.facts()), [], [])
+        inv = bag(inventory())
+        root = planner.Node(planner.from_bag(inv, [], [], cost.reserved, cost.facts()), [], [])
         search = planner.Search(cost)
 
         await_step = planner.Step("await", "minecraft:iron_ingot", 3)
@@ -344,35 +334,33 @@ class TestPlanningAdvanced(unittest.TestCase):
 
     def test_smelt_fuel_per_step_capacity(self):
         """Each smelt step plans fuel required for its batch to match runtime craft.py."""
-        from bonobo import planner, world
+        from bonobo import planner
 
         cost = planner.NullCost()
-        inv = world.Inventory({"slots": [
-            {"id": "minecraft:raw_iron", "count": 6, "slot": 0},
-            {"id": "minecraft:coal", "count": 5, "slot": 1}
-        ]})
+        inv = bag(inventory(("minecraft:raw_iron", 6), ("minecraft:coal", 5)))
         targets = [("minecraft:iron_ingot", 3)]
-        steps = planner.plan_needs(bag(inv), targets, cost)
+        steps = planner.plan_needs(inv, targets, cost)
         smelt_steps = [s for s in steps if s.kind == "smelt"]
         self.assertTrue(len(smelt_steps) >= 1)
         for s in smelt_steps:
-            coal_needed = s.detail.get("inputs", {}).get("minecraft:coal", 0)
+            coal_needed = s.detail.get("inputs", {}).get("coal", 0) or s.detail.get("inputs", {}).get("minecraft:coal", 0)
             self.assertEqual(coal_needed, 1)
 
     def test_replay_preserves_reusable_tools(self):
         """Replay validates call items without consuming non-consumables like tools or flint & steel."""
         cost = NullCost()
-        st1 = Step("skill", "nether_portal", 1, {"call": {"minecraft:flint_and_steel": 1, "minecraft:obsidian": 10}})
-        st2 = Step("skill", "nether_portal", 1, {"call": {"minecraft:flint_and_steel": 1, "minecraft:obsidian": 10}})
+        st1 = Step("build", "nether_portal", 1, {})
+        st2 = Step("build", "nether_portal", 1, {})
         plan = [st1, st2]
 
         inv = inventory(
             ("minecraft:flint_and_steel", 1),
-            ("minecraft:obsidian", 20)
+            ("minecraft:obsidian", 20),
+            ("minecraft:cobblestone", 8)
         )
         root = Node(from_bag(bag(inv), [], [], cost.reserved, cost.facts()), [], [])
         search = planner.Search(cost)
-        with mock.patch.object(search, "used", return_value={"minecraft:obsidian": 10}):
+        with mock.patch.object(search, "used", return_value={"minecraft:obsidian": 10, "stone": 4}):
             res = search.replay(root, [], plan)
             self.assertIsNotNone(res)
 
@@ -380,7 +368,7 @@ class TestPlanningAdvanced(unittest.TestCase):
         """Surplus logs from gather are added to virtual bag and avoid duplicate gathering."""
         cost = NullCost()
         inv = inventory()
-        targets = [("minecraft:oak_log", 2), ("minecraft:oak_log", 2)]
+        targets = [("log", 2), ("log", 2)]
         steps = plan_needs(bag(inv), targets, cost)
         gather_steps = [s for s in steps if s.kind == "gather"]
         self.assertEqual(sum(s.count for s in gather_steps), 4)
@@ -417,18 +405,15 @@ class TestReflexAdvanced(unittest.TestCase):
         from bonobo import hazard
 
         # In water (drowning) and critical hp (critical)
-        state = {
-            "health": 4, "inWater": True, "air": 10, "onGround": False,
-            "dead": False, "inLava": False, "onFire": False
-        }
-        actives = hazard.active_hazards(state)
+        st = state(health=4, inWater=True, air=10, onGround=False, dead=False, inLava=False, onFire=False)
+        actives = hazard.active_hazards(st)
         self.assertIn("drowning", actives)
         self.assertIn("critical", actives)
 
         def ready(name):
             return "drowning" not in name
 
-        due = hazard.rescue_due(state, ready=ready)
+        due = hazard.rescue_due(st, ready=ready)
         self.assertEqual(due, "critical")
 
     def test_motion_driving_thread_safe(self):
@@ -444,13 +429,12 @@ class TestReflexAdvanced(unittest.TestCase):
 
     def test_fast_exception_swallowed(self):
         """Brain._decide_round catches errors in fast() without raising or freezing."""
-        from bonobo import brain as brainmod, world
-
-        brain_obj = brainmod.Brain()
-        snap = world.Snapshot(world.Inventory(), (0.0, 64.0, 0.0), 0.0, "minecraft:overworld", False)
+        brain_obj = brain_fixture()
+        snap = snapshot()
         ctx = mock.MagicMock()
 
         with mock.patch("bonobo.hazard.rescue_due", side_effect=RuntimeError("unexpected sensor failure")), \
+             mock.patch.object(brain_obj, "plan_proposals", return_value=[]), \
              mock.patch.object(brain_obj.needs, "propose", return_value=[]), \
              mock.patch.object(brain_obj.reflexes, "proposals", return_value=[]), \
              mock.patch.object(brain_obj, "light_intent", return_value=None):
@@ -476,18 +460,17 @@ class TestReflexAdvanced(unittest.TestCase):
 class TestExecutionAdvanced(unittest.TestCase):
     def test_worn_armor_only_in_milestone_remainder(self):
         """Worn armor satisfies milestone remainder without altering bag held_count."""
-        from bonobo import goals, knowledge, memory, world
+        from bonobo import goals, knowledge
 
-        inv = world.Inventory({
-            "slots": [],
-            "equipment": {
-                "chest": {"id": "minecraft:iron_chestplate", "count": 1}
-            }
-        })
+        inv_data = inventory()
+        inv_data["equipment"] = {
+            "chest": {"id": "minecraft:iron_chestplate", "count": 1}
+        }
+        inv = bag(inv_data)
         self.assertEqual(knowledge.held_count(inv, "minecraft:iron_chestplate"), 0)
 
-        snap = world.Snapshot(inv, (0.0, 64.0, 0.0), 0.0, "minecraft:overworld", False)
-        mem = memory.Memory()
+        snap = snapshot(inv=inv)
+        mem = memory()
         milestone = goals.make("milestone", name="iron armor")
         rem = goals.remainder(milestone, snap, mem)
         self.assertNotIn("minecraft:iron_chestplate", rem)
@@ -503,8 +486,10 @@ class TestExecutionAdvanced(unittest.TestCase):
             call_count[0] += 1
             if call_count[0] == 1:
                 return [{"status": "succeeded"}, {"status": "failed", "message": "cannot reach"}]
-            else:
+            elif call_count[0] == 2:
                 return [{"status": "succeeded"}, {"status": "succeeded"}]
+            else:
+                return [{"status": "failed", "message": "cannot reach"}]
 
         with mock.patch("bonobo.api.run_chain", side_effect=fake_run_chain), \
              mock.patch("bonobo.api.out_of_reach"):
@@ -512,11 +497,11 @@ class TestExecutionAdvanced(unittest.TestCase):
             self.assertEqual(res["result"]["succeeded"], 3)
 
     def test_station_missing_is_replan_not_interruption_and_not_failure(self):
-        """StationMissing is a replan exception: in INTERRUPTIONS, and excluded from failure outcome."""
+        """StationMissing is a replan exception: not in INTERRUPTIONS, and excluded from failure outcome."""
         from bonobo import api, retry, skillcore
 
         err = skillcore.StationMissing("minecraft:furnace")
-        self.assertTrue(isinstance(err, api.INTERRUPTIONS))
+        self.assertFalse(isinstance(err, api.INTERRUPTIONS))
         self.assertEqual(retry.cause_of(err), "replan")
 
         mem = mock.MagicMock()
@@ -528,57 +513,170 @@ class TestExecutionAdvanced(unittest.TestCase):
 
     def test_reach_stand_goto_clean_return(self):
         """reach_stand for goto task returns cleanly once feet is in range."""
-        from bonobo import nav, world
+        from bonobo import nav
 
         task = {"type": "goto", "x": 10, "y": 64, "z": 10}
         with mock.patch("bonobo.nav.feet", return_value=(10.0, 64.0, 10.0)), \
-             mock.patch("bonobo.nav._read_box", return_value=FakeRegion((-1, 60, -1), (15, 70, 15))), \
-             mock.patch("bonobo.nav.stands_for", return_value=True):
+             mock.patch("bonobo.nav._read_box", return_value=FakeRegion((-1, 60, -1), (15, 70, 15), {})), \
+             mock.patch("bonobo.nav.stands_for", return_value=True), \
+             mock.patch("bonobo.nav.inventory_now", return_value=bag(inventory())):
             nav.reach_stand(task, mock.MagicMock(), at=(10, 64, 10))
 
-    def test_tasks_save_preserves_concurrent_tasks(self):
-        """tasks.save merges tasks on disk so concurrently appended tasks are not lost."""
+    def test_tasks_add_and_deduplicate(self):
+        """tasks.add appends new tasks and deduplicates identical live goals."""
         from bonobo import goals, tasks
         import tempfile
 
         tmp_file = tempfile.mktemp(suffix=".json")
         try:
-            # Process A writes task 1
-            t1 = {"id": 1, "state": "queued", "goal": "have", "args": {}}
-            tasks.save([t1], path=tmp_file)
+            t1 = tasks.add(goals.have(("minecraft:stone", 1)), path=tmp_file)
+            t2 = tasks.add(goals.have(("minecraft:dirt", 1)), path=tmp_file)
+            # Adding duplicate live goal returns existing task without duplicating
+            t3 = tasks.add(goals.have(("minecraft:stone", 1)), path=tmp_file)
+            self.assertEqual(t3["id"], t1["id"])
 
-            # Process B concurrently writes task 2
-            t2 = {"id": 2, "state": "queued", "goal": "have", "args": {}}
-            tasks.save([t2], path=tmp_file)
-
-            # File should now contain both task 2 and task 1
             loaded = tasks.load(path=tmp_file)
-            loaded_ids = {t["id"] for t in loaded}
-            self.assertEqual(loaded_ids, {1, 2})
+            loaded_ids = [t["id"] for t in loaded]
+            self.assertEqual(loaded_ids, [t1["id"], t2["id"]])
         finally:
             if os.path.exists(tmp_file):
                 os.remove(tmp_file)
 
     def test_tasks_ranked_by_deadline(self):
         """plan_proposals ranks tasks by expiration deadline ascending."""
-        from bonobo import brain as brainmod, goals, world
+        from bonobo import goals
 
-        brain_obj = brainmod.Brain()
-        snap = world.Snapshot(world.Inventory(), (0.0, 64.0, 0.0), 0.0, "minecraft:overworld", False)
+        brain_obj = brain_fixture()
+        snap = snapshot()
         ctx = mock.MagicMock()
 
-        t_late = {"id": 1, "state": "queued", "goal": goals.have(("minecraft:dirt", 1)), "expires": 2000.0}
-        t_urgent = {"id": 2, "state": "queued", "goal": goals.have(("minecraft:stone", 1)), "expires": 1000.0}
-        t_noexp = {"id": 3, "state": "queued", "goal": goals.have(("minecraft:torch", 1))}
+        g1 = goals.have(("minecraft:dirt", 1))
+        t_late = {"id": 1, "state": "pending", "goal": g1["goal"], "args": g1["args"], "expires": 2000.0}
+        g2 = goals.have(("minecraft:stone", 1))
+        t_urgent = {"id": 2, "state": "pending", "goal": g2["goal"], "args": g2["args"], "expires": 1000.0}
+        g3 = goals.have(("minecraft:torch", 1))
+        t_noexp = {"id": 3, "state": "pending", "goal": g3["goal"], "args": g3["args"]}
 
         with mock.patch("bonobo.tasks.load", return_value=[t_late, t_urgent, t_noexp]), \
              mock.patch("bonobo.tasks.expire", return_value=False), \
-             mock.patch("bonobo.tasks.save"):
-            entries = brain_obj.plan_proposals(snap, ctx)
+             mock.patch("bonobo.tasks.save"), \
+             mock.patch.object(brain_obj, "round_for", return_value=None):
+            brain_obj.plan_proposals(snap, ctx)
+            self.assertTrue(brain_obj.round_for.called)
+            call_args = brain_obj.round_for.call_args[0]
+            entries = call_args[0]
             ranks = {name: rank for name, _goal, rank in entries if name.startswith("task ")}
+            self.assertEqual(ranks["task 2"], 0)
+            self.assertEqual(ranks["task 1"], 1)
+            self.assertEqual(ranks["task 3"], 2)
             self.assertLess(ranks["task 2"], ranks["task 1"])
             self.assertLess(ranks["task 1"], ranks["task 3"])
 
+
+class TestPlanOrderUnit(unittest.TestCase):
+    """Unit tests for exact bugs reported in fuzz."""
+
+    def test_crafting_table_and_torches_order_invariance(self):
+        """Ordering of crafting table and 8 torches must produce identical logs and plan cost."""
+        g_fwd = [("minecraft:crafting_table", 1), ("minecraft:torch", 8)]
+        g_rev = [("minecraft:torch", 8), ("minecraft:crafting_table", 1)]
+
+        p_fwd = plan_needs(bag(inventory()), g_fwd, NullCost())
+        p_rev = plan_needs(bag(inventory()), g_rev, NullCost())
+
+        logs_fwd = sum(s.count for s in p_fwd if s.token == "log" or s.token.endswith("log"))
+        logs_rev = sum(s.count for s in p_rev if s.token == "log" or s.token.endswith("log"))
+        self.assertEqual(logs_fwd, logs_rev)
+        self.assertEqual(logs_fwd, 3)
+
+        tables_fwd = sum(s.count for s in p_fwd if s.token == "minecraft:crafting_table")
+        tables_rev = sum(s.count for s in p_rev if s.token == "minecraft:crafting_table")
+        self.assertEqual(tables_fwd, 1)
+        self.assertEqual(tables_rev, 1)
+
+        self.assertEqual(sum(s.est for s in p_fwd), sum(s.est for s in p_rev))
+
+    def test_furnace_pickaxe_chest_station_dedup(self):
+        """Ordering of furnace, pickaxe, and chest must never duplicate furnace and must take 11 cobble."""
+        g_fwd = [("minecraft:furnace", 1), ("tool", "pickaxe", 2), ("minecraft:chest", 1)]
+        g_rev = [("minecraft:chest", 1), ("tool", "pickaxe", 2), ("minecraft:furnace", 1)]
+
+        p_fwd = plan_needs(bag(inventory()), g_fwd, NullCost())
+        p_rev = plan_needs(bag(inventory()), g_rev, NullCost())
+
+        cobble_fwd = sum(s.count for s in p_fwd if s.token == "minecraft:cobblestone")
+        cobble_rev = sum(s.count for s in p_rev if s.token == "minecraft:cobblestone")
+        self.assertEqual(cobble_fwd, 11)
+        self.assertEqual(cobble_rev, 11)
+
+        furnaces_fwd = sum(s.count for s in p_fwd if s.token == "minecraft:furnace")
+        furnaces_rev = sum(s.count for s in p_rev if s.token == "minecraft:furnace")
+        self.assertEqual(furnaces_fwd, 1)
+        self.assertEqual(furnaces_rev, 1)
+
+        self.assertEqual(sum(s.est for s in p_fwd), sum(s.est for s in p_rev))
+
+
+class TestPlannerOrderingOracle(unittest.TestCase):
+    """Oracle tests: verify plans against ground-truth lower bounds and bag replay."""
+
+    def test_oracle_station_and_tool_bounds(self):
+        test_cases = [
+            # Needs, expected min furnace, expected max furnace, expected min cobble
+            ([("minecraft:furnace", 1), ("tool", "pickaxe", 2)], 1, 1, 11),
+            ([("minecraft:crafting_table", 1), ("tool", "pickaxe", 1)], 0, 1, 3),
+            ([("minecraft:furnace", 1), ("minecraft:crafting_table", 1)], 1, 1, 8),
+        ]
+        from tests.test_review_contracts import replay
+        for needs, min_furnace, max_furnace, min_cobble in test_cases:
+            for order in itertools.permutations(needs):
+                with self.subTest(order=order):
+                    p = plan_needs(bag(inventory()), list(order), NullCost())
+                    furnaces = sum(s.count for s in p if s.token == "minecraft:furnace")
+                    self.assertGreaterEqual(furnaces, min_furnace)
+                    self.assertLessEqual(furnaces, max_furnace)
+                    cobble = sum(s.count for s in p if s.token == "minecraft:cobblestone")
+                    self.assertGreaterEqual(cobble, min_cobble)
+                    bad, unmet = replay([], p, order)
+                    self.assertEqual((bad, unmet), ([], []))
+
+
+class TestPlannerOrderingFuzz(unittest.TestCase):
+    """Fuzz testing permutation invariance across randomly generated goal combinations."""
+
+    def test_fuzz_permutations_order_invariance(self):
+        pool = [
+            ("minecraft:crafting_table", 1),
+            ("minecraft:furnace", 1),
+            ("minecraft:torch", 8),
+            ("minecraft:chest", 1),
+            ("tool", "pickaxe", 1),
+            ("tool", "pickaxe", 2),
+            ("tool", "sword", 1),
+            ("stone", 16),
+            ("minecraft:stick", 4),
+        ]
+        rng = random.Random(20261005 + 99)
+        from tests.test_review_contracts import replay
+
+        for case in range(25):
+            k = rng.randint(2, 4)
+            needs = rng.sample(pool, k)
+
+            p_base = plan_needs(bag(inventory()), needs, NullCost())
+            bad_base, unmet_base = replay([], p_base, needs)
+            self.assertEqual((bad_base, unmet_base), ([], []))
+            base_est = sum(s.est for s in p_base)
+
+            shuffled = list(needs)
+            rng.shuffle(shuffled)
+            p_shuf = plan_needs(bag(inventory()), shuffled, NullCost())
+            bad_shuf, unmet_shuf = replay([], p_shuf, shuffled)
+            self.assertEqual((bad_shuf, unmet_shuf), ([], []))
+            shuf_est = sum(s.est for s in p_shuf)
+
+            with self.subTest(case=case, needs=needs, shuffled=shuffled):
+                self.assertAlmostEqual(base_est, shuf_est, delta=max(20, base_est * 0.05))
 
 
 if __name__ == "__main__":

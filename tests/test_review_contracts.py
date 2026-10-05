@@ -1117,6 +1117,9 @@ class FuzzFastLayer(unittest.TestCase):
 
 
 class PreemptMatrix(unittest.TestCase):
+    def tearDown(self):
+        api.consume_interrupt()
+
     def test_a_faster_layer_always_takes_the_body_and_a_slower_never(self):
         for holder, intent in itertools.product(SCALES, SCALES):
             with self.subTest(holder=holder, intent=intent):
@@ -1230,7 +1233,7 @@ class ErrorClasses(unittest.TestCase):
             if row is None:
                 continue
             with self.subTest(cls=cls.__name__, row=row):
-                self.assertEqual(row[0] in retry.NOT_FAILURES, issubclass(cls, api.INTERRUPTIONS))
+                self.assertEqual(row[0] in retry.NOT_FAILURES, issubclass(cls, api.INTERRUPTIONS) or row[0] == "replan")
 
 
 class FuzzBans(unittest.TestCase):

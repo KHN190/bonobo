@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The gates (docs/refactor.md 流程不变量 W4/W5): every gate runs to the end (no failfast), then one summary of each gate
+# The gates: every gate runs to the end (no failfast), then one summary of each gate
 # and every failure; the exit code is non-zero when any gate failed. CPU ≤ 6.
 #   1 static_check.py ∥ 2 pyright → 3 runtests.py (all files) → 4 check.run (known violations only fall) → 5 jar tests
 # check.run's known violations: check/known.txt, one "INVARIANT COUNT" per line (counts may only fall).

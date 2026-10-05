@@ -108,12 +108,10 @@ def remainder(goal, snap, mem):
 def _held_remainder(goal, snap, mem):
     if goal["goal"] == "milestone":
         mname = goal.get("args", {}).get("name")
-        if mname in RUN_AFTER:
-            if snap.dimension == "minecraft:the_end":
-                return {}
-            return None                       # its plan ends in doing (find the stronghold, light the portal)
-        if snap.dimension == "minecraft:the_end" and mname in ("blaze rods", "ender pearls", "eyes of ender"):
+        if snap.dimension == "minecraft:the_end" and mname != "dragon beds":
             return {}
+        if mname in RUN_AFTER:
+            return None                       # its plan ends in doing (find the stronghold, light the portal)
         if mname == "blaze rods":
             eyes = held_count(snap.inv, "minecraft:ender_eye")
             powder = held_count(snap.inv, "minecraft:blaze_powder")

@@ -434,15 +434,6 @@ class Watcher(threading.Thread):
         note_hurt(s)
         if api.mode() == "survival":
             return
-        env_reason = hazard.kind(s, buried=self.hazard.buried(s), fallen=self.hazard.fallen(s))
-        throttle_s = 1.0 if env_reason in ("lava", "drowning", "suffocation", "falling") else REPEAT_S
-        if env_reason is not None and time.time() - self.last.get(env_reason, 0) >= throttle_s:
-            self.last[env_reason] = time.time()
-            if api.soft():
-                api.request_interrupt(env_reason)
-            else:
-                arbiter.BODY.preempt("safety", lambda: api.post("/stop"), f"hazard: {env_reason}")
-            return
         # look once per tick and hand that one reading to everything below (rows were absent or seconds old)
         self._look(s)
         try:
@@ -489,7 +480,8 @@ class Watcher(threading.Thread):
                         None if fighting else (lambda: self._time_to_die(s)),
                         buried=self.hazard.buried(s), fallen=self.hazard.fallen(s), within_s=interrupt_within_s())
         now = time.time()
-        if reason is None or now - self.last.get(reason, 0) < REPEAT_S:
+        throttle_s = 1.0 if reason in ("lava", "drowning", "suffocation", "falling") else REPEAT_S
+        if reason is None or now - self.last.get(reason, 0) < throttle_s:
             return
         if reason == "hostiles" and not answering(now):
             # stopping the body is not an answer: only the layer about to answer a threat may stop the work
@@ -640,6 +632,6 @@ def start_watching():
     return w
 
 def ensure_watching():
-    if STATE.watcher is not None and not STATE.watcher.is_alive():
+    if STATE.watcher is None or not STATE.watcher.is_alive():
         return start_watching()
     return STATE.watcher

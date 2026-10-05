@@ -3,6 +3,7 @@
 import time
 
 from .api import NotAvailable, log
+from .data import TICKS_PER_S
 
 # seconds each kind takes; furnace jobs compute theirs from the item count
 DURATION = {"crop": 900, "sapling": 1200, "breed": 300}     # 15, 20 and 5 minutes
@@ -15,7 +16,7 @@ def start(mem, kind, pos, dimension, item=None, count=0, seconds=None, **extra):
     job = mem.add_job(kind, pos, dimension, item, count, ready, extra.pop("carried", False))
     tick = mem.tick()
     if tick is not None:
-        job["ready_tick"] = tick + int(dur_s * 20)
+        job["ready_tick"] = tick + int(dur_s * TICKS_PER_S)
     if extra:
         for j in mem.data["jobs"]:
             if j["id"] == job["id"]:

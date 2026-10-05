@@ -16,10 +16,7 @@ def load(path=None) -> list:
     return paths.read_json(path or FILE, {}).get("tasks", [])
 
 def save(items, path=None):
-    current = load(path)
-    item_ids = {t["id"] for t in items}
-    merged = list(items) + [t for t in current if t.get("id") not in item_ids]
-    paths.save_json(path or FILE, {"tasks": merged})
+    paths.save_json(path or FILE, {"tasks": list(items)})
 
 def add(goal, expires_s=None, front=False, source="cerebrum", path=None, now=None) -> dict:
     """Queue a goal (goals.make / goals.have). Returns the task. An identical live goal is not queued twice."""

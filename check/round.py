@@ -365,11 +365,12 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False, kept=None):
             # it, done or failed after) is itself the round's reason (brain.py just_finished: that round proposes nothing)
             why = [t.get("reason") or (f"task {t['id']} {t['state']} this round"
                                        if t["id"] in live_before and t["state"] not in tasklist.LIVE else None)
-                   for t in tasklist.load()] + list(b.unplannable.values())
+                   for t in tasklist.load()] + list(b.unplannable.values()) + ([b.idle_why] if getattr(b, "idle_why", None) else [])
             d = d._replace(reason=next((w for w in why if w), None))
         step = getattr(act, "step", None)
         boxes = [tuple(map(tuple, bx)) for h in mem.homes(snap.dimension) for bx in h.get("boxes", ())]
-        ctx["step_kind"], ctx["step"] = (step.kind if step is not None else None), step
+        ctx["step_kind"] = "seek" if (d.name and d.name.startswith("seek:")) else (step.kind if step is not None else None)
+        ctx["step"] = step
         ctx["target_in_home"] = d.target is not None and home_box_of(boxes, d.target) is not None
         found = dispatch.runner_for(bctx, step) if step is not None else None
         if found is not None and found[0].contract.commands is not None:

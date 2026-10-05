@@ -26,3 +26,8 @@ def alpha(a):
 
 def gamma(value, facts, g):
     pass                 # the brain's retry: set by prepare
+
+
+def step(facts, d, ctx):
+    """Waiting out the cooling (nothing proposed) returns idle to none."""
+    return {NAME: "none"} if facts[NAME] == "cooling" and d.kind is None else {}

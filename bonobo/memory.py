@@ -6,7 +6,7 @@ import os
 import time
 from typing import Any
 from . import paths, blueprints
-from .data import (GROUPS, ITEM_DESPAWN_S, MEASURED_BAND, VOLATILITY, bare, home_may_hold, home_part_kind, in_box, mid, placed_cell,
+from .data import (GROUPS, ITEM_DESPAWN_S, MEASURED_BAND, TICKS_PER_S, VOLATILITY, bare, home_may_hold, home_part_kind, in_box, mid, placed_cell,
                    seen_class, MECHANISMS_NAME)
 from .game import WAYPOINT_R
 
@@ -459,11 +459,11 @@ class Memory:
             m["pending"] = left
         self.save()
 
-    def pending_outputs(self, dimension):
+    def pending_outputs(self, dimension, tick=None):
         """Items on their way: machine outputs and furnace jobs left running while the agent works elsewhere."""
         out = {}
         now = time.time()
-        tick = self.tick()
+        tick = self.clock if tick is None else tick
         for m in self.machines(dimension):
             for p in m.get("pending", []):
                 out[p["item"]] = out.get(p["item"], 0) + p["count"]
@@ -863,8 +863,8 @@ class Memory:
         """The last death if its dropped items are still there (they despawn after 5 minutes), else None."""
         now = now or time.time()
         within_s = ITEM_DESPAWN_S if within_s is None else within_s
-        within_ticks = int(within_s * 20)
-        tick = tick if tick is not None else self.tick()
+        within_ticks = int(within_s * TICKS_PER_S)
+        tick = self.clock if tick is None else tick
         d = next((d for d in reversed(self.data["deaths"]) if (d.get("tick") is not None or d.get("t")) and not d.get("recovered")), None)
         if d and d["dimension"] == dimension:
             if tick is not None and d.get("tick") is not None:

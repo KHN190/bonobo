@@ -4,7 +4,7 @@ import math
 import time
 
 from . import api, beliefs, knowledge as _know, lifecycle, tape
-from .api import McError, NotAvailable, StationMissing
+from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import BAN_MAX_S, REACH, bare, place_signature, state_signature
 from .game import EYE_HEIGHT, SUFFOCATION
@@ -48,6 +48,12 @@ def mine_cell(policy, cell, wanted=(), collect=True, require_drops=False, wait=3
         raise NotAvailable(f"{cell} is part of one of our own structures")
     return api.run({"type": "mine", "x": cell[0], "y": cell[1], "z": cell[2], "collect": collect,
                     **_collect_only(list(wanted)), "requireDrops": require_drops}, wait=wait, awaits="one cell through the door that keeps our builds (callers chain mine_task)")
+
+class StationMissing(McError):
+    """A station the plan counted on is gone: not the step's failure — the plan is repaired with the station as a need."""
+    def __init__(self, block):
+        super().__init__(f"no {block.split(':')[-1]} nearby or carried")
+        self.block = block
 
 class NeedMissing(McError):
     """A call whose hard needs (skill.needs_of) the bag does not hold: refused before it starts, "missing <need>"."""

@@ -152,7 +152,7 @@ class Cost:
         here, dim = self.snap.feet, self.snap.dimension
         skip = self.not_there(sources)
         spots = {tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if tuple(r["pos"]) not in skip}
-        target_kinds = [k for k in kinds if k != "tree"] or kinds
+        target_kinds = [k for k in kinds if k != "tree"] or ["oak_log"]
         got = self.workable([(math.dist(p, here), p) for p in spots], kind or stand_kind(target_kinds), fixable=sources)
         return (got[1], got[0]) if got else None
 
@@ -317,7 +317,7 @@ class Cost:
         dim, mem = self.snap.dimension, self.mem
         sites = (lambda kind: bool(mem.sites(None, kinds=[kind])))
         lava_bucket = self.snap.inv.count("minecraft:lava_bucket")
-        lava_near = any(math.dist(r["pos"], snap.feet) <= 128 for r in mem.seen("lava", dim))
+        lava_near = any(math.dist(r["pos"], self.snap.feet) <= 128 for r in mem.seen("lava", dim))
         return {**body_facts(self.snap.state),
                 "dimension": dim, "portal": portal_known(mem, dim),
                 "state:fortress_found": sites("fortress"), "state:stronghold_known": sites("stronghold"),
@@ -705,9 +705,8 @@ class Cost:
             # the least over every place it may start from (step_state's `at`): the run prices it from one of them
             key = ("walk_lb_unknown", step.kind, tuple(step_kinds(step)), tuple(sorted((held or {}).items())))
             if key not in self.cache:
-                w = min(self._walk(step, at=p, held=held, dig=False)
-                        for p in [None, *sorted(self.places())])
-                self.cache[key] = int(w / ROUTE_FACTOR)
+                self.cache[key] = min(self._walk(step, at=p, held=held, dig=False)
+                                      for p in [None, *sorted(self.places())])
             return self.cache[key]
         key = ("walk_lb", tuple(site), step.kind, tuple(self._kinds_of(step) or ()))
         if key not in self.cache:
@@ -857,7 +856,7 @@ class Cost:
         smelt = [s for s in steps if s.kind == "smelt"]
         if smelt:
             smelt_setup = sum(s.est for s in smelt)
-            smelt_wait = sum(s.count * 200 for s in smelt)
+            smelt_wait = sum(s.count * PRIOR_TICKS["smelt_each"] for s in smelt)
             other = sum(s.est for s in steps if s.kind != "smelt")
             return (smelt_setup + max(smelt_wait, other)) / TICKS_PER_S
         return sum(s.est for s in steps) / TICKS_PER_S

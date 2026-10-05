@@ -805,7 +805,8 @@ class Queue_:
                         mock.patch.object(brainmod, "Cost", lambda snap, mem=None, bl=None, **k: cost(snap, mem=mem,
                                                                                                     **self.seen)),
                         mock.patch.object(brainmod, "Inventory", lambda data=None: bag(self.after_inv) if data is None else world.Inventory(data)),
-                        mock.patch.object(api, "api", side_effect=AssertionError("the queue read the world"))]
+                        mock.patch.object(api, "api", side_effect=AssertionError("the queue read the world")),
+                        mock.patch.object(api.STATE, "feet_seen", (0.0, 64.0, 0.0))]
 
     def __enter__(self):
         lifecycle.reset_all(caches=False)
@@ -1287,7 +1288,7 @@ UPKEEP = [
         queued=[[("tool", "pickaxe", 0)]], inv=[("cooked_beef", 8)], seen={"oak_log": 10, "stone": 2}),
     Row("dusk in 25 s, wool carried, no planks: the bed (19 s × LEAD) to the front", None,
         queued=[[("bed", 1)]],
-        time_of_day=DUSK, inv=[("cooked_beef", 8), ("white_wool", 3)]),
+        time_of_day=DUSK, inv=[("cooked_beef", 8), ("white_wool", 3)], seen={"oak_log": 26, "stone": 2}),
     Row("dusk in 25 s, wool and planks carried: a bed is seconds away", None, time_of_day=DUSK,
         inv=[("cooked_beef", 8), ("stone_pickaxe", 1), ("white_wool", 3), ("oak_planks", 3), ("crafting_table", 1)]),
     Row("dusk in 25 s, cobblestone carried: walled in at dark", None, time_of_day=DUSK,

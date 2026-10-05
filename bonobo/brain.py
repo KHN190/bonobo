@@ -627,9 +627,14 @@ class Brain:
         self.unplannable.clear()
         self.idle_why = ""
         planner.PATHS.clear()
+        old_clock = getattr(self.mem, "clock", None) if self.mem is not None else None
+        if self.mem is not None and snap and hasattr(snap, "state") and isinstance(snap.state, dict):
+            self.mem.clock = snap.state.get("gameTime", old_clock)
         try:
             return self._decide_round(snap, ctx)
         finally:
+            if self.mem is not None:
+                self.mem.clock = old_clock
             planner.SPENT["round"] = None
 
     def _decide_round(self, snap, ctx):
@@ -639,14 +644,26 @@ class Brain:
                 out = []
                 if arbiter.BODY.holder() is not None or api.mode() == "survival":
                     out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
-                unanswered = fight_loop.unanswered_now(time.time())
+                try:
+                    unanswered = fight_loop.unanswered_now(time.time())
+                except Exception:
+                    unanswered = False
                 afloat = self.reflexes.afloat
                 fallen = self.watch.fallen(snap.state) if hasattr(self, "watch") else 0.0
-                k = hazard.rescue_due(snap.state, buried=skillcore.head_buried_in(snap.region, snap.state),
+                try:
+                    buried = skillcore.head_buried_in(snap.region, snap.state)
+                except Exception:
+                    buried = False
+                k = hazard.rescue_due(snap.state, buried=buried,
                                       unanswered=unanswered, afloat=afloat, fallen=fallen, ready=self.ready)
                 if k is not None and self.ready(f"rescue {k}"):
+                    def is_threatened():
+                        try:
+                            return bool(threat.threats_seen()[0])
+                        except Exception:
+                            return False
                     out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
-                        ctx, snap.state, self.attempt, self.ready, threatened=bool(threat.threats_seen()[0]),
+                        ctx, snap.state, self.attempt, self.ready, threatened=is_threatened(),
                         unanswered=unanswered, afloat=afloat, fallen=fallen)),
                         key=f"rescue {k}"))
                 return out
@@ -708,7 +725,13 @@ class Brain:
         for day, the night's ore when it pays (side_saving), or nothing with its reason (idle_why, D1)."""
         items = tasks.load()
         if tasks.expire(items):
-            tasks.save(items)
+            fresh = tasks.load()
+            expired = {t["id"]: (t["state"], t.get("reason", "")) for t in items if t.get("state") == "cancelled"}
+            for t in fresh:
+                if t["id"] in expired:
+                    t["state"], t["reason"] = expired[t["id"]]
+            tasks.save(fresh)
+            items = fresh
         live = [t for t in items if t["state"] in tasks.LIVE]
         live_ids = {t["id"] for t in live}
         for tid in list(self.held):
@@ -777,7 +800,7 @@ class Brain:
             # every step cooling here: a seek elsewhere changes the state the coolings hold in (E5), not a clock wait
             sought = dispatch.first_sought(((getattr(self, "needs_plan", None) or {}).get("steps")) or ())
             if sought is not None and self.ready(f"seek: {sought.kind} {bare(sought.token)}"):
-                act = Act("plan", f"seek: {sought.kind} {bare(sought.token)}", lambda: dispatch.go_find(ctx, sought))
+                act = Act("plan", f"seek: {sought.kind} {bare(sought.token)}", lambda: dispatch.go_find(ctx, sought), step=sought)
                 return [arbiter.Intent("plan", act, kind="seek", key=act.name)]
             # no side act fills the time (D1): every step of the plan is cooling or unplannable here
             self.idle_why = "; ".join([idle_reason(entries, self.retry.cooling_now(time.time())), *barred,

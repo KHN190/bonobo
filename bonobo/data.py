@@ -439,7 +439,6 @@ NAV_NODES = 6000
 WALK_BLOCKS_PER_TICK = PLAYER_SPRINT / TICKS_PER_S   # mineflayer prior: a forward move costs one sprinted block
 WALK_BLOCKS_PER_S = WALK_BLOCKS_PER_TICK * TICKS_PER_S
 SPRINT_JUMP_BLOCKS_PER_TICK = PLAYER_SPRINT_JUMP / TICKS_PER_S
-SPRINT_JUMP_BLOCKS_PER_S = SPRINT_JUMP_BLOCKS_PER_TICK * TICKS_PER_S
 ROUTE_FACTOR = 1.5            # prior: real route length / straight line (hills, water, re-plans)
 MEASURED_BAND = 4.0           # a run moves its average, and a measured price strays from its prior, at most this factor
 

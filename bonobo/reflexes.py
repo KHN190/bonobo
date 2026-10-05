@@ -66,10 +66,11 @@ def open_night(v):
 def sleep_due(v):
     return v["night"] and v["bed_works"] and (v["bed_carried"] or v["bed_near"])
 
-def cover_due(v, ready=None):
+CURRENT_READY = lambda name: True
+
+def cover_due(v):
     """Pure: sleep or shelter is due and ready to run; a non-critical meal waits for it."""
-    r = ready if ready is not None else v.get("ready", lambda name: True)
-    return (sleep_due(v) and r("sleep")) or (bool(v.get("shelter_ready")) and r("shelter"))
+    return (sleep_due(v) and CURRENT_READY("sleep")) or (bool(v.get("shelter_ready")) and CURRENT_READY("shelter"))
 
 
 TABLE = [
@@ -133,9 +134,13 @@ class View(dict):
 
 def due(view, ready=lambda name: True):
     """[(seq, name)] of reflexes that fire in table order, skipping cooling ones."""
-    if isinstance(view, dict):
-        view["ready"] = ready
-    return [(i, name) for i, (name, trigger, _act) in enumerate(TABLE) if ready(name) and trigger(view)]
+    global CURRENT_READY
+    prev = CURRENT_READY
+    CURRENT_READY = ready
+    try:
+        return [(i, name) for i, (name, trigger, _act) in enumerate(TABLE) if ready(name) and trigger(view)]
+    finally:
+        CURRENT_READY = prev
 
 def nether_retreat(snap):
     """In the Nether, head home through the portal when food, health or bag room run low. Pure."""

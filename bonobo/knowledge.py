@@ -947,7 +947,7 @@ def hostile_s(plan_s):
 
 
 # -- a step's prior work in ticks: the one table (cost.Cost before anything is measured, and planner.NullCost)
-PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 60,
+PRIOR_TICKS = {"craft": 10, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 60,
                "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
                "withdraw": 40, "look": 40, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
                "farm": 1200, "trade": 600,         # farm: without the growth (GROW_S)
@@ -1003,9 +1003,9 @@ def prior_work_ticks(step, held, tps):
     """Pure: the prior (`prior_ticks`, the hand's) less what `held` ({tool kind: tier}) saves on the step's own work,
     never below the game's own time for that work with those tools (`tps`: the game's ticks a second)."""
     breaks, kills = own_work(step)
-    if breaks or kills:
-        return round(work_s(breaks, kills, held, tps) * tps)
-    return prior_ticks(step)
+    with_tools = work_s(breaks, kills, held, tps)
+    saved = work_s(breaks, kills, {}, tps) - with_tools
+    return max(round(with_tools * tps), prior_ticks(step) - round(saved * tps))
 
 
 def pickup_ticks(step):
@@ -1018,7 +1018,7 @@ def prior_ticks(step):
     """Pure: the ticks a step's work takes before anything is measured (PRIOR_TICKS, per unit where it has units)."""
     k = step.kind
     if k == "smelt":
-        return 20
+        return PRIOR_TICKS["smelt_each"] * step.count + PRIOR_TICKS["smelt_setup"]
     if k == "mine":
         return PRIOR_TICKS["mine_each"] * step.detail.get("breaks", step.count)
     if k == "gather":

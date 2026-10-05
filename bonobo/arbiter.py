@@ -218,6 +218,12 @@ class Motion:
             elif not self._drivers or self._drivers[-1] != val:
                 self._drivers.append(val)
 
+    @driving.deleter
+    def driving(self):
+        with self._lock:
+            self._manual_driving = None
+            self._drivers.clear()
+
     # -- engagement ------------------------------------------------------------------------------------------------
 
     def engage(self, log=None):

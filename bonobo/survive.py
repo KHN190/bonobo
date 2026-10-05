@@ -929,5 +929,5 @@ def water_clutch(ctx=None):
     settle(lambda: api.get("/state"), lambda st: st.get("onGround") or st.get("inWater") or st.get("dead"),
            timeout=3.0, stable_s=0.2, soft=True)
     if Inventory().count("minecraft:bucket"):
-        api.run({"type": "use_item", "item": "minecraft:bucket", "onBlock": False}, wait=15)
+        api.run({"type": "use_item", "item": "minecraft:bucket", "onBlock": False}, wait=15, awaits="water picked back up into the bucket")
 

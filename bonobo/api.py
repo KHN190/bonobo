@@ -129,12 +129,6 @@ class ToolMissing(McError):
         super().__init__(f"need a tier-{tier} {kind}" if pos is None else f"no {kind} tier {tier}+ with uses enough left past {pos}", pos=pos)
         self.kind, self.tier, self.done = kind, tier, done or []
 
-class StationMissing(McError):
-    """A station the plan counted on is gone: not the step's failure — the plan is repaired with the station as a need."""
-    def __init__(self, block):
-        super().__init__(f"no {block.split(':')[-1]} nearby or carried")
-        self.block = block
-
 class CommitmentExpired(McError):
     """The running task outlived the commitment its plan was made under: the world owes the planner a new decision."""
 
