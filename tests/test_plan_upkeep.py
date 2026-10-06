@@ -3316,7 +3316,8 @@ class ToolsThatPayForThemselves(unittest.TestCase):
         from bonobo.planner import NullCost, plan_needs
         rows = [("12 logs, planks and sticks carried: an axe first", self.KIT, [("log", 12)], "minecraft:wooden_axe"),
                 ("must fail: 2 logs: saves less than the axe costs, none", self.KIT, [("log", 2)], None),
-                ("12 logs, an axe held: none made", self.KIT + [slot("wooden_axe", 1, 9)], [("log", 12)], None),
+                ("12 logs, a wooden axe held: a stone one pays (9 s saved over its making)", self.KIT + [slot("wooden_axe", 1, 9)],
+                 [("log", 12)], "minecraft:stone_axe"),
                 ("must fail: 8 beef (4 kills): a sword saves less than making it", self.KIT, [("minecraft:beef", 8)],
                  None),
                 ("40 beef (20 kills): a sword saves more than making it: first", self.KIT, [("minecraft:beef", 40)],

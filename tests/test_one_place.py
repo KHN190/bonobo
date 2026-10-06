@@ -45,7 +45,7 @@ class RoomClicks(unittest.TestCase):
     """skills.room_clicks: the throws that make room (crafting's result, a cache chest), the cheapest stacks first."""
 
     def test_rows(self):
-        from bonobo.craft import room_clicks
+        from bonobo.skillcore import room_clicks
         from bonobo.world import screen_slot
         from tests.world import bag, inventory
         slots = bag(inventory(rotten_flesh=5, cobblestone=10, diamond=3, poisonous_potato=2)).slots

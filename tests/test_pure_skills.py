@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, beliefs, craft, estimate, fluids as fluids_mod, gather, knowledge, survive, tape, threat  # noqa: E402
+from bonobo import api, beliefs, craft, estimate, fluids as fluids_mod, gather, knowledge, survive, tape, threat, world  # noqa: E402
 from bonobo.api import McError, NotAvailable  # noqa: E402
 from bonobo.bag import pickup_whitelist  # noqa: E402
 from bonobo.data import DAY_TICKS, NIGHT_END, is_night  # noqa: E402
@@ -239,7 +239,7 @@ class NotedIsACandidate(unittest.TestCase):
                 with mock.patch.object(gather, "noted_hits", lambda *a: [hit] if noted else []), \
                         mock.patch.object(gather, "find", find), mock.patch.object(gather, "seek_hits", stop), \
                         mock.patch.object(gather, "require_pickaxe", lambda t: None), \
-                        mock.patch.object(gather, "Inventory", lambda: type("I", (), {"count": lambda s, t: 0})()), \
+                        mock.patch.object(gather, "Inventory", lambda: world.Inventory(inventory())), \
                         mock.patch.object(gather.nav, "mod_features", lambda: {"travel"}):
                     gen = gather.mine.__wrapped__(ctx, "minecraft:diamond", 1, ["diamond_ore"], 2)
                     with self.assertRaises(Stop):

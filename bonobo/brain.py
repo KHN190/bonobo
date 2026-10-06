@@ -243,6 +243,15 @@ class Act:
         return f"{self.layer}: {self.name}" + (f" → {self.step}" if self.step else "")
 
 
+
+def read_or(name, read, default):
+    """`read()`, or `default` when it fails (said with its frames): a fast-layer reading, or the layer itself."""
+    try:
+        return read()
+    except Exception as e:  # guard: the fast layer answers lava with or without any one reading, and a bug in it skips the layer; said with its frames
+        api.unexpected(name, e, "read as its default")
+        return default
+
 class Brain:
     def __init__(self):
         self.mem = Memory()
@@ -664,38 +673,27 @@ class Brain:
 
     def _decide_round(self, snap, ctx):
         """Every layer proposes, the arbiter chooses; nothing here ranks."""
+        def fast_layer():
+            out = []
+            if arbiter.BODY.holder() is not None or api.mode() == "survival":
+                out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
+            unanswered = read_or("brain.fast unanswered", lambda: fight_loop.unanswered_now(time.time()), False)
+            afloat = self.reflexes.afloat
+            fallen = self.watch.fallen(snap.state) if hasattr(self, "watch") else 0.0
+            buried = read_or("brain.fast buried", lambda: skillcore.head_buried_in(snap.region, snap.state), False)
+            k = hazard.rescue_due(snap.state, buried=buried,
+                                  unanswered=unanswered, afloat=afloat, fallen=fallen, ready=self.ready)
+            if k is not None and self.ready(f"rescue {k}"):
+                def is_threatened():
+                    return read_or("brain.fast threats", lambda: bool(threat.threats_seen()[0]), False)
+                out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
+                    ctx, snap.state, self.attempt, self.ready, threatened=is_threatened(),
+                    unanswered=unanswered, afloat=afloat, fallen=fallen)),
+                    key=f"rescue {k}"))
+            return out
+
         def fast():
-            try:
-                out = []
-                if arbiter.BODY.holder() is not None or api.mode() == "survival":
-                    out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
-                try:
-                    unanswered = fight_loop.unanswered_now(time.time())
-                except Exception:
-                    unanswered = False
-                afloat = self.reflexes.afloat
-                fallen = self.watch.fallen(snap.state) if hasattr(self, "watch") else 0.0
-                try:
-                    buried = skillcore.head_buried_in(snap.region, snap.state)
-                except Exception:
-                    buried = False
-                k = hazard.rescue_due(snap.state, buried=buried,
-                                      unanswered=unanswered, afloat=afloat, fallen=fallen, ready=self.ready)
-                if k is not None and self.ready(f"rescue {k}"):
-                    def is_threatened():
-                        try:
-                            return bool(threat.threats_seen()[0])
-                        except Exception as e:  # guard: the fast layer answers lava with or without the threat model
-                            api.swallowed("brain.fast threats", e)
-                            return False
-                    out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
-                        ctx, snap.state, self.attempt, self.ready, threatened=is_threatened(),
-                        unanswered=unanswered, afloat=afloat, fallen=fallen)),
-                        key=f"rescue {k}"))
-                return out
-            except Exception as e:
-                api.unexpected("brain.fast", e, "fast layer evaluation failed")
-                return []
+            return read_or("brain.fast", fast_layer, [])
 
         def upkeep():
             self.needs.propose(snap, ctx)

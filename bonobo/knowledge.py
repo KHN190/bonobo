@@ -962,6 +962,7 @@ PRIOR_TICKS = {"craft": 10, "smelt_each": 200, "smelt_setup": 300, "mine_each": 
                "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
                "withdraw": 40, "look": 40, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
                "farm": 1200, "trade": 600,         # farm: without the growth (GROW_S)
+               "portal": 100,                      # through a standing portal: the purple screen and a step
                "reach": 200, "breed": 400, "eat": EAT_TICKS, "pickup_each": 20,   # pickup: measured, ~1 s a drop
                "shelter:dig_in": 500, "shelter:pod": 800, "shelter:hut": 2400,
                "room:tidy": 300, "room:deposit": 1200,
@@ -979,7 +980,7 @@ PRICE_SOURCE = {
     "knowledge.PRIOR_TICKS": {
         "craft": "prior", "smelt_each": "game", "smelt_setup": "prior", "mine_each": "prior", "gather_each": "prior",
         "hunt_each": "prior", "fill": "prior", "goto": "policy", "build": "prior", "sleep": "prior", "skill": "prior",
-        "take": "prior", "withdraw": "prior", "look": "prior", "cast": "prior", "farm": "prior", "trade": "prior",
+        "take": "prior", "withdraw": "prior", "look": "prior", "cast": "prior", "farm": "prior", "trade": "prior", "portal": "prior",
         "reach": "prior", "breed": "prior", "eat": "game", "pickup_each": "measured", "shelter:dig_in": "prior", "shelter:pod": "prior",
         "shelter:hut": "prior", "room:tidy": "prior", "room:deposit": "prior", "surface": "prior",
         "surface_per_block": "prior",

@@ -292,7 +292,7 @@ class Fight:
         n = math.ceil(work / per)
         exposure, risk = self.profile.exposure(self, state, n)
         risk += self.immediate_risk(state)
-        return n * cycle_seconds() + exposure + min(1.0, risk) * self.cfg["combat"]["death_cost_s"]
+        return n * cycle_seconds() + exposure + estimate.death_s(risk)
 
     def benefit(self, state, action) -> float:
         """Seconds saved by this action: the one scoring rule (`estimate.saved_s`) over this model's price."""

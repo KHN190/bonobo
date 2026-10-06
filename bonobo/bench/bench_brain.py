@@ -5,6 +5,7 @@ CODE_ROWS: the one-off rows no word earns its place for, written in code with vo
 FAMILIES = [
     # food low: never starved, food secured, the task done (order free); the base: no bed (must not)
     ('cell', [('plenty', 'full', 'fresh', 'surface', 'none', 'room'), ('plenty', 'low', 'fresh', 'surface', 'none', 'room')]),
+    ('home_night', [('home_night_bed', 'night inside the home, its bed in the hall: slept in it, nothing of the home dug')]),
 ]
 ROWS = []
 CODE_ROWS = []

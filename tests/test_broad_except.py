@@ -13,6 +13,7 @@ sys.path.insert(0, ROOT)
 KEPT = {
     ("bonobo/brain.py", "Brain.attempt"): "any step failure is the failure policy's to count",
     ("bonobo/brain.py", "autoplay"): "the main loop must not die on a bug in one round",
+    ("bonobo/brain.py", "read_or"): "the fast layer answers lava with or without any one reading; a bug in it skips the layer",
     ("bonobo/arbiter.py", "Motion.holder"): "a release check that raises must end the lease, not hold the body",
     ("bonobo/tools/incidents.py", "main"): "one unreplayable incident must not stop the listing",
     ("bonobo/bench/runner.py", "prebuild.work"): "a prebuild thread's failure must not kill the bench",
@@ -20,7 +21,8 @@ KEPT = {
     ("bonobo/bench/runner.py", "check_parts"): "a check word that raised is a readout",
     ("bonobo/bench/runner.py", "_row_verdict"): "the fight readout and the check are recorded, never a pass",
     ("bonobo/bench/runner.py", "run_idle"): "a hook or check of ours that raised is recorded by the idle row",
-    ("bonobo/perception.py", "Watcher.run"): "the only watcher for lava, drowning and mobs must not die (4 sites)",
+    ("bonobo/perception.py", "Watcher._tick"): "the only watcher for lava, drowning and mobs must not die (3 sites)",
+    ("bonobo/perception.py", "Watcher.run"): "the watcher thread outlives a tick's bug",
     ("bonobo/perception.py", "perceived"): "a reading we cannot take never stops the threat answer",
     ("bonobo/perception.py", "field_around"): "a field we cannot build keeps the last one",
     ("bonobo/fight_loop.py", "_engagement"): "the engagement's thread: said, and the body handed back",

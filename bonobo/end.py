@@ -3,11 +3,11 @@ dragon.py. Pure `frames_missing_eye` / `portal_centre` are offline-tested."""
 import math
 import time
 
-from . import goals, knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
+from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, nav, skillcore
 from . import world
 from .api import McError, NotAvailable, log
-from .data import THE_END
+from .data import END_PORTAL_OPEN, THE_END
 from .skill import skill
 from .world import Inventory, Region, cells_with, find
 
@@ -79,12 +79,12 @@ def activate_end_portal(ctx):
         raise McError(f"placing eyes from the middle failed: {bad[0]['message'] if bad else 'chain cut short'}")
     yield stand
     if api.get("/state")["dimension"] == "minecraft:the_end":
-        ctx.mem.add_site(goals.END_PORTAL_OPEN, centre, "minecraft:overworld")   # the run's one fact past the portal
+        ctx.mem.add_site(END_PORTAL_OPEN, centre, "minecraft:overworld")   # the run's one fact past the portal
         log("end portal activated (and fallen through)")
         return
     if frames_missing_eye(_frame_region()):
         raise McError("some frames still have no eye")
-    ctx.mem.add_site(goals.END_PORTAL_OPEN, centre, "minecraft:overworld")
+    ctx.mem.add_site(END_PORTAL_OPEN, centre, "minecraft:overworld")
     log("end portal activated")
 
 BRICKS = ["minecraft:stone_bricks", "minecraft:mossy_stone_bricks", "minecraft:cracked_stone_bricks"]

@@ -2,7 +2,7 @@
 
 import time
 
-from . import beliefs, blueprints, goals, knowledge, skill
+from . import beliefs, blueprints, estimate, goals, knowledge, skill
 from .api import McError
 from .cost import TICKS_PER_S
 from .data import DAY_TICKS, NIGHT_END, POD_BLOCKS, is_night, mid
@@ -194,7 +194,7 @@ def night_facts(soft, cooled=(), dig_site=True, home_walk_s=None, night_left_s=N
     the ways that failed here lately (`cooled`: their names, dropped from the pricing), whether a dig-in can finish
     here (`dig_site`, survive.dig_in_site: False → dig in is not offered), the home bed's walk (`home_walk_s`) and the
     night still ahead (`night_left_s`, a whole night when the clock is not read). Priced in seconds with the night's
-    death risk (beliefs risk.*, time.death_cost_s): a walk in the open costs its seconds plus their share of an open
+    death risk (beliefs risk.*; estimate.death_s): a walk in the open costs its seconds plus their share of an open
     night's risk; a shelter costs the night waited in it — the part no work under cover fills (`covered_work_s`:
     the plan's night work, F1i) — plus a sheltered night's risk."""
 
@@ -202,12 +202,12 @@ def night_facts(soft, cooled=(), dig_site=True, home_walk_s=None, night_left_s=N
         {"soft_ground": True, "soft_walk_s": 0.0 if soft is True else float(soft)}
     if not dig_site:
         out["no_dig_site"] = True
-    night_s, death_s = beliefs.value("time.night_s"), beliefs.value("time.death_cost_s")
+    night_s = beliefs.value("time.night_s")
     left = float(night_s if night_left_s is None else night_left_s)
     if home_walk_s is not None:
-        open_rate = beliefs.value("risk.night_open") / night_s * death_s     # seconds of risk per second exposed
+        open_rate = estimate.death_s(beliefs.value("risk.night_open")) / night_s     # seconds of risk per second exposed
         out.update(home_bed=True, home_walk_s=float(home_walk_s) * (1.0 + open_rate))
-    out["wait_s"] = max(0.0, left - float(covered_work_s)) + beliefs.value("risk.night_sheltered") * death_s
+    out["wait_s"] = max(0.0, left - float(covered_work_s)) + estimate.death_s(beliefs.value("risk.night_sheltered"))
     if cooled:
         out["cooled"] = sorted(cooled)
     return out

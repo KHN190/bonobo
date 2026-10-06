@@ -5,7 +5,7 @@ import time
 
 from . import api, beliefs, knowledge as _know, lifecycle, tape
 from .api import McError, NotAvailable
-from .bag import pickup_whitelist
+from .bag import free_slots_plan, pickup_whitelist, throw
 from .data import BAN_MAX_S, REACH, bare, place_signature, state_signature
 from .game import EYE_HEIGHT, SUFFOCATION
 from .world import BAG_SLOTS, Inventory, Region, Versioned, cell_add, inventory_now, box, screen_slot
@@ -32,7 +32,7 @@ def game_time_or_none():
     the api and catches nothing itself."""
     try:
         return game_tick()
-    except (McError, AssertionError, Exception) as e:
+    except (McError, AssertionError) as e:
         api.swallowed("skillcore.game_time_or_none", e)
         return None
 
@@ -282,6 +282,21 @@ def opened(result):
     """Pure: did a use open the block's screen (the jar answers succeeded with screen "none" when it did not)."""
     return (result or {}).get("status") == "succeeded" and ((result or {}).get("result") or {}).get("screen") not in (
         None, "none")
+
+def room_clicks(slots, need, price=None):
+    """Pure: the /click bodies that throw the `need` least valuable stacks (bag.free_slots_plan: priced by what
+    each costs to get again) — room for a result that needs a slot."""
+    return [throw(s["slot"]) for s in free_slots_plan(slots, need=need, price=price)[:need]]
+
+
+def make_bag_room(ctx, need):
+    """Throw the `need` least valuable stacks now (room_clicks), the screen closed first. Returns the clicks."""
+    close_screen()
+    clicks = room_clicks(Inventory().slots, need, ctx.prices().get if ctx else None)
+    for body in clicks:
+        api.post("/click", body)
+    return clicks
+
 
 def close_screen():
     s = api.get("/state")

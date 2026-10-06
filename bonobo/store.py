@@ -10,9 +10,9 @@ from .data import BASE_MARKERS, GROUPS, MARKER_WEIGHT, PLACEABLE_AS, bare, mid
 from .world import BAG_SLOTS, Inventory, Region, cell_add, find
 from .bag import let_go, FREE_SLOTS_TARGET, throw_direction, store_plan
 from .terrain import chest_spot_ok
-from .skillcore import close_screen, free_spots_here, opened, place, lost
+from .skillcore import close_screen, free_spots_here, make_bag_room, opened, place, lost
 from .world import feet
-from .craft import craft, make_bag_room, make_room, placeable
+from .craft import craft, make_room, placeable
 
 def openable_container(pos):
     """A chest opens only with no solid block right above it (barrels always open)."""

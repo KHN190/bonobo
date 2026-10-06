@@ -2842,6 +2842,68 @@
       ]
     ]
   },
+  "home_night_bed": {
+    "doc": "night inside the home, its bed in the hall: slept in it, nothing of the home dug",
+    "module": "reflexes",
+    "setup": [
+      "fill 9997 197 9996 10008 199 10004 stone",
+      "fill 9999 200 9997 10007 203 10003 stone",
+      "fill 10000 200 9998 10006 202 10002 air",
+      "setblock 10004 200 10000 red_bed[facing=east,part=foot]",
+      "setblock 10005 200 10000 red_bed[facing=east,part=head]",
+      "tp @p 10000.5 200 10000.5",
+      "time set 18000"
+    ],
+    "tier": "brain",
+    "budget": 12,
+    "point": "C",
+    "skills": [],
+    "tier_fixed": "brain",
+    "tags": {
+      "base": "upkeep",
+      "line": "home_bed",
+      "proves": "S2"
+    },
+    "expect": [
+      [
+        [
+          9997,
+          197,
+          9996
+        ],
+        [
+          10008,
+          203,
+          10004
+        ],
+        "stone",
+        471,
+        471
+      ]
+    ],
+    "check_words": [
+      "!all",
+      [
+        "!is_day"
+      ],
+      [
+        "!unchanged",
+        [
+          "@",
+          -1,
+          0,
+          -3
+        ],
+        [
+          "@",
+          7,
+          3,
+          3
+        ],
+        []
+      ]
+    ]
+  },
   "ore_buried": {
     "doc": "one iron ore in a stone wall at arm's length, a stone pickaxe → 1 raw iron — the ore two blocks into the stone (stone between), dirt carried → a way dug to it along one line, every break with the pickaxe held",
     "module": "skills",
@@ -3646,6 +3708,38 @@
         ]
       ],
       20
+    ]
+  },
+  "accept_slay_dragon": {
+    "doc": "Acceptance: a fresh spot of a real world, empty-handed, the whole cerebellum through every milestone → the dragon slain within 60 minutes",
+    "module": "brain",
+    "setup": [
+      "spreadplayers 13000 13000 0 4 false @p",
+      "clear @p",
+      "time set 0"
+    ],
+    "tier": "acceptance",
+    "budget": 2946,
+    "limit": 3600,
+    "raw": true,
+    "release": true,
+    "point": "D",
+    "tags": {
+      "base": "acceptance",
+      "proves": "G1"
+    },
+    "skills": [],
+    "check_words": [
+      "!slice_check",
+      [
+        "!now",
+        [
+          "!call",
+          "dragon_slain",
+          []
+        ]
+      ],
+      120
     ]
   }
 }

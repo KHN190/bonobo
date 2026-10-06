@@ -176,7 +176,7 @@ class Cost:
                 return (d, c) if best is None or walk_ticks(d) < best[0] else best[1]
             short = self.way_blocks_short(c, kind) if fixable else 0
             if short:
-                ticks = walk_ticks(d) + round(work_s(["dirt"] * short, [], held_tiers(self.snap.inv), TICKS_PER_S)
+                ticks = walk_ticks(d) + round(work_s(["dirt"] * short, [], self.held_now(), TICKS_PER_S)
                                               * TICKS_PER_S)
                 if best is None or ticks < best[0]:
                     best = (ticks, (d, c))
@@ -521,6 +521,8 @@ class Cost:
         k = step.kind
         if k in ("goto", "withdraw", "look"):
             return tuple(step.detail["pos"])
+        if k == "portal":
+            return self._portal_site()
         kinds = self._kinds_of(step)
         if not kinds:
             return None
@@ -528,7 +530,8 @@ class Cost:
         key = ("site", k == "hunt", sources, tuple(kinds), self.not_there(sources), self.not_there(True))
         if key not in self.cache:
             hit = self._nearest(kinds, sources=sources)
-            seen = self.seen(kinds, self.not_there(True), fixable=sources) if k != "hunt" else None
+            seen = self.seen(kinds, self.not_there(True), fixable=sources) if k != "hunt" else \
+                min(((d, c) for d, c in self._mobs(kinds) if c is not None), default=None)
             if hit is not None and seen is not None:
                 first = seen[1] if seen[0] < hit[1] else hit[0]
             elif hit is not None:
@@ -539,8 +542,22 @@ class Cost:
                 first = None
             self.cache[key] = first
         first = self.cache[key]
-        refuted = self.refuted_ticks(step, first) if sources and first is not None else None
-        return first if refuted is None else self._cheaper_source(step, kinds, first, refuted)
+        if not sources or first is None:
+            return first
+        refuted_key = ("site_refuted", step.kind, step.token, first)
+        if refuted_key not in self.cache:
+            refuted = self.refuted_ticks(step, first)
+            self.cache[refuted_key] = first if refuted is None else self._cheaper_source(step, kinds, first, refuted)
+        return self.cache[refuted_key]
+
+    def _portal_site(self):
+        """The nearest remembered portal in this dimension (a built one's origin, a site), or None."""
+        if self.mem is None:
+            return None
+        here, dim = self.snap.feet, self.snap.dimension
+        spots = [tuple(m["origin"]) for m in self.mem.machines(dim, "portal")] + \
+            [tuple(s["pos"]) for s in self.mem.sites(dim, kinds=["portal"])]
+        return min(spots, key=lambda p: math.dist(p, here), default=None)
 
     def refuted_ticks(self, step, target, at=None):
         """Ticks a run measured left of `step` at `target` past its price (Memory.refuted: api.Overrun's rest, the one
@@ -549,12 +566,19 @@ class Cost:
         read = getattr(self.mem, "refuted_s", None)
         if read is None:
             return None                     # a memory with no refutations (a test's stand-in)
-        state = ban_state(self.step_state(at)[0], frozenset(s["id"] for s in self.snap.inv.slots if s.get("count")))
+        state = ban_state(self.step_state(at)[0], self.kinds_now())
         for t in (target, None):
             got = read(step, t, state)
             if got is not None:
                 return round(got * TICKS_PER_S)
         return None
+
+    def kinds_now(self):
+        """The ids the snapshot's bag holds (ban_state's bag kinds), read once a bag."""
+        key = ("kinds_now", id(self.snap.inv), id(self.snap.inv.slots), len(self.snap.inv.slots))
+        if key not in self.cache:
+            self.cache[key] = frozenset(sl["id"] for sl in self.snap.inv.slots if sl.get("count"))
+        return self.cache[key]
 
     def _cheaper_source(self, step, kinds, first, refuted):
         """G3 over a refuted source: `first` at its refuted ticks against the others remembered or in sight, each by
@@ -574,7 +598,7 @@ class Cost:
                 dig = 0
                 if step.kind == "mine":
                     dug = self._way_breaks(feet, c, blocks[0] if blocks else "stone", FIND_AT.get(step.token) is not None)
-                    dig = round(work_s(dug, [], held_tiers(self.snap.inv), TICKS_PER_S) * TICKS_PER_S) if dug else 0
+                    dig = round(work_s(dug, [], self.held_now(), TICKS_PER_S) * TICKS_PER_S) if dug else 0
                 if walk + dig < best[0]:
                     best = (walk + dig, c)
             self.cache[key] = best[1]
@@ -633,7 +657,7 @@ class Cost:
             # each break one use of the tool it takes, priced as a share of making that tool again (knowledge.wear_ticks)
             breaks, _kills = own_work(step)
             kinds = {k for k in map(tool_kind, breaks) if k is not None}
-            tiers = held_tiers(self.snap.inv)
+            tiers = self.held_now()
             total = 0.0
             for kind in kinds:
                 if kind not in tiers:
@@ -931,10 +955,17 @@ class Cost:
         found, seconds = self.snap.routes.get(route_key(where, 2.0, NAV_NODES), (None, None))
         return seconds if found else None
 
+    def held_now(self):
+        """held_tiers of the snapshot's bag, read once a bag (the round's one reading): every price of the round asks it."""
+        key = ("held_now", id(self.snap.inv), id(self.snap.inv.slots), len(self.snap.inv.slots))
+        if key not in self.cache:
+            self.cache[key] = held_tiers(self.snap.inv)
+        return dict(self.cache[key])
+
     def step_state(self, at=None, held=None):
         """(feet, {tool kind: tier}) a step is priced from: the plan's place before it (`at`) and the tools it holds
         then (`held`) — the snapshot's feet and bag only for a step that runs first (K9: one price, the step's own)."""
-        return (tuple(self.snap.feet) if at is None else tuple(at)), (held_tiers(self.snap.inv) if held is None else held)
+        return (tuple(self.snap.feet) if at is None else tuple(at)), (self.held_now() if held is None else held)
 
     def find_ticks(self, kinds, held=None, at=None):
         """Ticks to find one of `kinds` never seen (knowledge.expected_find_s): the soonest of them, from the step's

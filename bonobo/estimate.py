@@ -96,6 +96,11 @@ def burst_hp(spot, hazards, prot=0.0, fuse_s=None):
                 if beliefs.MOBS.get(h[3], {}).get("burst") and arrival_s(spot, h) <= fuse_s)
     return total * (1.0 - prot)
 
+def death_s(p):
+    """Seconds a death chance `p` costs: the run's one death price (beliefs time.death_cost_s)."""
+    return min(1.0, float(p)) * float(beliefs.value("time.death_cost_s"))
+
+
 def fatal_chance(hp, damage, cap=1.0):
     """Probability that a loss of `damage` is the end of us at `hp`."""
 

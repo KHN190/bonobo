@@ -23,6 +23,7 @@ encounters_per_day = 3.0
 reference_mob = "minecraft:zombie"   # what "a hostile" means when pricing a day
 regen_s_per_hp = 4.0                 # seconds to regenerate one health, fed and undisturbed
 food_drain_s = 80.0                  # seconds of ordinary activity per point of the food bar
+food_reserve = 1.0                   # points a plan keeps: at the last one the body neither sprints nor heals
 hurt_decay = 0.7
 # A bed only skips the night where we can actually sleep: in the open, mobs interrupt it.
 night_bed_open = 0.08

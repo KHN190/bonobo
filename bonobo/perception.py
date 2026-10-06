@@ -428,9 +428,6 @@ class Watcher(threading.Thread):
         except (api.McError, api.PlayerTookControl, ValueError) as e:
             api.swallowed("perception.run", e)
             return        # game restarting, network hiccup, the player's turn: the main loop handles those
-        except Exception as e:  # guard: the only watcher for lava, drowning and mobs: a read failure never kills it
-            api.unexpected("perception: /state", e, "this tick is skipped")
-            return
         note_hurt(s)
         if api.mode() == "survival":
             return
@@ -502,7 +499,7 @@ class Watcher(threading.Thread):
         while not self.stopped:
             try:
                 self._tick()
-            except Exception as e:
+            except Exception as e:  # guard: the one watcher thread outlives a tick's bug; said with its frames
                 api.unexpected("perception.loop", e, "perception loop tick failed")
 
 ANSWERED_MAX = 500

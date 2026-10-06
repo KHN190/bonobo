@@ -380,6 +380,7 @@ class TestReflexAdvanced(unittest.TestCase):
         from bonobo import brain as brainmod
 
         arbiter.BODY.preempt("tactic", lambda: None, "fight", release=lambda: False)
+        self.addCleanup(setattr, arbiter.BODY, "lease", None)
         self.assertIsNotNone(arbiter.BODY.lease)
 
         ran = []

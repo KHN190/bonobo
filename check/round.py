@@ -276,7 +276,7 @@ def _decide(facts, fail_then_again, fresh=True, hazard=False, kept=None):
     world = gamma(facts, mem) if kept is None else kept[0]
     failure = next((d.failure(facts) for d in DIMS if hasattr(d, "failure")), None) \
         or NotAvailable("check: the step failed here")
-    ctx: dict[str, Any] = {"world": (world, mem)}
+    ctx: dict[str, Any] = Readings({"world": (world, mem)})
     from bonobo import kernel
     weighed, held_log = [], []
     real_switches, real_held = kernel.switches, kernel.Held.decide
@@ -440,16 +440,10 @@ def plan_ctx(b, act, snap, mem, world, spent):
         else:
             out["bound"] = plan_bound(snap.inv, goals.needs(goal, snap.inv), cost, pending)
         if not out["plan_hand_made"] and look is None:
-            names: list = []
-            out["exact_s"], out["exact_unknown"] = exact_s(snap.inv, held.get("want"), goals.needs(goal, snap.inv), cost,
-                                                           pending, names=names)
-            if spent and out["exact_s"] is not None:
-                # a budget-cut round is no violation: what the cut cost is the run's distribution (check.run)
-                out["p5_loss_s"] = sum(int(getattr(s, "est", 0) or 0) for s in held["steps"]) / TICKS_PER_S - out["exact_s"]
-                from bonobo.planner import plan_name
-                chosen_s = sum(int(getattr(s, "est", 0) or 0) for s in held["steps"]) / TICKS_PER_S
-                out["p5_case"] = (f"{plan_name(held['steps'])} ({chosen_s:.1f} s)",
-                                  f"{names[0] if names else '?'} ({out['exact_s']:.1f} s)")
+            out = Readings(out)
+            out.later(("exact_s", "exact_unknown", "p5_loss_s", "p5_case"),
+                      reference(snap.inv, list(held["steps"]), held.get("want"), goals.needs(goal, snap.inv),
+                                Cost(snap, frozen(mem), b.blacklist, policy=b.policy_cache), pending, spent))
     out["candidates"] = candidates(task, snap, mem, cost) if held is not None else None
     # the plan and the chosen candidate priced as they run, now (D6): a later reading would see another world
     priced = {tuple(map(id, steps)): run_prices(list(steps), tools, cost)
@@ -471,6 +465,73 @@ def plan_ctx(b, act, snap, mem, world, spent):
 
 
 EXACT_STEPS = 5_000      # search steps the unpruned reference may take in one state; past them P5 is unknown
+
+
+class Readings(dict):
+    """The round's readings, a few taken only when a check first asks for them (the unbudgeted reference: seconds of
+    search each), from what was frozen when the round was read."""
+
+    def later(self, keys, read):
+        self.__dict__.setdefault("_later", {}).update({k: read for k in keys})
+
+    def _take(self, key):
+        read = self.__dict__.get("_later", {}).get(key)
+        if read is not None and not dict.__contains__(self, key):
+            for k in [k for k, r in self.__dict__["_later"].items() if r is read]:
+                del self.__dict__["_later"][k]
+            dict.update(self, read())
+
+    def __getitem__(self, key):
+        self._take(key)
+        return dict.__getitem__(self, key)
+
+    def get(self, key, default=None):
+        self._take(key)
+        return dict.get(self, key, default)
+
+    def __contains__(self, key):
+        self._take(key)
+        return dict.__contains__(self, key)
+
+    def setdefault(self, key, default=None):
+        self._take(key)
+        return dict.setdefault(self, key, default)
+
+    def update(self, other=(), **kw):
+        if isinstance(other, Readings):
+            self.later_from(other)
+        dict.update(self, other, **kw)
+
+    def later_from(self, other):
+        for key, read in other.__dict__.get("_later", {}).items():
+            if not dict.__contains__(self, key):
+                self.__dict__.setdefault("_later", {})[key] = read
+
+
+def frozen(mem):
+    """A copy of memory as it is now: the reference read later prices what the round saw."""
+    import copy
+    out = copy.copy(mem)
+    out.data, out.refuted = copy.deepcopy(mem.data), dict(mem.refuted)
+    return out
+
+
+def reference(inv, steps, want, needs, cost, pending, spent):
+    """A thunk: the unbudgeted reference's readings (exact_s, exact_unknown; with the budget spent, P5's loss and case)."""
+    def read():
+        from bonobo.game import TICKS_PER_S
+        names: list = []
+        out: dict = {}
+        out["exact_s"], out["exact_unknown"] = exact_s(inv, want, needs, cost, pending, names=names)
+        if spent and out["exact_s"] is not None:
+            # a budget-cut round is no violation: what the cut cost is the run's distribution (check.run)
+            from bonobo.planner import plan_name
+            chosen_s = sum(int(getattr(s, "est", 0) or 0) for s in steps) / TICKS_PER_S
+            out["p5_loss_s"] = chosen_s - out["exact_s"]
+            out["p5_case"] = (f"{plan_name(steps)} ({chosen_s:.1f} s)",
+                              f"{names[0] if names else '?'} ({out['exact_s']:.1f} s)")
+        return out
+    return read
 
 
 def exact_s(inv, want, needs, cost, pending=None, limit=EXACT_STEPS, names=None):

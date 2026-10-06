@@ -285,6 +285,7 @@ HAZARD = {"lava", "water", "fire", "soul_fire", "magma_block", "powder_snow", "p
 UNBREAKABLE = {"bedrock", "end_portal_frame", "barrier", "spawner"}
 PLAYER_MADE_SUFFIX = ("_bed", "_door", "_trapdoor", "chest", "barrel", "furnace", "crafting_table", "torch", "ladder",
                       "hopper", "piston", "observer", "repeater", "comparator", "dispenser", "dropper", "lever")
+END_PORTAL_OPEN = "end_portal_open"     # the site kind memory keeps once the end portal is lit (end.activate_end_portal)
 DAY_TICKS = 24000
 # what memory keeps of a sighting, by how fast it changes (game ticks): static, slow (ttl), mobile (coarse area), hostile (never), here (two minutes, for at:<kind>), never; `merge` joins close notes, `absent` is how long "looked, none here" holds
 VOLATILITY = {

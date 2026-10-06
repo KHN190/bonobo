@@ -91,7 +91,8 @@ def overnight(inv, cost, facts=None, bed_too=True) -> tuple[str | None, float, l
     chosen, dusk = {}, copy.copy(cost)
     dusk.facts = lambda: {**cost.facts(), "night": False}      # prepared before dark
     try:
-        night = Target("night", [], 0, options=tuple(o[:3] for o in options))
+        snap = getattr(cost, "snap", None)
+        night = Target("night", [], 0, options=tuple(o[:3] for o in options), due_s=None if snap is None else dusk_s(snap) or None)
         _first, steps, seconds = plan_round(inv, [night], dusk, chosen=chosen)
     except Unplannable as e:
         log(f"upkeep: no way through the night ({e})")

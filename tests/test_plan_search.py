@@ -62,13 +62,13 @@ class TheRoundsOnePlan(unittest.TestCase):
     def test_the_order_is_the_fewest_seconds(self):
         from bonobo.planner import Target, plan_round
         orders = {"logs first": [("log", 8), ("minecraft:torch", 8)], "torches first": [("minecraft:torch", 8), ("log", 8)]}
-        priced = {k: ticks(plan_needs(bag(inventory()), v, NullCost())) for k, v in orders.items()}
+        priced = {k: ticks(plan_needs(bag(inventory()), v, NullCost(), ordered=True)) for k, v in orders.items()}
         dear = max(priced, key=lambda k: priced[k])
         # the dearer order ranked first: the queue's rank is a tie-break, never the order taken
         targets = [Target("logs", [("log", 8)], 0 if dear == "logs first" else 1),
                    Target("torches", [("minecraft:torch", 8)], 1 if dear == "logs first" else 0)]
         _first, steps, _secs = plan_round(bag(inventory()), targets, NullCost())
-        self.assertNotEqual(priced["logs first"], priced["torches first"])     # the orders differ: the row tells
+        self.assertEqual(priced["logs first"], priced["torches first"])     # the same goods, the same seconds (D10)
         # must fail: the queue's rank taken though the other order's whole plan takes fewer seconds
         self.assertEqual(ticks(steps), min(priced.values()))
 
@@ -331,6 +331,7 @@ class ARoundThinksWithinItsCap(unittest.TestCase):
         try:
             planner.SPENT.update(round=0, steps=planner.ROUND_STEPS)
             search = planner.Search(NullCost())
+            search.had = True           # a way already had: the spent round weighs no other
             root = planner.Node(planner.from_bag(bag(inventory()), facts=NullCost().facts()), [], [])
             root.stack = [("need", "log", 1, 0, False)]
             # must fail: a capped way searched on past the round's cap
@@ -483,6 +484,7 @@ class AWayNotWeighedIsSaid(unittest.TestCase):
         try:
             planner.SPENT.update(round=0, steps=planner.ROUND_STEPS)
             search = planner.Search(NullCost())
+            search.had = True           # a way already had: the spent round weighs no other
             root = planner.Node(planner.from_bag(bag(inventory()), facts=NullCost().facts()), [], [])
             # must fail: reported Dearer (found dearer than the way had) though nothing of it was weighed
             with self.assertRaises(planner.Cut):

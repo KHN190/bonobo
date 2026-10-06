@@ -1,6 +1,7 @@
 """The planner's speed tools over the work a step makes (cost.work_of): a tool of each kind it uses is an option, made
 when the whole plan is cheaper with it — its saving on that work (knowledge.work_s over break_ticks) against making
 it; the staircase's soil counts (C5)."""
+import math
 import os
 import sys
 import unittest
@@ -27,9 +28,11 @@ class Work(NullCost):
 class ToolByWorkload(unittest.TestCase):
     def test_rows(self):
         soil_save = (break_ticks("dirt", "hand") - break_ticks("dirt", "minecraft:wooden_shovel")) / 20   # 0.35 s
+        making = sum(s.est for s in plan_needs(bag(inventory(*KIT)), [("minecraft:wooden_shovel", 1)], Work([]))) / 20
+        soil = math.ceil(making / soil_save) + 1
         # (situation, the work's blocks) → the shovel made first?
-        rows = [("a staircase through 12 soil, 45 stone: a shovel first (12 × %.2f s > its making)" % soil_save,
-                 ["dirt"] * 12 + ["stone"] * 45, "minecraft:wooden_shovel"),
+        rows = [("a staircase through %d soil, 45 stone: a shovel first (%d × %.2f s > its making, %.1f s)"
+                 % (soil, soil, soil_save, making), ["dirt"] * soil + ["stone"] * 45, "minecraft:wooden_shovel"),
                 ("must fail: 4 soil: 1.4 s saved, less than making it", ["dirt"] * 4 + ["stone"] * 45, None),
                 ("must fail: only stone: a shovel saves nothing", ["stone"] * 60, None)]
         for name, breaks, want in rows:

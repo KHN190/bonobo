@@ -293,9 +293,9 @@ PROVES = {"water_clutch": "S7", "reach_land_swim": "S7", "lava_edge_walk": "S1",
           "fight_blaze_3": "S5", "fight_skeleton_1": "S5", "fight_creeper_1": "S5", "collect_blaze_rods": "S5",
           "slice_nether_kit": "D7", "slice_start_tools": "D7", "nav__base": "E3", "press_door_to_chest": "G4",
           "sleep__base": "S3", "cast_portal": "E2", "accept_smelt_beside_mining": "D2",
-          "accept_furnace_done_mid_mining": "E2"}
+          "accept_furnace_done_mid_mining": "E2", "accept_slay_dragon": "G1", "home_night_bed": "S2"}
 
-ACCEPTANCE = (ACCEPTANCE_D, "accept_smelt_beside_mining", "accept_furnace_done_mid_mining")
+ACCEPTANCE = (ACCEPTANCE_D, "accept_smelt_beside_mining", "accept_furnace_done_mid_mining", "accept_slay_dragon")
 
 def tier_of(name, row):
     """Pure: the tier a row belongs to (a row that states its own tier keeps it)."""

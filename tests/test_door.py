@@ -195,6 +195,7 @@ class NoRoute(unittest.TestCase):
 
         with mock.patch.object(nav, "feet", lambda: (0, 64, 0)), \
                 mock.patch.object(nav, "Inventory", lambda *a: empty), \
+                mock.patch.object(nav, "_read_box", lambda *a, **k: column), \
                 mock.patch.object(nav, "Region", lambda *a, **k: column), \
                 mock.patch.object(nav, "DOORS", None), mock.patch.object(nav, "_doorways_between", lambda *a: {}), \
                 mock.patch.object(nav, "_plan_reply", lambda *a, **k: {"found": walk}), \

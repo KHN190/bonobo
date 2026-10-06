@@ -7,6 +7,7 @@ import math
 import itertools
 import os
 import random
+import re
 import sys
 import tempfile
 import threading
@@ -766,6 +767,105 @@ class FuzzWalkLowerBound(unittest.TestCase):
                 st = mine_step()
                 c.estimate(st, at=at)
                 self.assertLessEqual(lb, sum(st.parts.get(k, 0) for k in ("walk", "dig", "surface", "seek", "refuted")))
+
+
+class FuzzHostileRows(unittest.TestCase):
+    """[R5]"""
+    PASSIVE = ("minecraft:cow", "minecraft:sheep", "minecraft:villager", "minecraft:pig", "minecraft:item",
+               "minecraft:iron_golem", "minecraft:bat", "minecraft:chicken")
+
+    def test_only_the_mob_table_is_answered_and_the_dead_never(self):
+        rng = random.Random(SEED + 11)
+        kinds = sorted(threat.MOBS) + list(self.PASSIVE)
+        for case in range(40):
+            near = [{"id": i, "type": rng.choice(kinds), "x": rng.uniform(-8, 8), "y": 64.0, "z": rng.uniform(-8, 8),
+                     "health": rng.choice([None, 0.0, 1.0, 20.0]), "reach_now": rng.random() < 0.3}
+                    for i in range(rng.randint(0, 12))]
+            with self.subTest(case=case):
+                rows = threat.hostile_rows(near, {}, 100.0, (0.0, 64.0, 0.0))
+                alive = {e["id"] for e in near if e["type"] in threat.MOBS and (e["health"] is None or e["health"] > 0)}
+                self.assertTrue(all(r[3] in threat.MOBS for r in rows))
+                self.assertLessEqual(len(rows), len(alive))
+                self.assertTrue(all(r[3] not in self.PASSIVE for r in rows))
+
+
+class RiskPricedOnce(unittest.TestCase):
+    """[G2]"""
+    def test_the_death_cost_is_turned_into_seconds_in_one_module(self):
+        import glob
+        root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo")
+        owners = set()
+        for path in glob.glob(os.path.join(root, "*.py")):
+            with open(path, encoding="utf-8") as f:
+                src = f.read()
+            if re.search(r"\*[^\n]*death_cost_s|death_cost_s[^\n]*\*", src):
+                owners.add(os.path.basename(path))
+        self.assertEqual(owners, {"estimate.py"})
+
+
+class FuzzDeadlines(unittest.TestCase):
+    """[G9]"""
+    def test_a_one_of_takes_the_fewest_seconds_among_the_ways_in_time(self):
+        from bonobo.planner import NullCost, Target, plan_round
+        rng = random.Random(SEED + 12)
+        inv = bag(inventory(("oak_planks", 2)))
+        makes = {"sticks": [("minecraft:stick", 4)], "planks": [("planks", 4)], "nothing": []}
+        secs = {k: sum(s.est for s in plan_needs(inv, v, NullCost())) / TICKS_PER_S for k, v in makes.items()}
+        for case in range(30):
+            ways = [(f"{k}:{i}", makes[k], rng.choice([0.0, 5.0, 30.0, 300.0])) for i, k in enumerate(rng.sample(list(makes), rng.randint(2, 3)))]
+            due = rng.choice([None, 0.0, min(secs.values()) + 0.01, max(secs.values()) + 1.0])
+            # the oracle: the fewest seconds (its plan and what it adds) among the ways done by the deadline, else among all
+            priced = [(secs[w[0].split(":")[0]] > due if due is not None else False, secs[w[0].split(":")[0]] + w[2], w[0]) for w in ways]
+            want = min(priced)[2]
+            with self.subTest(case=case, ways=[(w[0], w[2]) for w in ways], due=due):
+                chosen = {}
+                plan_round(inv, [Target("night", [], 0, options=tuple(ways), due_s=due)], NullCost(), chosen=chosen)
+                self.assertEqual(chosen["night"], want)
+
+    def test_the_bars_reserve_orders_food_first_and_only_an_empty_bar_refuses(self):
+        from bonobo import beliefs, planner
+        from bonobo.planner import Target, plan_round
+        rng = random.Random(SEED + 13)
+        seen = {"cow": 8, "oak_log": 6, "stone": 2}
+        drain, reserve = float(beliefs.value("risk.food_drain_s")), float(beliefs.value("risk.food_reserve"))
+        goals_ = {"long": [("tool", "pickaxe", 2)], "short": [("log", 4)]}
+        for case in range(16):
+            food, kind = rng.randint(0, 6), rng.choice(list(goals_))
+            snap = snapshot(state(food=food), inventory())
+            c = cost(snap, **seen)
+            with self.subTest(case=case, food=food, goal=kind):
+                try:
+                    step, steps, _s = plan_round(snap.inv, [Target("a", goals_[kind], 0)], c)
+                except planner.Unplannable as e:
+                    self.assertIn("bar runs out", str(e))
+                    self.assertEqual(food, 0)          # the oracle: only an empty bar refuses (no meal comes in 0 s)
+                    continue
+                plan_s = sum(s.est for s in steps) / TICKS_PER_S
+                meal = next((i for i, s in enumerate(steps) if s.kind == "hunt"), None)
+                before_meal = sum(s.est for s in steps[:meal]) / TICKS_PER_S if meal is not None else plan_s
+                # the oracle: food comes first exactly when the bar's reserve would be reached before the plan ends
+                self.assertEqual(step.kind == "hunt", max(0.0, food - reserve) * drain < plan_s, (step, plan_s))
+                self.assertLessEqual(before_meal, food * drain + 1e-9)      # and always before the bar is empty
+
+
+class FuzzTreads(unittest.TestCase):
+    """[D10]"""
+    def test_every_order_of_the_tools_plans_the_same_seconds(self):
+        from bonobo.bench.words.est import scene_cost
+        rng = random.Random(SEED + 14)
+        tools = [("tool", "pickaxe", 1), ("tool", "sword", 1), ("tool", "axe", 1), ("tool", "pickaxe", 2)]
+        priced = {}
+        for case in range(6):
+            order = list(tools)
+            rng.shuffle(order)
+            with self.subTest(order=[t[1] + str(t[2]) for t in order]):
+                c = scene_cost({"blocks": {(0, 64, 5): "oak_log", (0, 64, 2): "stone", (0, 64, 3): "iron_ore", (0, 64, 4): "coal_ore"},
+                                "feet": (0, 64, 0), "slots": [], "mobs": [], "time": 1000})
+                steps = plan_needs(c.snap.inv, order, c, ordered=True)      # the order kept: every one plans
+                self.assertIn("minecraft:iron_pickaxe", [s.token for s in steps])
+                c.cache.clear()
+                priced[tuple(order)] = sum(s.est for s in plan_needs(c.snap.inv, order, c))   # asked: one plan, one price
+        self.assertEqual(len(set(priced.values())), 1, priced)
 
 
 class FuzzDriving(unittest.TestCase):

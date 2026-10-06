@@ -657,7 +657,7 @@ def fight_loss(s):
     """Seconds a day of ordinary encounters costs at this weapon and armour — at full health."""
 
     kill_s, damage = encounter_damage(s)
-    return _R["encounters_per_day"] * (kill_s + _fatal_chance(20, damage) * _T["death_cost_s"])
+    return _R["encounters_per_day"] * (kill_s + estimate.death_s(_fatal_chance(20, damage)))
 
 def hurt_loss(s):
     """Seconds the current health deficit costs: regeneration time plus the extra death chance before it is back."""
@@ -669,13 +669,13 @@ def hurt_loss(s):
     regen_s = (20.0 - hp) * _R["regen_s_per_hp"]
     meetings = _R["encounters_per_day"] * regen_s / _T["day_s"]
     extra = _fatal_chance(hp, damage) - _fatal_chance(20, damage)
-    return regen_s + meetings * max(0.0, extra) * _T["death_cost_s"]
+    return regen_s + meetings * estimate.death_s(max(0.0, extra))
 
 def night_loss(s):
     """Seconds the coming night is expected to cost."""
 
     if s["bed"]:
-        return 0.0 if s["sheltered"] else _R["night_bed_open"] * (1.0 - _protection(s)) * _T["death_cost_s"]
+        return 0.0 if s["sheltered"] else estimate.death_s(_R["night_bed_open"] * (1.0 - _protection(s)))
     p = _R["night_sheltered"] if s["sheltered"] else _R["night_open"]
     if not s["sword"]:
         p += _R["no_sword_night"]
@@ -683,7 +683,7 @@ def night_loss(s):
         p += _R["phantom_night_death"]
     # without a bed the night is also 420 s of not working (underground counts as working)
     idle = 0.0 if s["sheltered"] else _T["night_s"]
-    return p * (1.0 - _protection(s)) * _T["death_cost_s"] + idle
+    return estimate.death_s(p * (1.0 - _protection(s))) + idle
 
 def hunger_slowed(food):
     """The share of working time this hunger loses while it lasts: no sprint, no regeneration (the one hunger rate)."""
@@ -707,7 +707,7 @@ def larder_loss(s):
         return 0.15 * _T["day_s"]           # will run out before the day is done
     loss = _R["starving_slowdown"] * _T["day_s"]
     if s["food_items"] == 0:
-        loss += _R["starving_death"] * _T["death_cost_s"]
+        loss += estimate.death_s(_R["starving_death"])
     return loss
 
 def food_loss(s):
@@ -723,7 +723,7 @@ def tool_loss(s):
     return loss
 
 def light_loss(s):
-    return 0.0 if s["torches"] else _R["dark_work_death"] * _T["death_cost_s"]
+    return 0.0 if s["torches"] else estimate.death_s(_R["dark_work_death"])
 
 def expected_loss(s):
     """The fifth quantity for ordinary play: seconds expected to be lost from here, given what we lack."""
@@ -742,7 +742,7 @@ def hp_seconds(s, dhp) -> float:
     margin = expected_loss(survived) - expected_loss(s)
     # a death costs the respawn and walk back, never less for being hurt already
     reset = max(0.0, expected_loss(dict(s, hp=20)) - expected_loss(s))
-    return round(p * (_T["death_cost_s"] + reset) + (1.0 - p) * margin, 1)
+    return round(estimate.death_s(p) + p * reset + (1.0 - p) * margin, 1)
 
 THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
 THREAT_ALIVE: set = set()   # every living entity id the last reading listed (x-ray: an occluded mob is still there)

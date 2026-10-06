@@ -75,6 +75,7 @@ def sandbox():
     # The per-file overrides too: a module that takes its own env var would otherwise still find the real file.
     for var in ("MC_NOTES", "MC_ROUTE", "MC_DIRECTIVES", "MC_WANTS", "MC_TAPE"):
         env.pop(var, None)
+    env.setdefault("MC_PYRIGHT", f"{sys.executable} {os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pyright_watch.py')}")
     return env
 
 

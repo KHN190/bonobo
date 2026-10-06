@@ -15,7 +15,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, craft, decompose, explore, gather, jobs, memory, nav  # noqa: E402
+from bonobo import api, craft, decompose, explore, gather, jobs, memory, nav, skillcore, world  # noqa: E402
 from bonobo.cost import Cost  # noqa: E402
 from bonobo.data import ITEM_DESPAWN_S  # noqa: E402
 from tests.world import FakeRegion, inventory, snapshot, state  # noqa: E402
@@ -28,8 +28,15 @@ class MemorySyncTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.notes_path = os.path.join(self.tmp.name, "notes.json")
         self.mem = memory.Memory(self.notes_path)
+        reads = {"/state": state(dimension=DIM, blockX=0, blockY=64, blockZ=0), "/inventory": inventory(),
+                 "/blocks": {"palette": ["minecraft:air"], "blocks": []}}
+        self.offline = [mock.patch.object(api, "get", lambda path, *a, **k: reads.get(path.split("?")[0], {}))]
+        for p in self.offline:
+            p.start()
 
     def tearDown(self):
+        for p in self.offline:
+            p.stop()
         self.tmp.cleanup()
 
     def test_cost_site_prefers_closer_live_vision_over_far_memory(self):

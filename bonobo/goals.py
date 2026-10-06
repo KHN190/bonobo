@@ -4,6 +4,7 @@ import functools
 import math
 
 from .data import TIER_OF_MATERIAL, TOOL_KINDS, bare
+from .data import END_PORTAL_OPEN  # noqa: F401  (the site kind memory keeps once the end portal is lit)
 from .game import WAYPOINT_R
 from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held_count, kit_needs, reconcile,  # noqa: F401
                         tool_ok)
@@ -108,7 +109,6 @@ def remainder(goal, snap, mem):
 DURABLE_KINDS = TOOL_KINDS + ("helmet", "chestplate", "leggings", "boots", "shield", "bucket", "flint_and_steel", "bed",
                               "crafting_table", "furnace")
 STATIONS = ("minecraft:crafting_table", "minecraft:furnace")
-END_PORTAL_OPEN = "end_portal_open"     # the site kind memory keeps once the end portal is lit (end.activate_end_portal)
 
 
 def durable(token):

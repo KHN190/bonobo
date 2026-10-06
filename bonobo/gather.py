@@ -15,7 +15,7 @@ from .data import GROUPS, MINE_YIELD, PLACEABLE_AS
 from .game import JUMP_BLOCKS
 from .bag import mineable, opener, pickup_whitelist, refused
 from .world import Inventory, Region, cell_add, connected, entities, find, region_around, ripe_near
-from .skillcore import mine_cell, gained, settle
+from .skillcore import make_bag_room, mine_cell, gained, settle
 from .world import feet
 from .explore import surface_first, explore_for, approach_policy, seek_blocks
 from .fluids import CAVE_AIR, fluid_faces, seal_plan
@@ -299,8 +299,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         inv = Inventory()
         free = inv.free_slots()
         if isinstance(free, (int, float)) and free < 2:
-            from . import craft as _craft
-            _craft.make_bag_room(ctx, int(2 - free))
+            make_bag_room(ctx, int(2 - free))
         require_pickaxe(tier)
         # remembered and seen alike (one look a pass); a buried cell's way is planned (nav.plan_way)
         notes = [n for b in blocks for n in ctx.mem.seen(b, ctx.dimension)] if ctx.mem is not None else []

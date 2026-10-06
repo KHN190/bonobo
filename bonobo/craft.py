@@ -14,8 +14,7 @@ from .data import STATION_R
 from .data import HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, GROUPS, LOG_TO_PLANKS, RECIPES, bare, mid
 from .knowledge import GROUP_RECIPES, members
 from .world import BAG_SLOTS, Inventory, Region, screen_slot, cell_add, find
-from .bag import free_slots_plan
-from .skillcore import StationMissing, close_screen, free_spots_here, place, mine_cell, gained, opened
+from .skillcore import StationMissing, close_screen, free_spots_here, place, mine_cell, gained, opened, make_bag_room
 from .world import feet
 from .building import _open_container, _empty_container_slot, _machine_roles, _go_to_machine
 
@@ -441,20 +440,6 @@ def craft_commands(state, args):
         if placed or state.get("own_table"):
             out.append(take_table(pos))
     return out
-
-def room_clicks(slots, need, price=None):
-    """Pure: the /click bodies that throw the `need` least valuable stacks (bag.free_slots_plan: priced by what
-    each costs to get again) — room for a result that needs a slot."""
-    return [_bag.throw(s["slot"])
-            for s in free_slots_plan(slots, need=need, price=price)[:need]]
-
-def make_bag_room(ctx, need):
-    """Throw the `need` least valuable stacks now (room_clicks), the screen closed first. Returns the clicks."""
-    close_screen()
-    clicks = room_clicks(Inventory().slots, need, ctx.prices().get if ctx else None)
-    for body in clicks:
-        api.post("/click", body)
-    return clicks
 
 def _sitting(ctx, recipes, next_use=None):
     """Craft `recipes` in one sitting: the table opened (or placed, or an own one reused) once and taken back once

@@ -3,6 +3,7 @@ FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). 
 Built into the one SCENARIOS by table.py."""
 
 ACCEPT_LIMIT_S = 300       # an iron pickaxe from nothing: faster than a plain player (3–10 minutes)
+RUN_LIMIT_S = 3600         # the whole run: an hour, over the planner's price of the route's goods (~50 min)
 SMELT_S = 10               # a furnace's seconds an item (Minecraft Wiki, Smelting)
 OVERLAP_SLACK_S = 25       # loading, the walk to the furnace and back, collecting: what overlapping still costs
 
@@ -36,6 +37,18 @@ ROWS = [
                 'Acceptance: a long mine (96 stone) with 8 iron in the furnace → the mine hands the body back when the '
                 'furnace is done (a slice), the ingots taken and the mine resumed; all within the mining\'s seconds '
                 'plus the slack'),
+    dict(name='accept_slay_dragon', module='brain',
+         doc=('Acceptance: a fresh spot of a real world, empty-handed, the whole cerebellum through every milestone → '
+              f'the dragon slain within {RUN_LIMIT_S // 60} minutes'),
+         scene=[('cmd', 'spreadplayers 13000 13000 0 4 false @p'), ('cmd', 'clear @p'), ('time', 0)],
+         run=('slice', ('!now', ('!call', 'dragon_slain', [])), RUN_LIMIT_S / 60, None,
+              [{'goal': 'milestone', 'args': {'name': name}} for name in
+               ('stone tools', 'iron pickaxe', 'nether kit', 'eyes of ender', 'end portal', 'dragon beds')],
+              120, True),
+         check=[('slice_check', ('!now', ('!call', 'dragon_slain', [])), 120)],
+         detail=('&slice_detail',), est=('plan', [('tool', 'pickaxe', 2), ('minecraft:ender_eye', 12), ('bed', 8)]),
+         raw=True, release=True, point='D',
+         tags={'base': 'acceptance'}),
     dict(name='accept_fresh_iron_pickaxe', module='brain',
          doc=('Acceptance: a fresh spot of a real world, empty-handed, the whole cerebellum → an iron pickaxe within '
               f'{ACCEPT_LIMIT_S // 60} minutes (stone tools → iron pickaxe milestones)'),
